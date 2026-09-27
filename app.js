@@ -5,7 +5,7 @@
   'use strict';
 
   // Public web app URL of the separate "Anyone" API deployment (the passcode protects the data).
-  var API_URL = '__API_URL__';
+  var API_URL = 'https://script.google.com/macros/s/AKfycbx8050r1JIjNaUk6YD0jq5F_-i2yALyic6LVlTnnsnQLelEB6yuUJpgmXbL6Bztjldy/exec';
   var PC_KEY = 'cc_passcode';
   var FALLBACK_URL = 'https://script.google.com/a/macros/landstruc.com/s/AKfycbyigotJxdJD3CeCpRyCEfhHdL7zcv2ZE_ibTm2ZyITgODqrh_NxGhONx6m8CcBlxaPD/exec';
 
