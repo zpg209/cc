@@ -5,8 +5,8 @@
 <title>CC</title>
 <meta name="apple-mobile-web-app-title" content="CC">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black">
-<meta name="theme-color" content="#0a0605">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#2a2a2a">
 <link rel="apple-touch-icon" sizes="180x180" href="cc-touch-v3.png?v=3">
 <link rel="icon" href="favicon.png">
 <link rel="manifest" href="manifest.json">
@@ -15,14 +15,19 @@ body{margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:ce
 img{width:140px;height:140px;border-radius:30px;margin-bottom:24px}
 a.btn{display:inline-block;background:#2b2b2b;color:#e8452c;font-weight:700;text-decoration:none;padding:16px 36px;border-radius:6px;font-size:18px;margin:8px 0 24px}
 p{color:#b9a89a;font-size:15px;line-height:1.5;max-width:320px}
+#app{position:fixed;inset:0;width:100%;height:100%;border:0;background:#2a2a2a;display:none}
+body.embed{background:#2a2a2a;padding:0}
+body.embed #app{display:block}
+body.embed img,body.embed #go,body.embed #tip{display:none}
 </style></head><body>
 <img src="icon-512.png" alt="CC">
 <a class="btn" id="go" href="#">Open Command Center</a>
 <p id="tip">To add it to your home screen, tap Share, then choose Add to Home Screen.</p>
+<iframe id="app" title="Command Center" allow="clipboard-write"></iframe>
 <script>
 var APP="https://script.google.com/a/macros/landstruc.com/s/AKfycbyigotJxdJD3CeCpRyCEfhHdL7zcv2ZE_ibTm2ZyITgODqrh_NxGhONx6m8CcBlxaPD/exec";
 document.getElementById('go').href=APP;
 var standalone=window.navigator.standalone||matchMedia('(display-mode: standalone)').matches;
-if(standalone){document.getElementById('tip').textContent='Opening…';location.replace(APP);}
+if(standalone){document.body.classList.add('embed');document.getElementById('app').src=APP;}
 </script>
 </body></html>
