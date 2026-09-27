@@ -1,33 +1,94 @@
 <!doctype html>
-<html lang="en"><head>
+<html lang="en">
+<head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>CC</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<title>Command Center</title>
 <meta name="apple-mobile-web-app-title" content="CC">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#2a2a2a">
+<meta name="referrer" content="no-referrer">
 <link rel="apple-touch-icon" sizes="180x180" href="cc-touch-v3.png?v=3">
 <link rel="icon" href="favicon.png">
 <link rel="manifest" href="manifest.json">
-<style>
-body{margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0a0605;color:#f2e6dc;font-family:-apple-system,system-ui,sans-serif;text-align:center;padding:24px;box-sizing:border-box}
-img{width:140px;height:140px;border-radius:30px;margin-bottom:24px}
-a.btn{display:inline-block;background:#2b2b2b;color:#e8452c;font-weight:700;text-decoration:none;padding:16px 36px;border-radius:6px;font-size:18px;margin:8px 0 24px}
-p{color:#b9a89a;font-size:15px;line-height:1.5;max-width:320px}
-#app{position:fixed;left:0;right:0;top:env(safe-area-inset-top,0px);bottom:0;width:100%;height:calc(100% - env(safe-area-inset-top,0px));border:0;background:#2a2a2a;display:none}
-body.embed{background:#2a2a2a;padding:0}
-body.embed #app{display:block}
-body.embed img,body.embed #go,body.embed #tip{display:none}
-</style></head><body>
-<img src="icon-512.png" alt="CC">
-<a class="btn" id="go" href="#">Open Command Center</a>
-<p id="tip">To add it to your home screen, tap Share, then choose Add to Home Screen.</p>
-<iframe id="app" title="Command Center" allow="clipboard-write"></iframe>
-<script>
-var APP="https://script.google.com/a/macros/landstruc.com/s/AKfycbyigotJxdJD3CeCpRyCEfhHdL7zcv2ZE_ibTm2ZyITgODqrh_NxGhONx6m8CcBlxaPD/exec";
-document.getElementById('go').href=APP;
-var standalone=window.navigator.standalone||matchMedia('(display-mode: standalone)').matches;
-if(standalone){document.getElementById('tip').textContent='Opening…';location.replace(APP);}
-</script>
-</body></html>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="app.css?v=4">
+</head>
+<body>
+  <div class="bg"></div>
+
+  <!-- ============ PASSCODE ============ -->
+  <section id="screen-lock" class="screen lock">
+    <header class="home-head">
+      <h1 class="title">Command Center</h1>
+      <div class="subtitle">Enter passcode</div>
+    </header>
+    <div class="dots" id="dots"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <p class="lock-msg" id="lock-msg">&nbsp;</p>
+    <div class="keypad" id="keypad">
+      <button class="key" data-k="1">1</button><button class="key" data-k="2">2</button><button class="key" data-k="3">3</button>
+      <button class="key" data-k="4">4</button><button class="key" data-k="5">5</button><button class="key" data-k="6">6</button>
+      <button class="key" data-k="7">7</button><button class="key" data-k="8">8</button><button class="key" data-k="9">9</button>
+      <button class="key fn" data-k="clear">Clear</button><button class="key" data-k="0">0</button><button class="key fn" data-k="back">&#9003;</button>
+    </div>
+    <p class="a2hs" id="a2hs" hidden>Tip: in Safari, tap Share, then <b>Add to Home Screen</b> to open Command Center full screen.</p>
+  </section>
+
+  <!-- ============ HOME ============ -->
+  <section id="screen-home" class="screen">
+    <header class="home-head">
+      <h1 class="title">Command Center</h1>
+      <div class="subtitle" id="home-date"></div>
+    </header>
+    <div class="grid2">
+      <button class="tile" data-go="projects">L&amp;S projects</button>
+      <button class="tile" data-go="life">Life areas</button>
+      <button class="tile" data-go="log">Daily log</button>
+      <button class="tile" data-go="spend">Daily spend</button>
+    </div>
+  </section>
+
+  <!-- ============ L&S PROJECTS ============ -->
+  <section id="screen-projects" class="screen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><h2>L&amp;S projects</h2></div>
+    <p class="hint">Opens each project's Running Notes.</p>
+    <div class="grid2" id="projects-list"></div>
+  </section>
+
+  <!-- ============ LIFE AREAS ============ -->
+  <section id="screen-life" class="screen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><h2>Life areas</h2></div>
+    <p class="hint">Second Brain folders in Drive.</p>
+    <div class="grid2" id="life-list"></div>
+    <a class="linkrow" id="sb-root" target="_blank" rel="noopener">Open Second Brain root &rsaquo;</a>
+  </section>
+
+  <!-- ============ DAILY LOG ============ -->
+  <section id="screen-log" class="screen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><h2>Daily log</h2></div>
+    <div class="weeknav">
+      <button class="navbtn" id="log-prev">&lsaquo; Prev week</button>
+      <div class="navlabel" id="log-range">&nbsp;</div>
+      <button class="navbtn" id="log-next">Next week &rsaquo;</button>
+    </div>
+    <div id="log-body"><div class="loading">Loading…</div></div>
+  </section>
+
+  <!-- ============ DAILY SPEND ============ -->
+  <section id="screen-spend" class="screen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><h2>Daily spend</h2></div>
+    <div class="weeknav">
+      <button class="navbtn" id="spend-prev">&lsaquo; Prev month</button>
+      <div class="navlabel" id="spend-month">&nbsp;</div>
+      <button class="navbtn" id="spend-next">Next month &rsaquo;</button>
+    </div>
+    <div id="spend-body"><div class="loading">Loading…</div></div>
+  </section>
+
+  <script src="app.js?v=4"></script>
+</body>
+</html>
