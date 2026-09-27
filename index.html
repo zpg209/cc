@@ -28,6 +28,6 @@ body.embed img,body.embed #go,body.embed #tip{display:none}
 var APP="https://script.google.com/a/macros/landstruc.com/s/AKfycbyigotJxdJD3CeCpRyCEfhHdL7zcv2ZE_ibTm2ZyITgODqrh_NxGhONx6m8CcBlxaPD/exec";
 document.getElementById('go').href=APP;
 var standalone=window.navigator.standalone||matchMedia('(display-mode: standalone)').matches;
-if(standalone){document.body.classList.add('embed');document.getElementById('app').src=APP;}
+if(standalone){document.getElementById('tip').textContent='Opening…';location.replace(APP);}
 </script>
 </body></html>
