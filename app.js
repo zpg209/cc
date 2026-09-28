@@ -12,8 +12,9 @@
   var state = { weekOffset: 0, monthOffset: 0, links: null, logSeq: 0, spendSeq: 0,
     spendData: null, spendDataOff: null, spendRoute: { kind: '', val: '', acct: '' },
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
-    docSeq: 0, docKey: '', proxyOff: false, folderCache: {}, docUrls: [], pdf: null, pdfObserver: null };
-  var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend', 'biz', 'doc'];
+    docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' },
+     folderCache: {}, docUrls: [], pdf: null, pdfObserver: null };
+  var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend', 'biz', 'doc', 're'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -119,6 +120,8 @@
   }
   function show(route, fromHistory) {
     var R = parseRoute(route), name = R.base === 'vault' ? 'spend' : R.base;
+    if (name === 'ins') { name = 're'; state.reRoute = { ins: true, slug: '' }; }
+    else if (name === 're') state.reRoute = { ins: false, slug: R.kind };
     if (SCREENS.indexOf(name) < 0 || name === 'lock') name = 'home';
     if (!getPc()) return lock();
     if (name === 'spend') {
@@ -132,13 +135,15 @@
       if (name === 'biz') state.bizSlug = R.kind;
       var h = name === 'home' ? '' : name === 'spend' ? spendHash(state.spendRoute) :
         name === 'biz' && R.kind ? '#biz/' + encodeURIComponent(R.kind) :
-        name === 'doc' ? '#doc?' + R.query : '#' + name;
+        name === 'doc' ? '#doc?' + R.query :
+        name === 're' ? (state.reRoute.ins ? '#ins' : '#re' + (state.reRoute.slug ? '/' + encodeURIComponent(state.reRoute.slug) : '')) : '#' + name;
       if (location.hash !== h) history.pushState({ screen: name }, '', h || location.pathname + location.search);
     }
     if (name === 'projects' || name === 'life') loadLinks();
     if (name === 'log') loadLog();
     if (name === 'spend') loadSpend(false);
     if (name === 'biz') { state.bizSlug = R.kind; loadBiz(); }
+    if (name === 're') loadRe();
     if (name === 'doc') { state.docKey = String(route || '').replace(/^#/, ''); openDocScreen(qparams(R.query)); }
     else restoreScroll(String(route || '').replace(/^#/, '') || 'home');
   }
@@ -462,6 +467,8 @@
       return tile(p, p.kind === 'doc' ? 'Running notes' : p.kind === 'folder' ? 'Drive folder' : '');
     }).join('');
     $('life-list').innerHTML = d.lifeAreas.map(function (a) {
+      if (/^real estate$/i.test(a.name)) { state.reFolderUrl = a.url; return '<button class="tile small" data-go="re">' + esc(a.name) + '<span class="sub">3 properties</span></button>'; }
+      if (/^insurance$/i.test(a.name)) { state.insFolderUrl = a.url; return '<button class="tile small" data-go="ins">' + esc(a.name) + '</button>'; }
       if (/^business$/i.test(a.name)) { state.bizFolderUrl = a.url; return '<button class="tile small" data-go="biz">' + esc(a.name) + '<span class="sub">3 businesses</span></button>'; }
       return tile(a, '');
     }).join('');
@@ -836,6 +843,76 @@
     });
     if (b.folderUrl) h += '<a class="linkrow" data-title="' + esc(b.short || b.name) + '" href="' + esc(b.folderUrl) + '">Open ' + esc(b.short || b.name) + ' folder &rsaquo;</a>';
     $('biz-body').innerHTML = h;
+  }
+
+  /* ---------------- Real Estate / Insurance (live from Drive) ---------------- */
+  // #re = property buttons; #re/<slug> = property files + its Insurance/<Property> files; #ins = Insurance folder.
+  var RE_TTL = 60000;   // reuse a listing for 1 min while moving between pages
+  function driveFileUrl(x) { return 'https://drive.google.com/file/d/' + x.id + '/view'; }
+  function loadRe(force) {
+    var ins = state.reRoute.ins, key = ins ? 'ins' : 're';
+    var fresh = state[key + 'Data'] && Date.now() - state[key + 'At'] < RE_TTL;
+    paintReChrome();
+    if (fresh && !force) return renderRe();
+    $('re-body').innerHTML = '<div class="loading">Loading…</div>';
+    var want = state.reRoute;
+    apiRaw(key, {}).then(function (j) {
+      if (want !== state.reRoute) return;
+      if (j.error === 'bad_action') {
+        var link = ins ? state.insFolderUrl : state.reFolderUrl;
+        $('re-body').innerHTML = '<div class="loading">This page is not available yet (server update pending).</div>' +
+          (link ? '<a class="linkrow" data-title="' + (ins ? 'Insurance' : 'Real Estate') + '" href="' + esc(link) + '">Open folder &rsaquo;</a>' : '');
+        return;
+      }
+      if (j.error) throw new Error(j.message || j.error);
+      state[key + 'Data'] = j.data; state[key + 'At'] = Date.now();
+      renderRe();
+    }).catch(function (err) { if (want === state.reRoute) onFail(['re-body'], function () { loadRe(true); })(err); });
+  }
+  function paintReChrome() {
+    var r = state.reRoute;
+    $('re-back').setAttribute('data-go', r.slug ? 're' : 'life');
+    $('re-title').classList.toggle('sub', !!r.slug);
+    if (r.ins) $('re-title').textContent = 'Insurance';
+    else if (!r.slug) $('re-title').textContent = 'Real Estate';
+  }
+  function fileGroups(groups) {
+    return groups.map(function (g) {
+      return '<div class="card bizgroup"><h4 class="sechead">' + esc(g.name) + '</h4><ul class="doclist">' + g.files.map(function (f) {
+        return '<li><a href="' + esc(driveFileUrl(f)) + '" data-title="' + esc(f.name) + '"><span class="ft">' + fileKind(f.mime) + '</span>' + esc(f.name) + '</a></li>';
+      }).join('') + '</ul>' + (g.folderUrl ? '<a class="foldlink" data-title="' + esc(g.name) + '" href="' + esc(g.folderUrl) + '">Open folder &rsaquo;</a>' : '') + '</div>';
+    }).join('');
+  }
+  function renderRe() {
+    var r = state.reRoute, h = '';
+    paintReChrome();
+    if (r.ins) {
+      var I = state.insData;
+      h += '<p class="hint">' + I.count + ' document' + (I.count === 1 ? '' : 's') + ' · property insurance also shows on each Real Estate property page</p>';
+      h += I.groups.length ? fileGroups(I.groups) : '<div class="loading">No documents yet — add files to Drive › Insurance.</div>';
+      h += '<a class="linkrow" data-title="Insurance" href="' + esc(I.folderUrl) + '">Open Insurance folder &rsaquo;</a>';
+      $('re-body').innerHTML = h;
+      return;
+    }
+    var D = state.reData;
+    var p = r.slug && D.properties.filter(function (x) { return x.slug === r.slug; })[0];
+    if (!p) {
+      h += '<div class="grid2 biz-grid">' + D.properties.map(function (x) {
+        return '<button class="tile biz-tile" data-go="re/' + esc(x.slug) + '">' + esc(x.name) +
+          '<span class="sub cnt">' + (x.count ? x.count + ' document' + (x.count === 1 ? '' : 's') : 'No documents yet') + '</span></button>';
+      }).join('') + '</div>';
+      h += '<a class="linkrow" data-title="Real Estate" href="' + esc(D.realEstateUrl) + '">Open Real Estate folder &rsaquo;</a>';
+      $('re-body').innerHTML = h;
+      return;
+    }
+    $('re-title').textContent = p.name;
+    if (!p.groups.length) h += '<div class="card bizgroup"><h4 class="sechead">Documents</h4><div class="foot empty">No documents yet — add files to Drive › Real Estate › ' + esc(p.name) + '</div>' +
+      '<a class="foldlink" data-title="' + esc(p.name) + '" href="' + esc(p.folderUrl) + '">Open folder &rsaquo;</a></div>';
+    else h += fileGroups(p.groups);
+    if (p.insurance.length) h += fileGroups(p.insurance);
+    else h += '<div class="card bizgroup"><h4 class="sechead">Insurance</h4><div class="foot empty">No insurance documents yet — add files to Drive › Insurance › ' + esc(p.name) + '</div>' +
+      '<a class="foldlink" data-title="Insurance · ' + esc(p.name) + '" href="' + esc(p.insuranceFolderUrl) + '">Open folder &rsaquo;</a></div>';
+    $('re-body').innerHTML = h;
   }
 
   /* ---------------- Init ---------------- */

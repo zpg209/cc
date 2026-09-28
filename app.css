@@ -258,3 +258,4 @@ body { overscroll-behavior-y: none; }
 .folderlist li.isdir a { color: var(--red); font-weight: 700; }
 .folderlist .chev { float: right; font-size: 18px; line-height: 1; }
 .doc-bar .homebtn, .topbar .homebtn { flex: 0 0 auto; }
+.bizgroup .foot.empty { font-size: 13px; padding: 4px 0 2px; }
