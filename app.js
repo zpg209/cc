@@ -726,13 +726,24 @@
         '<div class="totrow"><span>Income total</span><span class="amt">' + money(M.incomeTotal) + '</span></div></div>';
 
       var days = periodDays(d.monthOffset != null ? Number(d.monthOffset) : state.spendDataOff);
-      var net = r2(M.incomeTotal - M.total);
       var perDay = function (v) { return days > 0 ? money(v / days) : '—'; };
+      var acctTot = function (n) { var a = M.accounts.filter(function (x) { return x.name === n; })[0]; return a ? a.amount : 0; };
+      var srcTot = function (n) { var x = M.sources.filter(function (y) { return y.name === n; })[0]; return x ? x.amount : 0; };
+      var groc = r2(sum(M.items.filter(function (x) { return x.account === 'Household' && x.category === 'Groceries'; })));
+      var signed = function (v) { return (v >= 0 ? '+' : '−') + money(Math.abs(v)); };
+      var netLine = function (label, inc, sp, spLbl) {
+        var n = r2(inc - sp);
+        return '<div class="sumline net cmp"><span>' + esc(label) + '<small>Income ' + money(inc) + ' − ' + spLbl + ' ' + money(sp) + '</small></span>' +
+          '<span class="amt ' + (n >= 0 ? 'pos' : 'neg') + '">' + signed(n) + '</span></div>';
+      };
+      var hhTot = acctTot('Household');
       h += '<div class="card summary"><h3>Summary <small>(over ' + days + ' day' + (days === 1 ? '' : 's') + ')</small></h3>' +
-        '<div class="sumline"><span>Avg daily spend</span><span class="amt spend">' + perDay(M.total) + '</span></div>' +
-        '<div class="sumline"><span>Avg daily income</span><span class="amt inc">' + perDay(M.incomeTotal) + '</span></div>' +
-        '<div class="sumline net"><span>Net income</span><span class="amt ' + (net >= 0 ? 'pos' : 'neg') + '">' +
-        (net >= 0 ? '+' : '−') + money(Math.abs(net)) + '</span></div></div>';
+        netLine('TiwiK net', srcTot('Mono Village Laundromat'), acctTot('TiwiK'), 'Spent') +
+        netLine("Lisa's Table net", srcTot("Lisa's Table"), groc, 'Groceries') +
+        '<div class="sumline net cmp"><span>Household spend<small>Running month total</small></span>' +
+        '<span class="amt neg">−' + money(Math.abs(hhTot)) + '</span></div>' +
+        '<div class="sumline minor"><span>Avg daily spend</span><span class="amt spend">' + perDay(M.total) + '</span></div>' +
+        '<div class="sumline minor"><span>Avg daily income</span><span class="amt inc">' + perDay(M.incomeTotal) + '</span></div></div>';
 
       h += '<button class="linkrow allbtn"' + goAttr('spend/all') + '>All items (' + M.entryCount + ') &rsaquo;</button>';
 
