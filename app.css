@@ -287,3 +287,14 @@ body { overscroll-behavior-y: none; }
 .sumline.minor { font-size: 12.5px; padding: 5px 2px; color: var(--muted, #9a9a9a); }
 .sumline.minor .amt { font-weight: 600; font-size: 13px; }
 .sumline .amt { white-space: nowrap; padding-left: 10px; }
+
+/* ---- Vault: Household cash lines (secondary, copper) ---- */
+:root { --copper: #D08A55; }
+.catrow .cashline { grid-column: 1 / -1; justify-self: end; margin-right: 24px; font-size: 11px; font-weight: 600; line-height: 1.1;
+  color: var(--copper); opacity: .85; white-space: nowrap; font-variant-numeric: tabular-nums; letter-spacing: .2px; }
+.catrow.hascash { padding-top: 6px; }
+.cashtot { display: flex; justify-content: flex-end; padding: 6px 2px 0; }
+.cashtot .cashline { font-size: 11.5px; font-weight: 600; color: var(--copper); opacity: .9; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.totrow.hascash { padding-top: 5px; margin-top: 3px; }
+.sumline.minor.cash .amt { color: var(--copper); }
+.sumline.minor.cash span:first-child small { display: block; font-size: 10.5px; font-weight: 400; color: var(--muted); margin-top: 1px; }

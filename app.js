@@ -689,11 +689,15 @@
     return M.truncated ? '<div class="foot">Showing the latest ' + M.items.length + ' of ' + M.entryCount +
       ' entries this month (full list after the API update).</div>' : '';
   }
-  function barRows(rows, routeFn, cls) {
+  // Method column says "Cash" (case-insensitive, trimmed).
+  function isCash(x) { return String(x.method || '').trim().toLowerCase() === 'cash'; }
+  function cashLine(v, cls) { return '<span class="cashline' + (cls || '') + '">Cash ' + money(v) + '</span>'; }
+  function barRows(rows, routeFn, cls, cashFn) {
     var max = rows.reduce(function (m, c) { return Math.max(m, c.amount); }, 0);
     return rows.map(function (c) {
       var pct = max > 0 && c.amount > 0 ? Math.max(2, (c.amount / max) * 100) : 0;
-      return '<button class="catrow' + (cls || '') + '"' + goAttr(routeFn(c.name)) + '><span class="n">' + esc(c.name) + '</span>' +
+      return '<button class="catrow' + (cls || '') + (cashFn ? ' hascash' : '') + '"' + goAttr(routeFn(c.name)) + '>' +
+        (cashFn ? cashLine(cashFn(c.name)) : '') + '<span class="n">' + esc(c.name) + '</span>' +
         '<span class="amt">' + money(c.amount) + '</span><span class="chev">&rsaquo;</span>' +
         '<span class="bar"><i style="width:' + pct.toFixed(0) + '%"></i></span></button>';
     }).join('');
@@ -714,8 +718,11 @@
       M.accounts.forEach(function (a) {
         h += '<div class="card acctsec"><h4 class="sechead">' + esc(a.name) + '</h4>';
         if (!a.cats.length) h += '<div class="foot empty">No entries this month</div>';
-        h += barRows(a.cats, function (c) { return catRoute(c, a.name); });
-        h += '<div class="totrow"><span>' + esc(a.name) + ' total</span><span class="amt">' + money(a.amount) + '</span></div></div>';
+        var hhCash = a.name === 'Household' ? M.items.filter(function (x) { return x.account === 'Household' && isCash(x); }) : null;
+        h += barRows(a.cats, function (c) { return catRoute(c, a.name); }, '',
+          hhCash ? function (c) { return sum(hhCash.filter(function (x) { return x.category === c; })); } : null);
+        if (hhCash) h += '<div class="cashtot">' + cashLine(sum(hhCash)) + '</div>';
+        h += '<div class="totrow' + (hhCash ? ' hascash' : '') + '"><span>' + esc(a.name) + ' total</span><span class="amt">' + money(a.amount) + '</span></div></div>';
       });
 
       h += '<div class="card grand"><div class="totrow"><span>Total spent</span><span class="amt">' + money(M.total) + '</span></div></div>';
@@ -737,11 +744,14 @@
           '<span class="amt ' + (n >= 0 ? 'pos' : 'neg') + '">' + signed(n) + '</span></div>';
       };
       var hhTot = acctTot('Household');
+      var hhCashTot = sum(M.items.filter(function (x) { return x.account === 'Household' && isCash(x); }));
       h += '<div class="card summary"><h3>Summary <small>(over ' + days + ' day' + (days === 1 ? '' : 's') + ')</small></h3>' +
         netLine('TiwiK net', srcTot('Mono Village Laundromat'), acctTot('TiwiK'), 'Spent') +
         netLine("Lisa's Table net", srcTot("Lisa's Table"), groc, 'Groceries') +
         '<div class="sumline net cmp"><span>Household spend<small>Running month total · excludes groceries (counted in Lisa\'s Table net)</small></span>' +
         '<span class="amt neg">−' + money(Math.abs(r2(hhTot - groc))) + '</span></div>' +
+        '<div class="sumline minor cash"><span>Household cash spent<small>Running month total · Method = Cash</small></span>' +
+        '<span class="amt">' + money(hhCashTot) + '</span></div>' +
         '<div class="sumline minor"><span>Avg daily spend</span><span class="amt spend">' + perDay(M.total) + '</span></div>' +
         '<div class="sumline minor"><span>Avg daily income</span><span class="amt inc">' + perDay(M.incomeTotal) + '</span></div></div>';
 
