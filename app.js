@@ -10,8 +10,9 @@
   var FALLBACK_URL = 'https://script.google.com/a/macros/landstruc.com/s/AKfycbyigotJxdJD3CeCpRyCEfhHdL7zcv2ZE_ibTm2ZyITgODqrh_NxGhONx6m8CcBlxaPD/exec';
 
   var state = { weekOffset: 0, monthOffset: 0, links: null, logSeq: 0, spendSeq: 0,
-    spendData: null, spendDataOff: null, spendRoute: { kind: '', val: '', acct: '' } };
-  var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend'];
+    spendData: null, spendDataOff: null, spendRoute: { kind: '', val: '', acct: '' },
+    biz: null, bizSlug: '' };
+  var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend', 'biz'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -99,12 +100,15 @@
     }
     activate(name);
     if (!fromHistory) {
-      var h = name === 'home' ? '' : name === 'spend' ? spendHash(state.spendRoute) : '#' + name;
+      if (name === 'biz') state.bizSlug = R.kind;
+      var h = name === 'home' ? '' : name === 'spend' ? spendHash(state.spendRoute) :
+        name === 'biz' && R.kind ? '#biz/' + encodeURIComponent(R.kind) : '#' + name;
       if (location.hash !== h) history.pushState({ screen: name }, '', h || location.pathname + location.search);
     }
     if (name === 'projects' || name === 'life') loadLinks();
     if (name === 'log') loadLog();
     if (name === 'spend') loadSpend(false);
+    if (name === 'biz') { state.bizSlug = R.kind; loadBiz(); }
   }
   window.addEventListener('popstate', function () { show(location.hash.slice(1) || 'home', true); });
 
@@ -175,7 +179,10 @@
     $('projects-list').innerHTML = d.projects.map(function (p) {
       return tile(p, p.kind === 'doc' ? 'Running notes' : p.kind === 'folder' ? 'Drive folder' : '');
     }).join('');
-    $('life-list').innerHTML = d.lifeAreas.map(function (a) { return tile(a, ''); }).join('');
+    $('life-list').innerHTML = d.lifeAreas.map(function (a) {
+      if (/^business$/i.test(a.name)) { state.bizFolderUrl = a.url; return '<button class="tile small" data-go="biz">' + esc(a.name) + '<span class="sub">3 businesses</span></button>'; }
+      return tile(a, '');
+    }).join('');
     $('sb-root').href = d.secondBrainUrl;
   }
 
@@ -484,6 +491,68 @@
 
   $('spend-prev').addEventListener('click', function () { state.monthOffset--; loadSpend(true); });
   $('spend-next').addEventListener('click', function () { state.monthOffset++; loadSpend(true); });
+
+  /* ---------------- Business (Life areas > Business) ---------------- */
+  // #biz = three business buttons; #biz/<slug> = grouped, linked document list.
+  // Data comes from the passcode-protected API (action=biz), never from the public repo.
+  function loadBiz() {
+    if (state.biz) return renderBiz();
+    $('biz-title').textContent = 'Business';
+    $('biz-back').setAttribute('data-go', state.bizSlug ? 'biz' : 'life');
+    $('biz-body').innerHTML = '<div class="loading">Loading…</div>';
+    api('biz').then(function (d) { state.biz = d; renderBiz(); }, function (err) {
+      if (err instanceof AuthError) return onFail(['biz-body'], loadBiz)(err);
+      var m = String((err && err.message) || '');
+      if (/bad_action/.test(m)) {
+        var link = state.bizFolderUrl || 'https://drive.google.com/drive/folders/1wH4ME6ijwYURsjq4E-g0wkliiMyglpbD';
+        $('biz-body').innerHTML = '<div class="loading">Business documents are not available yet (server update pending).</div>' +
+          '<a class="linkrow" target="_blank" rel="noopener" href="' + esc(link) + '">Open Business folder in Drive &rsaquo;</a>';
+        return;
+      }
+      onFail(['biz-body'], loadBiz)(err);
+    });
+  }
+  function fileIcon(mime) {
+    if (/pdf/.test(mime)) return 'PDF';
+    if (/image/.test(mime)) return 'IMG';
+    if (/zip/.test(mime)) return 'ZIP';
+    if (/word|document/.test(mime)) return 'DOC';
+    if (/sheet/.test(mime)) return 'XLS';
+    return 'FILE';
+  }
+  function renderBiz() {
+    var d = state.biz, slug = state.bizSlug;
+    var b = slug && (d.businesses || []).filter(function (x) { return x.slug === slug; })[0];
+    $('biz-back').setAttribute('data-go', b ? 'biz' : 'life');
+    if (!b) {
+      $('biz-title').textContent = 'Business';
+      $('biz-title').classList.remove('sub');
+      $('biz-body').innerHTML = '<div class="grid2 biz-grid">' + (d.businesses || []).map(function (x) {
+        return '<button class="tile biz-tile" data-go="biz/' + esc(x.slug) + '">' + esc(x.short || x.name) +
+          (x.sub ? '<span class="sub">' + esc(x.sub) + '</span>' : '') +
+          '<span class="sub cnt">' + x.count + ' document' + (x.count === 1 ? '' : 's') + '</span></button>';
+      }).join('') + '</div>' +
+      (d.rootUrl ? '<a class="linkrow" target="_blank" rel="noopener" href="' + esc(d.rootUrl) + '">Open Business folder in Drive &rsaquo;</a>' : '');
+      return;
+    }
+    $('biz-title').textContent = b.short || b.name;
+    $('biz-title').classList.add('sub');
+    var h = '<p class="hint">' + esc(b.name) + ' · ' + b.count + ' documents · tap to open in Drive</p>';
+    b.groups.forEach(function (g) {
+      h += '<div class="card bizgroup"><h4 class="sechead">' + esc(g.name) + '</h4>';
+      if (g.decision) h += '<div class="decision"><b>Decision to make</b>' + (Array.isArray(g.decision)
+        ? '<ul>' + g.decision.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>'
+        : '<p>' + esc(g.decision) + '</p>') + '</div>';
+      h += '<ul class="doclist">' + g.files.map(function (f) {
+        return '<li><a target="_blank" rel="noopener" href="' + esc(f.url) + '"><span class="ft">' + fileIcon(f.mime) + '</span>' + esc(f.name) + '</a>' +
+          (f.synopsis ? '<p class="syn">' + esc(f.synopsis) + '</p>' : '') + '</li>';
+      }).join('') + '</ul>';
+      if (g.folderUrl) h += '<a class="foldlink" target="_blank" rel="noopener" href="' + esc(g.folderUrl) + '">Open folder &rsaquo;</a>';
+      h += '</div>';
+    });
+    if (b.folderUrl) h += '<a class="linkrow" target="_blank" rel="noopener" href="' + esc(b.folderUrl) + '">Open ' + esc(b.short || b.name) + ' folder in Drive &rsaquo;</a>';
+    $('biz-body').innerHTML = h;
+  }
 
   /* ---------------- Init ---------------- */
   $('home-date').textContent = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });

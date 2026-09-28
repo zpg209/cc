@@ -195,3 +195,26 @@ body { overscroll-behavior-y: none; }
 .sumline.net .amt { font-size: 18px; }
 .sumline .amt.pos { color: var(--green); }
 .sumline .amt.neg { color: var(--neg); }
+
+/* ---- Business (Life areas > Business) ---- */
+.biz-tile { flex-direction: column; gap: 6px; font-size: 17px; }
+.biz-tile .cnt { color: #c9a07e; }
+.biz-grid .biz-tile:last-child:nth-child(odd) { grid-column: 1 / -1; aspect-ratio: auto; min-height: 120px; }
+.bizgroup .sechead { font-size: 17px; }
+.doclist { list-style: none; margin: 4px 0 2px; padding: 0; }
+.doclist li { padding: 8px 0 8px 14px; border-bottom: 1px solid var(--line); position: relative; }
+.doclist li:last-child { border-bottom: 0; }
+.doclist li::before { content: ''; position: absolute; left: 2px; top: 15px; width: 5px; height: 5px; background: var(--red); border-radius: 50%; }
+.doclist a { color: #f2f2f2; text-decoration: none; font-size: 14px; line-height: 1.35; word-break: break-word; }
+.doclist a:active { color: var(--red); }
+.doclist .ft { display: inline-block; font: 700 9px/1 'Inter', sans-serif; color: var(--red); border: 1px solid rgba(240,122,42,.35);
+  border-radius: 2px; padding: 3px 4px; margin-right: 7px; vertical-align: 1px; letter-spacing: .4px; }
+.doclist .syn { margin: 6px 0 0; color: #bdbdbd; font-size: 12.5px; line-height: 1.5; }
+.decision { background: rgba(240,122,42,.08); border: 1px solid rgba(240,122,42,.35); border-radius: var(--radius); padding: 9px 11px; margin: 4px 0 8px; }
+.decision b { color: var(--red); font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; }
+.decision p { margin: 5px 0 0; font-size: 13px; line-height: 1.5; color: #e6e6e6; }
+.foldlink { display: inline-block; margin-top: 6px; color: var(--red); font-size: 12.5px; font-weight: 700; text-decoration: none; }
+.homebtn { white-space: nowrap; }
+.decision ul { margin: 6px 0 0; padding-left: 16px; }
+.decision li { font-size: 13px; line-height: 1.45; color: #e6e6e6; margin-bottom: 5px; }
+.decision li:last-child { margin-bottom: 0; }
