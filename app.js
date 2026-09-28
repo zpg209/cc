@@ -89,7 +89,7 @@
     return '#spend';
   }
   function show(route, fromHistory) {
-    var R = parseRoute(route), name = R.base;
+    var R = parseRoute(route), name = R.base === 'vault' ? 'spend' : R.base;
     if (SCREENS.indexOf(name) < 0 || name === 'lock') name = 'home';
     if (!getPc()) return lock();
     if (name === 'spend') {
@@ -258,7 +258,7 @@
   $('log-prev').addEventListener('click', function () { state.weekOffset--; loadLog(); });
   $('log-next').addEventListener('click', function () { state.weekOffset++; loadLog(); });
 
-  /* ---------------- Daily spend ---------------- */
+  /* ---------------- Vault (daily spend + income) ---------------- */
   // Main screen = account tiles, then a category section per account (Household, TiwiK, KiwiT),
   // then Income (green). Items live on sub-pages:
   //   #spend/cat/<Category>[/<Account>], #spend/acct/<Account>, #spend/income/<Source>, #spend/all
@@ -297,6 +297,14 @@
     return s;
   }
   function r2(n) { return Math.round(n * 100) / 100; }
+  // Days in the period: today's day-of-month for the current month, full month for past months, 0 for future.
+  function periodDays(off) {
+    off = Number(off) || 0;
+    var t = new Date();
+    if (off === 0) return t.getDate();
+    if (off > 0) return 0;
+    return new Date(t.getFullYear(), t.getMonth() + off + 1, 0).getDate();
+  }
   function sum(list) { return r2(list.reduce(function (s, x) { return s + x.amount; }, 0)); }
   function sumBy(list, key) {
     var m = {};
@@ -360,7 +368,7 @@
   function paintSpendChrome() {
     var sr = state.spendRoute, sub = !!sr.kind;
     $('spend-back').hidden = !sub;
-    $('spend-title').textContent = sr.kind === 'all' ? 'All items' : sub ? sr.val : 'Daily spend';
+    $('spend-title').textContent = sr.kind === 'all' ? 'All items' : sub ? sr.val : 'Vault';
     $('spend-title').classList.toggle('sub', sub);
   }
 
@@ -411,10 +419,21 @@
         h += '<div class="totrow"><span>' + esc(a.name) + ' total</span><span class="amt">' + money(a.amount) + '</span></div></div>';
       });
 
+      h += '<div class="card grand"><div class="totrow"><span>Total spent</span><span class="amt">' + money(M.total) + '</span></div></div>';
+
       h += '<div class="card income"><h4 class="sechead">Income</h4>' +
         '<div class="foot sub-note">Weekly lump sums</div>' +
         barRows(M.sources, incomeRoute, ' inc') +
         '<div class="totrow"><span>Income total</span><span class="amt">' + money(M.incomeTotal) + '</span></div></div>';
+
+      var days = periodDays(d.monthOffset != null ? Number(d.monthOffset) : state.spendDataOff);
+      var net = r2(M.incomeTotal - M.total);
+      var perDay = function (v) { return days > 0 ? money(v / days) : '—'; };
+      h += '<div class="card summary"><h3>Summary <small>(over ' + days + ' day' + (days === 1 ? '' : 's') + ')</small></h3>' +
+        '<div class="sumline"><span>Avg daily spend</span><span class="amt spend">' + perDay(M.total) + '</span></div>' +
+        '<div class="sumline"><span>Avg daily income</span><span class="amt inc">' + perDay(M.incomeTotal) + '</span></div>' +
+        '<div class="sumline net"><span>Net income</span><span class="amt ' + (net >= 0 ? 'pos' : 'neg') + '">' +
+        (net >= 0 ? '+' : '−') + money(Math.abs(net)) + '</span></div></div>';
 
       h += '<button class="linkrow allbtn"' + goAttr('spend/all') + '>All items (' + M.entryCount + ') &rsaquo;</button>';
 

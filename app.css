@@ -179,3 +179,19 @@ body { overscroll-behavior-y: none; }
 .entry.inc .d b { color: #ddd; font-size: 12px; }
 .entry.inc { border-bottom-color: rgba(61,190,107,.15); }
 .entry.inc { grid-template-columns: 84px 1fr auto; }
+
+/* ---- Vault: grand total + summary ---- */
+:root { --neg: #E5484D; }
+.card.grand { border-color: rgba(240,122,42,.35); }
+.card.grand .totrow { border-top: 0; padding: 6px 2px; font-size: 16px; }
+.card.grand .totrow .amt { color: var(--red); font-size: 18px; }
+.card.summary h3 small { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 11px; }
+.sumline { display: flex; justify-content: space-between; align-items: center; padding: 8px 2px; border-bottom: 1px solid var(--line); font-size: 14.5px; }
+.sumline:last-child { border-bottom: 0; }
+.sumline .amt { font-weight: 700; font-variant-numeric: tabular-nums; }
+.sumline .amt.spend { color: var(--red); }
+.sumline .amt.inc { color: var(--green); }
+.sumline.net { font-weight: 700; font-size: 16px; }
+.sumline.net .amt { font-size: 18px; }
+.sumline .amt.pos { color: var(--green); }
+.sumline .amt.neg { color: var(--neg); }

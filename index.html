@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=6">
+<link rel="stylesheet" href="app.css?v=7">
 </head>
 <body>
   <div class="bg"></div>
@@ -48,7 +48,7 @@
       <button class="tile" data-go="projects">L&amp;S projects</button>
       <button class="tile" data-go="life">Life areas</button>
       <button class="tile" data-go="log">Daily log</button>
-      <button class="tile" data-go="spend">Daily spend</button>
+      <button class="tile" data-go="spend">Vault</button>
     </div>
   </section>
 
@@ -78,9 +78,9 @@
     <div id="log-body"><div class="loading">Loading…</div></div>
   </section>
 
-  <!-- ============ DAILY SPEND ============ -->
+  <!-- ============ VAULT (daily spend + income) ============ -->
   <section id="screen-spend" class="screen">
-    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="spend-back" data-go="spend" hidden>&lsaquo; Back</button><h2 id="spend-title">Daily spend</h2></div>
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="spend-back" data-go="spend" hidden>&lsaquo; Back</button><h2 id="spend-title">Vault</h2></div>
     <div class="weeknav">
       <button class="navbtn" id="spend-prev">&lsaquo; Prev month</button>
       <div class="navlabel" id="spend-month">&nbsp;</div>
@@ -89,6 +89,6 @@
     <div id="spend-body"><div class="loading">Loading…</div></div>
   </section>
 
-  <script src="app.js?v=6"></script>
+  <script src="app.js?v=7"></script>
 </body>
 </html>
