@@ -158,3 +158,24 @@ body { overscroll-behavior-y: none; }
 .chip { background: var(--btn); color: var(--red); border: 1px solid rgba(240,122,42,.35); border-radius: 3px;
   font: 700 11px/1 'Inter', sans-serif; padding: 5px 8px; cursor: pointer; }
 .acct-tag { color: #c9a07e; font-weight: 700; }
+
+/* ---- Spend v2: per-account sections + green Income ---- */
+:root { --green: #3DBE6B; --green-edge: rgba(61,190,107,.3); }
+.sechead { font-family: 'Playfair Display', Georgia, serif; font-size: 19px; font-weight: 700; margin: 2px 0 4px; color: var(--red); }
+.acctsec .foot.empty { padding: 6px 2px 8px; font-size: 13px; }
+.totrow { display: flex; justify-content: space-between; align-items: center; padding: 9px 2px 3px; margin-top: 2px;
+  border-top: 1px solid rgba(240,122,42,.35); font-weight: 700; font-size: 14.5px; }
+.totrow .amt { font-variant-numeric: tabular-nums; font-size: 16px; }
+.card.income { border-color: var(--green-edge); }
+.card.income .sechead, .card.income h3 { color: var(--green); }
+.card.income .sub-note { margin: -2px 0 2px; }
+.card.income .totrow { border-top-color: var(--green-edge); }
+.card.income .totrow .amt, .card.income .big, .entry.inc .a { color: var(--green); }
+.catrow.inc { border: 1px solid var(--green-edge); border-radius: var(--radius); background: var(--btn); padding: 10px 10px 7px; margin-bottom: 6px; }
+.catrow.inc:last-of-type { border-bottom: 1px solid var(--green-edge); }
+.catrow.inc .amt, .catrow.inc .chev { color: var(--green); }
+.catrow.inc .bar i { background: var(--green); }
+.catrow.inc:active { background: #0c1a10; }
+.entry.inc .d b { color: #ddd; font-size: 12px; }
+.entry.inc { border-bottom-color: rgba(61,190,107,.15); }
+.entry.inc { grid-template-columns: 84px 1fr auto; }

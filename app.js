@@ -10,7 +10,7 @@
   var FALLBACK_URL = 'https://script.google.com/a/macros/landstruc.com/s/AKfycbyigotJxdJD3CeCpRyCEfhHdL7zcv2ZE_ibTm2ZyITgODqrh_NxGhONx6m8CcBlxaPD/exec';
 
   var state = { weekOffset: 0, monthOffset: 0, links: null, logSeq: 0, spendSeq: 0,
-    spendData: null, spendDataOff: null, spendRoute: { kind: '', val: '' } };
+    spendData: null, spendDataOff: null, spendRoute: { kind: '', val: '', acct: '' } };
   var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend'];
 
   function $(id) { return document.getElementById(id); }
@@ -75,16 +75,17 @@
     SCREENS.forEach(function (s) { $('screen-' + s).classList.toggle('active', s === name); });
     window.scrollTo(0, 0);
   }
-  // Routes: "home", "log", "spend", "spend/cat/<Category>", "spend/acct/<Account>", "spend/all"
+  // Routes: "home", "log", "spend", "spend/cat/<Category>[/<Account>]", "spend/acct/<Account>",
+  //         "spend/income/<Source>", "spend/all"   (segments are URI-encoded)
+  function dec(v) { try { return decodeURIComponent(v || ''); } catch (e) { return v || ''; } }
   function parseRoute(r) {
     var parts = String(r || '').replace(/^#/, '').split('/');
-    var val = parts.slice(2).join('/');
-    try { val = decodeURIComponent(val); } catch (e) {}
-    return { base: parts[0] || 'home', kind: parts[1] || '', val: val };
+    return { base: parts[0] || 'home', kind: parts[1] || '', val: dec(parts[2]), acct: dec(parts[3]) };
   }
   function spendHash(sr) {
     if (sr.kind === 'all') return '#spend/all';
-    if ((sr.kind === 'cat' || sr.kind === 'acct') && sr.val) return '#spend/' + sr.kind + '/' + encodeURIComponent(sr.val);
+    if (sr.kind && sr.val) return '#spend/' + sr.kind + '/' + encodeURIComponent(sr.val) +
+      (sr.kind === 'cat' && sr.acct ? '/' + encodeURIComponent(sr.acct) : '');
     return '#spend';
   }
   function show(route, fromHistory) {
@@ -92,8 +93,9 @@
     if (SCREENS.indexOf(name) < 0 || name === 'lock') name = 'home';
     if (!getPc()) return lock();
     if (name === 'spend') {
-      state.spendRoute = (R.kind === 'all' || ((R.kind === 'cat' || R.kind === 'acct') && R.val))
-        ? { kind: R.kind, val: R.kind === 'all' ? '' : R.val } : { kind: '', val: '' };
+      var okKind = R.kind === 'all' || (/^(cat|acct|income)$/.test(R.kind) && R.val);
+      state.spendRoute = okKind ? { kind: R.kind, val: R.kind === 'all' ? '' : R.val, acct: R.kind === 'cat' ? R.acct : '' }
+        : { kind: '', val: '', acct: '' };
     }
     activate(name);
     if (!fromHistory) {
@@ -257,9 +259,11 @@
   $('log-next').addEventListener('click', function () { state.weekOffset++; loadLog(); });
 
   /* ---------------- Daily spend ---------------- */
-  // Main screen = account tiles + Household categories. Items live on sub-pages:
-  //   #spend/cat/<Category>, #spend/acct/<Account>, #spend/all
+  // Main screen = account tiles, then a category section per account (Household, TiwiK, KiwiT),
+  // then Income (green). Items live on sub-pages:
+  //   #spend/cat/<Category>[/<Account>], #spend/acct/<Account>, #spend/income/<Source>, #spend/all
   var ACCOUNTS = ['Household', 'TiwiK', 'KiwiT'];
+  var INCOME_SOURCES = ["Lisa's Table", 'Mono Village Laundromat'];
 
   function loadSpend(force) {
     if (!force && state.spendData && state.spendDataOff === state.monthOffset) return renderSpend();
@@ -273,26 +277,39 @@
     }, function (err) { if (seq === state.spendSeq) { $('spend-month').textContent = ''; onFail(['spend-body'], function () { loadSpend(true); })(err); } });
   }
 
+  function loose(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
   function normCat(c) { c = String(c || '').trim() || 'Other'; return c === 'Household' ? 'Home goods' : c; }
   function normAcct(a) {
     a = String(a || '').trim();
     if (!a) return 'Household';
-    var l = a.toLowerCase().replace(/[^a-z0-9]/g, '');
-    for (var i = 0; i < ACCOUNTS.length; i++) if (ACCOUNTS[i].toLowerCase() === l) return ACCOUNTS[i];
+    for (var i = 0; i < ACCOUNTS.length; i++) if (loose(ACCOUNTS[i]) === loose(a)) return ACCOUNTS[i];
     return a;
   }
+  function normSource(s) {
+    s = String(s || '').trim() || 'Other';
+    var l = loose(s);
+    for (var i = 0; i < INCOME_SOURCES.length; i++) {
+      var k = loose(INCOME_SOURCES[i]);
+      if (k === l || (l && (k.indexOf(l) === 0 || l.indexOf(k) === 0))) return INCOME_SOURCES[i];
+    }
+    if (/mono|laundr/.test(l)) return INCOME_SOURCES[1];
+    if (/lisa/.test(l)) return INCOME_SOURCES[0];
+    return s;
+  }
+  function r2(n) { return Math.round(n * 100) / 100; }
+  function sum(list) { return r2(list.reduce(function (s, x) { return s + x.amount; }, 0)); }
   function sumBy(list, key) {
     var m = {};
     list.forEach(function (x) { m[x[key]] = (m[x[key]] || 0) + x.amount; });
     return m;
   }
   function sortedPairs(m) {
-    return Object.keys(m).map(function (k) { return { name: k, amount: Math.round(m[k] * 100) / 100 }; })
+    return Object.keys(m).map(function (k) { return { name: k, amount: r2(m[k]) }; })
       .filter(function (c) { return c.amount !== 0; })
       .sort(function (a, b) { return b.amount - a.amount; });
   }
 
-  // Works with the new API (items[] with account) and the old one (recent[] only, no account).
+  // Works with the new API (items[] with account, income[]) and older shapes (recent[] only / no income).
   function spendModel(d) {
     var full = Array.isArray(d.items);
     var items = (full ? d.items : (d.recent || [])).map(function (x) {
@@ -300,34 +317,45 @@
         category: normCat(x.category), merchant: x.merchant || '', method: x.method || '',
         notes: x.notes || '', account: normAcct(x.account) };
     });
-    var acctTotals = {}, catTotals = {}, whoTotals = {};
-    ACCOUNTS.forEach(function (a) { acctTotals[a] = 0; });
-    if (full) {
-      var am = sumBy(items, 'account');
-      Object.keys(am).forEach(function (a) { acctTotals[a] = am[a]; });
-      var hh = items.filter(function (x) { return x.account === 'Household'; });
-      catTotals = sumBy(hh, 'category');
-      whoTotals = sumBy(hh, 'who');
-    } else {
-      acctTotals.Household = Number(d.total) || 0;   // old API: everything counts as Household
-      (d.byCategory || []).forEach(function (c) { var k = normCat(c.name); catTotals[k] = (catTotals[k] || 0) + c.amount; });
-      (d.byWho || []).forEach(function (w) { whoTotals[w.name] = w.amount; });
-    }
-    var accts = ACCOUNTS.concat(Object.keys(acctTotals).filter(function (a) { return ACCOUNTS.indexOf(a) < 0; }));
+    var income = (Array.isArray(d.income) ? d.income : []).map(function (x) {
+      return { date: x.date, label: x.label || x.date, source: normSource(x.source), amount: Number(x.amount) || 0, notes: x.notes || '' };
+    });
+    var names = ACCOUNTS.slice();
+    items.forEach(function (x) { if (names.indexOf(x.account) < 0) names.push(x.account); });
+    var accounts = names.map(function (a) {
+      var list = items.filter(function (x) { return x.account === a; });
+      var cats, total;
+      if (full) { cats = sortedPairs(sumBy(list, 'category')); total = sum(list); }
+      else if (a === 'Household') {   // old API: everything counts as Household
+        var m = {};
+        (d.byCategory || []).forEach(function (c) { var k = normCat(c.name); m[k] = (m[k] || 0) + c.amount; });
+        cats = sortedPairs(m); total = Number(d.total) || 0;
+      } else { cats = []; total = 0; }
+      return { name: a, amount: r2(total), cats: cats, count: list.length };
+    });
+    var hh = items.filter(function (x) { return x.account === 'Household'; });
+    var who = full ? Object.keys(sumBy(hh, 'who')).map(function (k) { return { name: k, amount: r2(sumBy(hh, 'who')[k]) }; })
+      : (d.byWho || []).map(function (w) { return { name: w.name, amount: w.amount }; });
+    var srcNames = INCOME_SOURCES.slice();
+    income.forEach(function (x) { if (srcNames.indexOf(x.source) < 0) srcNames.push(x.source); });
     return {
       items: items, full: full, entryCount: full ? items.length : (d.entryCount || items.length),
       truncated: !full && (d.entryCount || 0) > items.length,
-      accounts: accts.map(function (a) { return { name: a, amount: Math.round((acctTotals[a] || 0) * 100) / 100 }; }),
-      cats: sortedPairs(catTotals), catTotals: catTotals,
-      who: Object.keys(whoTotals).map(function (k) { return { name: k, amount: whoTotals[k] }; }),
-      total: full ? items.reduce(function (s, x) { return s + x.amount; }, 0) : Number(d.total) || 0,
+      accounts: accounts, who: who, income: income,
+      sources: srcNames.map(function (sname) {
+        var l = income.filter(function (x) { return x.source === sname; });
+        return { name: sname, amount: sum(l), count: l.length };
+      }),
+      incomeTotal: sum(income),
+      total: full ? sum(items) : Number(d.total) || 0,
       daysLogged: d.daysLogged
     };
   }
 
   function goAttr(route) { return ' data-go="' + esc(route) + '"'; }
-  function catRoute(c) { return 'spend/cat/' + encodeURIComponent(c); }
+  function catRoute(c, a) { return 'spend/cat/' + encodeURIComponent(c) + (a ? '/' + encodeURIComponent(a) : ''); }
   function acctRoute(a) { return 'spend/acct/' + encodeURIComponent(a); }
+  function incomeRoute(s) { return 'spend/income/' + encodeURIComponent(s); }
 
   function paintSpendChrome() {
     var sr = state.spendRoute, sub = !!sr.kind;
@@ -354,6 +382,15 @@
     return M.truncated ? '<div class="foot">Showing the latest ' + M.items.length + ' of ' + M.entryCount +
       ' entries this month (full list after the API update).</div>' : '';
   }
+  function barRows(rows, routeFn, cls) {
+    var max = rows.reduce(function (m, c) { return Math.max(m, c.amount); }, 0);
+    return rows.map(function (c) {
+      var pct = max > 0 && c.amount > 0 ? Math.max(2, (c.amount / max) * 100) : 0;
+      return '<button class="catrow' + (cls || '') + '"' + goAttr(routeFn(c.name)) + '><span class="n">' + esc(c.name) + '</span>' +
+        '<span class="amt">' + money(c.amount) + '</span><span class="chev">&rsaquo;</span>' +
+        '<span class="bar"><i style="width:' + pct.toFixed(0) + '%"></i></span></button>';
+    }).join('');
+  }
 
   function renderSpend() {
     var d = state.spendData, M = spendModel(d), sr = state.spendRoute;
@@ -364,41 +401,58 @@
     if (!sr.kind) {
       h += '<div class="card"><h3>Accounts</h3><div class="accts">' + M.accounts.map(function (a) {
         return '<button class="acct"' + goAttr(acctRoute(a.name)) + '><span>' + esc(a.name) + '</span><b>' + money(a.amount) + '</b></button>';
-      }).join('') + '</div><div class="foot">' + money(M.total) + ' total · ' + M.entryCount + ' entries' +
+      }).join('') + '</div><div class="foot">' + money(M.total) + ' total spend · ' + M.entryCount + ' entries' +
         (M.daysLogged != null ? ' · ' + M.daysLogged + ' days logged' : '') + '</div></div>';
 
-      var max = M.cats.length ? M.cats[0].amount : 0;
-      h += '<div class="card"><h3>Household by category</h3>';
-      if (!M.cats.length) h += '<div class="foot">No Household spending logged this month.</div>';
-      h += M.cats.map(function (c) {
-        var pct = max > 0 ? Math.max(2, (c.amount / max) * 100) : 0;
-        return '<button class="catrow"' + goAttr(catRoute(c.name)) + '><span class="n">' + esc(c.name) + '</span>' +
-          '<span class="amt">' + money(c.amount) + '</span><span class="chev">&rsaquo;</span>' +
-          '<span class="bar"><i style="width:' + pct.toFixed(0) + '%"></i></span></button>';
-      }).join('');
-      h += '</div>';
+      M.accounts.forEach(function (a) {
+        h += '<div class="card acctsec"><h4 class="sechead">' + esc(a.name) + '</h4>';
+        if (!a.cats.length) h += '<div class="foot empty">No entries this month</div>';
+        h += barRows(a.cats, function (c) { return catRoute(c, a.name); });
+        h += '<div class="totrow"><span>' + esc(a.name) + ' total</span><span class="amt">' + money(a.amount) + '</span></div></div>';
+      });
+
+      h += '<div class="card income"><h4 class="sechead">Income</h4>' +
+        '<div class="foot sub-note">Weekly lump sums</div>' +
+        barRows(M.sources, incomeRoute, ' inc') +
+        '<div class="totrow"><span>Income total</span><span class="amt">' + money(M.incomeTotal) + '</span></div></div>';
 
       h += '<button class="linkrow allbtn"' + goAttr('spend/all') + '>All items (' + M.entryCount + ') &rsaquo;</button>';
 
       if (M.who.length) h += '<div class="card"><h3>Household · Zac vs Lisa</h3><div class="split">' +
         M.who.map(function (w) { return '<div><b>' + money(w.amount) + '</b>' + esc(w.name) + '</div>'; }).join('') + '</div></div>';
       if (d.missingColumns && d.missingColumns.length) h += '<div class="foot">Columns not found: ' + esc(d.missingColumns.join(', ')) + '</div>';
+    } else if (sr.kind === 'income') {
+      var inc = M.income.filter(function (x) { return x.source === normSource(sr.val); });
+      h += '<div class="card income"><h3>Income</h3><div class="big">' + money(sum(inc)) + '</div>' +
+        '<div class="foot">' + inc.length + ' week' + (inc.length === 1 ? '' : 's') + '</div></div>';
+      h += '<div class="card income">';
+      if (!inc.length) h += '<div class="foot">No income entries this month.</div>';
+      h += inc.map(function (e) {
+        return '<div class="entry item inc"><div class="d">Week ending<br><b>' + esc(e.label) + '</b></div>' +
+          '<div class="m">' + (e.notes ? '<div class="notes">' + esc(e.notes) + '</div>' : '<div class="notes">—</div>') + '</div>' +
+          '<div class="a">' + money(e.amount) + '</div></div>';
+      }).join('');
+      h += '</div>';
     } else {
       var list, label, total, extra = '', opt;
       if (sr.kind === 'cat') {
-        list = M.items.filter(function (x) { return x.category === sr.val; });
-        label = 'Category';
-        opt = { chip: false, acct: true };
+        list = M.items.filter(function (x) { return x.category === sr.val && (!sr.acct || x.account === sr.acct); });
+        label = sr.acct ? sr.acct + ' · category' : 'Category';
+        opt = { chip: false, acct: !sr.acct };
+        total = sum(list);
+        if (M.truncated) {
+          var ac = M.accounts.filter(function (a) { return a.name === (sr.acct || 'Household'); })[0];
+          var ct = ac && ac.cats.filter(function (c) { return c.name === sr.val; })[0];
+          if (ct) total = ct.amount;
+        }
         var byA = sortedPairs(sumBy(list, 'account'));
-        total = list.reduce(function (s, x) { return s + x.amount; }, 0);
-        if (M.truncated && M.catTotals[sr.val] != null) total = M.catTotals[sr.val];
-        if (byA.length > 1) extra = byA.map(function (a) { return esc(a.name) + ' ' + money(a.amount); }).join(' · ');
+        if (!sr.acct && byA.length > 1) extra = byA.map(function (a) { return esc(a.name) + ' ' + money(a.amount); }).join(' · ');
       } else if (sr.kind === 'acct') {
         list = M.items.filter(function (x) { return x.account === sr.val; });
         label = 'Account';
         opt = { chip: true, acct: false };
         var at = M.accounts.filter(function (a) { return a.name === sr.val; })[0];
-        total = at ? at.amount : list.reduce(function (s, x) { return s + x.amount; }, 0);
+        total = at ? at.amount : sum(list);
       } else {
         list = M.items; label = 'All accounts'; opt = { chip: true, acct: true }; total = M.total;
       }
