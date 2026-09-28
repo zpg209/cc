@@ -11,8 +11,8 @@
 
   var state = { weekOffset: 0, monthOffset: 0, links: null, logSeq: 0, spendSeq: 0,
     spendData: null, spendDataOff: null, spendRoute: { kind: '', val: '', acct: '' },
-    biz: null, bizSlug: '' };
-  var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend', 'biz'];
+    biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0 };
+  var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend', 'biz', 'doc'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -79,9 +79,22 @@
   // Routes: "home", "log", "spend", "spend/cat/<Category>[/<Account>]", "spend/acct/<Account>",
   //         "spend/income/<Source>", "spend/all"   (segments are URI-encoded)
   function dec(v) { try { return decodeURIComponent(v || ''); } catch (e) { return v || ''; } }
+  //         "doc?u=<url>&t=<title>&from=<route>"   (in-app document viewer)
   function parseRoute(r) {
-    var parts = String(r || '').replace(/^#/, '').split('/');
-    return { base: parts[0] || 'home', kind: parts[1] || '', val: dec(parts[2]), acct: dec(parts[3]) };
+    r = String(r || '').replace(/^#/, '');
+    var q = '', qi = r.indexOf('?');
+    if (qi >= 0) { q = r.slice(qi + 1); r = r.slice(0, qi); }
+    var parts = r.split('/');
+    return { base: parts[0] || 'home', kind: parts[1] || '', val: dec(parts[2]), acct: dec(parts[3]), query: q };
+  }
+  function qparams(q) {
+    var o = {};
+    String(q || '').split('&').forEach(function (kv) {
+      if (!kv) return;
+      var i = kv.indexOf('=');
+      o[dec(i < 0 ? kv : kv.slice(0, i))] = i < 0 ? '' : dec(kv.slice(i + 1));
+    });
+    return o;
   }
   function spendHash(sr) {
     if (sr.kind === 'all') return '#spend/all';
@@ -98,24 +111,100 @@
       state.spendRoute = okKind ? { kind: R.kind, val: R.kind === 'all' ? '' : R.val, acct: R.kind === 'cat' ? R.acct : '' }
         : { kind: '', val: '', acct: '' };
     }
+    if (name !== 'doc') { state.docPushed = false; closeDoc(); }
     activate(name);
     if (!fromHistory) {
       if (name === 'biz') state.bizSlug = R.kind;
       var h = name === 'home' ? '' : name === 'spend' ? spendHash(state.spendRoute) :
-        name === 'biz' && R.kind ? '#biz/' + encodeURIComponent(R.kind) : '#' + name;
+        name === 'biz' && R.kind ? '#biz/' + encodeURIComponent(R.kind) :
+        name === 'doc' ? '#doc?' + R.query : '#' + name;
       if (location.hash !== h) history.pushState({ screen: name }, '', h || location.pathname + location.search);
     }
     if (name === 'projects' || name === 'life') loadLinks();
     if (name === 'log') loadLog();
     if (name === 'spend') loadSpend(false);
     if (name === 'biz') { state.bizSlug = R.kind; loadBiz(); }
+    if (name === 'doc') openDocScreen(qparams(R.query));
+    else restoreScroll(String(route || '').replace(/^#/, '') || 'home');
+  }
+  function restoreScroll(key) {
+    var y = state.scrollMem[key];
+    if (y == null) return;
+    delete state.scrollMem[key];
+    setTimeout(function () { window.scrollTo(0, y); }, 60);
   }
   window.addEventListener('popstate', function () { show(location.hash.slice(1) || 'home', true); });
 
   document.addEventListener('click', function (e) {
     var el = e.target.closest('[data-go]');
-    if (el) { e.preventDefault(); e.stopPropagation(); show(el.getAttribute('data-go')); }
+    if (el) { e.preventDefault(); e.stopPropagation(); show(el.getAttribute('data-go')); return; }
+    // Google Drive / Docs links open in the in-app viewer so "Back" returns to this screen.
+    var a = e.target.closest('a[href]');
+    if (a && !a.hasAttribute('data-external') && !$('screen-doc').contains(a) && toEmbed(a.href)) {
+      e.preventDefault(); e.stopPropagation();
+      openDoc(a.href, a.getAttribute('data-title') || docTitleFrom(a));
+    }
   });
+
+  /* ---------------- In-app document viewer ---------------- */
+  // Returns an embeddable preview URL for Google Drive / Docs links, or '' for anything else.
+  function toEmbed(url) {
+    var u = String(url || ''), m;
+    if (!/^https:\/\/(drive|docs)\.google\.com\//.test(u)) return '';
+    if ((m = u.match(/drive\.google\.com\/file\/d\/([\w-]+)/))) return 'https://drive.google.com/file/d/' + m[1] + '/preview';
+    if ((m = u.match(/drive\.google\.com\/(?:drive\/)?(?:u\/\d+\/)?folders\/([\w-]+)/))) return 'https://drive.google.com/embeddedfolderview?id=' + m[1] + '#list';
+    if ((m = u.match(/drive\.google\.com\/(?:open|uc)\?(?:.*&)?id=([\w-]+)/))) return 'https://drive.google.com/file/d/' + m[1] + '/preview';
+    if ((m = u.match(/docs\.google\.com\/forms\/d\/(e\/)?([\w-]+)/))) return 'https://docs.google.com/forms/d/' + (m[1] || '') + m[2] + '/viewform?embedded=true';
+    if ((m = u.match(/docs\.google\.com\/(document|spreadsheets|presentation)\/d\/([\w-]+)/))) {
+      // Office files stored in Drive (rtpof=true) preview best through the Drive file viewer.
+      if (/[?&]rtpof=true/.test(u)) return 'https://drive.google.com/file/d/' + m[2] + '/preview';
+      return 'https://docs.google.com/' + m[1] + '/d/' + m[2] + '/preview';
+    }
+    return '';
+  }
+  function docTitleFrom(a) {
+    var c = a.cloneNode(true);
+    Array.prototype.forEach.call(c.querySelectorAll('.ft, .sub'), function (x) { x.remove(); });
+    return (c.textContent || '').replace(/\s+/g, ' ').replace(/[\u203a\u2197]\s*$/, '').trim() || 'Document';
+  }
+  function openDoc(url, title) {
+    var from = location.hash.slice(1) || 'home';
+    state.scrollMem[from] = window.scrollY || 0;
+    state.docPushed = true;
+    show('doc?u=' + encodeURIComponent(url) + '&t=' + encodeURIComponent(title || '') + '&from=' + encodeURIComponent(from));
+  }
+  function openDocScreen(p) {
+    var url = p.u || '', src = toEmbed(url);
+    state.docFrom = p.from || 'home';
+    $('doc-title').textContent = p.t || 'Document';
+    $('doc-open').href = url || '#';
+    var f = $('doc-frame');
+    if (!src) { f.removeAttribute('src'); $('doc-hint').hidden = false; return; }
+    if (f.getAttribute('src') !== src) {
+      // Fresh iframe per document so its first load never adds an entry to the app's history.
+      var nf = f.cloneNode(false);
+      nf.setAttribute('src', src);
+      f.parentNode.replaceChild(nf, f);
+    }
+    $('doc-hint').hidden = true;
+    clearTimeout(state.docTimer);
+    state.docTimer = setTimeout(function () { $('doc-hint').hidden = false; }, 6000);
+  }
+  function closeDoc() {
+    clearTimeout(state.docTimer);
+    var f = $('doc-frame');
+    if (f && f.getAttribute('src')) f.removeAttribute('src');
+    if ($('doc-hint')) $('doc-hint').hidden = true;
+  }
+  // Back replaces the viewer's history entry with the originating screen instead of history.back():
+  // Google's viewers can add their own entries inside the iframe, which would make history.back() stall.
+  $('doc-back').addEventListener('click', function () {
+    var from = state.docFrom || 'home';
+    closeDoc();
+    history.replaceState({ screen: parseRoute(from).base }, '', from === 'home' ? location.pathname + location.search : '#' + from);
+    show(from, true);
+  });
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 
   /* ---------------- Passcode screen ---------------- */
   var entry = '', checking = false;
@@ -169,9 +258,11 @@
     $('projects-list').innerHTML = $('life-list').innerHTML = '<div class="loading" style="grid-column:1/-1">Loading…</div>';
     api('links').then(function (d) { state.links = d; renderLinks(); }, onFail(['projects-list', 'life-list'], loadLinks));
   }
+  // Google files open in the in-app viewer (no new tab); other links keep opening externally.
+  function extAttr(url) { return toEmbed(url) ? '' : ' target="_blank" rel="noopener" data-external'; }
   function tile(item, sub) {
     if (!item.url) return '<div class="tile small disabled">' + esc(item.name) + '<span class="sub">coming soon</span></div>';
-    return '<a class="tile small" target="_blank" rel="noopener" href="' + esc(item.url) + '">' + esc(item.name) +
+    return '<a class="tile small"' + extAttr(item.url) + ' href="' + esc(item.url) + '" data-title="' + esc(item.name) + '">' + esc(item.name) +
       (sub ? '<span class="sub">' + esc(sub) + '</span>' : '') + '</a>';
   }
   function renderLinks() {
@@ -506,7 +597,7 @@
       if (/bad_action/.test(m)) {
         var link = state.bizFolderUrl || 'https://drive.google.com/drive/folders/1wH4ME6ijwYURsjq4E-g0wkliiMyglpbD';
         $('biz-body').innerHTML = '<div class="loading">Business documents are not available yet (server update pending).</div>' +
-          '<a class="linkrow" target="_blank" rel="noopener" href="' + esc(link) + '">Open Business folder in Drive &rsaquo;</a>';
+          '<a class="linkrow" data-title="Business" href="' + esc(link) + '">Open Business folder &rsaquo;</a>';
         return;
       }
       onFail(['biz-body'], loadBiz)(err);
@@ -532,25 +623,27 @@
           (x.sub ? '<span class="sub">' + esc(x.sub) + '</span>' : '') +
           '<span class="sub cnt">' + x.count + ' document' + (x.count === 1 ? '' : 's') + '</span></button>';
       }).join('') + '</div>' +
-      (d.rootUrl ? '<a class="linkrow" target="_blank" rel="noopener" href="' + esc(d.rootUrl) + '">Open Business folder in Drive &rsaquo;</a>' : '');
+      (d.rootUrl ? '<a class="linkrow" data-title="Business" href="' + esc(d.rootUrl) + '">Open Business folder &rsaquo;</a>' : '');
       return;
     }
     $('biz-title').textContent = b.short || b.name;
     $('biz-title').classList.add('sub');
-    var h = '<p class="hint">' + esc(b.name) + ' · ' + b.count + ' documents · tap to open in Drive</p>';
+    var h = '<p class="hint">' + esc(b.name) + ' · ' + b.count + ' documents · tap to view</p>';
     b.groups.forEach(function (g) {
       h += '<div class="card bizgroup"><h4 class="sechead">' + esc(g.name) + '</h4>';
       if (g.decision) h += '<div class="decision"><b>Decision to make</b>' + (Array.isArray(g.decision)
         ? '<ul>' + g.decision.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>'
         : '<p>' + esc(g.decision) + '</p>') + '</div>';
       h += '<ul class="doclist">' + g.files.map(function (f) {
-        return '<li><a target="_blank" rel="noopener" href="' + esc(f.url) + '"><span class="ft">' + fileIcon(f.mime) + '</span>' + esc(f.name) + '</a>' +
+        var href = /officedocument|msword|ms-excel|ms-powerpoint/.test(f.mime || '') && f.id
+          ? 'https://drive.google.com/file/d/' + f.id + '/view' : f.url;   // Office files: Drive viewer
+        return '<li><a href="' + esc(href) + '" data-title="' + esc(f.name) + '"><span class="ft">' + fileIcon(f.mime) + '</span>' + esc(f.name) + '</a>' +
           (f.synopsis ? '<p class="syn">' + esc(f.synopsis) + '</p>' : '') + '</li>';
       }).join('') + '</ul>';
-      if (g.folderUrl) h += '<a class="foldlink" target="_blank" rel="noopener" href="' + esc(g.folderUrl) + '">Open folder &rsaquo;</a>';
+      if (g.folderUrl) h += '<a class="foldlink" data-title="' + esc(g.name) + '" href="' + esc(g.folderUrl) + '">Open folder &rsaquo;</a>';
       h += '</div>';
     });
-    if (b.folderUrl) h += '<a class="linkrow" target="_blank" rel="noopener" href="' + esc(b.folderUrl) + '">Open ' + esc(b.short || b.name) + ' folder in Drive &rsaquo;</a>';
+    if (b.folderUrl) h += '<a class="linkrow" data-title="' + esc(b.short || b.name) + '" href="' + esc(b.folderUrl) + '">Open ' + esc(b.short || b.name) + ' folder &rsaquo;</a>';
     $('biz-body').innerHTML = h;
   }
 

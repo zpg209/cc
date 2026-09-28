@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=8">
+<link rel="stylesheet" href="app.css?v=9">
 </head>
 <body>
   <div class="bg"></div>
@@ -64,13 +64,26 @@
     <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><h2>Life areas</h2></div>
     <p class="hint">Second Brain folders in Drive.</p>
     <div class="grid2" id="life-list"></div>
-    <a class="linkrow" id="sb-root" target="_blank" rel="noopener">Open Second Brain root &rsaquo;</a>
+    <a class="linkrow" id="sb-root" data-title="Second Brain">Open Second Brain root &rsaquo;</a>
   </section>
 
   <!-- ============ BUSINESS (Life areas > Business) ============ -->
   <section id="screen-biz" class="screen">
     <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="biz-back" data-go="life">&lsaquo; Back</button><h2 id="biz-title">Business</h2></div>
     <div id="biz-body"><div class="loading">Loading…</div></div>
+  </section>
+
+  <!-- ============ IN-APP DOCUMENT VIEWER ============ -->
+  <section id="screen-doc" class="screen docscreen">
+    <div class="doc-bar">
+      <button class="homebtn backbtn" id="doc-back">&lsaquo; Back</button>
+      <div class="doc-title" id="doc-title">Document</div>
+      <a class="navbtn doc-open" id="doc-open" target="_blank" rel="noopener">Open in Drive &#8599;</a>
+    </div>
+    <div class="doc-wrap">
+      <iframe id="doc-frame" title="Document" allow="autoplay; fullscreen" referrerpolicy="no-referrer-when-downgrade"></iframe>
+      <div class="doc-hint" id="doc-hint" hidden>Not loading? Tap <b>Open in Drive</b>.</div>
+    </div>
   </section>
 
   <!-- ============ DAILY LOG ============ -->
@@ -95,6 +108,6 @@
     <div id="spend-body"><div class="loading">Loading…</div></div>
   </section>
 
-  <script src="app.js?v=8"></script>
+  <script src="app.js?v=9"></script>
 </body>
 </html>
