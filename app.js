@@ -740,8 +740,8 @@
       h += '<div class="card summary"><h3>Summary <small>(over ' + days + ' day' + (days === 1 ? '' : 's') + ')</small></h3>' +
         netLine('TiwiK net', srcTot('Mono Village Laundromat'), acctTot('TiwiK'), 'Spent') +
         netLine("Lisa's Table net", srcTot("Lisa's Table"), groc, 'Groceries') +
-        '<div class="sumline net cmp"><span>Household spend<small>Running month total</small></span>' +
-        '<span class="amt neg">−' + money(Math.abs(hhTot)) + '</span></div>' +
+        '<div class="sumline net cmp"><span>Household spend<small>Running month total · excludes groceries (counted in Lisa\'s Table net)</small></span>' +
+        '<span class="amt neg">−' + money(Math.abs(r2(hhTot - groc))) + '</span></div>' +
         '<div class="sumline minor"><span>Avg daily spend</span><span class="amt spend">' + perDay(M.total) + '</span></div>' +
         '<div class="sumline minor"><span>Avg daily income</span><span class="amt inc">' + perDay(M.incomeTotal) + '</span></div></div>';
 
