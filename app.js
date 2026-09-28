@@ -12,9 +12,9 @@
   var state = { weekOffset: 0, monthOffset: 0, links: null, logSeq: 0, spendSeq: 0,
     spendData: null, spendDataOff: null, spendRoute: { kind: '', val: '', acct: '' },
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
-    docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' },
+    docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null };
-  var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend', 'biz', 'doc', 're'];
+  var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend', 'biz', 'doc', 're', 'lt'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -136,6 +136,7 @@
       var h = name === 'home' ? '' : name === 'spend' ? spendHash(state.spendRoute) :
         name === 'biz' && R.kind ? '#biz/' + encodeURIComponent(R.kind) :
         name === 'doc' ? '#doc?' + R.query :
+        name === 'lt' ? '#lt' + (R.kind ? '/' + encodeURIComponent(R.kind) : '') :
         name === 're' ? (state.reRoute.ins ? '#ins' : '#re' + (state.reRoute.slug ? '/' + encodeURIComponent(state.reRoute.slug) : '')) : '#' + name;
       if (location.hash !== h) history.pushState({ screen: name }, '', h || location.pathname + location.search);
     }
@@ -144,6 +145,7 @@
     if (name === 'spend') loadSpend(false);
     if (name === 'biz') { state.bizSlug = R.kind; loadBiz(); }
     if (name === 're') loadRe();
+    if (name === 'lt') { state.ltPart = LT_PARTS[R.kind] ? R.kind : ''; loadLt(); }
     if (name === 'doc') { state.docKey = String(route || '').replace(/^#/, ''); openDocScreen(qparams(R.query)); }
     else restoreScroll(String(route || '').replace(/^#/, '') || 'home');
   }
@@ -468,6 +470,7 @@
     }).join('');
     $('life-list').innerHTML = d.lifeAreas.map(function (a) {
       if (/^real estate$/i.test(a.name)) { state.reFolderUrl = a.url; return '<button class="tile small" data-go="re">' + esc(a.name) + '<span class="sub">3 properties</span></button>'; }
+      if (/^lisa.s table$/i.test(a.name)) { state.ltFolderUrl = a.url; return '<button class="tile small" data-go="lt">' + esc(a.name) + '<span class="sub">Menus · recipes · macros</span></button>'; }
       if (/^insurance$/i.test(a.name)) { state.insFolderUrl = a.url; return '<button class="tile small" data-go="ins">' + esc(a.name) + '</button>'; }
       if (/^business$/i.test(a.name)) { state.bizFolderUrl = a.url; return '<button class="tile small" data-go="biz">' + esc(a.name) + '<span class="sub">3 businesses</span></button>'; }
       return tile(a, '');
@@ -805,8 +808,9 @@
     if (/pdf/.test(mime)) return 'PDF';
     if (/image/.test(mime)) return 'IMG';
     if (/zip/.test(mime)) return 'ZIP';
+    if (/sheet|excel|csv/.test(mime)) return 'XLS';
+    if (/presentation|powerpoint/.test(mime)) return 'PPT';
     if (/word|document/.test(mime)) return 'DOC';
-    if (/sheet/.test(mime)) return 'XLS';
     return 'FILE';
   }
   function renderBiz() {
@@ -914,6 +918,159 @@
       '<a class="foldlink" data-title="Insurance · ' + esc(p.name) + '" href="' + esc(p.insuranceFolderUrl) + '">Open folder &rsaquo;</a></div>';
     $('re-body').innerHTML = h;
   }
+
+  /* ---------------- Lisa's Table ---------------- */
+  // Folder lists use the existing action=folder (live); Menu Macros uses action=ltmacros (live from the Sheet).
+  var LT_PARTS = {
+    ops:     { label: 'Business & Operations', folder: '1renTWVsMfj9UYrefVh3vJlv9EOX8Xe3y', sort: 'default' },
+    recipes: { label: 'Recipes',               folder: '1VvrIYV15BX7Rltet2PC7kTxVheUfqMfI', sort: 'az', search: 'Search recipes' },
+    menus:   { label: 'Past Menus',            folder: '11tV_huL874mr4F3LdGA-2fvGQZyEWKZY', sort: 'date', search: 'Search menus' },
+    macros:  { label: 'Menu Macros', sheet: 'https://docs.google.com/spreadsheets/d/1YhDpmch8pWIAFKEwrSv7AMwWHyhuVW1OyeqbSNOPk3w/edit' }
+  };
+  var LT_ORDER = ['ops', 'recipes', 'menus', 'macros'];
+  var LT_TTL = 60000;
+
+  function loadLt(force) {
+    var part = state.ltPart, cfg = LT_PARTS[part];
+    $('lt-back').setAttribute('data-go', part ? 'lt' : 'life');
+    $('lt-title').textContent = cfg ? cfg.label : 'Lisa\u2019s Table';
+    $('lt-title').classList.toggle('sub', !!part);
+    if (!cfg) {
+      $('lt-body').innerHTML = '<div class="grid2">' + LT_ORDER.map(function (k) {
+        return '<button class="tile" data-go="lt/' + k + '">' + esc(LT_PARTS[k].label) + '</button>';
+      }).join('') + '</div>' + (state.ltFolderUrl ? '<a class="linkrow" data-title="Lisa\u2019s Table" href="' + esc(state.ltFolderUrl) + '">Open Lisa\u2019s Table folder &rsaquo;</a>' : '');
+      return;
+    }
+    var key = cfg.folder || 'macros', c = state.ltCache[key];
+    if (c && !force && Date.now() - c.at < LT_TTL) return renderLt();
+    $('lt-body').innerHTML = '<div class="loading">Loading…</div>';
+    var want = part;
+    apiRaw(cfg.folder ? 'folder' : 'ltmacros', cfg.folder ? { id: cfg.folder } : {}).then(function (j) {
+      if (want !== state.ltPart) return;
+      if (j.error === 'bad_action') {
+        $('lt-body').innerHTML = '<div class="loading">This page is not available yet (server update pending).</div>' +
+          (cfg.sheet ? '<a class="linkrow" data-title="Menu Macros" href="' + esc(cfg.sheet) + '">Open sheet &rsaquo;</a>' : '');
+        return;
+      }
+      if (j.error) throw new Error(j.message || j.error);
+      state.ltCache[key] = { at: Date.now(), data: j.data };
+      renderLt();
+    }).catch(function (err) { if (want === state.ltPart) onFail(['lt-body'], function () { loadLt(true); })(err); });
+  }
+
+  var MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+  // "Menu week of Apr 13th 26" -> Date. Without a year, pick the most recent year (not in the future)
+  // in which that date is a Monday (menus are "week of" Mondays), else the most recent past year.
+  function menuDate(name) {
+    var m = String(name).match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*(\d{1,2})(?:st|nd|rd|th)?\b(?:,?\s+(\d{4}|\d{2})\b)?/i);
+    if (!m) return null;
+    var mo = MONTHS[m[1].toLowerCase()], d = Number(m[2]), now = new Date();
+    if (m[3]) { var y = Number(m[3]); if (y < 100) y += 2000; return new Date(y, mo, d); }
+    var fallback = null;
+    for (var yy = now.getFullYear(); yy >= now.getFullYear() - 6; yy--) {
+      var dt = new Date(yy, mo, d);
+      if (dt > now) continue;
+      if (!fallback) fallback = dt;
+      if (dt.getDay() === 1) return dt;
+    }
+    return fallback;
+  }
+  function ltItemLink(x, label) {
+    var href = x.folder ? 'https://drive.google.com/drive/folders/' + x.id : 'https://drive.google.com/file/d/' + x.id + '/view';
+    return '<li class="' + (x.folder ? 'isdir' : '') + '"><a href="' + esc(href) + '" data-title="' + esc(x.name) + '"><span class="ft">' +
+      fileKind(x.mime) + '</span>' + esc(label || x.name) + (x.folder ? ' <span class="chev">&rsaquo;</span>' : '') + '</a></li>';
+  }
+  function renderLt() {
+    var part = state.ltPart, cfg = LT_PARTS[part], data = state.ltCache[cfg.folder || 'macros'].data;
+    var h = '';
+    if (cfg.search || part === 'macros') {
+      h += '<input class="searchbox" id="lt-q" type="search" autocomplete="off" placeholder="' +
+        esc(cfg.search || 'Search items, ingredients, categories') + '">';
+    }
+    h += '<div id="lt-list"></div>';
+    if (cfg.sheet) h += '<a class="foldlink sheetlink" data-external target="_blank" rel="noopener" href="' + esc(cfg.sheet) + '">Open sheet to edit &#8599;</a>';
+    else h += '<a class="linkrow" data-title="' + esc(cfg.label) + '" href="https://drive.google.com/drive/folders/' + cfg.folder + '">Open folder &rsaquo;</a>';
+    $('lt-body').innerHTML = h;
+    var q = $('lt-q');
+    var paint = function () {
+      var term = q ? q.value.trim().toLowerCase() : '';
+      $('lt-list').innerHTML = part === 'macros' ? macrosHtml(data, term) : ltFolderHtml(data, cfg, term);
+    };
+    if (q) q.addEventListener('input', paint);
+    paint();
+  }
+  function ltFolderHtml(d, cfg, term) {
+    var items = d.items.filter(function (x) { return !term || x.name.toLowerCase().indexOf(term) >= 0; });
+    if (!items.length) return '<div class="loading">' + (term ? 'No matches.' : 'This folder is empty.') + '</div>';
+    var foot = '<div class="foot">' + items.length + ' of ' + d.items.length + ' item' + (d.items.length === 1 ? '' : 's') + '</div>';
+    if (cfg.sort === 'az') {
+      items = items.slice().sort(function (a, b) {
+        if (!!a.folder !== !!b.folder) return a.folder ? -1 : 1;
+        return a.name.localeCompare(b.name, 'en', { numeric: true, sensitivity: 'base' });
+      });
+      return foot + '<div class="card"><ul class="doclist folderlist">' + items.map(function (x) {
+        return ltItemLink(x, x.name.replace(/\.(docx?|pdf)$/i, '').trim());
+      }).join('') + '</ul></div>';
+    }
+    if (cfg.sort === 'date') {
+      var dated = items.map(function (x) { return { x: x, d: x.folder ? null : menuDate(x.name) }; });
+      dated.sort(function (a, b) {
+        if (a.d && b.d) return b.d - a.d || a.x.name.localeCompare(b.x.name);
+        return a.d ? -1 : b.d ? 1 : a.x.name.localeCompare(b.x.name);
+      });
+      var groups = [], cur = null;
+      dated.forEach(function (e) {
+        var g = e.d ? String(e.d.getFullYear()) : 'Other';
+        if (!cur || cur.name !== g) { cur = { name: g, rows: [] }; groups.push(cur); }
+        cur.rows.push(e);
+      });
+      return foot + groups.map(function (g) {
+        return '<div class="card bizgroup"><h4 class="sechead">' + esc(g.name) + '</h4><ul class="doclist folderlist">' + g.rows.map(function (e) {
+          var label = e.d ? 'Week of ' + e.d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : e.x.name;
+          var ext = (e.x.name.match(/\.(\w+)\s*$/) || [])[1];
+          return ltItemLink(e.x, e.d && /^menu week of/i.test(e.x.name.trim()) ? label + (ext && ext.toLowerCase() !== 'docx' ? ' (' + ext.toLowerCase() + ')' : '') : e.x.name.replace(/\s+\./, '.'));
+        }).join('') + '</ul></div>';
+      }).join('');
+    }
+    return foot + '<div class="card"><ul class="doclist folderlist">' + items.map(function (x) { return ltItemLink(x); }).join('') + '</ul></div>';
+  }
+  function fmtN(v) { return v === null || v === undefined || v === '' ? '—' : fmt(v); }
+  function macrosHtml(d, term) {
+    var items = d.items.filter(function (x) {
+      return !term || (x.item + ' ' + x.category + ' ' + x.ingredients + ' ' + x.notes).toLowerCase().indexOf(term) >= 0;
+    });
+    if (!items.length) return '<div class="loading">' + (term ? 'No matches.' : 'No items in the sheet yet.') + '</div>';
+    var h = '<div class="card mac"><div class="mac-head"><span style="text-align:left">Item</span><span>Calories</span><span>Protein</span><span>Carbs</span><span>Fat</span></div>';
+    var cats = d.categories.filter(function (c) { return items.some(function (x) { return x.category === c; }); });
+    cats.forEach(function (c) {
+      h += '<div class="mac-cat">' + esc(c) + '</div>';
+      items.forEach(function (x, i) {
+        if (x.category !== c) return;
+        var id = 'm' + d.items.indexOf(x), open = !!state.ltOpen[id];
+        h += '<div class="mac-row' + (open ? ' open' : '') + '" data-mac="' + id + '">' +
+          '<div class="mac-name">' + esc(x.item) + (x.serving ? '<small>' + esc(x.serving) + '</small>' : '') + '</div>' +
+          '<div class="cell">' + fmtN(x.cal) + '</div><div class="cell">' + fmtN(x.protein) + '</div><div class="cell">' + fmtN(x.carbs) + '</div><div class="cell">' + fmtN(x.fat) + '</div></div>';
+        h += '<div class="mac-detail" id="' + id + '"' + (open ? '' : ' hidden') + '>' +
+          (/estimate/i.test(x.basis) ? '<span class="badge">Estimate — to be measured</span>' : x.basis ? '<span class="badge ok">' + esc(x.basis) + '</span>' : '') +
+          (x.ingredients ? '<div><b>Key ingredients</b> ' + esc(x.ingredients) + '</div>' : '') +
+          (x.notes ? '<div><b>Notes</b> ' + esc(x.notes) + '</div>' : '') +
+          (x.listings != null ? '<div><b>Past-menu listings</b> ' + fmt(x.listings) + '</div>' : '') +
+          (x.sources && x.sources.length ? '<div><b>Source</b> ' + x.sources.map(function (s) {
+            return s.id ? '<a href="https://drive.google.com/file/d/' + esc(s.id) + '/view" data-title="' + esc(s.name) + '">' + esc(s.name.replace(/\s+\./, '.')) + '</a>' : esc(s.name);
+          }).join(' · ') + '</div>' : '') + '</div>';
+      });
+    });
+    h += '</div><div class="foot">' + items.length + ' of ' + d.items.length + ' items · per serving · kcal, g, g, g · tap a row for details</div>';
+    return h;
+  }
+  document.addEventListener('click', function (e) {
+    var r = e.target.closest('.mac-row');
+    if (!r) return;
+    var id = r.getAttribute('data-mac'), det = $(id);
+    state.ltOpen[id] = !state.ltOpen[id];
+    r.classList.toggle('open', state.ltOpen[id]);
+    if (det) det.hidden = !state.ltOpen[id];
+  });
 
   /* ---------------- Init ---------------- */
   $('home-date').textContent = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });

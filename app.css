@@ -259,3 +259,27 @@ body { overscroll-behavior-y: none; }
 .folderlist .chev { float: right; font-size: 18px; line-height: 1; }
 .doc-bar .homebtn, .topbar .homebtn { flex: 0 0 auto; }
 .bizgroup .foot.empty { font-size: 13px; padding: 4px 0 2px; }
+
+/* ---- Lisa's Table ---- */
+.searchbox { width: 100%; background: var(--btn); color: var(--text); border: 1px solid rgba(240,122,42,.35); border-radius: var(--radius);
+  font: 400 16px/1.2 'Inter', sans-serif; padding: 11px 12px; margin: 0 0 8px; outline: none; -webkit-appearance: none; }
+.searchbox:focus { border-color: var(--red); }
+.searchbox::placeholder { color: #777; }
+.mac { padding: 6px 8px; }
+.mac-head, .mac-row { display: grid; grid-template-columns: 1fr repeat(4, 50px); gap: 4px; align-items: center; }
+.mac-head { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; padding: 2px 2px 5px; border-bottom: 1px solid var(--line); }
+.mac-head span { text-align: center; }
+.mac-cat { font-family: 'Playfair Display', Georgia, serif; color: var(--red); font-weight: 700; font-size: 15px; padding: 10px 2px 3px; border-bottom: 1px solid rgba(240,122,42,.25); }
+.mac-row { padding: 6px 2px 5px; border-bottom: 1px solid var(--line); font-size: 12.5px; cursor: pointer; }
+.mac-row:active, .mac-row.open { background: rgba(240,122,42,.10); }
+.mac-name { font-weight: 600; font-size: 12.5px; line-height: 1.25; min-width: 0; }
+.mac-name small { display: block; font-weight: 400; color: var(--muted); font-size: 10.5px; margin-top: 1px; }
+.mac-detail { padding: 8px 8px 10px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.03); font-size: 12.5px; line-height: 1.5; color: #ddd; }
+.mac-detail[hidden] { display: none; }
+.mac-detail div { margin-top: 4px; }
+.mac-detail b { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px; margin-right: 4px; }
+.mac-detail a { color: var(--red); text-decoration: none; font-weight: 600; }
+.badge { display: inline-block; font: 700 10.5px/1 'Inter', sans-serif; color: #ffb74d; border: 1px solid rgba(255,183,77,.45);
+  background: rgba(255,183,77,.08); border-radius: 3px; padding: 4px 7px; letter-spacing: .3px; }
+.badge.ok { color: #7bd17f; border-color: rgba(123,209,127,.45); background: rgba(123,209,127,.08); }
+.sheetlink { display: block; text-align: center; margin: 10px 0 4px; }
