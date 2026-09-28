@@ -11,7 +11,8 @@
 
   var state = { weekOffset: 0, monthOffset: 0, links: null, logSeq: 0, spendSeq: 0,
     spendData: null, spendDataOff: null, spendRoute: { kind: '', val: '', acct: '' },
-    biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0 };
+    biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
+    docSeq: 0, docKey: '', proxyOff: false, folderCache: {}, docUrls: [], pdf: null, pdfObserver: null };
   var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend', 'biz', 'doc'];
 
   function $(id) { return document.getElementById(id); }
@@ -50,6 +51,20 @@
         if (j.error === 'locked') throw new Error('Too many wrong passcodes. Try again in 10 minutes.');
         if (j.error) throw new Error(j.message || ('Server error: ' + j.error));
         return j.data;
+      });
+  }
+  // Full JSON response (errors included) for actions that need error codes/data (file, folder).
+  function apiRaw(action, params) {
+    var url = API_URL + '?api=1&action=' + encodeURIComponent(action) + '&pc=' + encodeURIComponent(getPc()) + '&_=' + Date.now();
+    Object.keys(params || {}).forEach(function (k) { url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); });
+    return fetch(url, { method: 'GET', cache: 'no-store', credentials: 'omit', redirect: 'follow' })
+      .then(function (r) { if (!r.ok) throw new Error('Server returned ' + r.status); return r.text(); })
+      .then(function (t) {
+        var j;
+        try { j = JSON.parse(t); } catch (e) { throw new Error('Unexpected response from server.'); }
+        if (j.error === 'auth') throw new AuthError();
+        if (j.error === 'locked') throw new Error('Too many wrong passcodes. Try again in 10 minutes.');
+        return j;
       });
   }
   function friendly(err) {
@@ -111,7 +126,7 @@
       state.spendRoute = okKind ? { kind: R.kind, val: R.kind === 'all' ? '' : R.val, acct: R.kind === 'cat' ? R.acct : '' }
         : { kind: '', val: '', acct: '' };
     }
-    if (name !== 'doc') { state.docPushed = false; closeDoc(); }
+    if (name !== 'doc') { state.docPushed = false; state.docSeq++; closeDoc(); }
     activate(name);
     if (!fromHistory) {
       if (name === 'biz') state.bizSlug = R.kind;
@@ -124,7 +139,7 @@
     if (name === 'log') loadLog();
     if (name === 'spend') loadSpend(false);
     if (name === 'biz') { state.bizSlug = R.kind; loadBiz(); }
-    if (name === 'doc') openDocScreen(qparams(R.query));
+    if (name === 'doc') { state.docKey = String(route || '').replace(/^#/, ''); openDocScreen(qparams(R.query)); }
     else restoreScroll(String(route || '').replace(/^#/, '') || 'home');
   }
   function restoreScroll(key) {
@@ -140,7 +155,7 @@
     if (el) { e.preventDefault(); e.stopPropagation(); show(el.getAttribute('data-go')); return; }
     // Google Drive / Docs links open in the in-app viewer so "Back" returns to this screen.
     var a = e.target.closest('a[href]');
-    if (a && !a.hasAttribute('data-external') && !$('screen-doc').contains(a) && toEmbed(a.href)) {
+    if (a && !a.hasAttribute('data-external') && toEmbed(a.href)) {
       e.preventDefault(); e.stopPropagation();
       openDoc(a.href, a.getAttribute('data-title') || docTitleFrom(a));
     }
@@ -169,32 +184,208 @@
   }
   function openDoc(url, title) {
     var from = location.hash.slice(1) || 'home';
-    state.scrollMem[from] = window.scrollY || 0;
+    state.scrollMem[from] = $('screen-doc').classList.contains('active') ? $('doc-view').scrollTop : (window.scrollY || 0);
     state.docPushed = true;
     show('doc?u=' + encodeURIComponent(url) + '&t=' + encodeURIComponent(title || '') + '&from=' + encodeURIComponent(from));
   }
+  // Drive file/folder id from any Google link.
+  function driveRef(url) {
+    var u = String(url || ''), m;
+    if ((m = u.match(/\/folders\/([\w-]+)/))) return { id: m[1], folder: true };
+    if ((m = u.match(/\/d\/(?:e\/)?([\w-]+)/)) || (m = u.match(/[?&]id=([\w-]+)/))) return { id: m[1], folder: false };
+    return null;
+  }
+  function setZoomable(on) {
+    var vp = $('vp');
+    if (vp) vp.setAttribute('content', 'width=device-width,initial-scale=1,' + (on ? 'maximum-scale=5' : 'maximum-scale=1') + ',viewport-fit=cover');
+  }
   function openDocScreen(p) {
-    var url = p.u || '', src = toEmbed(url);
+    var url = p.u || '', ref = driveRef(url), seq = ++state.docSeq;
     state.docFrom = p.from || 'home';
     $('doc-title').textContent = p.t || 'Document';
     $('doc-open').href = url || '#';
-    var f = $('doc-frame');
-    if (!src) { f.removeAttribute('src'); $('doc-hint').hidden = false; return; }
-    if (f.getAttribute('src') !== src) {
-      // Fresh iframe per document so its first load never adds an entry to the app's history.
-      var nf = f.cloneNode(false);
-      nf.setAttribute('src', src);
-      f.parentNode.replaceChild(nf, f);
-    }
-    $('doc-hint').hidden = true;
+    closeDoc(true);
+    setZoomable(true);
+    if (!ref || state.proxyOff) return iframeFallback(url);
+    var cached = ref.folder && state.folderCache[ref.id];
+    if (cached) return renderFolder(cached);
+    docMessage('<div class="spinner"></div><div>Loading…</div>');
+    apiRaw(ref.folder ? 'folder' : 'file', { id: ref.id }).then(function (j) {
+      if (seq !== state.docSeq) return;
+      if (j.error === 'bad_action') { state.proxyOff = true; return iframeFallback(url); }   // API not deployed yet
+      if (j.error) return docError(j);
+      if (ref.folder) { state.folderCache[ref.id] = j.data; return renderFolder(j.data); }
+      renderFile(j.data, seq);
+    }, function (err) {
+      if (seq !== state.docSeq) return;
+      if (err instanceof AuthError) { setPc(''); return lock('Passcode changed. Enter the new one.'); }
+      docMessage(esc(friendly(err)) + '<div class="retry"><button class="navbtn" id="doc-retry">Try again</button></div>' + openBtn());
+      var b = $('doc-retry'); if (b) b.addEventListener('click', function () { openDocScreen(p); });
+    });
+  }
+  function openBtn() {
+    return '<div class="retry"><a class="navbtn doc-open-inline" target="_blank" rel="noopener" data-external href="' + esc($('doc-open').href) + '">Open in Drive &#8599;</a></div>';
+  }
+  function docMessage(html) {
+    $('doc-view').innerHTML = '<div class="doc-msg">' + html + '</div>';
+  }
+  function docError(j) {
+    var d = j.data || {}, m;
+    if (j.error === 'too_big') m = 'This file is too large to preview in the app' + (d.size ? ' (' + (d.size / 1048576).toFixed(1) + ' MB)' : '') + '.';
+    else if (j.error === 'unsupported') m = j.message || 'This file type can\u2019t be previewed in the app.';
+    else if (j.error === 'forbidden') m = 'This file isn\u2019t in the Second Brain, so the app won\u2019t show it.';
+    else if (j.error === 'not_found') m = 'File not found (it may have been moved or deleted).';
+    else m = j.message || ('Couldn\u2019t load this file (' + j.error + ').');
+    docMessage(esc(m) + openBtn());
+  }
+  function iframeFallback(url) {
+    var src = toEmbed(url), f = $('doc-frame');
+    $('doc-view').innerHTML = '';
+    $('doc-view').hidden = true;
+    if (!src) { f.hidden = true; $('doc-hint').hidden = false; return; }
+    var nf = f.cloneNode(false);            // fresh iframe so its first load never adds app history
+    nf.setAttribute('src', src);
+    nf.hidden = false;
+    f.parentNode.replaceChild(nf, f);
     clearTimeout(state.docTimer);
     state.docTimer = setTimeout(function () { $('doc-hint').hidden = false; }, 6000);
   }
-  function closeDoc() {
+  function fileKind(mime) {
+    if (mime === 'application/vnd.google-apps.folder') return 'DIR';
+    if (/google-apps\.document/.test(mime)) return 'DOC';
+    if (/google-apps\.spreadsheet/.test(mime)) return 'XLS';
+    if (/google-apps\.presentation/.test(mime)) return 'PPT';
+    return fileIcon(mime || '');
+  }
+  function renderFolder(d) {
+    var h = '<div class="folderview"><div class="foot">' + d.items.length + ' item' + (d.items.length === 1 ? '' : 's') + '</div>';
+    if (!d.items.length) h += '<div class="doc-msg">This folder is empty.</div>';
+    h += '<ul class="doclist folderlist">' + d.items.map(function (x) {
+      var href = x.folder ? 'https://drive.google.com/drive/folders/' + x.id : 'https://drive.google.com/file/d/' + x.id + '/view';
+      return '<li class="' + (x.folder ? 'isdir' : '') + '"><a href="' + esc(href) + '" data-title="' + esc(x.name) + '"><span class="ft">' +
+        fileKind(x.mime) + '</span>' + esc(x.name) + (x.folder ? ' <span class="chev">&rsaquo;</span>' : '') + '</a></li>';
+    }).join('') + '</ul></div>';
+    $('doc-view').innerHTML = h;
+    var y = state.scrollMem[state.docKey];
+    if (y != null) { delete state.scrollMem[state.docKey]; $('doc-view').scrollTop = y; }
+  }
+  function b64bytes(b64) {
+    var bin = atob(b64), n = bin.length, out = new Uint8Array(n);
+    for (var i = 0; i < n; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  function renderFile(d, seq) {
+    var mime = d.mime || '';
+    if (mime === 'application/pdf') return renderPdf(b64bytes(d.b64), seq);
+    if (mime.indexOf('image/') === 0) {
+      $('doc-view').innerHTML = '<div class="imgview"><img alt="" src="data:' + esc(mime) + ';base64,' + d.b64 + '"></div>';
+      return;
+    }
+    if (mime.indexOf('text/html') === 0) {
+      var fr = document.createElement('iframe');
+      fr.className = 'htmlview'; fr.setAttribute('sandbox', '');
+      fr.srcdoc = new TextDecoder('utf-8').decode(b64bytes(d.b64));
+      $('doc-view').innerHTML = ''; $('doc-view').appendChild(fr);
+      return;
+    }
+    if (mime.indexOf('text/') === 0) {
+      $('doc-view').innerHTML = '<pre class="textview">' + esc(new TextDecoder('utf-8').decode(b64bytes(d.b64))) + '</pre>';
+      return;
+    }
+    docError({ error: 'unsupported' });
+  }
+
+  // PDF.js (UMD build) loaded on first use.
+  var PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
+  var pdfjsReady = null;
+  function loadPdfJs() {
+    if (pdfjsReady) return pdfjsReady;
+    pdfjsReady = new Promise(function (res, rej) {
+      var sc = document.createElement('script');
+      sc.src = PDFJS + 'pdf.min.js';
+      sc.onload = function () { window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS + 'pdf.worker.min.js'; res(window.pdfjsLib); };
+      sc.onerror = function () { pdfjsReady = null; rej(new Error('Couldn\u2019t load the PDF viewer. Check your connection.')); };
+      document.head.appendChild(sc);
+    });
+    return pdfjsReady;
+  }
+  function renderPdf(bytes, seq) {
+    docMessage('<div class="spinner"></div><div>Opening PDF…</div>');
+    loadPdfJs().then(function (lib) { return lib.getDocument({ data: bytes }).promise; }).then(function (pdf) {
+      if (seq !== state.docSeq) { pdf.destroy(); return; }
+      state.pdf = pdf;
+      var view = $('doc-view');
+      view.innerHTML = '<div class="pdfview"><div class="foot pdfmeta">' + pdf.numPages + ' page' + (pdf.numPages === 1 ? '' : 's') +
+        ' · pinch to zoom</div></div>';
+      var wrap = view.firstChild, pages = [];
+      return pdf.getPage(1).then(function (p1) {
+        var vp1 = p1.getViewport({ scale: 1 });
+        for (var i = 1; i <= pdf.numPages; i++) {
+          var ph = document.createElement('div');
+          ph.className = 'pdfpage'; ph.setAttribute('data-page', i);
+          ph.style.aspectRatio = vp1.width + ' / ' + vp1.height;
+          wrap.appendChild(ph); pages.push(ph);
+        }
+        // Render pages near the viewport (keeps memory low on long PDFs).
+        var queue = Promise.resolve();
+        var io = new IntersectionObserver(function (ents) {
+          ents.forEach(function (en) {
+            if (!en.isIntersecting || en.target.getAttribute('data-done')) return;
+            en.target.setAttribute('data-done', '1');
+            io.unobserve(en.target);
+            queue = queue.then(function () { return renderPdfPage(pdf, en.target, seq); });
+          });
+        }, { root: view, rootMargin: '1500px 0px' });
+        state.pdfObserver = io;
+        pages.forEach(function (ph) { io.observe(ph); });
+      });
+    }).catch(function (err) {
+      if (seq !== state.docSeq) return;
+      docMessage(esc((err && err.message) || 'Couldn\u2019t open this PDF.') + openBtn());
+    });
+  }
+  function renderPdfPage(pdf, ph, seq) {
+    if (seq !== state.docSeq) return;
+    var n = Number(ph.getAttribute('data-page'));
+    return pdf.getPage(n).then(function (page) {
+      if (seq !== state.docSeq) return;
+      var vp1 = page.getViewport({ scale: 1 });
+      ph.style.aspectRatio = vp1.width + ' / ' + vp1.height;
+      // Render ~2x device width so pinch-zoom stays sharp, capped for iOS canvas limits.
+      var target = Math.min(2200, Math.max(900, ph.clientWidth * Math.min(window.devicePixelRatio || 1, 2) * 1.5));
+      var vp = page.getViewport({ scale: target / vp1.width });
+      var c = state.pdfCanvas || (state.pdfCanvas = document.createElement('canvas'));
+      c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+      var ctx = c.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+      return page.render({ canvasContext: ctx, viewport: vp }).promise.then(function () {
+        return new Promise(function (res) {
+          c.toBlob(function (blob) {
+            if (seq === state.docSeq && blob) {
+              var u = URL.createObjectURL(blob);
+              state.docUrls.push(u);
+              var img = new Image(); img.alt = 'Page ' + n; img.src = u;
+              ph.appendChild(img); ph.classList.add('done');
+            }
+            page.cleanup();
+            res();
+          }, 'image/jpeg', 0.86);
+        });
+      });
+    });
+  }
+  function closeDoc(keepZoom) {
     clearTimeout(state.docTimer);
     var f = $('doc-frame');
     if (f && f.getAttribute('src')) f.removeAttribute('src');
+    if (f) f.hidden = true;
     if ($('doc-hint')) $('doc-hint').hidden = true;
+    if ($('doc-view')) { $('doc-view').hidden = false; $('doc-view').innerHTML = ''; $('doc-view').scrollTop = 0; }
+    if (state.pdfObserver) { state.pdfObserver.disconnect(); state.pdfObserver = null; }
+    if (state.pdf) { try { state.pdf.destroy(); } catch (e) {} state.pdf = null; }
+    (state.docUrls || []).forEach(function (u) { URL.revokeObjectURL(u); });
+    state.docUrls = [];
+    if (!keepZoom) setZoomable(false);
   }
   // Back replaces the viewer's history entry with the originating screen instead of history.back():
   // Google's viewers can add their own entries inside the iframe, which would make history.back() stall.

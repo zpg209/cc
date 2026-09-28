@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="viewport" id="vp" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
 <title>Command Center</title>
 <meta name="apple-mobile-web-app-title" content="CC">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=9">
+<link rel="stylesheet" href="app.css?v=10">
 </head>
 <body>
   <div class="bg"></div>
@@ -78,10 +78,11 @@
     <div class="doc-bar">
       <button class="homebtn backbtn" id="doc-back">&lsaquo; Back</button>
       <div class="doc-title" id="doc-title">Document</div>
-      <a class="navbtn doc-open" id="doc-open" target="_blank" rel="noopener">Open in Drive &#8599;</a>
+      <a class="navbtn doc-open" id="doc-open" target="_blank" rel="noopener" data-external>Open in Drive &#8599;</a>
     </div>
     <div class="doc-wrap">
-      <iframe id="doc-frame" title="Document" allow="autoplay; fullscreen" referrerpolicy="no-referrer-when-downgrade"></iframe>
+      <div id="doc-view" class="doc-view"></div>
+      <iframe id="doc-frame" title="Document" allow="autoplay; fullscreen" referrerpolicy="no-referrer-when-downgrade" hidden></iframe>
       <div class="doc-hint" id="doc-hint" hidden>Not loading? Tap <b>Open in Drive</b>.</div>
     </div>
   </section>
@@ -108,6 +109,6 @@
     <div id="spend-body"><div class="loading">Loading…</div></div>
   </section>
 
-  <script src="app.js?v=9"></script>
+  <script src="app.js?v=10"></script>
 </body>
 </html>
