@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=15">
+<link rel="stylesheet" href="app.css?v=16">
 </head>
 <body>
   <div class="bg"></div>
@@ -57,6 +57,29 @@
     <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><h2>L&amp;S projects</h2></div>
     <p class="hint">Opens each project's Running Notes.</p>
     <div class="grid2" id="projects-list"></div>
+  </section>
+
+  <!-- ============ PROJECT PAGE (#proj/terravi) ============ -->
+  <section id="screen-proj" class="screen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" data-go="projects">&lsaquo; Back</button></div>
+    <h2 class="pagetitle" id="proj-title">Terra Vi</h2>
+    <div class="projbtns">
+      <button class="bigbtn" data-go="notes">&#127908; Running notes<span class="sub">Status · to do · done log · field notes by voice</span></button>
+      <a class="bigbtn alt" id="proj-doc" data-title="Terra Vi — Running Notes" href="#">Open the Running Notes Doc<span class="sub">Full Google Doc in the app</span></a>
+    </div>
+  </section>
+
+  <!-- ============ RUNNING NOTES (#notes) ============ -->
+  <section id="screen-notes" class="screen notes">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" data-go="proj/terravi">&lsaquo; Back</button><button class="homebtn refbtn" id="notes-refresh" aria-label="Refresh notes">&#8635;</button></div>
+    <h2 class="pagetitle">Terra Vi <span>&middot;</span> Running notes</h2>
+    <div id="notes-body"><div class="loading">Loading…</div></div>
+    <div class="micdock" id="micdock">
+      <div class="micinner">
+        <div class="micstate" id="mic-state">Tap the mic to dictate a note</div>
+        <button class="micbtn" id="mic-btn" aria-pressed="false" aria-label="Start dictation"><span class="micico" aria-hidden="true">&#127908;</span><span class="miclbl" id="mic-lbl">Tap to talk</span></button>
+      </div>
+    </div>
   </section>
 
   <!-- ============ LIFE AREAS ============ -->
@@ -121,6 +144,6 @@
     <div id="spend-body"><div class="loading">Loading…</div></div>
   </section>
 
-  <script src="app.js?v=15"></script>
+  <script src="app.js?v=16"></script>
 </body>
 </html>

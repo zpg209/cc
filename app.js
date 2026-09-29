@@ -14,7 +14,7 @@
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null };
-  var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend', 'biz', 'doc', 're', 'lt'];
+  var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -129,6 +129,7 @@
       state.spendRoute = okKind ? { kind: R.kind, val: R.kind === 'all' ? '' : R.val, acct: R.kind === 'cat' ? R.acct : '' }
         : { kind: '', val: '', acct: '' };
     }
+    if (name !== 'notes') micStop(true);
     if (name !== 'doc') { state.docPushed = false; state.docSeq++; closeDoc(); }
     activate(name);
     if (!fromHistory) {
@@ -136,6 +137,7 @@
       var h = name === 'home' ? '' : name === 'spend' ? spendHash(state.spendRoute) :
         name === 'biz' && R.kind ? '#biz/' + encodeURIComponent(R.kind) :
         name === 'doc' ? '#doc?' + R.query :
+        name === 'proj' ? '#proj/terravi' :
         name === 'lt' ? '#lt' + (R.kind ? '/' + encodeURIComponent(R.kind) : '') :
         name === 're' ? (state.reRoute.ins ? '#ins' : '#re' + (state.reRoute.slug ? '/' + encodeURIComponent(state.reRoute.slug) : '')) : '#' + name;
       if (location.hash !== h) history.pushState({ screen: name }, '', h || location.pathname + location.search);
@@ -145,6 +147,8 @@
     if (name === 'spend') loadSpend(false);
     if (name === 'biz') { state.bizSlug = R.kind; loadBiz(); }
     if (name === 're') loadRe();
+    if (name === 'proj') renderProj();
+    if (name === 'notes') openNotes();
     if (name === 'lt') { state.ltPart = LT_PARTS[R.kind] ? R.kind : ''; loadLt(); }
     if (name === 'doc') { state.docKey = String(route || '').replace(/^#/, ''); openDocScreen(qparams(R.query)); }
     else restoreScroll(String(route || '').replace(/^#/, '') || 'home');
@@ -466,6 +470,10 @@
   function renderLinks() {
     var d = state.links;
     $('projects-list').innerHTML = d.projects.map(function (p) {
+      if (/^terra vi$/i.test(p.name)) {
+        state.tvDocUrl = p.url;
+        return '<button class="tile small" data-go="proj/terravi">Terra Vi<span class="sub">Running notes</span></button>';
+      }
       return tile(p, p.kind === 'doc' ? 'Running notes' : p.kind === 'folder' ? 'Drive folder' : '');
     }).join('');
     $('life-list').innerHTML = d.lifeAreas.map(function (a) {
@@ -1091,6 +1099,265 @@
     state.ltOpen[id] = !state.ltOpen[id];
     r.classList.toggle('open', state.ltOpen[id]);
     if (det) det.hidden = !state.ltOpen[id];
+  });
+
+  /* ---------------- Terra Vi · Running notes (pilot) ---------------- */
+  var TV_DOC = 'https://docs.google.com/document/d/1YprGTVSb6kM83f0Enfk2bSf8rAsbKVV7vHwCm_qoDg8/edit';
+  var DRAFT_KEY = 'cc_note_draft_terravi';
+  var NOTE_MAX = 1500;
+  var MIC_NA = 'Live mic isn\u2019t available here \u2014 tap the text box and use your keyboard\u2019s mic key.';
+  var notes = { data: null, at: 0, seq: 0, open: {}, saving: false, savedMsg: '' };
+  var mic = { rec: null, on: false, base: '', committed: '', interim: '', errs: 0, lastStart: 0, timer: 0, wanted: false };
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+
+  function renderProj() {
+    $('proj-doc').href = state.tvDocUrl || TV_DOC;
+  }
+  function draftGet() { try { return localStorage.getItem(DRAFT_KEY) || ''; } catch (e) { return ''; } }
+  function draftSet(v) { try { v ? localStorage.setItem(DRAFT_KEY, v) : localStorage.removeItem(DRAFT_KEY); } catch (e) {} }
+
+  function openNotes() {
+    var first = !notes.data;
+    if (first) $('notes-body').innerHTML = '<div class="loading">Loading…</div>';
+    else renderNotes();
+    loadNotes(first || Date.now() - notes.at > 15000);
+    micUi();
+  }
+  function loadNotes(force) {
+    if (!force) return;
+    var seq = ++notes.seq;
+    apiRaw('notes', { project: 'terravi' }).then(function (j) {
+      if (seq !== notes.seq) return;
+      if (j.error === 'bad_action') { notes.data = null; return notesMsg('Running notes aren\u2019t available yet (server update pending).', true); }
+      if (j.error) throw new Error(j.message || ('Server error: ' + j.error));
+      notes.data = j.data; notes.at = Date.now();
+      renderNotes();
+    }).catch(function (err) {
+      if (seq !== notes.seq) return;
+      if (err instanceof AuthError) { setPc(''); return lock('Passcode changed. Enter the new one.'); }
+      if (notes.data) { flash(friendly(err), true); return; }
+      notesMsg(friendly(err), true);
+    });
+  }
+  function notesMsg(msg, withDoc) {
+    // Keep the draft box usable even when the notes can't load.
+    $('notes-body').innerHTML = '<div class="error">' + esc(msg) + '<div class="retry"><button class="navbtn" id="notes-retry">Try again</button></div>' +
+      (withDoc ? '<div class="retry"><a class="navbtn doc-open-inline" data-title="Terra Vi \u2014 Running Notes" href="' + esc(TV_DOC) + '">Open the Doc &rsaquo;</a></div>' : '') + '</div>' + draftCardHtml();
+    var b = $('notes-retry'); if (b) b.addEventListener('click', function () { openNotes(); loadNotes(true); });
+    bindDraft();
+  }
+  var flashT = 0;
+  function flash(msg, bad) {
+    var el = $('notes-flash');
+    if (!el) return;
+    el.textContent = msg; el.className = 'noteflash show' + (bad ? ' bad' : ''); el.hidden = false;
+    clearTimeout(flashT);
+    flashT = setTimeout(function () { el.className = 'noteflash'; el.hidden = true; }, 4500);
+  }
+
+  function draftCardHtml() {
+    var v = draftGet();
+    return '<div class="card draft" id="draft-card">' +
+      '<h3>New field note <span class="rec-tag" id="rec-tag" hidden>&#9679; Listening</span></h3>' +
+      '<textarea id="note-text" class="notebox" rows="4" maxlength="' + NOTE_MAX + '" autocapitalize="sentences" placeholder="Tap the mic below, or type here \u2014 the keyboard\u2019s mic key works too."></textarea>' +
+      '<div class="draftfoot"><span class="foot" id="note-count"></span><span class="foot" id="note-recovered" hidden>Recovered unsaved note</span></div>' +
+      '<div class="draftbtns"><button class="bigsave" id="note-save">Save to Doc</button><button class="navbtn discard" id="note-discard">Discard</button></div>' +
+      '<div class="noteflash" id="notes-flash" hidden></div></div>';
+  }
+  function bindDraft() {
+    var ta = $('note-text');
+    if (!ta) return;
+    var d = draftGet();
+    if (mic.on) ta.value = mic.base + mic.committed + mic.interim;
+    else if (d) { ta.value = d; $('note-recovered').hidden = false; }
+    ta.addEventListener('input', function () {
+      if (mic.on) { mic.base = ta.value; mic.committed = ''; mic.interim = ''; }
+      draftSet(ta.value); micUi();
+    });
+    $('note-save').addEventListener('click', saveNote);
+    $('note-discard').addEventListener('click', discardNote);
+    micUi();
+  }
+
+  function renderNotes() {
+    var d = notes.data;
+    if (!d) return;
+    var h = '';
+    // status card
+    h += '<div class="card statuscard"><h3>Status</h3>' + (d.status && d.status.length
+      ? d.status.map(function (t) { return '<p class="stat">' + esc(t) + '</p>'; }).join('')
+      : '<p class="stat dim">No status written yet.</p>') + '</div>';
+    h += draftCardHtml();
+    // to do
+    h += '<div class="card ncard' + (notes.open.todo === false ? '' : ' open') + '" data-nc="todo"><button class="nchead" aria-expanded="' + (notes.open.todo !== false) + '"><span>To do</span><b class="cnt">' +
+      (d.todo || []).length + '</b><i class="chev">&rsaquo;</i></button><div class="ncbody">' +
+      ((d.todo || []).length ? d.todo.map(function (t) { return '<div class="todorow">' + esc(t) + '</div>'; }).join('') : '<div class="todorow dim">Nothing on the list.</div>') + '</div></div>';
+    // done log
+    h += '<div class="secttl">Done log</div>';
+    (d.done || []).forEach(function (g, i) {
+      var key = 'd' + (g.date || 'other'), open = notes.open[key] === undefined ? i === 0 : notes.open[key];
+      var lab = g.date ? g.label + ' \u00b7 ' + g.date : 'Other';
+      h += '<div class="card ncard' + (open ? ' open' : '') + '" data-nc="' + esc(key) + '"><button class="nchead" aria-expanded="' + open + '"><span>' + esc(lab) + '</span><b class="cnt">' +
+        g.items.length + '</b><i class="chev">&rsaquo;</i></button><div class="ncbody">' +
+        g.items.map(function (x) {
+          return '<div class="donerow' + (x.kind === 'field' ? ' field' : '') + '">' + (x.time ? '<span class="tm">' + esc(x.time) + '</span>' : '') + esc(x.text) + '</div>';
+        }).join('') + '</div></div>';
+    });
+    if (!(d.done || []).length) h += '<div class="card"><p class="stat dim">No done-log entries found.</p></div>';
+    // raw fallback
+    var rawOpen = notes.open.raw === undefined ? !d.parsed : notes.open.raw;
+    h += '<div class="card ncard' + (rawOpen ? ' open' : '') + '" data-nc="raw"><button class="nchead" aria-expanded="' + rawOpen + '"><span>Raw text' + (d.parsed ? '' : ' (parsing incomplete)') + '</span><i class="chev">&rsaquo;</i></button><div class="ncbody"><pre class="rawtxt">' +
+      esc(d.raw || '') + '</pre></div></div>';
+    h += '<a class="linkrow" data-title="Terra Vi \u2014 Running Notes" href="' + esc(d.url || TV_DOC) + '">Open the full Doc &rsaquo;</a><div class="micpad"></div>';
+    $('notes-body').innerHTML = h;
+    bindDraft();
+  }
+  $('notes-body').addEventListener('click', function (e) {
+    var b = e.target.closest('.nchead');
+    if (!b) return;
+    var c = b.parentNode, key = c.getAttribute('data-nc'), open = !c.classList.contains('open');
+    c.classList.toggle('open', open); b.setAttribute('aria-expanded', open);
+    notes.open[key] = open;
+  });
+  $('notes-refresh').addEventListener('click', function () { loadNotes(true); });
+
+  function discardNote() {
+    micStop(true);
+    var ta = $('note-text'); if (ta) ta.value = '';
+    draftSet(''); mic.base = mic.committed = mic.interim = '';
+    var r = $('note-recovered'); if (r) r.hidden = true;
+    micUi();
+  }
+  function saveNote() {
+    if (notes.saving) return;
+    micStop(true);
+    var ta = $('note-text'), text = ta ? ta.value.replace(/\s+/g, ' ').trim() : '';
+    if (!text) return;
+    if (text.length > NOTE_MAX) return flash('That note is too long (max ' + NOTE_MAX + ' characters).', true);
+    notes.saving = true; micUi();
+    apiRaw('addnote', { project: 'terravi', text: text }).then(function (j) {
+      notes.saving = false;
+      if (j.error === 'bad_action') { micUi(); return flash('Saving isn\u2019t available yet (server update pending). Your note is kept on this phone.', true); }
+      if (j.error) { micUi(); return flash((j.message || 'Couldn\u2019t save (' + j.error + ').') + ' Your note is kept on this phone.', true); }
+      draftSet(''); mic.base = mic.committed = mic.interim = '';
+      notes.savedMsg = j.data && j.data.duplicate ? 'Already saved.' : 'Saved to the Doc \u2713';
+      notes.at = 0;
+      var seq = ++notes.seq;
+      apiRaw('notes', { project: 'terravi' }).then(function (r) {
+        if (seq !== notes.seq || r.error) { if (r.error) throw new Error(r.error); return; }
+        notes.data = r.data; notes.at = Date.now(); renderNotes(); flash(notes.savedMsg);
+      }).catch(function () { var t = $('note-text'); if (t) t.value = ''; micUi(); flash(notes.savedMsg + ' (refresh to see it)'); });
+    }, function (err) {
+      notes.saving = false; micUi();
+      if (err instanceof AuthError) { setPc(''); return lock('Passcode changed. Enter the new one.'); }
+      flash(friendly(err) + ' Your note is kept on this phone.', true);
+    });
+  }
+
+  /* ---- Mic (Web Speech API) ---- */
+  function micUi() {
+    var btn = $('mic-btn'); if (!btn) return;
+    var on = mic.on, ta = $('note-text'), has = !!(ta && ta.value.trim());
+    btn.classList.toggle('rec', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    btn.setAttribute('aria-label', on ? 'Stop dictation' : 'Start dictation');
+    $('mic-lbl').textContent = on ? 'Listening \u2014 tap to stop' : (has ? 'Tap to keep talking' : 'Tap to talk');
+    var st = $('mic-state'), extra = mic.msg;
+    st.className = 'micstate' + (on ? ' rec' : '') + (extra && !on ? ' warn' : '');
+    st.textContent = on ? 'Recording\u2026 speak your note' : (extra || (has ? 'Review the note, then Save or Discard' : 'Tap the mic to dictate a note'));
+    var tag = $('rec-tag'); if (tag) tag.hidden = !on;
+    var dc = $('draft-card'); if (dc) dc.classList.toggle('live', on);
+    var sv = $('note-save'), dsc = $('note-discard');
+    if (sv) { sv.disabled = !has || notes.saving; sv.textContent = notes.saving ? 'Saving\u2026' : 'Save to Doc'; }
+    if (dsc) dsc.disabled = !has && !on;
+    var cnt = $('note-count'); if (cnt) cnt.textContent = ta && ta.value.length ? ta.value.length + ' / ' + NOTE_MAX : '';
+  }
+  function micShow() {
+    var ta = $('note-text');
+    if (!ta) return;
+    ta.value = mic.base + mic.committed + mic.interim;
+    ta.scrollTop = ta.scrollHeight;
+    draftSet(ta.value);
+    var r = $('note-recovered'); if (r) r.hidden = true;
+    micUi();
+  }
+  function micSpace(a, b) { return a && b && !/\s$/.test(a) ? a + ' ' + b : a + b; }
+  function micFail(msg) {
+    mic.on = false; mic.wanted = false; mic.msg = msg;
+    clearTimeout(mic.timer);
+    try { mic.rec && mic.rec.abort(); } catch (e) {}
+    mic.rec = null;
+    micUi();
+    var ta = $('note-text'); if (ta) ta.focus();
+  }
+  function micStart() {
+    var ta = $('note-text');
+    if (!SR) { mic.msg = MIC_NA; micUi(); if (ta) ta.focus(); return; }
+    mic.msg = '';
+    mic.base = ta && ta.value ? ta.value.replace(/\s+$/, '') + ' ' : '';
+    mic.committed = ''; mic.interim = ''; mic.errs = 0;
+    var rec;
+    try { rec = new SR(); } catch (e) { return micFail(MIC_NA); }
+    rec.continuous = true; rec.interimResults = true; rec.lang = 'en-US'; rec.maxAlternatives = 1;
+    rec.onresult = function (ev) {
+      var interim = '';
+      for (var i = ev.resultIndex; i < ev.results.length; i++) {
+        var r = ev.results[i], t = r[0] ? r[0].transcript : '';
+        if (r.isFinal) mic.committed = micSpace(mic.committed, t.trim() + ' ');
+        else interim += (interim ? '' : '') + t;
+      }
+      mic.interim = interim.replace(/^\s+/, '');
+      mic.errs = 0;
+      micShow();
+    };
+    rec.onerror = function (ev) {
+      var e = ev && ev.error;
+      if (e === 'not-allowed' || e === 'service-not-allowed' || e === 'audio-capture' || e === 'language-not-supported') return micFail(MIC_NA);
+      if (e === 'network') return micFail('The speech service couldn\u2019t be reached. Tap the text box and use your keyboard\u2019s mic key.');
+      // no-speech / aborted: let onend restart it
+    };
+    rec.onend = function () {
+      mic.committed = micSpace(mic.committed, mic.interim ? mic.interim.trim() + ' ' : '');   // keep what was heard
+      mic.interim = '';
+      if (mic.rec !== rec) return;
+      if (mic.on && mic.wanted) {                 // browser ended it while still "on": restart
+        if (++mic.errs > 8) return micFail('Dictation keeps stopping. Tap the text box and use your keyboard\u2019s mic key.');
+        clearTimeout(mic.timer);
+        mic.timer = setTimeout(function () {
+          if (!(mic.on && mic.wanted) || mic.rec !== rec) return;
+          try { rec.start(); } catch (e) { micFail(MIC_NA); }
+        }, 250);
+        micShow();
+        return;
+      }
+      micShow();
+    };
+    mic.rec = rec; mic.on = true; mic.wanted = true;
+    try { rec.start(); } catch (e) { return micFail(MIC_NA); }
+    micUi();
+  }
+  function micStop(quiet) {
+    var was = mic.on;
+    mic.on = false; mic.wanted = false;
+    clearTimeout(mic.timer);
+    if (mic.rec) { try { mic.rec.stop(); } catch (e) {} }
+    var rec = mic.rec;
+    // Fold any interim text into the note, then drop the recognizer.
+    if (was) {
+      mic.committed = micSpace(mic.committed, mic.interim ? mic.interim.trim() + ' ' : '');
+      mic.interim = '';
+      micShow();
+    }
+    setTimeout(function () { if (mic.rec === rec && !mic.on) mic.rec = null; }, 400);
+    if (!quiet) micUi();
+  }
+  $('mic-btn').addEventListener('click', function () {
+    if (mic.on) micStop(); else micStart();
+  });
+  window.addEventListener('pagehide', function () { var t = $('note-text'); if (t && t.value) draftSet(t.value); });
+  document.addEventListener('visibilitychange', function () {
+    var t = $('note-text'); if (t && t.value) draftSet(t.value);
+    if (document.hidden && mic.on) micStop();
   });
 
   /* ---------------- Init ---------------- */

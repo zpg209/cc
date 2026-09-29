@@ -298,3 +298,81 @@ body { overscroll-behavior-y: none; }
 .totrow.hascash { padding-top: 5px; margin-top: 3px; }
 .sumline.minor.cash .amt { color: var(--copper); }
 .sumline.minor.cash span:first-child small { display: block; font-size: 10.5px; font-weight: 400; color: var(--muted); margin-top: 1px; }
+
+/* ---- Project page + Running notes (Terra Vi pilot) ---- */
+.pagetitle { font-family: 'Playfair Display', Georgia, serif; font-weight: 700; font-size: 28px; margin: 4px 2px 14px;
+  color: #F4A15A; background: linear-gradient(180deg,#FFC48A 0%,#F07A2A 60%,#B4501A 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.pagetitle span { opacity: .6; }
+.projbtns { display: grid; gap: 12px; }
+.bigbtn { display: flex; flex-direction: column; gap: 6px; align-items: center; justify-content: center; text-align: center; text-decoration: none; cursor: pointer;
+  background: var(--btn); color: var(--red); font: 700 22px/1.2 'Inter', sans-serif; min-height: 120px; padding: 16px;
+  border: 1px solid rgba(240,122,42,.28); border-radius: var(--radius); box-shadow: 0 8px 20px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,160,90,.08); }
+.bigbtn:active { background: var(--btn-press); transform: scale(.985); }
+.bigbtn .sub { color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: .4px; }
+.bigbtn.alt { min-height: 76px; font-size: 16px; }
+.refbtn { min-width: 44px; margin-left: auto; font-size: 20px; padding: 0 10px; }
+
+.screen.notes { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 150px); }
+.notes .card { padding: 12px 14px; }
+.notes .card h3 { font-size: 12px; }
+.statuscard { border-color: rgba(240,122,42,.35); }
+.stat { margin: 0 0 10px; font-size: 17px; line-height: 1.5; color: #f2f2f2; }
+.stat:last-child { margin-bottom: 0; }
+.stat.dim, .dim { color: var(--muted); }
+.secttl { font-family: 'Playfair Display', Georgia, serif; font-weight: 700; font-size: 22px; color: var(--red); margin: 18px 2px 8px; }
+
+.notebox { width: 100%; min-height: 110px; resize: vertical; background: var(--btn); color: var(--text); border: 1px solid rgba(240,122,42,.35);
+  border-radius: var(--radius); font: 400 17px/1.5 'Inter', sans-serif; padding: 12px; outline: none; -webkit-appearance: none; }
+.notebox:focus { border-color: var(--red); }
+.notebox::placeholder { color: #777; }
+.draft.live { border-color: var(--bad, #E5484D); box-shadow: 0 0 0 1px rgba(229,72,77,.4); }
+.draft.live .notebox { border-color: #E5484D; }
+.rec-tag { color: #E5484D; margin-left: 8px; letter-spacing: .5px; animation: blink 1.1s ease-in-out infinite; }
+@keyframes blink { 50% { opacity: .35; } }
+.draftfoot { display: flex; justify-content: space-between; min-height: 18px; margin: 4px 2px 8px; }
+.draftbtns { display: grid; grid-template-columns: 1fr auto; gap: 10px; }
+.bigsave { background: var(--btn); color: #3DBE6B; border: 1px solid rgba(61,190,107,.4); border-radius: var(--radius);
+  font: 700 18px/1 'Inter', sans-serif; min-height: 54px; cursor: pointer; }
+.bigsave:active { background: #0c1a10; }
+.bigsave:disabled, .discard:disabled { opacity: .35; pointer-events: none; }
+.discard { min-height: 54px; min-width: 110px; font-size: 16px; color: #E5484D; border-color: rgba(229,72,77,.4); }
+.noteflash { margin-top: 10px; padding: 10px 12px; border-radius: var(--radius); font-size: 14px; font-weight: 600; color: #3DBE6B;
+  border: 1px solid rgba(61,190,107,.35); background: rgba(61,190,107,.08); display: none; }
+.noteflash.show { display: block; }
+.noteflash.bad { color: #ff9a9d; border-color: rgba(229,72,77,.4); background: rgba(229,72,77,.08); }
+.noteflash[hidden] { display: none; }
+
+.ncard { padding: 0 !important; overflow: hidden; }
+.nchead { width: 100%; display: flex; align-items: center; gap: 10px; background: transparent; border: 0; color: var(--red);
+  font: 700 19px/1.2 'Playfair Display', Georgia, serif; text-align: left; padding: 15px 14px; min-height: 56px; cursor: pointer; }
+.nchead span { flex: 1 1 auto; }
+.nchead .cnt { font: 700 12px/1 'Inter', sans-serif; color: var(--muted); border: 1px solid var(--line); border-radius: 10px; padding: 4px 8px; }
+.nchead .chev { font-style: normal; font-size: 24px; line-height: 1; transition: transform .15s; }
+.ncard.open .chev { transform: rotate(90deg); }
+.ncbody { display: none; padding: 0 14px 12px; }
+.ncard.open .ncbody { display: block; }
+.todorow, .donerow { background: var(--btn); border: 1px solid rgba(240,122,42,.2); border-radius: var(--radius); padding: 13px 14px;
+  margin-top: 8px; font-size: 17px; line-height: 1.45; color: #f2f2f2; word-break: break-word; }
+.todorow { border-left: 3px solid var(--red); }
+.donerow { border-left: 3px solid rgba(240,122,42,.35); }
+.donerow.field { border-left-color: #3DBE6B; }
+.donerow .tm { display: block; font: 700 12px/1 'Inter', sans-serif; color: #3DBE6B; margin-bottom: 6px; letter-spacing: .3px; }
+.rawtxt { margin: 8px 0 0; white-space: pre-wrap; word-break: break-word; font: 12.5px/1.5 ui-monospace, Menlo, monospace; color: #cfcfcf; max-height: 50vh; overflow: auto; }
+.micpad { height: 8px; }
+
+.micdock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: none;
+  padding: 10px 14px calc(env(safe-area-inset-bottom, 0px) + 12px);
+  background: linear-gradient(180deg, rgba(42,42,42,0) 0%, rgba(28,28,28,.94) 30%, #1c1c1c 100%); }
+.screen.notes.active ~ .micdock, .screen.notes.active .micdock { display: block; }
+.micinner { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.micstate { text-align: center; font-size: 13px; color: var(--muted); min-height: 18px; }
+.micstate.rec { color: #E5484D; font-weight: 700; }
+.micstate.warn { color: #ffb74d; }
+.micbtn { display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%; min-height: 68px; cursor: pointer;
+  background: var(--btn); color: var(--red); border: 1px solid rgba(240,122,42,.4); border-radius: var(--radius);
+  font: 700 20px/1 'Inter', sans-serif; box-shadow: 0 8px 24px rgba(0,0,0,.6); }
+.micbtn .micico { font-size: 28px; }
+.micbtn:active { background: var(--btn-press); }
+.micbtn.rec { color: #fff; background: #E5484D; border-color: #E5484D; animation: micpulse 1.3s ease-out infinite; }
+@keyframes micpulse { 0% { box-shadow: 0 0 0 0 rgba(229,72,77,.65), 0 8px 24px rgba(0,0,0,.6); } 70% { box-shadow: 0 0 0 16px rgba(229,72,77,0), 0 8px 24px rgba(0,0,0,.6); } 100% { box-shadow: 0 0 0 0 rgba(229,72,77,0), 0 8px 24px rgba(0,0,0,.6); } }
+@media (min-width: 700px) { .stat, .todorow, .donerow { font-size: 18px; } }
