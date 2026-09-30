@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=16">
+<link rel="stylesheet" href="app.css?v=17">
 </head>
 <body>
   <div class="bg"></div>
@@ -49,6 +49,8 @@
       <button class="tile" data-go="life">Life areas</button>
       <button class="tile" data-go="log">Daily log</button>
       <button class="tile" data-go="spend">Vault</button>
+      <button class="tile" data-go="fin">Finances</button>
+      <button class="tile" data-go="insn">Insurance</button>
     </div>
   </section>
 
@@ -108,6 +110,20 @@
     <div id="lt-body"><div class="loading">Loading…</div></div>
   </section>
 
+  <!-- ============ FINANCES (#fin, #fin/overview|laundromat) ============ -->
+  <section id="screen-fin" class="screen fin">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="fin-back" data-go="home">&lsaquo; Back</button><button class="homebtn refbtn" id="fin-refresh" aria-label="Refresh" hidden>&#8635;</button></div>
+    <h2 class="pagetitle" id="fin-title">Finances</h2>
+    <div id="fin-body"><div class="loading">Loading…</div></div>
+  </section>
+
+  <!-- ============ INSURANCE RUNNING NOTES (#insn, #insn/<entity>) ============ -->
+  <section id="screen-insn" class="screen fin">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="insn-back" data-go="fin">&lsaquo; Back</button><button class="homebtn refbtn" id="insn-refresh" aria-label="Refresh">&#8635;</button></div>
+    <h2 class="pagetitle" id="insn-title">Insurance</h2>
+    <div id="insn-body"><div class="loading">Loading…</div></div>
+  </section>
+
   <!-- ============ IN-APP DOCUMENT VIEWER ============ -->
   <section id="screen-doc" class="screen docscreen">
     <div class="doc-bar">
@@ -144,6 +160,6 @@
     <div id="spend-body"><div class="loading">Loading…</div></div>
   </section>
 
-  <script src="app.js?v=16"></script>
+  <script src="app.js?v=17"></script>
 </body>
 </html>

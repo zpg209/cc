@@ -13,8 +13,8 @@
     spendData: null, spendDataOff: null, spendRoute: { kind: '', val: '', acct: '' },
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
-     folderCache: {}, docUrls: [], pdf: null, pdfObserver: null };
-  var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes'];
+     folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', insSlug: '' };
+  var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'fin', 'insn'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -129,6 +129,8 @@
       state.spendRoute = okKind ? { kind: R.kind, val: R.kind === 'all' ? '' : R.val, acct: R.kind === 'cat' ? R.acct : '' }
         : { kind: '', val: '', acct: '' };
     }
+    if (name === 'fin') state.finKind = (R.kind === 'overview' || R.kind === 'laundromat') ? R.kind : '';
+    if (name === 'insn') state.insSlug = R.kind || '';
     if (name !== 'notes') micStop(true);
     if (name !== 'doc') { state.docPushed = false; state.docSeq++; closeDoc(); }
     activate(name);
@@ -138,6 +140,8 @@
         name === 'biz' && R.kind ? '#biz/' + encodeURIComponent(R.kind) :
         name === 'doc' ? '#doc?' + R.query :
         name === 'proj' ? '#proj/terravi' :
+        name === 'fin' ? '#fin' + (state.finKind ? '/' + state.finKind : '') :
+        name === 'insn' ? '#insn' + (state.insSlug ? '/' + encodeURIComponent(state.insSlug) : '') :
         name === 'lt' ? '#lt' + (R.kind ? '/' + encodeURIComponent(R.kind) : '') :
         name === 're' ? (state.reRoute.ins ? '#ins' : '#re' + (state.reRoute.slug ? '/' + encodeURIComponent(state.reRoute.slug) : '')) : '#' + name;
       if (location.hash !== h) history.pushState({ screen: name }, '', h || location.pathname + location.search);
@@ -149,6 +153,8 @@
     if (name === 're') loadRe();
     if (name === 'proj') renderProj();
     if (name === 'notes') openNotes();
+    if (name === 'fin') loadFin(false);
+    if (name === 'insn') loadInsn(false);
     if (name === 'lt') { state.ltPart = LT_PARTS[R.kind] ? R.kind : ''; loadLt(); }
     if (name === 'doc') { state.docKey = String(route || '').replace(/^#/, ''); openDocScreen(qparams(R.query)); }
     else restoreScroll(String(route || '').replace(/^#/, '') || 'home');
@@ -479,7 +485,8 @@
     $('life-list').innerHTML = d.lifeAreas.map(function (a) {
       if (/^real estate$/i.test(a.name)) { state.reFolderUrl = a.url; return '<button class="tile small" data-go="re">' + esc(a.name) + '<span class="sub">3 properties</span></button>'; }
       if (/^lisa.s table$/i.test(a.name)) { state.ltFolderUrl = a.url; return '<button class="tile small" data-go="lt">' + esc(a.name) + '<span class="sub">Menus · recipes · macros</span></button>'; }
-      if (/^insurance$/i.test(a.name)) { state.insFolderUrl = a.url; return '<button class="tile small" data-go="ins">' + esc(a.name) + '</button>'; }
+      if (/^insurance$/i.test(a.name)) { state.insFolderUrl = a.url; return '<button class="tile small" data-go="insn">' + esc(a.name) + '<span class="sub">Policies · renewals · to do</span></button>'; }
+      if (/^financial$/i.test(a.name)) { state.finFolderUrl = a.url; return '<button class="tile small" data-go="fin">Finances<span class="sub">Overview · laundromat</span></button>'; }
       if (/^business$/i.test(a.name)) { state.bizFolderUrl = a.url; return '<button class="tile small" data-go="biz">' + esc(a.name) + '<span class="sub">3 businesses</span></button>'; }
       return tile(a, '');
     }).join('');
@@ -1359,6 +1366,397 @@
     var t = $('note-text'); if (t && t.value) draftSet(t.value);
     if (document.hidden && mic.on) micStop();
   });
+
+
+  /* ---------------- Finances (Overview / Laundromat) + Insurance notes ---------------- */
+  // Phone screens built from the Finances / Insurance working Docs. ALL figures come from the
+  // passcode-protected API (action=fin&page=overview|laundromat|insurance) at request time.
+  // Nothing financial is stored in this file or in the public repo.
+  var FIN_TTL = 60000;
+  var FIN_PAGES = {
+    overview:   { label: 'Overview',   sub: 'Net worth · cash flow · debt' },
+    laundromat: { label: 'Laundromat', sub: 'TiwiK · revenue · loan · payoff' }
+  };
+  var INS_ORDER = ['personal', 'wetumka', 'monoway', 'tiwik', 'kiwit', 'sierra', 'stewart'];
+  var INS_LABEL = { personal: 'Personal & Autos', wetumka: 'Wetumka', monoway: 'Mono Way', tiwik: 'TiwiK', kiwit: 'KiwiT', sierra: 'Sierra Consultants', stewart: 'Stewart Street' };
+  var fin = { cache: {}, seq: 0, open: {}, tdOpen: {} };
+
+  function finApi(page, force, done) {
+    var c = fin.cache[page];
+    if (c && !force && Date.now() - c.at < FIN_TTL) return done(null, c.data, false);
+    var seq = ++fin.seq;
+    apiRaw('fin', { page: page }).then(function (j) {
+      if (j.error === 'bad_action' || j.error === 'bad_page') return done({ na: true });
+      if (j.error) return done(new Error(j.message || ('Server error: ' + j.error)));
+      fin.cache[page] = { data: j.data, at: Date.now() };
+      done(null, j.data, true, seq);
+    }).catch(function (err) { done(err); });
+  }
+  function finNA(boxId, what) {
+    var link = '';
+    if (state.links) (state.links.lifeAreas || []).forEach(function (a) { if (/^financial$/i.test(a.name) && a.url) link = a.url; });
+    $(boxId).innerHTML = '<div class="loading">' + esc(what) + ' isn\u2019t available yet (server update pending).</div>' +
+      '<div class="retry" style="text-align:center"><button class="navbtn" data-fin-retry>Try again</button></div>' +
+      (link ? '<a class="linkrow" data-title="Finances" href="' + esc(link) + '">Open Finances folder &rsaquo;</a>' : '');
+  }
+  function finFail(boxId, what, retry) {
+    return function (err, data) {
+      if (!err) return;
+      if (err.na) return finNA(boxId, what);
+      if (err instanceof AuthError) { setPc(''); return lock('Passcode changed. Enter the new one.'); }
+      onFail([boxId], retry)(err);
+    };
+  }
+
+  // ---- shared bits ----
+  function moneyNum(s) {
+    var m = String(s == null ? '' : s).match(/^\s*(-|\u2212)?\s*\$\s*([\d,]+(?:\.\d+)?)/);
+    return m ? (m[1] ? -1 : 1) * Number(m[2].replace(/,/g, '')) : null;
+  }
+  function isMoneyCell(s) { return /^\s*[-\u2212]?\s*\$\s*[\d,]+(\.\d+)?(\s*\/\s*(year|month|yr|mo))?\s*$/i.test(String(s || '')); }
+  function moneyCls(s, label) {
+    if (!isMoneyCell(s)) return '';
+    var n = moneyNum(s);
+    if (n < 0) return ' neg';
+    if (n > 0 && /cash flow|net|revenue|income|rent|equity|saved/i.test(label || '')) return ' pos';
+    return '';
+  }
+  function cardOpen(key, dflt) { return fin.open[key] === undefined ? dflt : fin.open[key]; }
+  function collCard(key, title, count, inner, dflt, cls) {
+    var open = cardOpen(key, !!dflt);
+    return '<div class="card ncard fxcard' + (open ? ' open' : '') + (cls ? ' ' + cls : '') + '" data-nc="' + esc(key) + '"><button class="nchead" aria-expanded="' + open + '"><span>' + esc(title) +
+      '</span>' + (count != null ? '<b class="cnt">' + count + '</b>' : '') + '<i class="chev">&rsaquo;</i></button><div class="ncbody">' + inner + '</div></div>';
+  }
+  function sumCard(label, val, cls, sub) {
+    return '<div class="fxsum ' + (cls || '') + '"><div class="fxl">' + esc(label) + '</div><div class="fxv">' + esc(val) + '</div>' + (sub ? '<div class="fxs">' + esc(sub) + '</div>' : '') + '</div>';
+  }
+  function absMoney(s) { var n = moneyNum(s); if (n === null) return String(s || '\u2014'); return (n < 0 ? '\u2212' : '') + '$' + Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: /\.\d/.test(s) ? 2 : 0 }); }
+  function paraHtml(t) { return '<p class="fxp">' + esc(t) + '</p>'; }
+  function statusCard(status) {
+    return '<div class="card statuscard"><h3>Status</h3>' + (status && status.length
+      ? status.map(function (t) { return '<p class="stat">' + esc(t) + '</p>'; }).join('')
+      : '<p class="stat dim">No status written yet.</p>') + '</div>';
+  }
+
+  // A doc table -> stacked cards (never a wide table).
+  function tableCards(t) {
+    var head = t.header || [], rows = t.rows || [];
+    if (!rows.length) return '';
+    var short = rows.every(function (r) { return r.slice(1).every(function (c) { return String(c || '').length <= 26; }); });
+    var h = '<div class="fxtbl' + (short ? ' short' : '') + '">';
+    if (head.length > 1 && (head[0] || '').length) h += '<div class="fxth">' + esc(head[0]) + ' \u00b7 ' + esc(head.slice(1).join(' / ')) + '</div>';
+    rows.forEach(function (r) {
+      var title = r[0] || '', rest = r.slice(1), isTot = /^(total|net from|average|estimated net|cash flow after|cash flow before)/i.test(title);
+      var onlyTitle = !rest.some(function (c) { return String(c || '').trim(); });
+      if (onlyTitle) { h += '<div class="fxgrp">' + esc(title) + '</div>'; return; }
+      if (short) {
+        h += '<div class="fxrow' + (isTot ? ' tot' : '') + '"><div class="fxrt">' + esc(title) + '</div><div class="fxcells">';
+        rest.forEach(function (c, i) {
+          h += '<div class="fxc' + moneyCls(c, title + ' ' + (head[i + 1] || '')) + '">' + (head.length > 2 ? '<small>' + esc(head[i + 1] || '') + '</small>' : '') + esc(c || '\u2014') + '</div>';
+        });
+        h += '</div></div>';
+      } else {
+        h += '<div class="fxrec"><div class="fxrt">' + esc(title) + '</div>';
+        rest.forEach(function (c, i) {
+          if (!String(c || '').trim() || c === '-') return;
+          h += '<div class="fxkv"><b>' + esc(head[i + 1] || '') + '</b><span class="' + moneyCls(c, head[i + 1] || '').trim() + '">' + esc(c) + '</span></div>';
+        });
+        h += '</div>';
+      }
+    });
+    return h + '</div>';
+  }
+  function sectionInner(sec, skip) {
+    var h = '';
+    (sec.blocks || []).forEach(function (b) {
+      if (b.k === 'h') h += '<div class="fxh3">' + esc(b.text) + '</div>';
+      else if (b.k === 'p') h += paraHtml(b.text);
+      else if (b.k === 'li') h += '<div class="fxli">' + esc(b.text) + '</div>';
+      else if (b.k === 'tbl') { if (!(skip && skip(b))) h += tableCards(b); }
+    });
+    return h;
+  }
+  function todoRest(t) {
+    var x = t.text || '';
+    if (t.lead && x.indexOf(t.lead) === 0) x = x.slice(t.lead.length).replace(/^[\s:;.\-\u2013\u2014]+/, '');
+    return x;
+  }
+  function fmtDate(iso) {
+    var m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return '';
+    return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  function daysTo(iso) {
+    var m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return null;
+    var t = new Date(); t = new Date(t.getFullYear(), t.getMonth(), t.getDate());
+    return Math.round((new Date(+m[1], +m[2] - 1, +m[3]) - t) / 86400000);
+  }
+  function dueChip(iso) {
+    var d = daysTo(iso);
+    if (d === null) return '';
+    var cls = d < 0 ? 'past' : d <= 30 ? 'soon' : d <= 90 ? 'mid' : '';
+    var lab = d < 0 ? Math.abs(d) + ' d ago' : d === 0 ? 'today' : d + ' d';
+    return '<span class="fxdue ' + cls + '">' + esc(fmtDate(iso)) + ' \u00b7 ' + lab + '</span>';
+  }
+  function todoRows(list, key) {
+    if (!list.length) return '<div class="todorow dim">Nothing on the list.</div>';
+    return list.map(function (t, i) {
+      var k = key + i, rest = todoRest(t), head = t.lead || (rest.length > 110 ? rest.slice(0, 107) + '\u2026' : rest), hasMore = !!t.lead ? !!rest : rest.length > 110;
+      var open = !!fin.tdOpen[k];
+      return '<div class="todorow fxtd' + (t.done ? ' isdone' : '') + (open ? ' open' : '') + (hasMore ? ' more' : '') + '" data-td="' + esc(k) + '">' +
+        '<div class="fxtdh">' + (t.done ? '<i class="fxck">\u2713</i>' : '') + '<span>' + esc(head) + '</span></div>' +
+        (t.date && !t.done ? '<div>' + dueChip(t.date) + '</div>' : '') +
+        (hasMore ? '<div class="fxtdb">' + esc(t.lead ? rest : t.text) + '</div><div class="fxmore">' + (open ? 'Less' : 'More') + '</div>' : '') + '</div>';
+    }).join('');
+  }
+  function todoCards(todo, keyBase) {
+    var open = [], done = [];
+    todo.forEach(function (t) { (t.done ? done : open).push(t); });
+    var h = collCard(keyBase + 'todo', 'To do', open.length, todoRows(open, keyBase + 'o'), true);
+    if (done.length) h += collCard(keyBase + 'res', 'Resolved', done.length, todoRows(done, keyBase + 'r'), false, 'resolved');
+    return h;
+  }
+  function simpleList(items, cls) {
+    return items.length ? items.map(function (t) { return '<div class="donerow ' + (cls || '') + '">' + esc(t) + '</div>'; }).join('') : '<div class="donerow dim">Nothing here yet.</div>';
+  }
+  function doneCard(done, key) {
+    if (!done || !done.length) return '';
+    return collCard(key + 'done', 'Done log', done.length, done.map(function (x) {
+      return '<div class="donerow">' + (x.date ? '<span class="tm">' + esc(fmtDate(x.date) || x.date) + '</span>' : '') + esc(x.text) + '</div>';
+    }).join(''), false);
+  }
+  function notesCard(notes, key) {
+    var n = 0;
+    (notes || []).forEach(function (g) { n += g.items.length; });
+    if (!n) return '';
+    return collCard(key + 'notes', 'Notes', n, notes.map(function (g) {
+      return (g.date ? '<div class="fxh3">' + esc(g.date) + '</div>' : '') + g.items.map(function (t) { return '<div class="donerow">' + esc(t) + '</div>'; }).join('');
+    }).join(''), false);
+  }
+  function docLink(d) { return '<a class="linkrow" data-title="' + esc(d.title || 'Document') + '" href="' + esc(d.url) + '">Open the full Doc &rsaquo;</a>'; }
+  function updatedLine(d) {
+    if (!d.updated) return '';
+    var t = new Date(d.updated);
+    return isNaN(t) ? '' : '<div class="foot fxupd">Doc updated ' + esc(t.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })) + '</div>';
+  }
+  function bindFin(boxId) {
+    var box = $(boxId);
+    if (box._fxBound) return; box._fxBound = true;
+    box.addEventListener('click', function (e) {
+      var b = e.target.closest('.nchead');
+      if (b) {
+        var c = b.parentNode, key = c.getAttribute('data-nc'), open = !c.classList.contains('open');
+        c.classList.toggle('open', open); b.setAttribute('aria-expanded', open); fin.open[key] = open; return;
+      }
+      var td = e.target.closest('.fxtd.more');
+      if (td) {
+        var k = td.getAttribute('data-td'), o = !td.classList.contains('open');
+        td.classList.toggle('open', o); fin.tdOpen[k] = o;
+        var m = td.querySelector('.fxmore'); if (m) m.textContent = o ? 'Less' : 'More';
+        return;
+      }
+      if (e.target.closest('[data-fin-retry]')) { if (boxId === 'fin-body') loadFin(true); else loadInsn(true); }
+    });
+  }
+  bindFin('fin-body'); bindFin('insn-body');
+  $('fin-refresh').addEventListener('click', function () { loadFin(true); });
+  $('insn-refresh').addEventListener('click', function () { loadInsn(true); });
+
+  // ---- Finances hub / Overview / Laundromat ----
+  function loadFin(force) {
+    var kind = state.finKind;
+    $('fin-back').setAttribute('data-go', kind ? 'fin' : 'home');
+    $('fin-back').hidden = !kind;
+    $('fin-refresh').hidden = !kind;
+    $('fin-title').textContent = kind ? FIN_PAGES[kind].label : 'Finances';
+    $('fin-title').classList.toggle('sub', !!kind);
+    if (!kind) return renderFinHub();
+    var cached = fin.cache[kind];
+    if (cached) renderFin(kind, cached.data);
+    else $('fin-body').innerHTML = '<div class="loading">Loading…</div>';
+    if (cached && !force && Date.now() - cached.at < FIN_TTL) return;
+    var want = kind;
+    finApi(kind, true, function (err, data) {
+      if (state.finKind !== want) return;
+      if (!err) return renderFin(want, data);
+      if (cached) return;   // keep showing the cached copy
+      finFail('fin-body', FIN_PAGES[want].label, function () { loadFin(true); })(err);
+    });
+  }
+  function renderFinHub() {
+    var h = '<div class="projbtns">';
+    ['overview', 'laundromat'].forEach(function (k) {
+      h += '<button class="bigbtn" data-go="fin/' + k + '">' + esc(FIN_PAGES[k].label) + '<span class="sub">' + esc(FIN_PAGES[k].sub) + '</span></button>';
+    });
+    h += '<button class="bigbtn" data-go="insn">Insurance<span class="sub">Policies · renewals · to do by entity</span></button></div>';
+    var link = '';
+    if (state.links) (state.links.lifeAreas || []).forEach(function (a) { if (/^financial$/i.test(a.name) && a.url) link = a.url; });
+    if (link) h += '<a class="linkrow" data-title="Finances" href="' + esc(link) + '">Open Finances folder &rsaquo;</a>';
+    $('fin-body').innerHTML = h;
+    if (!state.links) api('links').then(function (d) { state.links = d; if (state.finKind === '' && $('screen-fin').classList.contains('active')) renderFinHub(); }, function () {});
+  }
+  function renderFin(kind, d) {
+    if (state.finKind !== kind) return;
+    var h = '';
+    if (kind === 'overview') h = overviewHtml(d); else h = laundromatHtml(d);
+    $('fin-body').innerHTML = h + docLink(d) + updatedLine(d);
+  }
+  function overviewHtml(d) {
+    var s = d.summary || {}, h = '';
+    var flow = s.cashFlowYear, fneg = flow && flow.num < 0;
+    h += '<div class="fxgrid">';
+    h += sumCard('Assets', s.assets ? absMoney(s.assets.value) : '\u2014', '');
+    h += sumCard('Debt', s.debt ? absMoney(s.debt.value) : '\u2014', 'neg');
+    h += sumCard('Net worth', s.netWorth ? absMoney(s.netWorth.value) : '\u2014', s.netWorth && s.netWorth.num < 0 ? 'neg' : 'pos', 'assets \u2212 debt');
+    h += sumCard('Cash flow / yr', flow ? absMoney(flow.value.replace(/\s*\/.*$/, '')) : '\u2014', fneg ? 'neg' : 'pos', s.cashFlowMonth ? s.cashFlowMonth.value.replace(/\s*\/.*$/, '') + ' / mo' : '');
+    h += '</div>';
+    h += '<div class="fxgrid three">';
+    if (s.cash) h += sumCard('Cash', absMoney(s.cash.value), 'mini');
+    if (s.heloc) h += sumCard('Unused HELOC', absMoney(s.heloc.value), 'mini', 'not in debt');
+    h += '</div>';
+    if (s.updated) h += '<div class="fxnote"><b>Newer basis</b> (from loan documents, calculated): debt ' + esc(s.updated.debt) + ' \u00b7 net worth ' + esc(s.updated.netWorth) + '. Table figures above are as the sheet has them.</div>';
+    h += statusCard(d.status);
+    h += todoCards(d.todo || [], 'ov');
+    (d.sections || []).forEach(function (sec, i) {
+      var inner = sectionInner(sec), n = (sec.blocks || []).filter(function (b) { return b.k === 'tbl'; }).length;
+      if (!inner) return;
+      h += collCard('ovs' + i, sec.title, n ? n + (n === 1 ? ' table' : ' tables') : null, inner, false);
+    });
+    if ((d.questions || []).length) h += collCard('ovq', 'Questions', d.questions.length, simpleList(d.questions), false);
+    h += notesCard(d.notes, 'ov') + doneCard(d.done, 'ov');
+    return h;
+  }
+  function laundromatHtml(d) {
+    var s = d.summary || {}, h = '';
+    var after = s.afterDebt, aneg = after && after.monthNum < 0;
+    var pick = function (r, k) { return r ? absMoney(r[k]) : '\u2014'; };
+    h += '<div class="fxgrid">';
+    h += sumCard('Revenue / mo', pick(s.revenue, 'month'), 'pos', s.revenue ? pick(s.revenue, 'year') + ' / yr' : '');
+    h += sumCard('Before debt / mo', pick(s.beforeDebt, 'month'), s.beforeDebt && s.beforeDebt.monthNum < 0 ? 'neg' : 'pos', s.beforeDebt ? pick(s.beforeDebt, 'year') + ' / yr' : '');
+    h += sumCard('Equipment pmt / mo', s.payment ? absMoney(s.payment.month) : '\u2014', 'neg', s.payment ? absMoney(s.payment.year) + ' / yr (sheet)' : '');
+    h += sumCard('Cash flow / mo', pick(after, 'month'), aneg ? 'neg' : 'pos', after ? pick(after, 'year') + ' / yr after debt' : '');
+    h += '</div>';
+    h += statusCard(d.status);
+    if (s.loan && s.loan.rows.length) {
+      h += collCard('ldloan', 'Loan terms', s.loan.rows.length, loanCards(s.loan), true);
+    }
+    if (s.payoff && s.payoff.rows.length) {
+      h += collCard('ldpay', 'Payoff options', s.payoff.rows.length, tableCards(s.payoff), false);
+    }
+    h += todoCards(d.todo || [], 'ld');
+    var isLoan = function (b) { return s.loan && b.header && b.header[1] === s.loan.header[1] && b.header[0] === s.loan.header[0]; };
+    var isPay = function (b) { return s.payoff && b.header && b.header[0] === s.payoff.header[0] && b.header.length === s.payoff.header.length; };
+    (d.sections || []).forEach(function (sec, i) {
+      var inner = sectionInner(sec, function (b) { return isLoan(b) || isPay(b); }), n = (sec.blocks || []).filter(function (b) { return b.k === 'tbl' && !isLoan(b) && !isPay(b); }).length;
+      if (!inner) return;
+      h += collCard('lds' + i, sec.title, n ? n + (n === 1 ? ' table' : ' tables') : null, inner, false);
+    });
+    if ((d.questions || []).length) h += collCard('ldq', 'Questions', d.questions.length, simpleList(d.questions), false);
+    h += notesCard(d.notes, 'ld') + doneCard(d.done, 'ld');
+    return h;
+  }
+  function loanCards(t) {
+    var st = t.header.length - 1;   // last column = status
+    return '<div class="fxtbl">' + t.rows.map(function (r) {
+      var status = r[st] && st > 1 ? r[st] : '';
+      return '<div class="fxrec"><div class="fxrt">' + esc(r[0]) + (status ? ' <span class="badge' + (/^(matches|consistent|resolved|confirmed|schedule ties)/i.test(status) ? ' ok' : '') + '">' + esc(status) + '</span>' : '') + '</div>' +
+        '<div class="fxloanv">' + esc(r[1] || '') + '</div></div>';
+    }).join('') + '</div>';
+  }
+
+  // ---- Insurance running notes ----
+  function insEnts(d) {
+    var ents = (d.entities || []).slice();
+    ents.sort(function (a, b) {
+      var ia = INS_ORDER.indexOf(a.slug), ib = INS_ORDER.indexOf(b.slug);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+    return ents;
+  }
+  function insLabel(e) { return INS_LABEL[e.slug] || e.name; }
+  function nextRenewal(e) {
+    var best = '', bd = null;
+    e.policies.forEach(function (p) { var dd = daysTo(p.renewal); if (dd !== null && dd >= 0 && (bd === null || dd < bd)) { bd = dd; best = p.renewal; } });
+    return best;
+  }
+  function loadInsn(force) {
+    var slug = state.insSlug;
+    $('insn-back').setAttribute('data-go', slug ? 'insn' : 'fin');
+    $('insn-title').classList.toggle('sub', !!slug);
+    if (!slug) $('insn-title').textContent = 'Insurance';
+    var cached = fin.cache.insurance;
+    if (cached) renderInsn(cached.data);
+    else $('insn-body').innerHTML = '<div class="loading">Loading…</div>';
+    if (cached && !force && Date.now() - cached.at < FIN_TTL) return;
+    finApi('insurance', true, function (err, data) {
+      if (!err) return renderInsn(data);
+      if (cached) return;
+      finFail('insn-body', 'Insurance notes', function () { loadInsn(true); })(err);
+    });
+  }
+  function keyDates(ents, only) {
+    var rows = [];
+    ents.forEach(function (e) {
+      if (only && e.slug !== only) return;
+      e.policies.forEach(function (p) {
+        if (p.renewal) rows.push({ date: p.renewal, label: p.carrier.replace(/\s*\(.*$/, '') + ' \u2014 ' + (p.type || '').replace(/\s*[\(\.;].*$/, '').slice(0, 60), who: insLabel(e), kind: 'Renewal' });
+      });
+    });
+    return rows;
+  }
+  function renderInsn(d) {
+    var ents = insEnts(d), slug = state.insSlug, e = slug && ents.filter(function (x) { return x.slug === slug; })[0], h = '';
+    if (!e) {
+      $('insn-title').textContent = 'Insurance'; $('insn-title').classList.remove('sub');
+      $('insn-back').setAttribute('data-go', 'fin');
+      h += statusCard(d.status);
+      h += '<div class="grid2 biz-grid">' + ents.map(function (x) {
+        var nr = nextRenewal(x), nt = (d.todo || []).filter(function (t) { return !t.done && t.entities && t.entities.indexOf(x.slug) >= 0; }).length;
+        return '<button class="tile biz-tile" data-go="insn/' + esc(x.slug) + '">' + esc(insLabel(x)) +
+          '<span class="sub cnt">' + (x.policies.length ? x.policies.length + ' polic' + (x.policies.length === 1 ? 'y' : 'ies') : 'No policy') + (nt ? ' \u00b7 ' + nt + ' to do' : '') + '</span>' +
+          (nr ? '<span class="sub">Next: ' + esc(fmtDate(nr)) + '</span>' : '') + '</button>';
+      }).join('') + '</div>';
+      var upcoming = (d.todo || []).filter(function (t) { return !t.done && t.date; }).sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+      h += collCard('insdates', 'Key dates', upcoming.length, upcoming.length ? upcoming.map(function (t) {
+        return '<div class="fxkd">' + dueChip(t.date) + '<div>' + esc(t.lead || todoRest(t)) + (t.entities && t.entities.length ? '<small>' + t.entities.map(function (s) { return esc(INS_LABEL[s] || s); }).join(' \u00b7 ') + '</small>' : '') + '</div></div>';
+      }).join('') : '<div class="donerow dim">No dated items.</div>', true);
+      h += todoCards(d.todo || [], 'ins');
+      h += doneCard(d.done, 'ins') + notesCard(d.notes, 'ins');
+      h += '<a class="linkrow" data-go="ins">Policy documents in Drive &rsaquo;</a>' + docLink(d) + updatedLine(d);
+      $('insn-body').innerHTML = h;
+      return;
+    }
+    $('insn-title').textContent = insLabel(e); $('insn-title').classList.add('sub');
+    $('insn-back').setAttribute('data-go', 'insn');
+    if (e.blurb && e.blurb.length) h += '<div class="card statuscard"><h3>' + esc(e.full || e.name) + '</h3>' + e.blurb.map(function (t) { return '<p class="stat">' + esc(t) + '</p>'; }).join('') + '</div>';
+    else if (e.full && e.full !== e.name) h += '<div class="hint">' + esc(e.full) + '</div>';
+    if (e.noPolicy) h += '<div class="card"><h3>Policies</h3><p class="stat">' + esc(e.noPolicy) + '</p></div>';
+    e.policies.forEach(function (p, i) {
+      var key = 'pol' + e.slug + i, open = cardOpen(key, false);
+      h += '<div class="card fxpol">' +
+        '<div class="fxpolh"><div class="fxcar">' + esc(p.carrier) + '</div>' + (p.renewal ? dueChip(p.renewal) : '') + '</div>' +
+        '<div class="fxtype">' + esc(p.type) + '</div>' +
+        '<div class="fxkv"><b>Policy #</b><span>' + esc(p.policy || '\u2014') + '</span></div>' +
+        '<div class="fxkv"><b>Term / renewal</b><span>' + esc(p.term || '\u2014') + '</span></div>' +
+        '<div class="fxkv"><b>Premium</b><span class="prem">' + esc(p.premium || '\u2014') + '</span></div>' +
+        (p.notes ? '<div class="fxpn' + (open ? ' open' : '') + '" data-nc="' + key + '"><button class="nchead fxnh" aria-expanded="' + open + '"><span>Notes / source file</span><i class="chev">&rsaquo;</i></button><div class="ncbody">' + esc(p.notes) + '</div></div>' : '') +
+        '</div>';
+    });
+    var todo = (d.todo || []).filter(function (t) { return t.entities && t.entities.indexOf(e.slug) >= 0; });
+    var kd = keyDates(ents, e.slug);
+    (d.todo || []).forEach(function (t) {
+      if (t.done || !t.date || !t.entities || t.entities.indexOf(e.slug) < 0) return;
+      if (!kd.some(function (k) { return k.date === t.date; })) kd.push({ date: t.date, label: t.lead || todoRest(t), who: '', kind: 'To do' });
+    });
+    kd.sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+    h += collCard('kd' + e.slug, 'Key dates', kd.length, kd.length ? kd.map(function (k) {
+      return '<div class="fxkd">' + dueChip(k.date) + '<div>' + esc(k.label) + '<small>' + esc(k.kind) + '</small></div></div>';
+    }).join('') : '<div class="donerow dim">No dates found.</div>', true);
+    h += todoCards(todo, 'in' + e.slug);
+    h += '<a class="linkrow" data-go="ins">Policy documents in Drive &rsaquo;</a>' + docLink(d) + updatedLine(d);
+    $('insn-body').innerHTML = h;
+  }
 
   /* ---------------- Init ---------------- */
   $('home-date').textContent = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
