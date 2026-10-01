@@ -14,7 +14,7 @@
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
-  var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'fin', 'insn'];
+  var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -135,8 +135,10 @@
     }
     if (name === 'fin') state.finKind = (R.kind === 'overview' || R.kind === 'laundromat') ? R.kind : '';
     if (name === 'insn') state.insSlug = R.kind || '';
-    if (name === 'proj' || name === 'notes' || name === 'mic' || name === 'docs') projSetup(R.kind);
+    if (name === 'punch' && !(PROJ[R.kind] && PROJ[R.kind].punchUrl)) { name = 'proj'; route = 'proj/' + (PROJ[R.kind] ? R.kind : 'terravi'); }
+    if (name === 'proj' || name === 'notes' || name === 'mic' || name === 'docs' || name === 'punch') projSetup(R.kind);
     if (name !== 'mic') micStop(true);
+    if (name !== 'punch') pmicStop();
     if (name !== 'doc') { state.docPushed = false; state.docSeq++; closeDoc(); }
     activate(name);
     if (!fromHistory) {
@@ -144,7 +146,7 @@
       var h = name === 'home' ? '' : name === 'spend' ? spendHash(state.spendRoute) :
         name === 'biz' && R.kind ? '#biz/' + encodeURIComponent(R.kind) :
         name === 'doc' ? '#doc?' + R.query :
-        (name === 'proj' || name === 'notes' || name === 'mic' || name === 'docs') ? '#' + name + '/' + state.projSlug :
+        (name === 'proj' || name === 'notes' || name === 'mic' || name === 'docs' || name === 'punch') ? '#' + name + '/' + state.projSlug :
         name === 'fin' ? '#fin' + (state.finKind ? '/' + state.finKind : '') :
         name === 'insn' ? '#insn' + (state.insSlug ? '/' + encodeURIComponent(state.insSlug) : '') :
         name === 'lt' ? '#lt' + (R.kind ? '/' + encodeURIComponent(R.kind) : '') :
@@ -160,6 +162,7 @@
     if (name === 'notes') openNotes();
     if (name === 'mic') openMic();
     if (name === 'docs') openDocs();
+    if (name === 'punch') openPunch();
     if (name === 'fin') loadFin(false);
     if (name === 'insn') loadInsn(false);
     if (name === 'lt') { state.ltPart = LT_PARTS[R.kind] ? R.kind : ''; loadLt(); }
@@ -1353,18 +1356,16 @@
       docs.data = null; docs.seq++; docs.at = 0;
       if (!mic.on) { var ta = $('note-text'); if (ta) ta.value = ''; var rc = $('note-recovered'); if (rc) rc.hidden = true; }
     }
-    ['proj', 'notes', 'mic', 'docs'].forEach(function (k) {
-      var t = $(k + '-title'); if (t) t.textContent = p.name + (k === 'proj' ? '' : ' \u00b7 ' + { notes: 'Running notes', mic: 'Dictate a note', docs: 'Documents' }[k]);
+    ['proj', 'notes', 'mic', 'docs', 'punch'].forEach(function (k) {
+      var t = $(k + '-title'); if (t) t.textContent = p.name + (k === 'proj' ? '' : ' \u00b7 ' + { notes: 'Running notes', mic: 'Dictate a note', docs: 'Documents', punch: 'Punchlist' }[k]);
     });
-    ['notes', 'mic', 'docs'].forEach(function (k) { $(k + '-back').setAttribute('data-go', 'proj/' + s); });
+    ['notes', 'mic', 'docs', 'punch'].forEach(function (k) { $(k + '-back').setAttribute('data-go', 'proj/' + s); });
     document.querySelectorAll('[data-pgo]').forEach(function (el) { el.setAttribute('data-go', el.getAttribute('data-pgo') + '/' + s); });
   }
   function renderProj() {
     $('proj-doc').href = projDocUrl();
     $('proj-doc').setAttribute('data-title', curProj().name + ' \u2014 Running Notes');
-    var pl = $('proj-punch'), pu = curProj().punchUrl;
-    pl.hidden = !pu;
-    if (pu) { pl.href = pu; pl.setAttribute('data-title', curProj().name + ' \u2014 Punchlist'); }
+    $('proj-punch').hidden = !curProj().punchUrl;      // Punchlist = interactive page (#punch/<slug>); the Doc link lives on that page
   }
   function draftGet() { try { return localStorage.getItem(draftKey()) || ''; } catch (e) { return ''; } }
   function draftSet(v) { try { v ? localStorage.setItem(draftKey(), v) : localStorage.removeItem(draftKey()); } catch (e) {} }
@@ -1711,6 +1712,391 @@
     var t = $('note-text'); if (t && t.value) draftSet(t.value);
     if (document.hidden && mic.on) micStop();
   });
+
+
+  /* ---------------- Punchlist (#punch/<slug>): checkboxes + notes, saved in a Google Sheet via the API ---------------- */
+  // Server: actions punch / punchset / punchnote (Api.gs v17). State lives in the "<Project> Punchlist State" Sheet,
+  // so it follows you across devices. Here: optimistic UI, an offline-safe queue (kept on this phone until the server
+  // confirms), and a read-only fallback read from the Doc itself when the actions aren't deployed yet.
+  var PQ_KEY = 'cc_punch_q', PF_KEY = 'cc_punch_filter';
+  var punch = { slug: '', data: null, items: [], seq: 0, at: 0, ro: false, roWhy: '', fromCache: false, filter: 'open', sticky: {}, flushing: false, retryT: 0, sig: '', msg: '' };
+  function pjGet(k, d) { try { var v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } }
+  function pjSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  function pqAll() { var q = pjGet(PQ_KEY, []); return Array.isArray(q) ? q : []; }
+  function pqFor(slug) { return pqAll().filter(function (o) { return o.p === slug; }); }
+  function pqSave(q) { pjSet(PQ_KEY, q); }
+  function pqPush(op) {
+    var q = pqAll();
+    if (op.t === 'set') q = q.filter(function (o) { return !(o.t === 'set' && o.p === op.p && o.n === op.n); });   // latest value wins
+    q.push(op); pqSave(q);
+  }
+  function pqDrop(op) { pqSave(pqAll().filter(function (o) { return !(o.t === op.t && o.p === op.p && o.n === op.n && (op.t === 'set' || o.cid === op.cid)); })); }
+  function pDraftKey(n) { return 'cc_punch_draft_' + punch.slug + '_' + n; }
+  function pDocId() { var m = String(curProj().punchUrl || '').match(/\/d\/([\w-]+)/); return m ? m[1] : ''; }
+  function pNow() {
+    var d = new Date(), h = d.getHours();
+    return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()] + ' ' + (d.getMonth() + 1) + '/' + d.getDate() + ' \u00b7 ' + ((h % 12) || 12) + ':' + ('0' + d.getMinutes()).slice(-2) + ' ' + (h < 12 ? 'AM' : 'PM');
+  }
+
+  // Server snapshot + queued changes = what the screen shows.
+  function pView() {
+    var q = pqFor(punch.slug);
+    return punch.items.map(function (it) {
+      var o = { n: it.n, name: it.name, date: it.date, info: it.info, done: !!it.done, doneAt: it.doneAt || '', notes: (it.notes || []).slice(), pendingSet: false, pendingNotes: 0 };
+      q.forEach(function (op) {
+        if (op.n !== it.n) return;
+        if (op.t === 'set') { o.done = !!op.done; o.doneAt = op.done ? (op.show || '') : ''; o.pendingSet = true; }
+        else if (op.t === 'note') { o.notes.unshift({ text: op.text, time: op.show || '', pending: true }); o.pendingNotes++; }
+      });
+      return o;
+    });
+  }
+  function pMsg(text, bad) {
+    punch.msg = text || '';
+    var el = $('punch-flash'); if (!el) return;
+    el.textContent = text || ''; el.hidden = !text; el.className = 'noteflash show' + (bad ? ' bad' : '');
+  }
+  function pStatus() {
+    var el = $('punch-sync'); if (!el) return;
+    var n = pqFor(punch.slug).length, t = '';
+    if (punch.ro) t = (punch.roWhy || 'Server update pending') + ' \u2014 read-only list from the Doc.';
+    else if (n) t = n + ' change' + (n === 1 ? '' : 's') + ' waiting to sync \u2014 kept on this phone' + (punch.flushing ? ' (syncing\u2026)' : '.');
+    else if (punch.fromCache) t = 'Offline \u2014 showing the last synced list.';
+    el.textContent = t; el.hidden = !t;
+    el.className = 'psync' + (punch.ro || punch.fromCache ? ' warn' : '');
+  }
+
+  function openPunch() {
+    var slug = state.projSlug;
+    if (punch.slug !== slug) { punch.slug = slug; punch.data = null; punch.items = []; punch.sig = ''; punch.ro = false; punch.fromCache = false; punch.sticky = {}; punch.seq++; punch.at = 0; pMsg(''); }
+    punch.filter = pjGet(PF_KEY, 'open') === 'all' ? 'all' : 'open';
+    $('punch-doc').href = curProj().punchUrl; $('punch-doc').setAttribute('data-title', curProj().name + ' \u2014 Punchlist');
+    if (!punch.items.length) {
+      var snap = pjGet('cc_punch_snap_' + slug, null);
+      if (snap && snap.items && snap.items.length) { punch.items = snap.items; punch.fromCache = true; }
+    }
+    if (punch.items.length) pRender(); else $('punch-list').innerHTML = '<div class="loading">Loading\u2026</div>';
+    pStatus();
+    if (!punch.items.length || Date.now() - punch.at > 15000) loadPunch();
+    pFlush();
+  }
+  function loadPunch(manual) {
+    var seq = ++punch.seq, slug = punch.slug;
+    apiRaw('punch', { project: curProj().notesProject }).then(function (j) {
+      if (seq !== punch.seq || slug !== punch.slug) return;
+      if (j.error === 'bad_action') return pFallback('Server update pending');
+      if (j.error) throw new Error(j.message || ('Server error: ' + j.error));
+      var d = j.data; punch.data = d; punch.items = d.items || []; punch.at = Date.now(); punch.ro = false; punch.fromCache = false;
+      pjSet('cc_punch_snap_' + slug, { items: punch.items, at: punch.at });
+      pRender(); pStatus();
+      if (manual) pMsg('Up to date \u2713');
+    }).catch(function (err) {
+      if (seq !== punch.seq || slug !== punch.slug) return;
+      if (err instanceof AuthError) { setPc(''); return lock('Passcode changed. Enter the new one.'); }
+      if (punch.items.length) { punch.fromCache = true; pRender(); pStatus(); if (manual) pMsg(friendly(err), true); return; }
+      pFallback(/Failed to fetch|NetworkError|Load failed|reach/i.test(String(err && err.message)) ? 'Offline' : 'Server update pending', friendly(err));
+    });
+  }
+
+  // Read-only fallback: read the table straight from the Doc (as PDF through the existing "file" action).
+  function pFallback(why, errMsg) {
+    var slug = punch.slug, seq = punch.seq;
+    punch.ro = true; punch.roWhy = why;
+    if (punch.items.length) { pRender(); pStatus(); return; }
+    $('punch-list').innerHTML = '<div class="loading">Reading the Doc\u2026</div>';
+    apiRaw('file', { id: pDocId() }).then(function (j) {
+      if (j.error) throw new Error(j.message || ('Server error: ' + j.error));
+      return loadPdfJs().then(function (lib) { return lib.getDocument({ data: b64bytes(j.data.b64) }).promise; });
+    }).then(function (pdf) { return pDocItems(pdf); }).then(function (items) {
+      if (slug !== punch.slug || seq !== punch.seq) return;
+      if (!items.length) throw new Error('Couldn\u2019t read the list from the Doc.');
+      punch.items = items; pRender(); pStatus();
+    }).catch(function (err) {
+      if (err instanceof AuthError) { setPc(''); return lock('Passcode changed. Enter the new one.'); }
+      $('punch-list').innerHTML = '<div class="error">' + esc(errMsg || friendly(err)) + '<div class="retry"><button class="navbtn" id="punch-retry">Try again</button></div>' +
+        '<div class="retry"><a class="navbtn" data-title="' + esc(curProj().name) + ' \u2014 Punchlist" href="' + esc(curProj().punchUrl) + '">Open the Doc &rsaquo;</a></div></div>';
+      var b = $('punch-retry'); if (b) b.addEventListener('click', function () { openPunch(); loadPunch(true); });
+      pStatus();
+    });
+  }
+  function pDocItems(pdf) {
+    var jobs = [];
+    for (var i = 1; i <= pdf.numPages; i++) jobs.push(pdf.getPage(i).then(function (p) { return p.getTextContent(); }));
+    return Promise.all(jobs).then(function (pages) {
+      var lines = [];
+      pages.forEach(function (tc, pi) {
+        var rows = [];
+        tc.items.forEach(function (it) {
+          var s = String(it.str || '').trim(); if (!s) return;
+          var y = Math.round(it.transform[5]), x = it.transform[4], r = null;
+          for (var k = 0; k < rows.length; k++) if (Math.abs(rows[k].y - y) <= 3) { r = rows[k]; break; }
+          if (!r) rows.push(r = { y: y, c: [] });
+          r.c.push({ x: x, s: s });
+        });
+        rows.sort(function (a, b) { return b.y - a.y; });
+        rows.forEach(function (r) { r.c.sort(function (a, b) { return a.x - b.x; }); lines.push(r); });
+      });
+      var hdr = null;
+      lines.forEach(function (r) { if (!hdr && r.c.some(function (c) { return /^item$/i.test(c.s); }) && r.c.some(function (c) { return /^date$/i.test(c.s); })) hdr = r; });
+      var xi = 0, xd = 0, xn = 0;
+      if (hdr) hdr.c.forEach(function (c) { if (/^item$/i.test(c.s)) xi = c.x; else if (/^date$/i.test(c.s)) xd = c.x; else if (/^notes?$/i.test(c.s)) xn = c.x; });
+      var items = [], seen = {};
+      lines.forEach(function (r) {
+        var ci = -1;
+        for (var k = 0; k < r.c.length; k++) if (/^\d{1,3}$/.test(r.c[k].s) && (!xi || r.c[k].x < xi - 4)) { ci = k; break; }
+        if (ci < 0) return;
+        var n = parseInt(r.c[ci].s, 10); if (seen[n]) return;
+        var name = [], date = [], info = [];
+        r.c.forEach(function (c, k) {
+          if (k <= ci) return;
+          var s = c.s.replace(/\\([#&])/g, '$1');
+          if (xn && c.x >= xn - 6) info.push(s); else if (xd && c.x >= xd - 6) date.push(s); else name.push(s);
+        });
+        if (!name.length) return;
+        seen[n] = true;
+        items.push({ n: n, name: name.join(' '), date: date.join(' '), info: info.join(' '), done: false, notes: [] });
+      });
+      items.sort(function (a, b) { return a.n - b.n; });
+      return items;
+    });
+  }
+
+  /* ---- render ---- */
+  var P_CHECK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  function pNotesHtml(it) {
+    if (!it.notes.length) return '<div class="pnone">No notes yet.</div>';
+    return it.notes.map(function (n) {
+      return '<div class="pnote' + (n.pending ? ' pend' : '') + '"><div class="pntime">' + esc(n.time || '') + (n.pending ? ' \u00b7 waiting to sync' : '') + '</div><div class="pntext">' + esc(n.text) + '</div></div>';
+    }).join('');
+  }
+  function pRowHtml(it) {
+    var open = isOpen('punch:' + punch.slug + ':' + it.n, false), ro = punch.ro;
+    var meta = (it.date ? '<b class="pdate">' + esc(it.date) + '</b>' : '') + (it.info ? '<span class="pinfo">' + esc(it.info) + '</span>' : '');
+    var draft = '';
+    try { draft = localStorage.getItem(pDraftKey(it.n)) || ''; } catch (e) {}
+    return '<div class="prow' + (it.done ? ' done' : '') + (open ? ' open' : '') + '" data-n="' + it.n + '">' +
+      '<div class="phead"><button class="pbox" role="checkbox" aria-checked="' + (it.done ? 'true' : 'false') + '" aria-label="Done: ' + esc(it.name) + '"' + (ro ? ' disabled' : '') + '>' + P_CHECK + '</button>' +
+      '<button class="pmain" aria-expanded="' + open + '"><span class="pnum">' + it.n + '</span><span class="ptxt"><span class="pname">' + esc(it.name) + '</span>' +
+      '<span class="pmeta">' + (meta || '<span class="pinfo dim">\u2014</span>') + '</span></span><i class="chev">&rsaquo;</i></button></div>' +
+      '<div class="pbody">' + (it.done && it.doneAt ? '<div class="pdone">\u2713 Done ' + esc(it.doneAt) + '</div>' : '<div class="pdone" hidden></div>') +
+      (ro ? '<div class="pnone">Notes need the server update (pending).</div>' :
+        '<textarea class="notebox pta" rows="3" maxlength="1000" placeholder="Add a note\u2026 type, or tap the mic" aria-label="Note for ' + esc(it.name) + '">' + esc(draft) + '</textarea>' +
+        '<div class="pbtns"><button class="pmic" aria-pressed="false" aria-label="Dictate a note"><span aria-hidden="true">&#127908;</span></button><button class="bigsave psave" disabled>Save note</button></div>' +
+        '<div class="pstate"></div>') +
+      '<div class="pnotes">' + pNotesHtml(it) + '</div></div></div>';
+  }
+  function pRender() {
+    var view = pView(), sig = punch.slug + '|' + punch.ro + '|' + view.map(function (i) { return i.n + i.name + i.date + i.info; }).join('~');
+    var box = $('punch-list');
+    if (sig !== punch.sig || !box.querySelector('.prow')) {
+      punch.sig = sig;
+      pmicStop(true);
+      box.innerHTML = view.map(pRowHtml).join('');
+      view.forEach(function (it) { pSaveBtn(it.n); });
+    } else {                                                    // same list: update in place (keeps what you are typing)
+      view.forEach(function (it) {
+        var row = pRow(it.n); if (!row) return;
+        pPaint(row, it);
+      });
+    }
+    pCount(view); pApplyFilter();
+  }
+  function pRow(n) { return $('punch-list').querySelector('.prow[data-n="' + n + '"]'); }
+  function pPaint(row, it) {
+    row.classList.toggle('done', it.done);
+    var cb = row.querySelector('.pbox'); cb.setAttribute('aria-checked', it.done ? 'true' : 'false');
+    var dn = row.querySelector('.pdone'); dn.hidden = !(it.done && it.doneAt); dn.textContent = it.done && it.doneAt ? '\u2713 Done ' + it.doneAt : '';
+    row.querySelector('.pnotes').innerHTML = pNotesHtml(it);
+  }
+  function pCount(view) {
+    view = view || pView();
+    var d = view.filter(function (i) { return i.done; }).length, t = view.length;
+    $('punch-count').innerHTML = '<b>' + d + '</b> of ' + t + ' done';
+    $('punch-bar').style.width = (t ? Math.round(d * 100 / t) : 0) + '%';
+    var pb = $('punch-prog'); pb.setAttribute('aria-valuenow', d); pb.setAttribute('aria-valuemax', t);
+  }
+  function pApplyFilter() {
+    document.querySelectorAll('#punch-filter button').forEach(function (b) {
+      var on = b.getAttribute('data-f') === punch.filter; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    var shown = 0;
+    $('punch-list').querySelectorAll('.prow').forEach(function (row) {
+      var n = row.getAttribute('data-n'), hide = punch.filter === 'open' && row.classList.contains('done') && !punch.sticky[n];
+      row.hidden = hide; if (!hide) shown++;
+    });
+    var em = $('punch-empty');
+    em.hidden = !(punch.items.length && !shown);
+  }
+  $('punch-filter').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-f]'); if (!b) return;
+    punch.filter = b.getAttribute('data-f') === 'all' ? 'all' : 'open'; pjSet(PF_KEY, punch.filter);
+    punch.sticky = {}; pApplyFilter();
+  });
+  $('punch-refresh').addEventListener('click', function () { pMsg(''); loadPunch(true); pFlush(); });
+
+  /* ---- interactions ---- */
+  function pBodyOpen(row, open) {
+    row.classList.toggle('open', open); row.querySelector('.pmain').setAttribute('aria-expanded', open ? 'true' : 'false');
+    setOpen('punch:' + punch.slug + ':' + row.getAttribute('data-n'), open);
+  }
+  function pSaveBtn(n) {
+    var row = pRow(n); if (!row) return;
+    var ta = row.querySelector('.pta'), sv = row.querySelector('.psave'); if (!ta || !sv) return;
+    sv.disabled = !ta.value.trim();
+  }
+  $('punch-list').addEventListener('click', function (e) {
+    var row = e.target.closest('.prow'); if (!row) return;
+    var n = parseInt(row.getAttribute('data-n'), 10);
+    if (e.target.closest('.pbox')) return pToggle(row, n);
+    if (e.target.closest('.pmic')) return pMicToggle(row, n);
+    if (e.target.closest('.psave')) return pSaveNote(row, n);
+    if (e.target.closest('.pmain')) { var o = !row.classList.contains('open'); if (!o) pmicStop(true); pBodyOpen(row, o); }
+  });
+  $('punch-list').addEventListener('input', function (e) {
+    var ta = e.target.closest('.pta'); if (!ta) return;
+    var row = ta.closest('.prow'), n = row.getAttribute('data-n');
+    if (pmic.on && pmic.n === n) { pmic.base = ta.value; pmic.committed = ''; pmic.interim = ''; }
+    try { ta.value ? localStorage.setItem(pDraftKey(n), ta.value) : localStorage.removeItem(pDraftKey(n)); } catch (er) {}
+    pSaveBtn(n);
+  });
+  function pToggle(row, n) {
+    if (punch.ro) return;
+    var it = pView().filter(function (i) { return i.n === n; })[0]; if (!it) return;
+    var want = !it.done;
+    punch.sticky[n] = true;                              // stays visible in "Unchecked" until the filter is changed / list reopened
+    pqPush({ t: 'set', p: punch.slug, n: n, done: want, show: want ? pNow() : '' });
+    pRender(); pStatus(); pFlush();
+  }
+  function pSaveNote(row, n) {
+    var ta = row.querySelector('.pta'); pmicStop(true);
+    var text = ta.value.replace(/\s+/g, ' ').trim(); if (!text) return;
+    if (text.length > 1000) { row.querySelector('.pstate').textContent = 'That note is too long (max 1000 characters).'; return; }
+    pqPush({ t: 'note', p: punch.slug, n: n, text: text, cid: 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), at: Date.now(), show: pNow() });
+    ta.value = ''; try { localStorage.removeItem(pDraftKey(n)); } catch (er) {}
+    pSaveBtn(n);
+    var st = row.querySelector('.pstate'); st.textContent = 'Saving\u2026'; st.className = 'pstate';
+    pPaint(row, pView().filter(function (i) { return i.n === n; })[0]);
+    pCount(); pStatus(); pFlush();
+  }
+
+  /* ---- offline-safe sync: queue stays on the phone until the server confirms ---- */
+  function pFlush() {
+    if (punch.flushing) return;
+    var q = pqFor(punch.slug); if (!q.length) { pStatus(); return; }
+    var op = q[0], slug = punch.slug;
+    punch.flushing = true; clearTimeout(punch.retryT); pStatus();
+    var p = op.t === 'set' ? apiRaw('punchset', { project: curProj().notesProject, index: op.n, done: op.done ? 'true' : 'false' })
+                           : apiRaw('punchnote', { project: curProj().notesProject, index: op.n, text: op.text, cid: op.cid, at: op.at });
+    p.then(function (j) {
+      punch.flushing = false;
+      if (j.error === 'bad_action') { punch.ro = punch.ro || !punch.items.length; punch.roWhy = 'Server update pending'; return pRetryLater(60000, 'Saved on this phone \u2014 server update pending. It will sync once the update is live.'); }
+      if (j.error && /^(bad_item|empty|too_long|bad_project)$/.test(j.error)) {       // can never succeed: drop it
+        pqDrop(op); pRender(); pMsg(j.message || ('Couldn\u2019t save one change (' + j.error + ').'), true); return pFlush();
+      }
+      if (j.error) return pRetryLater(30000, (j.message || ('Server error: ' + j.error)) + ' Will retry.');
+      pqDrop(op);
+      var d = j.data || {};
+      if (op.t === 'set') { var it = punch.items.filter(function (i) { return i.n === op.n; })[0]; if (it) { it.done = !!op.done; it.doneAt = op.done ? (d.doneAt || op.show || '') : ''; } }
+      else { var it2 = punch.items.filter(function (i) { return i.n === op.n; })[0]; if (it2 && !d.duplicate) { it2.notes = it2.notes || []; it2.notes.unshift({ text: op.text, time: d.time || op.show || '' }); } }
+      if (slug === punch.slug) {
+        pjSet('cc_punch_snap_' + slug, { items: punch.items, at: punch.at || Date.now() });
+        pRender();
+        var row = pRow(op.n), st = row && row.querySelector('.pstate');
+        if (op.t === 'note' && st) { st.textContent = 'Saved \u2713'; st.className = 'pstate ok'; }
+        if (!pqFor(slug).length) { pMsg(''); pStatus(); }
+      }
+      pFlush();
+    }, function (err) {
+      punch.flushing = false;
+      if (err instanceof AuthError) { setPc(''); return lock('Passcode changed. Enter the new one.'); }
+      pRetryLater(15000);
+    });
+  }
+  function pRetryLater(ms, msg) {
+    if (msg) pMsg(msg, true);
+    pStatus(); clearTimeout(punch.retryT);
+    punch.retryT = setTimeout(function () { if (document.getElementById('screen-punch').classList.contains('active')) pFlush(); }, ms);
+  }
+  window.addEventListener('online', function () { if ($('screen-punch').classList.contains('active')) { pFlush(); loadPunch(); } });
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { pmicStop(true); return; }
+    if ($('screen-punch').classList.contains('active')) { pFlush(); if (Date.now() - punch.at > 15000) loadPunch(); }
+  });
+
+  /* ---- per-note dictation (same Web Speech approach as the Dictate page) ---- */
+  var pmic = { rec: null, on: false, n: '', base: '', committed: '', interim: '', errs: 0, timer: 0, wanted: false };
+  function pmicTa() { var r = pmic.n && pRow(pmic.n); return r ? r.querySelector('.pta') : null; }
+  function pmicUi() {
+    document.querySelectorAll('#punch-list .pmic').forEach(function (b) {
+      var on = pmic.on && b.closest('.prow').getAttribute('data-n') === String(pmic.n);
+      b.classList.toggle('rec', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); b.setAttribute('aria-label', on ? 'Stop dictation' : 'Dictate a note');
+    });
+  }
+  function pmicShow() {
+    var ta = pmicTa(); if (!ta) return;
+    ta.value = pmic.base + pmic.committed + pmic.interim; ta.scrollTop = ta.scrollHeight;
+    try { localStorage.setItem(pDraftKey(pmic.n), ta.value); } catch (e) {}
+    pSaveBtn(pmic.n);
+  }
+  function pmicFail(msg) {
+    pmic.on = false; pmic.wanted = false; clearTimeout(pmic.timer);
+    try { pmic.rec && pmic.rec.abort(); } catch (e) {}
+    pmic.rec = null; pmicUi();
+    var r = pmic.n && pRow(pmic.n), st = r && r.querySelector('.pstate');
+    if (st) { st.textContent = msg; st.className = 'pstate warn'; }
+    var ta = pmicTa(); if (ta) ta.focus();
+  }
+  function pMicToggle(row, n) {
+    if (pmic.on && String(pmic.n) === String(n)) return pmicStop();
+    pmicStop(true);
+    var ta = row.querySelector('.pta'), st = row.querySelector('.pstate');
+    st.textContent = ''; st.className = 'pstate';
+    pmic.n = String(n);
+    if (!SR) { pmicFail(MIC_NA); return; }
+    pmic.base = ta.value ? ta.value.replace(/\s+$/, '') + ' ' : '';
+    pmic.committed = ''; pmic.interim = ''; pmic.errs = 0;
+    var rec;
+    try { rec = new SR(); } catch (e) { return pmicFail(MIC_NA); }
+    rec.continuous = true; rec.interimResults = true; rec.lang = 'en-US'; rec.maxAlternatives = 1;
+    rec.onresult = function (ev) {
+      var interim = '';
+      for (var i = ev.resultIndex; i < ev.results.length; i++) {
+        var r = ev.results[i], t = r[0] ? r[0].transcript : '';
+        if (r.isFinal) pmic.committed = micSpace(pmic.committed, t.trim() + ' '); else interim += t;
+      }
+      pmic.interim = interim.replace(/^\s+/, ''); pmic.errs = 0; pmicShow();
+    };
+    rec.onerror = function (ev) {
+      var er = ev && ev.error;
+      if (er === 'not-allowed' || er === 'service-not-allowed' || er === 'audio-capture' || er === 'language-not-supported') return pmicFail(MIC_NA);
+      if (er === 'network') return pmicFail('The speech service couldn\u2019t be reached. Use your keyboard\u2019s mic key.');
+    };
+    rec.onend = function () {
+      pmic.committed = micSpace(pmic.committed, pmic.interim ? pmic.interim.trim() + ' ' : ''); pmic.interim = '';
+      if (pmic.rec !== rec) return;
+      if (pmic.on && pmic.wanted) {
+        if (++pmic.errs > 8) return pmicFail('Dictation keeps stopping. Use your keyboard\u2019s mic key.');
+        clearTimeout(pmic.timer);
+        pmic.timer = setTimeout(function () { if (!(pmic.on && pmic.wanted) || pmic.rec !== rec) return; try { rec.start(); } catch (e) { pmicFail(MIC_NA); } }, 250);
+      }
+      pmicShow();
+    };
+    pmic.rec = rec; pmic.on = true; pmic.wanted = true;
+    try { rec.start(); } catch (e) { return pmicFail(MIC_NA); }
+    st.textContent = 'Listening\u2026 speak your note, tap the mic to stop'; st.className = 'pstate rec';
+    pmicUi();
+  }
+  function pmicStop(quiet) {
+    var was = pmic.on;
+    pmic.on = false; pmic.wanted = false; clearTimeout(pmic.timer);
+    var rec = pmic.rec;
+    if (rec) { try { rec.stop(); } catch (e) {} }
+    if (was) { pmic.committed = micSpace(pmic.committed, pmic.interim ? pmic.interim.trim() + ' ' : ''); pmic.interim = ''; pmicShow(); }
+    setTimeout(function () { if (pmic.rec === rec && !pmic.on) pmic.rec = null; }, 400);
+    var r = pmic.n && $('punch-list') && pRow(pmic.n), st = r && r.querySelector('.pstate');
+    if (st && was) { st.textContent = ''; st.className = 'pstate'; }
+    pmicUi();
+  }
 
 
   /* ---------------- Finances (Overview / Laundromat) + Insurance notes ---------------- */

@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=31">
+<link rel="stylesheet" href="app.css?v=32">
 </head>
 <body>
   <div class="bg"></div>
@@ -69,7 +69,7 @@
       <button class="bigbtn" data-pgo="mic" data-go="mic/terravi"><span class="bigico" aria-hidden="true">&#127908;</span>Dictate a note<span class="sub">Big mic &middot; speak it &middot; saved to Running Notes</span></button>
       <button class="bigbtn" data-pgo="notes" data-go="notes/terravi">Running notes<span class="sub">Dated entries, newest first</span></button>
       <button class="bigbtn" data-pgo="docs" data-go="docs/terravi">Documents<span class="sub">PDF &middot; Word &middot; Google Docs</span></button>
-      <a class="bigbtn" id="proj-punch" data-title="Punchlist" href="#" hidden>Punchlist<span class="sub">Checklist &middot; opens the Punchlist Doc</span></a>
+      <button class="bigbtn" id="proj-punch" data-pgo="punch" data-go="punch/terravi" hidden>Punchlist<span class="sub">Check items off &middot; add notes &middot; progress</span></button>
       <a class="bigbtn alt" id="proj-doc" data-title="Terra Vi — Running Notes" href="#">Open the Running Notes Doc<span class="sub">Full Google Doc in the app</span></a>
     </div>
   </section>
@@ -103,6 +103,22 @@
     <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="docs-back" data-go="proj/terravi">&lsaquo; Back</button><button class="homebtn refbtn" id="docs-refresh" aria-label="Refresh documents">&#8635;</button></div>
     <h2 class="pagetitle" id="docs-title">Terra Vi &middot; Documents</h2>
     <div id="docs-body"><div class="loading">Loading…</div></div>
+  </section>
+
+  <!-- ============ PUNCHLIST (#punch/<slug>) ============ -->
+  <section id="screen-punch" class="screen punchscreen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="punch-back" data-go="proj/hetchhetchy">&lsaquo; Back</button><button class="homebtn refbtn" id="punch-refresh" aria-label="Refresh punchlist">&#8635;</button></div>
+    <h2 class="pagetitle" id="punch-title">Hetch Hetchy &middot; Punchlist</h2>
+    <div class="card pprog">
+      <div class="pcount" id="punch-count"><b>0</b> of 0 done</div>
+      <div class="pbar" id="punch-prog" role="progressbar" aria-valuemin="0" aria-valuenow="0" aria-valuemax="0"><i id="punch-bar"></i></div>
+      <div class="pseg" id="punch-filter"><button data-f="open" aria-pressed="true">Unchecked</button><button data-f="all" aria-pressed="false">All</button></div>
+    </div>
+    <div class="psync" id="punch-sync" hidden></div>
+    <div class="noteflash" id="punch-flash" hidden></div>
+    <div id="punch-list"><div class="loading">Loading…</div></div>
+    <div class="pempty" id="punch-empty" hidden>All items are checked off. &#127881;<br><span class="dim">Tap <b>All</b> to see them.</span></div>
+    <a class="pdoclink" id="punch-doc" data-title="Punchlist" href="#">Open the Doc &rsaquo;</a>
   </section>
 
   <!-- ============ LIFE AREAS ============ -->
@@ -181,6 +197,6 @@
     <div id="spend-body"><div class="loading">Loading…</div></div>
   </section>
 
-  <script src="app.js?v=31"></script>
+  <script src="app.js?v=32"></script>
 </body>
 </html>
