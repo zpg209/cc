@@ -477,10 +477,14 @@
   }
   function renderLinks() {
     var d = state.links;
-    $('projects-list').innerHTML = d.projects.map(function (p) {
+    var plist = d.projects.slice();
+    Object.keys(PROJ).forEach(function (k) {       // projects set up in PROJ show even before the server's project list knows them
+      if (!plist.some(function (p) { return projSlugOf(p.name) === k; })) plist.push({ name: PROJ[k].name, url: PROJ[k].docUrl, kind: 'doc' });
+    });
+    $('projects-list').innerHTML = plist.map(function (p) {
       var slug = projSlugOf(p.name);
       if (slug) {
-        if (slug === 'terravi') state.tvDocUrl = p.url;
+        (state.projDocUrls = state.projDocUrls || {})[slug] = p.url;
         return '<button class="tile small" data-go="proj/' + slug + '">' + esc(p.name) + '<span class="sub">Notes \u00b7 Docs \u00b7 Mic</span></button>';
       }
       return tile(p, p.kind === 'doc' ? 'Running notes' : p.kind === 'folder' ? 'Drive folder' : '');
@@ -1315,12 +1319,16 @@
   var PROJ = {
     terravi: { name: 'Terra Vi', notesProject: 'terravi',
       docUrl: 'https://docs.google.com/document/d/1YprGTVSb6kM83f0Enfk2bSf8rAsbKVV7vHwCm_qoDg8/edit',
-      folderId: '1Spp5rODL2Ol82n5Y-GZmQt6E640po_cp' }
+      folderId: '1Spp5rODL2Ol82n5Y-GZmQt6E640po_cp' },
+    hetchhetchy: { name: 'Hetch Hetchy', notesProject: 'hetchhetchy',
+      docUrl: 'https://docs.google.com/document/d/1UcmzxYhHvnPMzqy6JbE6GE81yPVf2D5h4v1EEdnsNoY/edit',
+      punchUrl: 'https://docs.google.com/document/d/1Q4zQmPwIGZ51kQ3S_v949ksc_X4mKnI8xsVRKYvkLIg/edit',
+      folderId: '1HCCeuyeW31z72nZNg7gC94SRPQZOOp71' }
   };
   function projSlugOf(name) { var k = String(name || '').toLowerCase().replace(/[^a-z0-9]/g, ''); return PROJ[k] ? k : ''; }
   function curProj() { return PROJ[state.projSlug] || PROJ.terravi; }
-  function projDocUrl() { return state.tvDocUrl && state.projSlug === 'terravi' ? state.tvDocUrl : curProj().docUrl; }
-  var DRAFT_KEY = 'cc_note_draft_terravi';
+  function projDocUrl() { return (state.projDocUrls && state.projDocUrls[state.projSlug]) || curProj().docUrl; }
+  function draftKey() { return 'cc_note_draft_' + state.projSlug; }      // per project (Terra Vi keeps its original key)
   var OPEN_KEY = 'cc_proj_open';
   var NOTE_MAX = 1500;
   var MIC_NA = 'Live mic isn\u2019t available here \u2014 tap the text box and use your keyboard\u2019s mic key.';
@@ -1337,8 +1345,14 @@
     try { localStorage.setItem(OPEN_KEY, JSON.stringify(openMem)); } catch (e) {}
   }
   function projSetup(slug) {          // wires the Home/Back buttons of the 4 project screens to this project
+    var prev = state.projSlug;
     state.projSlug = PROJ[slug] ? slug : 'terravi';
     var s = state.projSlug, p = PROJ[s];
+    if (prev !== s) {                 // switched project: drop the other project's cached notes / documents / half-typed text
+      notes.data = null; notes.entries = []; notes.seq++; notes.at = 0;
+      docs.data = null; docs.seq++; docs.at = 0;
+      if (!mic.on) { var ta = $('note-text'); if (ta) ta.value = ''; var rc = $('note-recovered'); if (rc) rc.hidden = true; }
+    }
     ['proj', 'notes', 'mic', 'docs'].forEach(function (k) {
       var t = $(k + '-title'); if (t) t.textContent = p.name + (k === 'proj' ? '' : ' \u00b7 ' + { notes: 'Running notes', mic: 'Dictate a note', docs: 'Documents' }[k]);
     });
@@ -1348,9 +1362,12 @@
   function renderProj() {
     $('proj-doc').href = projDocUrl();
     $('proj-doc').setAttribute('data-title', curProj().name + ' \u2014 Running Notes');
+    var pl = $('proj-punch'), pu = curProj().punchUrl;
+    pl.hidden = !pu;
+    if (pu) { pl.href = pu; pl.setAttribute('data-title', curProj().name + ' \u2014 Punchlist'); }
   }
-  function draftGet() { try { return localStorage.getItem(DRAFT_KEY) || ''; } catch (e) { return ''; } }
-  function draftSet(v) { try { v ? localStorage.setItem(DRAFT_KEY, v) : localStorage.removeItem(DRAFT_KEY); } catch (e) {} }
+  function draftGet() { try { return localStorage.getItem(draftKey()) || ''; } catch (e) { return ''; } }
+  function draftSet(v) { try { v ? localStorage.setItem(draftKey(), v) : localStorage.removeItem(draftKey()); } catch (e) {} }
 
   /* ---- Running notes page: dated rows, newest first; tap a row for the detail ---- */
   function autoTitle(text, maxWords) {
