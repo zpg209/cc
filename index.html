@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=29">
+<link rel="stylesheet" href="app.css?v=30">
 </head>
 <body>
   <div class="bg"></div>
@@ -61,27 +61,47 @@
     <div class="grid2" id="projects-list"></div>
   </section>
 
-  <!-- ============ PROJECT PAGE (#proj/terravi) ============ -->
-  <section id="screen-proj" class="screen">
+  <!-- ============ PROJECT PAGE (#proj/<slug>) — Terra Vi is the pilot ============ -->
+  <section id="screen-proj" class="screen projscreen">
     <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" data-go="projects">&lsaquo; Back</button></div>
     <h2 class="pagetitle" id="proj-title">Terra Vi</h2>
     <div class="projbtns">
-      <button class="bigbtn" data-go="notes">&#127908; Running notes<span class="sub">Status · to do · done log · field notes by voice</span></button>
+      <button class="bigbtn" data-pgo="mic" data-go="mic/terravi"><span class="bigico" aria-hidden="true">&#127908;</span>Dictate a note<span class="sub">Big mic &middot; speak it &middot; saved to Running Notes</span></button>
+      <button class="bigbtn" data-pgo="notes" data-go="notes/terravi">Running notes<span class="sub">Dated entries, newest first</span></button>
+      <button class="bigbtn" data-pgo="docs" data-go="docs/terravi">Documents<span class="sub">PDF &middot; Word &middot; Google Docs</span></button>
       <a class="bigbtn alt" id="proj-doc" data-title="Terra Vi — Running Notes" href="#">Open the Running Notes Doc<span class="sub">Full Google Doc in the app</span></a>
     </div>
   </section>
 
-  <!-- ============ RUNNING NOTES (#notes) ============ -->
-  <section id="screen-notes" class="screen notes">
-    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" data-go="proj/terravi">&lsaquo; Back</button><button class="homebtn refbtn" id="notes-refresh" aria-label="Refresh notes">&#8635;</button></div>
-    <h2 class="pagetitle">Terra Vi <span>&middot;</span> Running notes</h2>
-    <div id="notes-body"><div class="loading">Loading…</div></div>
-    <div class="micdock" id="micdock">
-      <div class="micinner">
-        <div class="micstate" id="mic-state">Tap the mic to dictate a note</div>
-        <button class="micbtn" id="mic-btn" aria-pressed="false" aria-label="Start dictation"><span class="micico" aria-hidden="true">&#127908;</span><span class="miclbl" id="mic-lbl">Tap to talk</span></button>
-      </div>
+  <!-- ============ DICTATE A NOTE (#mic/<slug>) ============ -->
+  <section id="screen-mic" class="screen micscreen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="mic-back" data-go="proj/terravi">&lsaquo; Back</button></div>
+    <h2 class="pagetitle" id="mic-title">Terra Vi &middot; Dictate a note</h2>
+    <div class="micstage">
+      <div class="micstate" id="mic-state">Tap the mic to dictate a note</div>
+      <button class="micbtn big" id="mic-btn" aria-pressed="false" aria-label="Start dictation"><span class="micico" aria-hidden="true">&#127908;</span><span class="miclbl" id="mic-lbl">Tap to talk</span></button>
     </div>
+    <div class="card draft" id="draft-card">
+      <h3>Your note <span class="rec-tag" id="rec-tag" hidden>&#9679; Listening</span></h3>
+      <textarea id="note-text" class="notebox" rows="5" maxlength="1500" autocapitalize="sentences" placeholder="Your words appear here. You can also type, or use the keyboard&#8217;s mic key."></textarea>
+      <div class="draftfoot"><span class="foot" id="note-count"></span><span class="foot" id="note-recovered" hidden>Recovered unsaved note</span></div>
+      <div class="draftbtns"><button class="bigsave" id="note-save">Save note</button><button class="navbtn discard" id="note-discard">Discard</button></div>
+      <div class="noteflash" id="notes-flash" hidden></div>
+    </div>
+  </section>
+
+  <!-- ============ RUNNING NOTES (#notes/<slug>) ============ -->
+  <section id="screen-notes" class="screen notes">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="notes-back" data-go="proj/terravi">&lsaquo; Back</button><button class="homebtn refbtn" id="notes-refresh" aria-label="Refresh notes">&#8635;</button></div>
+    <h2 class="pagetitle" id="notes-title">Terra Vi &middot; Running notes</h2>
+    <div id="notes-body"><div class="loading">Loading…</div></div>
+  </section>
+
+  <!-- ============ DOCUMENTS (#docs/<slug>) ============ -->
+  <section id="screen-docs" class="screen docs">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="docs-back" data-go="proj/terravi">&lsaquo; Back</button><button class="homebtn refbtn" id="docs-refresh" aria-label="Refresh documents">&#8635;</button></div>
+    <h2 class="pagetitle" id="docs-title">Terra Vi &middot; Documents</h2>
+    <div id="docs-body"><div class="loading">Loading…</div></div>
   </section>
 
   <!-- ============ LIFE AREAS ============ -->
@@ -160,6 +180,6 @@
     <div id="spend-body"><div class="loading">Loading…</div></div>
   </section>
 
-  <script src="app.js?v=29"></script>
+  <script src="app.js?v=30"></script>
 </body>
 </html>

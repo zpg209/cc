@@ -13,8 +13,8 @@
     spendData: null, spendDataOff: null, spendRoute: { kind: '', val: '', acct: '' },
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
-     folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', insSlug: '', spendFrom: '' };
-  var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'fin', 'insn'];
+     folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
+  var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'fin', 'insn'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -135,7 +135,8 @@
     }
     if (name === 'fin') state.finKind = (R.kind === 'overview' || R.kind === 'laundromat') ? R.kind : '';
     if (name === 'insn') state.insSlug = R.kind || '';
-    if (name !== 'notes') micStop(true);
+    if (name === 'proj' || name === 'notes' || name === 'mic' || name === 'docs') projSetup(R.kind);
+    if (name !== 'mic') micStop(true);
     if (name !== 'doc') { state.docPushed = false; state.docSeq++; closeDoc(); }
     activate(name);
     if (!fromHistory) {
@@ -143,7 +144,7 @@
       var h = name === 'home' ? '' : name === 'spend' ? spendHash(state.spendRoute) :
         name === 'biz' && R.kind ? '#biz/' + encodeURIComponent(R.kind) :
         name === 'doc' ? '#doc?' + R.query :
-        name === 'proj' ? '#proj/terravi' :
+        (name === 'proj' || name === 'notes' || name === 'mic' || name === 'docs') ? '#' + name + '/' + state.projSlug :
         name === 'fin' ? '#fin' + (state.finKind ? '/' + state.finKind : '') :
         name === 'insn' ? '#insn' + (state.insSlug ? '/' + encodeURIComponent(state.insSlug) : '') :
         name === 'lt' ? '#lt' + (R.kind ? '/' + encodeURIComponent(R.kind) : '') :
@@ -157,6 +158,8 @@
     if (name === 're') loadRe();
     if (name === 'proj') renderProj();
     if (name === 'notes') openNotes();
+    if (name === 'mic') openMic();
+    if (name === 'docs') openDocs();
     if (name === 'fin') loadFin(false);
     if (name === 'insn') loadInsn(false);
     if (name === 'lt') { state.ltPart = LT_PARTS[R.kind] ? R.kind : ''; loadLt(); }
@@ -475,9 +478,10 @@
   function renderLinks() {
     var d = state.links;
     $('projects-list').innerHTML = d.projects.map(function (p) {
-      if (/^terra vi$/i.test(p.name)) {
-        state.tvDocUrl = p.url;
-        return '<button class="tile small" data-go="proj/terravi">Terra Vi<span class="sub">Running notes</span></button>';
+      var slug = projSlugOf(p.name);
+      if (slug) {
+        if (slug === 'terravi') state.tvDocUrl = p.url;
+        return '<button class="tile small" data-go="proj/' + slug + '">' + esc(p.name) + '<span class="sub">Notes \u00b7 Docs \u00b7 Mic</span></button>';
       }
       return tile(p, p.kind === 'doc' ? 'Running notes' : p.kind === 'folder' ? 'Drive folder' : '');
     }).join('');
@@ -1305,130 +1309,260 @@
     if (det) det.hidden = !state.ltOpen[id];
   });
 
-  /* ---------------- Terra Vi · Running notes (pilot) ---------------- */
-  var TV_DOC = 'https://docs.google.com/document/d/1YprGTVSb6kM83f0Enfk2bSf8rAsbKVV7vHwCm_qoDg8/edit';
+  /* ---------------- L&S project pages: project home / Dictate / Running notes / Documents ---------------- */
+  // Terra Vi is the pilot. To add another project: add an entry here AND its Running Notes Doc id to API_NOTES_DOCS in Api.gs.
+  // (Only Drive ids live here; the data itself is behind the passcode-protected API.)
+  var PROJ = {
+    terravi: { name: 'Terra Vi', notesProject: 'terravi',
+      docUrl: 'https://docs.google.com/document/d/1YprGTVSb6kM83f0Enfk2bSf8rAsbKVV7vHwCm_qoDg8/edit',
+      folderId: '1Spp5rODL2Ol82n5Y-GZmQt6E640po_cp' }
+  };
+  function projSlugOf(name) { var k = String(name || '').toLowerCase().replace(/[^a-z0-9]/g, ''); return PROJ[k] ? k : ''; }
+  function curProj() { return PROJ[state.projSlug] || PROJ.terravi; }
+  function projDocUrl() { return state.tvDocUrl && state.projSlug === 'terravi' ? state.tvDocUrl : curProj().docUrl; }
   var DRAFT_KEY = 'cc_note_draft_terravi';
+  var OPEN_KEY = 'cc_proj_open';
   var NOTE_MAX = 1500;
   var MIC_NA = 'Live mic isn\u2019t available here \u2014 tap the text box and use your keyboard\u2019s mic key.';
-  var notes = { data: null, at: 0, seq: 0, open: {}, saving: false, savedMsg: '' };
+  var notes = { data: null, entries: [], legacy: false, at: 0, seq: 0, saving: false, savedMsg: '' };
+  var docs = { data: null, at: 0, seq: 0 };
   var mic = { rec: null, on: false, base: '', committed: '', interim: '', errs: 0, lastStart: 0, timer: 0, wanted: false };
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
 
+  // Open/closed state of every collapsible row/group on these pages: kept in memory and on the phone, so Back restores it.
+  var openMem = (function () { try { return JSON.parse(localStorage.getItem(OPEN_KEY) || '{}') || {}; } catch (e) { return {}; } })();
+  function isOpen(key, dflt) { return openMem[key] === undefined ? !!dflt : !!openMem[key]; }
+  function setOpen(key, v) {
+    openMem[key] = !!v;
+    try { localStorage.setItem(OPEN_KEY, JSON.stringify(openMem)); } catch (e) {}
+  }
+  function projSetup(slug) {          // wires the Home/Back buttons of the 4 project screens to this project
+    state.projSlug = PROJ[slug] ? slug : 'terravi';
+    var s = state.projSlug, p = PROJ[s];
+    ['proj', 'notes', 'mic', 'docs'].forEach(function (k) {
+      var t = $(k + '-title'); if (t) t.textContent = p.name + (k === 'proj' ? '' : ' \u00b7 ' + { notes: 'Running notes', mic: 'Dictate a note', docs: 'Documents' }[k]);
+    });
+    ['notes', 'mic', 'docs'].forEach(function (k) { $(k + '-back').setAttribute('data-go', 'proj/' + s); });
+    document.querySelectorAll('[data-pgo]').forEach(function (el) { el.setAttribute('data-go', el.getAttribute('data-pgo') + '/' + s); });
+  }
   function renderProj() {
-    $('proj-doc').href = state.tvDocUrl || TV_DOC;
+    $('proj-doc').href = projDocUrl();
+    $('proj-doc').setAttribute('data-title', curProj().name + ' \u2014 Running Notes');
   }
   function draftGet() { try { return localStorage.getItem(DRAFT_KEY) || ''; } catch (e) { return ''; } }
   function draftSet(v) { try { v ? localStorage.setItem(DRAFT_KEY, v) : localStorage.removeItem(DRAFT_KEY); } catch (e) {} }
 
+  /* ---- Running notes page: dated rows, newest first; tap a row for the detail ---- */
+  function autoTitle(text, maxWords) {
+    var w = String(text || '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean), n = maxWords || 7;
+    if (!w.length) return 'Note';
+    var t = w.slice(0, n).join(' ').replace(/[\s,;:\-\u2013\u2014]+$/, '');
+    t = t.charAt(0).toUpperCase() + t.slice(1);
+    return w.length > n ? t.replace(/[.!?]+$/, '') + '\u2026' : t;
+  }
+  function shortTitle(text) {
+    var t = String(text || '').replace(/\s+/g, ' ').trim(), m = t.match(/^(.{12,70}?[.!?;:])(\s|$)/);
+    if (m) return m[1].replace(/[.;:]+$/, '');
+    if (t.length <= 70) return t.replace(/\.+$/, '') || 'Entry';
+    var cut = t.slice(0, 66), sp = cut.lastIndexOf(' ');
+    return (sp > 30 ? cut.slice(0, sp) : cut).replace(/[\s,;:\-]+$/, '') + '\u2026';
+  }
+  // Server >= v15 sends data.entries [{date,title,detail,time,kind}]. Older servers only send status/todo/done: build what we can from that.
+  function entriesFrom(d) {
+    if (d && Array.isArray(d.entries)) return { list: d.entries, legacy: false };
+    var out = [];
+    ((d && d.done) || []).forEach(function (g) {
+      (g.items || []).forEach(function (x) {
+        var f = x.kind === 'field';
+        out.push({ date: g.date || '', time: x.time || '', title: f ? autoTitle(x.text) : shortTitle(x.text), detail: x.text || '', kind: f ? 'note' : 'log' });
+      });
+    });
+    return { list: out, legacy: true };
+  }
+  var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function dateCell(iso) {
+    var m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return '<span class="d1">Earlier</span>';
+    return '<span class="d1">' + MON[Number(m[2]) - 1] + ' ' + Number(m[3]) + '</span><span class="d2">' + m[1] + '</span>';
+  }
+  function entryKey(e) { return 'n|' + (e.date || '') + '|' + (e.time || '') + '|' + (e.title || ''); }
   function openNotes() {
     var first = !notes.data;
     if (first) $('notes-body').innerHTML = '<div class="loading">Loading…</div>';
     else renderNotes();
     loadNotes(first || Date.now() - notes.at > 15000);
-    micUi();
   }
   function loadNotes(force) {
     if (!force) return;
     var seq = ++notes.seq;
-    apiRaw('notes', { project: 'terravi' }).then(function (j) {
+    apiRaw('notes', { project: curProj().notesProject }).then(function (j) {
       if (seq !== notes.seq) return;
       if (j.error === 'bad_action') { notes.data = null; return notesMsg('Running notes aren\u2019t available yet (server update pending).', true); }
       if (j.error) throw new Error(j.message || ('Server error: ' + j.error));
       notes.data = j.data; notes.at = Date.now();
+      var e = entriesFrom(j.data); notes.entries = e.list; notes.legacy = e.legacy;
       renderNotes();
     }).catch(function (err) {
       if (seq !== notes.seq) return;
       if (err instanceof AuthError) { setPc(''); return lock('Passcode changed. Enter the new one.'); }
-      if (notes.data) { flash(friendly(err), true); return; }
+      if (notes.data) return;
       notesMsg(friendly(err), true);
     });
   }
   function notesMsg(msg, withDoc) {
-    // Keep the draft box usable even when the notes can't load.
     $('notes-body').innerHTML = '<div class="error">' + esc(msg) + '<div class="retry"><button class="navbtn" id="notes-retry">Try again</button></div>' +
-      (withDoc ? '<div class="retry"><a class="navbtn doc-open-inline" data-title="Terra Vi \u2014 Running Notes" href="' + esc(TV_DOC) + '">Open the Doc &rsaquo;</a></div>' : '') + '</div>' + draftCardHtml();
+      (withDoc ? '<div class="retry"><a class="navbtn doc-open-inline" data-title="' + esc(curProj().name) + ' \u2014 Running Notes" href="' + esc(projDocUrl()) + '">Open the Doc &rsaquo;</a></div>' : '') + '</div>';
     var b = $('notes-retry'); if (b) b.addEventListener('click', function () { openNotes(); loadNotes(true); });
-    bindDraft();
   }
+  function ncardHtml(key, title, count, bodyHtml) {
+    var open = isOpen(key, false);
+    return '<div class="card ncard' + (open ? ' open' : '') + '" data-nc="' + esc(key) + '"><button class="nchead" aria-expanded="' + open + '"><span>' + esc(title) + '</span>' +
+      (count == null ? '' : '<b class="cnt">' + count + '</b>') + '<i class="chev">&rsaquo;</i></button><div class="ncbody">' + bodyHtml + '</div></div>';
+  }
+  function renderNotes() {
+    var d = notes.data;
+    if (!d) return;
+    var h = '';
+    h += ncardHtml('st', 'Status', null, (d.status && d.status.length)
+      ? d.status.map(function (t) { return '<p class="stat">' + esc(t) + '</p>'; }).join('') : '<p class="stat dim">No status written yet.</p>');
+    var todo = d.todo || [];
+    h += ncardHtml('td', 'To do', todo.length, todo.length
+      ? todo.map(function (t) { return '<div class="todorow">' + esc(t) + '</div>'; }).join('') : '<div class="todorow dim">Nothing on the list.</div>');
+    h += '<div class="secttl">Entries <small>newest first</small></div>';
+    var list = notes.entries || [];
+    if (!list.length) h += '<div class="card"><p class="stat dim">No entries yet. Dictate one from the project page.</p></div>';
+    h += '<div class="elist">' + list.map(function (e, i) {
+      var key = entryKey(e), open = isOpen(key, false), voice = e.kind === 'note';
+      var detail = String(e.detail || '').replace(/\s+$/, '');
+      return '<div class="erow' + (open ? ' open' : '') + (voice ? ' voice' : '') + '" data-ek="' + esc(key) + '">' +
+        '<button class="ehead" aria-expanded="' + open + '"><span class="edate">' + dateCell(e.date) + '</span>' +
+        '<span class="etitle">' + esc(e.title || shortTitle(detail)) + '</span><i class="chev">&rsaquo;</i></button>' +
+        '<div class="ebody">' + (voice || e.time ? '<div class="emeta">' + (voice ? '<b>Voice note</b>' : '') + (e.time ? '<span>' + esc(e.time) + '</span>' : '') + '</div>' : '') +
+        '<div class="etext">' + (detail ? esc(detail) : '<span class="dim">No further detail.</span>') + '</div></div></div>';
+    }).join('') + '</div>';
+    if (notes.legacy) h += '<p class="hint legacy">Showing the basic list. Dated sections with full detail appear here after the server update.</p>';
+    h += '<a class="linkrow" data-title="' + esc(curProj().name) + ' \u2014 Running Notes" href="' + esc(d.url || projDocUrl()) + '">Open the full Doc &rsaquo;</a>';
+    $('notes-body').innerHTML = h;
+  }
+  $('notes-body').addEventListener('click', function (e) {
+    var eh = e.target.closest('.ehead');
+    if (eh) {
+      var row = eh.parentNode, o = !row.classList.contains('open');
+      row.classList.toggle('open', o); eh.setAttribute('aria-expanded', o); setOpen(row.getAttribute('data-ek'), o);
+      return;
+    }
+    var b = e.target.closest('.nchead');
+    if (!b) return;
+    var c = b.parentNode, open = !c.classList.contains('open');
+    c.classList.toggle('open', open); b.setAttribute('aria-expanded', open);
+    setOpen(c.getAttribute('data-nc'), open);
+  });
+  $('notes-refresh').addEventListener('click', function () { loadNotes(true); });
+
+  /* ---- Documents page: collapsible groups (folder / subfolders), each file its own labelled button ---- */
+  function docType(x) {
+    var m = String(x.mime || ''), ext = (String(x.name || '').match(/\.([A-Za-z0-9]{1,5})$/) || [])[1];
+    ext = ext ? ext.toLowerCase() : '';
+    if (/google-apps\.document/.test(m)) return 'Google Doc';
+    if (/google-apps\.spreadsheet/.test(m)) return 'Google Sheet';
+    if (/google-apps\.presentation/.test(m)) return 'Google Slides';
+    if (/google-apps\.drawing/.test(m)) return 'Drawing';
+    if (/pdf/.test(m) || ext === 'pdf') return 'PDF';
+    if (/wordprocessingml|msword/.test(m) || ext === 'doc' || ext === 'docx') return 'Word';
+    if (/spreadsheetml|ms-excel/.test(m) || ext === 'xls' || ext === 'xlsx') return 'Excel';
+    if (/csv/.test(m) || ext === 'csv') return 'CSV';
+    if (/presentationml|ms-powerpoint/.test(m) || ext === 'ppt' || ext === 'pptx') return 'PowerPoint';
+    if (/^image\//.test(m)) return 'Image';
+    if (/^text\//.test(m)) return 'Text';
+    if (/zip/.test(m)) return 'ZIP';
+    return ext ? ext.toUpperCase() : 'File';
+  }
+  function fetchFolderTree(id, path, depth, budget) {       // -> promise of [{name, files:[...]}] (flattened, empty groups skipped)
+    return apiRaw('folder', { id: id }).then(function (j) {
+      if (j.error === 'bad_action') { var e = new Error('bad_action'); e.bad = true; throw e; }
+      if (j.error) throw new Error(j.message || ('Server error: ' + j.error));
+      var items = j.data.items || [], files = items.filter(function (x) { return !x.folder; });
+      var subs = items.filter(function (x) { return x.folder; });
+      var out = files.length ? [{ name: path, id: id, files: files }] : [];
+      if (!subs.length || depth <= 0) return out;
+      return Promise.all(subs.slice(0, 12).filter(function () { return budget.n-- > 0; }).map(function (f) {
+        return fetchFolderTree(f.id, path === '' ? f.name : path + ' \u203a ' + f.name, depth - 1, budget).catch(function (er) { if (er.bad || er instanceof AuthError) throw er; return []; });
+      })).then(function (parts) { return out.concat([].concat.apply([], parts)); });
+    });
+  }
+  function openDocs() {
+    if (docs.data) renderDocs(); else $('docs-body').innerHTML = '<div class="loading">Loading…</div>';
+    if (!docs.data || Date.now() - docs.at > 60000) loadDocs();
+  }
+  function loadDocs() {
+    var seq = ++docs.seq, p = curProj();
+    fetchFolderTree(p.folderId, '', 2, { n: 20 }).then(function (groups) {
+      if (seq !== docs.seq) return;
+      docs.data = groups; docs.at = Date.now();
+      renderDocs();
+    }).catch(function (err) {
+      if (seq !== docs.seq) return;
+      if (err instanceof AuthError) { setPc(''); return lock('Passcode changed. Enter the new one.'); }
+      if (docs.data) return;
+      var drive = '<div class="retry"><a class="navbtn doc-open-inline" data-title="' + esc(p.name) + ' \u2014 Documents" href="https://drive.google.com/drive/folders/' + esc(p.folderId) + '">Open the Drive folder &rsaquo;</a></div>';
+      $('docs-body').innerHTML = '<div class="error">' + esc(err.bad ? 'The document list isn\u2019t available yet (server update pending).' : friendly(err)) +
+        '<div class="retry"><button class="navbtn" id="docs-retry">Try again</button></div>' + drive + '</div>';
+      var b = $('docs-retry'); if (b) b.addEventListener('click', function () { openDocs(); loadDocs(); });
+    });
+  }
+  function renderDocs() {
+    var p = curProj(), groups = docs.data || [], total = 0;
+    groups.forEach(function (g) { total += g.files.length; });
+    var h = '<p class="hint">' + total + ' document' + (total === 1 ? '' : 's') + ' \u00b7 tap a group to expand, tap a file to open it.</p>';
+    if (!total) h += '<div class="card"><p class="stat dim">No documents found in this folder.</p></div>';
+    groups.forEach(function (g, i) {
+      var key = 'dg|' + p.folderId + '|' + g.id, title = g.name === '' ? p.name : g.name;
+      var files = g.files.slice().sort(function (a, b) { return String(a.name).toLowerCase() < String(b.name).toLowerCase() ? -1 : 1; });
+      h += ncardHtml(key, title, files.length, files.map(function (x) {
+        var href = 'https://drive.google.com/file/d/' + x.id + '/view';
+        return '<a class="docbtn" href="' + esc(href) + '" data-title="' + esc(x.name) + '"><span class="dtxt"><span class="dname">' + esc(x.name) +
+          '</span><span class="dtype">' + esc(docType(x)) + '</span></span><i class="chev">&rsaquo;</i></a>';
+      }).join('')).replace('class="card ncard' + (isOpen(key, false) ? ' open' : '') + '"', 'class="card ncard' + (isOpen(key, i === 0) ? ' open' : '') + '"');
+    });
+    h += '<a class="linkrow" data-title="' + esc(p.name) + ' \u2014 Drive folder" href="https://drive.google.com/drive/folders/' + esc(p.folderId) + '">Open the Drive folder &rsaquo;</a>';
+    $('docs-body').innerHTML = h;
+  }
+  $('docs-body').addEventListener('click', function (e) {
+    var b = e.target.closest('.nchead');
+    if (!b) return;
+    var c = b.parentNode, open = !c.classList.contains('open');
+    c.classList.toggle('open', open); b.setAttribute('aria-expanded', open);
+    setOpen(c.getAttribute('data-nc'), open);
+  });
+  $('docs-refresh').addEventListener('click', function () { loadDocs(); });
+
+  /* ---- Dictate page: big mic, saves the note into the project's Running Notes ---- */
   var flashT = 0;
   function flash(msg, bad) {
     var el = $('notes-flash');
     if (!el) return;
     el.textContent = msg; el.className = 'noteflash show' + (bad ? ' bad' : ''); el.hidden = false;
     clearTimeout(flashT);
-    flashT = setTimeout(function () { el.className = 'noteflash'; el.hidden = true; }, 4500);
+    flashT = setTimeout(function () { el.className = 'noteflash'; el.hidden = true; }, 6000);
   }
-
-  function draftCardHtml() {
-    var v = draftGet();
-    return '<div class="card draft" id="draft-card">' +
-      '<h3>New field note <span class="rec-tag" id="rec-tag" hidden>&#9679; Listening</span></h3>' +
-      '<textarea id="note-text" class="notebox" rows="4" maxlength="' + NOTE_MAX + '" autocapitalize="sentences" placeholder="Tap the mic below, or type here \u2014 the keyboard\u2019s mic key works too."></textarea>' +
-      '<div class="draftfoot"><span class="foot" id="note-count"></span><span class="foot" id="note-recovered" hidden>Recovered unsaved note</span></div>' +
-      '<div class="draftbtns"><button class="bigsave" id="note-save">Save to Doc</button><button class="navbtn discard" id="note-discard">Discard</button></div>' +
-      '<div class="noteflash" id="notes-flash" hidden></div></div>';
-  }
-  function bindDraft() {
+  function openMic() {
     var ta = $('note-text');
-    if (!ta) return;
-    var d = draftGet();
     if (mic.on) ta.value = mic.base + mic.committed + mic.interim;
-    else if (d) { ta.value = d; $('note-recovered').hidden = false; }
-    ta.addEventListener('input', function () {
-      if (mic.on) { mic.base = ta.value; mic.committed = ''; mic.interim = ''; }
-      draftSet(ta.value); micUi();
-    });
-    $('note-save').addEventListener('click', saveNote);
-    $('note-discard').addEventListener('click', discardNote);
+    else { var d = draftGet(); if (d && !ta.value) { ta.value = d; $('note-recovered').hidden = false; } }
     micUi();
   }
-
-  function renderNotes() {
-    var d = notes.data;
-    if (!d) return;
-    var h = '';
-    // status card
-    h += '<div class="card statuscard"><h3>Status</h3>' + (d.status && d.status.length
-      ? d.status.map(function (t) { return '<p class="stat">' + esc(t) + '</p>'; }).join('')
-      : '<p class="stat dim">No status written yet.</p>') + '</div>';
-    h += draftCardHtml();
-    // to do
-    h += '<div class="card ncard' + (notes.open.todo === false ? '' : ' open') + '" data-nc="todo"><button class="nchead" aria-expanded="' + (notes.open.todo !== false) + '"><span>To do</span><b class="cnt">' +
-      (d.todo || []).length + '</b><i class="chev">&rsaquo;</i></button><div class="ncbody">' +
-      ((d.todo || []).length ? d.todo.map(function (t) { return '<div class="todorow">' + esc(t) + '</div>'; }).join('') : '<div class="todorow dim">Nothing on the list.</div>') + '</div></div>';
-    // done log
-    h += '<div class="secttl">Done log</div>';
-    (d.done || []).forEach(function (g, i) {
-      var key = 'd' + (g.date || 'other'), open = notes.open[key] === undefined ? i === 0 : notes.open[key];
-      var lab = g.date ? g.label + ' \u00b7 ' + g.date : 'Other';
-      h += '<div class="card ncard' + (open ? ' open' : '') + '" data-nc="' + esc(key) + '"><button class="nchead" aria-expanded="' + open + '"><span>' + esc(lab) + '</span><b class="cnt">' +
-        g.items.length + '</b><i class="chev">&rsaquo;</i></button><div class="ncbody">' +
-        g.items.map(function (x) {
-          return '<div class="donerow' + (x.kind === 'field' ? ' field' : '') + '">' + (x.time ? '<span class="tm">' + esc(x.time) + '</span>' : '') + esc(x.text) + '</div>';
-        }).join('') + '</div></div>';
-    });
-    if (!(d.done || []).length) h += '<div class="card"><p class="stat dim">No done-log entries found.</p></div>';
-    // raw fallback
-    var rawOpen = notes.open.raw === undefined ? !d.parsed : notes.open.raw;
-    h += '<div class="card ncard' + (rawOpen ? ' open' : '') + '" data-nc="raw"><button class="nchead" aria-expanded="' + rawOpen + '"><span>Raw text' + (d.parsed ? '' : ' (parsing incomplete)') + '</span><i class="chev">&rsaquo;</i></button><div class="ncbody"><pre class="rawtxt">' +
-      esc(d.raw || '') + '</pre></div></div>';
-    h += '<a class="linkrow" data-title="Terra Vi \u2014 Running Notes" href="' + esc(d.url || TV_DOC) + '">Open the full Doc &rsaquo;</a><div class="micpad"></div>';
-    $('notes-body').innerHTML = h;
-    bindDraft();
-  }
-  $('notes-body').addEventListener('click', function (e) {
-    var b = e.target.closest('.nchead');
-    if (!b) return;
-    var c = b.parentNode, key = c.getAttribute('data-nc'), open = !c.classList.contains('open');
-    c.classList.toggle('open', open); b.setAttribute('aria-expanded', open);
-    notes.open[key] = open;
+  $('note-text').addEventListener('input', function () {
+    var ta = this;
+    if (mic.on) { mic.base = ta.value; mic.committed = ''; mic.interim = ''; }
+    draftSet(ta.value); micUi();
   });
-  $('notes-refresh').addEventListener('click', function () { loadNotes(true); });
+  $('note-save').addEventListener('click', function () { saveNote(); });
+  $('note-discard').addEventListener('click', function () { discardNote(); });
 
   function discardNote() {
     micStop(true);
     var ta = $('note-text'); if (ta) ta.value = '';
-    draftSet(''); mic.base = mic.committed = mic.interim = '';
+    draftSet(''); mic.base = mic.committed = mic.interim = ''; mic.msg = '';
     var r = $('note-recovered'); if (r) r.hidden = true;
     micUi();
   }
@@ -1439,18 +1573,15 @@
     if (!text) return;
     if (text.length > NOTE_MAX) return flash('That note is too long (max ' + NOTE_MAX + ' characters).', true);
     notes.saving = true; micUi();
-    apiRaw('addnote', { project: 'terravi', text: text }).then(function (j) {
+    apiRaw('addnote', { project: curProj().notesProject, text: text }).then(function (j) {
       notes.saving = false;
       if (j.error === 'bad_action') { micUi(); return flash('Saving isn\u2019t available yet (server update pending). Your note is kept on this phone.', true); }
       if (j.error) { micUi(); return flash((j.message || 'Couldn\u2019t save (' + j.error + ').') + ' Your note is kept on this phone.', true); }
       draftSet(''); mic.base = mic.committed = mic.interim = '';
-      notes.savedMsg = j.data && j.data.duplicate ? 'Already saved.' : 'Saved to the Doc \u2713';
-      notes.at = 0;
-      var seq = ++notes.seq;
-      apiRaw('notes', { project: 'terravi' }).then(function (r) {
-        if (seq !== notes.seq || r.error) { if (r.error) throw new Error(r.error); return; }
-        notes.data = r.data; notes.at = Date.now(); renderNotes(); flash(notes.savedMsg);
-      }).catch(function () { var t = $('note-text'); if (t) t.value = ''; micUi(); flash(notes.savedMsg + ' (refresh to see it)'); });
+      if (ta) ta.value = '';
+      notes.at = 0;                                            // Running notes reloads next time it is opened
+      micUi();
+      flash(j.data && j.data.duplicate ? 'Already saved.' : 'Saved to Running Notes \u2713');
     }, function (err) {
       notes.saving = false; micUi();
       if (err instanceof AuthError) { setPc(''); return lock('Passcode changed. Enter the new one.'); }
@@ -1472,7 +1603,7 @@
     var tag = $('rec-tag'); if (tag) tag.hidden = !on;
     var dc = $('draft-card'); if (dc) dc.classList.toggle('live', on);
     var sv = $('note-save'), dsc = $('note-discard');
-    if (sv) { sv.disabled = !has || notes.saving; sv.textContent = notes.saving ? 'Saving\u2026' : 'Save to Doc'; }
+    if (sv) { sv.disabled = !has || notes.saving; sv.textContent = notes.saving ? 'Saving\u2026' : 'Save note'; }
     if (dsc) dsc.disabled = !has && !on;
     var cnt = $('note-count'); if (cnt) cnt.textContent = ta && ta.value.length ? ta.value.length + ' / ' + NOTE_MAX : '';
   }
@@ -1508,7 +1639,7 @@
       for (var i = ev.resultIndex; i < ev.results.length; i++) {
         var r = ev.results[i], t = r[0] ? r[0].transcript : '';
         if (r.isFinal) mic.committed = micSpace(mic.committed, t.trim() + ' ');
-        else interim += (interim ? '' : '') + t;
+        else interim += t;
       }
       mic.interim = interim.replace(/^\s+/, '');
       mic.errs = 0;
