@@ -576,6 +576,11 @@
   var INCOME_SOURCES = ["Lisa's Table", 'Mono Village Laundromat'];
   var PT_SOURCE = 'Personal Training';   // Lisa's personal training income: a line item in the Income section (tap -> clients/dates/amounts)
   var PT_LABEL = "Lisa's Personal Training";
+  var LS_SOURCE = 'Land & Structure Pay';   // Zac's pay (twice a month): own spend-sheet tab, same list/tap-through as Personal Training; hidden until the API returns it
+  // Income sources that live on their own spend-sheet tab and list per-entry (description/client, method, notes)
+  var DETAIL_SRC = {};
+  DETAIL_SRC[PT_SOURCE] = { label: PT_LABEL, title: 'Personal Training', unit: 'payment', tab: 'pt', tabName: 'Personal Training', what: 'client payments' };
+  DETAIL_SRC[LS_SOURCE] = { label: LS_SOURCE, title: LS_SOURCE, unit: 'payment', tab: 'ls', tabName: LS_SOURCE, what: 'pay' };
 
   function loadSpend(force) {
     if (!force && state.spendData && state.spendDataOff === state.monthOffset) return renderSpend();
@@ -601,6 +606,7 @@
     s = String(s || '').trim() || 'Other';
     var l = loose(s);
     if (/personaltraining|^pt$/.test(l)) return PT_SOURCE;
+    if (/landstructure/.test(l)) return LS_SOURCE;
     for (var i = 0; i < INCOME_SOURCES.length; i++) {
       var k = loose(INCOME_SOURCES[i]);
       if (k === l || (l && (k.indexOf(l) === 0 || l.indexOf(k) === 0))) return INCOME_SOURCES[i];
@@ -640,7 +646,7 @@
     });
     var income = (Array.isArray(d.income) ? d.income : []).map(function (x) {
       return { date: x.date, label: x.label || x.date, source: normSource(x.source), amount: Number(x.amount) || 0, notes: x.notes || '',
-        client: x.client || '', method: x.method || '' };
+        client: x.client || x.description || '', method: x.method || '', gid: x.gid != null ? String(x.gid) : '' };
     });
     var names = ACCOUNTS.slice();
     items.forEach(function (x) { if (names.indexOf(x.account) < 0) names.push(x.account); });
@@ -658,16 +664,18 @@
     var hh = items.filter(function (x) { return x.account === 'Household'; });
     var who = full ? Object.keys(sumBy(hh, 'who')).map(function (k) { return { name: k, amount: r2(sumBy(hh, 'who')[k]) }; })
       : (d.byWho || []).map(function (w) { return { name: w.name, amount: w.amount }; });
-    var srcNames = INCOME_SOURCES.concat([PT_SOURCE]);
+    var srcNames = INCOME_SOURCES.concat([PT_SOURCE]);   // Land & Structure Pay is added below only when the API returns entries for it
     income.forEach(function (x) { if (srcNames.indexOf(x.source) < 0) srcNames.push(x.source); });
+    var lsGid = ''; income.forEach(function (x) { if (x.source === LS_SOURCE && x.gid) lsGid = x.gid; });
     return {
       items: items, full: full, entryCount: full ? items.length : (d.entryCount || items.length),
       truncated: !full && (d.entryCount || 0) > items.length,
       accounts: accounts, who: who, income: income,
       sources: srcNames.map(function (sname) {
         var l = income.filter(function (x) { return x.source === sname; });
-        return { name: sname, label: sname === PT_SOURCE ? PT_LABEL : sname, amount: sum(l), count: l.length };
+        return { name: sname, label: DETAIL_SRC[sname] ? DETAIL_SRC[sname].label : sname, amount: sum(l), count: l.length };
       }),
+      lsGid: lsGid,
       incomeTotal: sum(income),   // all income sources, incl. Personal Training (Income total + Summary math)
       total: full ? sum(items) : Number(d.total) || 0,
       daysLogged: d.daysLogged
@@ -682,10 +690,10 @@
   // Spend sheet (Daily Spend tab). Every number on the Vault drills down to the rows behind it and
   // links here ("Open in spend sheet" -> in-app doc viewer). gid = Daily Spend tab.
   var SHEET_URL = 'https://docs.google.com/spreadsheets/d/13vEUSpqfSxNW0ZXRBMiLhecAXWSChgcqHd9N81PaG9Y/edit';
-  var SHEET_GIDS = { spend: '555034', income: '1698769561', pt: '993449402' };   // Daily Spend / Income / Personal Training tabs
-  function sheetLink(label, tab) {
-    var g = SHEET_GIDS[tab || 'spend'];
-    var u = SHEET_URL + '?gid=' + g + '#gid=' + g;
+  var SHEET_GIDS = { spend: '555034', income: '1698769561', pt: '993449402', ls: '' };   // Daily Spend / Income / Personal Training tabs
+  function sheetLink(label, tab, gid) {
+    var g = gid || SHEET_GIDS[tab || 'spend'];
+    var u = g ? SHEET_URL + '?gid=' + g + '#gid=' + g : SHEET_URL;
     return '<a class="linkrow sheetbtn" data-title="Spend sheet" href="' + esc(u) + '">' + esc(label || 'Open in spend sheet') + ' &#8599;</a>';
   }
   var CALC_LABELS = { 'tiwik-net': 'TiwiK net', 'lt-net': "Lisa's Table net", 'hh-spend': 'Household spend',
@@ -727,8 +735,8 @@
   function incomeRows(list, showSrc) {
     if (!list.length) return '<div class="foot">No income entries this month.</div>';
     return list.map(function (e) {
-      var pt = e.source === PT_SOURCE, meta = [];
-      if (showSrc) meta.push(esc(pt ? PT_LABEL : e.source));
+      var ds = DETAIL_SRC[e.source], pt = !!ds, meta = [];
+      if (showSrc) meta.push(esc(ds ? ds.label : e.source));
       if (pt && e.method) meta.push(isCash(e) ? '<span class="cashtag">' + esc(e.method) + '</span>' : esc(e.method));
       return '<div class="entry item inc' + (pt ? ' ptitem' : '') + '"><div class="d">' +
         (pt ? esc(e.label) : 'Week ending<br><b>' + esc(e.label) + '</b>') + '</div><div class="m">' +
@@ -839,15 +847,20 @@
 
     } else if (sr.kind === 'income') {
       var all = sr.val === 'All', src = normSource(sr.val);
-      var isPT = !all && src === PT_SOURCE;
+      var ds = !all && DETAIL_SRC[src], isPT = !!ds;
       var inc = all ? M.income : M.income.filter(function (x) { return x.source === src; });
-      var unit = isPT ? 'payment' : all ? 'entr' : 'week';
-      h += '<div class="card income"><h3>' + (all ? 'Income total' : isPT ? 'Personal Training' : 'Income') + '</h3><div class="big">' + money(sum(inc)) + '</div>' +
+      var unit = isPT ? ds.unit : all ? 'entr' : 'week';
+      var hasLS = M.income.some(function (x) { return x.source === LS_SOURCE; });
+      h += '<div class="card income"><h3>' + (all ? 'Income total' : isPT ? esc(ds.title) : 'Income') + '</h3><div class="big">' + money(sum(inc)) + '</div>' +
         '<div class="foot">' + inc.length + ' ' + (all ? (inc.length === 1 ? 'entry' : 'entries') : unit + (inc.length === 1 ? '' : 's')) +
         (all ? ' · ' + M.sources.filter(function (s) { return s.count; }).map(function (s) { return esc(s.label) + ' ' + money(s.amount); }).join(' · ') : '') +
-        '</div><div class="foot how">Source: the Income tab (weekly lump sums) and the Personal Training tab (client payments) of the spend sheet.</div></div>';
-      h += sheetLink('Open in spend sheet' + (isPT ? ' (Personal Training tab)' : ' (Income tab)'), isPT ? 'pt' : 'income');
-      if (all) h += sheetLink('Open Personal Training tab', 'pt').replace('linkrow sheetbtn', 'linkrow sheetbtn second');
+        '</div><div class="foot how">Source: ' + (isPT ? 'the ' + esc(ds.tabName) + ' tab (' + ds.what + ') of the spend sheet.'
+          : 'the Income tab (weekly lump sums), the Personal Training tab (client payments)' + (hasLS ? ' and the Land &amp; Structure Pay tab' : '') + ' of the spend sheet.') + '</div></div>';
+      h += sheetLink('Open in spend sheet' + (isPT ? ' (' + ds.tabName + ' tab)' : ' (Income tab)'), isPT ? ds.tab : 'income', isPT && ds.tab === 'ls' ? M.lsGid : '');
+      if (all) {
+        h += sheetLink('Open Personal Training tab', 'pt').replace('linkrow sheetbtn', 'linkrow sheetbtn second');
+        if (hasLS) h += sheetLink('Open Land & Structure Pay tab', 'ls', M.lsGid).replace('linkrow sheetbtn', 'linkrow sheetbtn second');
+      }
       h += '<div class="card income">' + incomeRows(inc, all) + '</div>';
 
     } else if (sr.kind === 'calc') {
@@ -884,7 +897,7 @@
           parts: part('Total spent', money(M.total), 'spend/all') + part('Days', String(days), ''),
           secs: [{ head: 'All spend entries', sp: M.items }] };
       } else if (key === 'avg-income') {
-        c = { valHtml: perDay(M.incomeTotal), cls: 'inc', note: 'Income total ÷ days. All income sources incl. Personal Training; ' + daysNote + '.',
+        c = { valHtml: perDay(M.incomeTotal), cls: 'inc', note: 'Income total ÷ days. All income sources incl. Personal Training and Land & Structure Pay; ' + daysNote + '.',
           parts: part('Income total', money(M.incomeTotal), incomeRoute('All')) + part('Days', String(days), ''),
           secs: [{ head: 'All income entries', inc: allInc }] };
       }
