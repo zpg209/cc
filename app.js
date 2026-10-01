@@ -129,7 +129,7 @@
       var curEl = document.querySelector('.screen.active'), cur = curEl ? curEl.id.replace(/^screen-/, '') : '';
       if (cur === 'fin') { state.spendFrom = state.finKind === 'laundromat' ? 'fin/laundromat' : state.finKind === 'overview' ? 'fin/overview' : ''; if (state.finKind) state.scrollMem['fin/' + state.finKind] = window.scrollY || 0; }
       else if (cur !== 'spend' && cur !== 'doc') state.spendFrom = '';
-      var okKind = R.kind === 'all' || (/^(cat|acct|income|cash|who|calc)$/.test(R.kind) && R.val);
+      var okKind = R.kind === 'all' || (/^(cat|acct|income|cash|who|calc|bal)$/.test(R.kind) && R.val);
       state.spendRoute = okKind ? { kind: R.kind, val: R.kind === 'all' ? '' : R.val, acct: (R.kind === 'cat' || R.kind === 'cash') ? R.acct : '' }
         : { kind: '', val: '', acct: '' };
     }
@@ -704,7 +704,7 @@
   // Spend sheet (Daily Spend tab). Every number on the Vault drills down to the rows behind it and
   // links here ("Open in spend sheet" -> in-app doc viewer). gid = Daily Spend tab.
   var SHEET_URL = 'https://docs.google.com/spreadsheets/d/13vEUSpqfSxNW0ZXRBMiLhecAXWSChgcqHd9N81PaG9Y/edit';
-  var SHEET_GIDS = { spend: '555034', income: '1698769561', pt: '993449402', ls: '' };   // Daily Spend / Income / Personal Training tabs
+  var SHEET_GIDS = { spend: '555034', income: '1698769561', pt: '993449402', ls: '', bal: '287907026', acct: '820176485' };   // Daily Spend / Income / Personal Training tabs
   function sheetLink(label, tab, gid) {
     var g = gid || SHEET_GIDS[tab || 'spend'];
     var u = g ? SHEET_URL + '?gid=' + g + '#gid=' + g : SHEET_URL;
@@ -722,6 +722,7 @@
     if (sr.kind === 'cash') return 'Cash' + (sr.val && sr.val !== 'All' ? ' \u00b7 ' + sr.val : '') + (sr.acct ? ' \u00b7 ' + sr.acct : '');
     if (sr.kind === 'calc') return CALC_LABELS[sr.val] || sr.val;
     if (sr.kind === 'who') return sr.val + ' \u00b7 Household';
+    if (sr.kind === 'bal') return sr.val === 'All' ? 'Account balances' : /^g:/.test(sr.val) ? sr.val.slice(2) + ' balances' : sr.val;
     if (sr.kind === 'income' && sr.val === 'All') return 'Income';
     return sr.val;
   }
@@ -820,6 +821,171 @@
   }
   function signedMoney(v) { return (v >= 0 ? '+' : '\u2212') + money(Math.abs(v)); }
 
+
+  /* ---------------- Vault: Accounts (balances from the spend sheet's Accounts + Balances tabs; API action `accounts`) ---------------- */
+  // No figures live in this file: everything is fetched at runtime. Neutral copper (not red/green): a balance is neither money in nor out.
+  // state.acct = { s: 'load' | 'ok' | 'na' (server not updated) | 'err', d: model, at: ms, msg }
+  var ACCT_TTL = 60000;
+  function balMoney(n) { n = Number(n) || 0; return (n < 0 ? '\u2212' : '') + money(Math.abs(n)); }
+  function balSigned(n) { n = Number(n) || 0; return (n < 0 ? '\u2212' : '+') + money(Math.abs(n)); }
+  function acDate(k) {
+    var m = String(k || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return String(k || '');
+    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  function acMonthEnd(k) {
+    var m = String(k || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return !!m && Number(m[3]) === new Date(Number(m[1]), Number(m[2]), 0).getDate();
+  }
+  function acNum(v) { return v == null || v === '' || isNaN(Number(v)) ? null : Number(v); }
+  function acctModel(d) {
+    var accounts = (Array.isArray(d.accounts) ? d.accounts : []).map(function (a) {
+      var entries = (Array.isArray(a.entries) ? a.entries : []).map(function (e) {
+        return { date: e.date || '', balance: Number(e.balance) || 0, notes: e.notes || '' };
+      });
+      return { name: a.name || '', bank: a.bank || '', type: a.type || '', group: normAcct(a.group), balance: acNum(a.balance), asOf: a.asOf || '',
+        notes: a.notes || '', prevBalance: acNum(a.prevBalance), prevAsOf: a.prevAsOf || '', change: acNum(a.change), entries: entries };
+    });
+    var groups = (Array.isArray(d.groups) ? d.groups : []).map(function (g) {
+      return { group: normAcct(g.group), total: Number(g.total) || 0, count: g.count || 0, change: acNum(g.change) };
+    });
+    return { accounts: accounts, groups: groups, total: Number(d.total) || 0, count: accounts.length, change: acNum(d.change),
+      recon: Array.isArray(d.reconciliation) ? d.reconciliation : [], gid: d.balancesGid != null ? String(d.balancesGid) : SHEET_GIDS.bal,
+      unmatched: d.unmatched || [] };
+  }
+  function loadAccounts(force) {
+    var a = state.acct;
+    if (!force && a && (a.s === 'load' || (a.at && Date.now() - a.at < ACCT_TTL))) return;
+    var prev = a && a.s === 'ok' ? a : null;
+    state.acct = { s: 'load', d: prev ? prev.d : null, at: 0 };
+    var mine = state.acct;
+    api('accounts').then(function (d) {
+      if (state.acct !== mine) return;
+      state.acct = { s: 'ok', d: acctModel(d || {}), at: Date.now() };
+    }, function (err) {
+      if (state.acct !== mine) return;
+      var m = String((err && err.message) || '');
+      state.acct = /bad_action/.test(m) ? { s: 'na', d: null, at: Date.now() } : { s: 'err', d: prev ? prev.d : null, at: Date.now(), msg: m };
+    }).then(function () { if (state.spendData && $('screen-spend').classList.contains('active')) renderSpend(); });
+  }
+  function balRoute(v) { return 'spend/bal/' + encodeURIComponent(v || 'All'); }
+  function balBtn(label, route, cls) { return '<button class="' + (cls || 'acbtn') + '"' + goAttr(route) + '>' + label + ' &rsaquo;</button>'; }
+  function acctCard(a) {
+    var flag = a.asOf && !acMonthEnd(a.asOf) ? ' <span class="acflag">not month end</span>' : '';
+    var h = '<div class="acard"><div class="actop"><div class="acname">' + esc(a.name) +
+      '<small>' + esc([a.bank, a.type].filter(Boolean).join(' \u00b7 ')) + '</small></div>';
+    h += a.balance == null ? '<span class="acnone">No balance yet</span>'
+      : '<button class="acbal amt-bal"' + goAttr(balRoute(a.name)) + '>' + balMoney(a.balance) + ' <i class="chev">&rsaquo;</i></button>';
+    h += '</div>';
+    if (a.asOf) h += '<div class="acmeta"><span>As of ' + esc(acDate(a.asOf)) + '</span>' + flag + '</div>';
+    if (a.change != null) {
+      h += '<button class="acchg"' + goAttr(balRoute(a.name)) + '><span>Change vs ' + esc(acDate(a.prevAsOf)) + '</span><b class="amt-bal">' + balSigned(a.change) + '</b></button>';
+    } else if (a.balance != null) {
+      h += '<div class="acchg none">Change: need next statement</div>';
+    }
+    if (a.notes) h += '<div class="acnote">' + esc(a.notes) + '</div>';
+    return h + '</div>';
+  }
+  function reconCard(A) {
+    var ready = A.recon.filter(function (r) { return r.status === 'ok' || r.status === 'gap'; });
+    var h = '<div class="reccard"><h4>Reconciliation</h4>';
+    if (!ready.length) {
+      h += '<div class="recneed"><b>Needs a second month of statements</b>Once an account group has balances for two dates, this compares its balance change with its income minus spend from the Vault and flags any unexplained gap.</div>';
+    }
+    A.recon.forEach(function (r) {
+      var ok = r.status === 'ok', gap = r.status === 'gap';
+      h += '<div class="recgrp' + (gap ? ' flagged' : '') + '"><div class="rechead"><span>' + esc(r.group) + '</span>' +
+        (gap ? '<span class="acflag warn">unexplained gap</span>' : ok ? '<span class="acflag okf">explained</span>' : '<span class="acflag">need next statement</span>') + '</div>';
+      if (ok || gap) {
+        h += '<div class="recsub">' + esc(acDate(r.periodStart)) + ' \u2192 ' + esc(acDate(r.periodEnd)) + '</div>' +
+          '<button class="recline"' + goAttr(balRoute('g:' + r.group)) + '><span>Balance change</span><b class="amt-bal">' + balSigned(r.balanceChange) + '</b></button>' +
+          '<button class="recline"' + goAttr(balRoute('g:' + r.group)) + '><span>Income \u2212 spend</span><b class="amt-bal">' + balSigned(r.expected) + '</b></button>' +
+          '<button class="recline gapl"' + goAttr(balRoute('g:' + r.group)) + '><span>Gap</span><b class="' + (gap ? 'warnv' : 'amt-bal') + '">' + balSigned(r.gap) + '</b></button>';
+        if (gap) h += '<div class="recmsg">' + esc(r.message || '') + '</div>';
+      } else {
+        h += '<div class="recmsg">' + esc(r.message || 'need next statement') + '</div>';
+      }
+      h += '</div>';
+    });
+    return h + '</div>';
+  }
+  function accountsSection() {
+    var st = state.acct || { s: 'load' }, A = st.d, tot, body = '';
+    var sheet = sheetLink('Open in spend sheet (Balances tab)', 'bal', A ? A.gid : '');
+    if (st.s === 'na') {
+      return vSec('accounts', 'acctbal', 'Accounts', '<span class="amt-bal">\u2014</span>', 'spend/bal/All',
+        '<div class="foot">Accounts are not available yet (server update pending). Balances are in the spend sheet.</div>' + sheetLink('Open in spend sheet (Balances tab)', 'bal'));
+    }
+    if (!A) {
+      if (st.s === 'err') body = '<div class="foot">Could not load accounts' + (st.msg ? ': ' + esc(st.msg) : '') + '.</div><button class="linkrow smallrow" data-acct-retry="1">Try again</button>' + sheetLink('Open in spend sheet (Balances tab)', 'bal');
+      else body = '<div class="loading">Loading accounts\u2026</div>';
+      return vSec('accounts', 'acctbal', 'Accounts', '<span class="amt-bal">' + (st.s === 'err' ? '\u2014' : '\u2026') + '</span>', 'spend/bal/All', body);
+    }
+    A.groups.forEach(function (g) {
+      var mine = A.accounts.filter(function (a) { return a.group === g.group; });
+      body += '<div class="acgroup"><div class="acghead"><span>' + esc(g.group) + '<small>' + mine.length + ' account' + (mine.length === 1 ? '' : 's') + '</small></span>' +
+        '<button class="acgtot amt-bal"' + goAttr(balRoute('g:' + g.group)) + '>' + balMoney(g.total) + ' <i class="chev">&rsaquo;</i></button></div>' +
+        mine.map(acctCard).join('') + '</div>';
+    });
+    if (!A.accounts.length) body += '<div class="foot">No accounts found on the Accounts tab.</div>';
+    body += reconCard(A);
+    if (A.unmatched.length) body += '<div class="foot">Balances for accounts not on the Accounts tab were skipped: ' + esc(A.unmatched.join(', ')) + '</div>';
+    body += balBtn('All balance entries', 'spend/bal/All', 'linkrow smallrow') + sheet + sheetLink('Open Accounts tab', 'acct').replace('linkrow sheetbtn', 'linkrow sheetbtn second');
+    return vSec('accounts', 'acctbal', 'Accounts', '<span class="amt-bal">' + balMoney(A.total) + '</span>', 'spend/bal/All', body);
+  }
+  // Drill-down: the balance entries behind a number (All / one group / one account), straight from the Balances tab, + reconciliation detail for a group.
+  function balDrill() {
+    var sr = state.spendRoute, st = state.acct || { s: 'load' }, A = st.d, h = '';
+    if (st.s === 'na') return '<div class="loading">Account balances are not available yet (server update pending).</div>' + sheetLink('Open in spend sheet (Balances tab)', 'bal');
+    if (!A) return st.s === 'err' ? '<div class="loading">Could not load accounts.</div><button class="linkrow smallrow" data-acct-retry="1">Try again</button>' : '<div class="loading">Loading\u2026</div>';
+    var isG = /^g:/.test(sr.val), gname = isG ? sr.val.slice(2) : '', all = sr.val === 'All';
+    var list = A.accounts.filter(function (a) { return all || (isG ? a.group === gname : a.name === sr.val); });
+    if (!list.length) return '<div class="loading">No such account.</div>' + sheetLink('Open in spend sheet (Balances tab)', 'bal', A.gid);
+    var total = r2(list.reduce(function (t, a) { return t + (a.balance || 0); }, 0));
+    var label = all ? 'All accounts' : isG ? gname + ' accounts' : 'Account';
+    h += '<div class="card acdrill"><h3>' + esc(label) + '</h3><div class="big amt-bal">' + balMoney(total) + '</div>' +
+      '<div class="foot">' + list.length + ' account' + (list.length === 1 ? '' : 's') + ' \u00b7 latest balance entry for each, summed</div>' +
+      '<div class="foot how">Source: the Balances tab of the spend sheet (one row per account per statement date).</div></div>';
+    h += sheetLink('Open in spend sheet (Balances tab)', 'bal', A.gid);
+    list.forEach(function (a) {
+      h += '<div class="card acdrill"><h3>' + esc(a.name) + ' <small>' + esc([a.bank, a.type].filter(Boolean).join(' \u00b7 ')) + '</small></h3>';
+      if (!a.entries.length) h += '<div class="foot">No balance entered yet.</div>';
+      a.entries.forEach(function (e, i) {
+        h += '<div class="icrow"><span class="icd">' + esc(acDate(e.date)) + '</span><span class="icc">' +
+          (acMonthEnd(e.date) ? '' : '<span class="acflag">not month end</span> ') + esc(e.notes) + (i === 0 ? ' <small class="muted">(latest)</small>' : '') +
+          '</span><span class="amt amt-bal">' + balMoney(e.balance) + '</span></div>';
+      });
+      if (a.change != null) h += '<div class="foot">Change: ' + balMoney(a.balance) + ' \u2212 ' + balMoney(a.prevBalance) + ' = <b class="amt-bal">' + balSigned(a.change) + '</b></div>';
+      else if (a.entries.length) h += '<div class="foot">Change: need next statement</div>';
+      h += '</div>';
+    });
+    if (isG) {
+      var r = A.recon.filter(function (x) { return x.group === gname; })[0];
+      if (r && (r.status === 'ok' || r.status === 'gap')) {
+        h += '<div class="card acdrill"><h3>Reconciliation \u00b7 ' + esc(gname) + ' <small>' + esc(acDate(r.periodStart)) + ' \u2192 ' + esc(acDate(r.periodEnd)) + '</small></h3>' +
+          '<div class="sumline"><span>Balance change</span><b class="amt-bal">' + balSigned(r.balanceChange) + '</b></div>' +
+          '<div class="sumline"><span>Income</span><b class="amt-in">' + money(r.income) + '</b></div>' +
+          '<div class="sumline"><span>Spend</span><b class="amt-out">' + money(r.spend) + '</b></div>' +
+          '<div class="sumline"><span>Gap (change \u2212 (income \u2212 spend))</span><b class="' + (r.status === 'gap' ? 'warnv' : 'amt-bal') + '">' + balSigned(r.gap) + '</b></div>' +
+          '<div class="foot how">' + (r.status === 'gap' ? 'Gap is above $' + (r.tolerance || 0) + ': transfers, cash, card payments or entries not yet logged can explain it.' : 'Within $' + (r.tolerance || 0) + ' of what logged income and spend explain.') + '</div></div>';
+        if ((r.incomeItems || []).length) h += '<div class="card income"><h3>Income entries \u00b7 ' + r.incomeItems.length + '</h3>' +
+          r.incomeItems.map(function (x) { return '<div class="icrow"><span class="icd">' + esc(x.label || x.date) + '</span><span class="icc">' + esc(x.source + (x.client ? ' \u00b7 ' + x.client : '')) +
+            '</span><span class="amt amt-in">' + money(x.amount) + '</span></div>'; }).join('') + '</div>';
+        if ((r.spendItems || []).length) h += '<div class="card"><h3>Spend entries \u00b7 ' + r.spendItems.length + '</h3>' +
+          r.spendItems.map(function (x) { return '<div class="icrow"><span class="icd">' + esc(x.label || x.date) + '</span><span class="icc">' + esc(x.merchant || x.category) +
+            '</span><span class="amt amt-out">' + money(x.amount) + '</span></div>'; }).join('') + '</div>';
+        h += sheetLink('Open in spend sheet (Daily Spend tab)');
+      } else {
+        h += '<div class="card acdrill"><h3>Reconciliation \u00b7 ' + esc(gname) + '</h3><div class="recneed"><b>Needs a second month of statements</b>' +
+          esc(r && r.message ? r.message : 'Needs a second balance date for every account in this group.') + '</div></div>';
+      }
+    }
+    return h;
+  }
+  document.addEventListener('click', function (e) {
+    if (e.target.closest('[data-acct-retry]')) { loadAccounts(true); if (state.spendData) renderSpend(); }
+  });
+
   function renderSpend() {
     var d = state.spendData, M = spendModel(d), sr = state.spendRoute;
     paintSpendChrome();
@@ -835,6 +1001,7 @@
     var srcList = function (n) { return M.income.filter(function (x) { return x.source === n; }); };
     var hhTot = acctTot('Household');
     var cashOK = M.full;   // cash needs the full item list (older API only has the latest 20 rows)
+    if (!sr.kind || sr.kind === 'bal') loadAccounts(false);
 
     if (!sr.kind) {
       M.accounts.forEach(function (a) {
@@ -885,9 +1052,14 @@
       if (M.who.length) h += vSec('who', '', 'Household \u00b7 Zac vs Lisa', '<span class="amt-out">' + money(sum(M.who)) + '</span>', acctRoute('Household'),
         '<div class="split">' + M.who.map(function (w) { return '<button class="splitbtn"' + goAttr(whoRoute(w.name)) + '><b class="amt-out">' + money(w.amount) + '</b>' + esc(w.name) + '</button>'; }).join('') + '</div>');
 
+      h += accountsSection();
+
       h += '<button class="linkrow allbtn"' + goAttr('spend/all') + '>All items (' + M.entryCount + ') &rsaquo;</button>';
       h += sheetLink('Open in spend sheet');
       if (d.missingColumns && d.missingColumns.length) h += '<div class="foot">Columns not found: ' + esc(d.missingColumns.join(', ')) + '</div>';
+
+    } else if (sr.kind === 'bal') {
+      h += balDrill();
 
     } else if (sr.kind === 'income') {
       var all = sr.val === 'All', src = normSource(sr.val);
