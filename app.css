@@ -571,3 +571,23 @@ button.calcpart { cursor: pointer; }
 .vsec.income .vtot { border-color: var(--green-edge); }
 .vsec > .ncbody { padding: 0 10px 10px; }
 .vsec.grand > .ncbody .cashtot { justify-content: flex-start; }
+
+/* ---- Overview v4 (FIN2): document ledger + live Vault. Namespaced .ov* ---- */
+.ovsum { cursor: pointer; text-align: left; }
+.ovrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; padding: 10px 2px; border-bottom: 1px solid rgba(255,255,255,.07); min-height: 44px; }
+.ovrow:last-child { border-bottom: 0; }
+.ovl { min-width: 0; font-size: 15px; font-weight: 600; color: #eee; }
+.ovl small { display: block; margin-top: 3px; font-size: 11.5px; font-weight: 400; color: var(--muted, #9a9a9a); line-height: 1.35; }
+.ovv { font: 700 16px/1.2 'Inter', sans-serif; font-variant-numeric: tabular-nums; text-align: right; color: #fff; overflow-wrap: anywhere; max-width: 55vw; }
+.ovrow.calc .ovv { color: #fff; }
+.ovgo { background: none; border: 0; padding: 6px 0; font: inherit; color: inherit; cursor: pointer; min-height: 36px; }
+.badge.dv { color: #cfcfcf; border-color: rgba(255,255,255,.28); background: rgba(255,255,255,.05); }
+button.badge.est { cursor: pointer; margin: 0 4px 0 0; }
+button.badge.est:active { background: rgba(255,183,77,.25); }
+.ovneed { margin: 2px 0 8px; padding: 10px 12px; border: 1px solid rgba(255,183,77,.35); border-radius: 8px; background: rgba(255,183,77,.06); font-size: 13.5px; line-height: 1.4; }
+.ovneed[hidden] { display: none; }
+.ovneed > b { display: block; color: #ffb74d; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; }
+.ovneedrow small, .ovwhy { display: block; color: var(--muted, #9a9a9a); font-size: 12px; margin-top: 2px; }
+.ovneedit { padding: 8px 2px; }
+.ovnote { margin: 6px 0 4px; font-size: 12.5px; color: var(--muted, #9a9a9a); line-height: 1.4; }
+.fin .ncbody .fxgrp { margin-top: 12px; }
