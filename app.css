@@ -456,3 +456,52 @@ body { overscroll-behavior-y: none; }
 /* ---- Vault: Personal Training list (opened from the Income line item) ---- */
 .entry.inc.ptitem { grid-template-columns: 58px 1fr auto; }
 .entry.inc.ptitem .meta { margin-top: 1px; }
+
+/* ---- Vault v21: every number is tappable (drill-down), cash = subset line ---- */
+.catwrap { border-bottom: 1px solid var(--line); }
+.catwrap:last-child { border-bottom: 0; }
+.catwrap .catrow { border-bottom: 0; }
+.cashline { display: inline-block; background: transparent; border: 0; font: 600 14px/1.2 'Inter', sans-serif; color: var(--copper); opacity: .95;
+  white-space: nowrap; font-variant-numeric: tabular-nums; letter-spacing: .2px; padding: 8px 4px 2px 10px; cursor: pointer; text-decoration: underline dotted rgba(208,138,85,.5); text-underline-offset: 3px; }
+.cashline:active { color: #fff; }
+.catwrap > .cashline { display: block; margin-left: auto; padding: 8px 26px 0 10px; font-size: 13px; }
+.catwrap > .cashline.zero { opacity: .55; }
+.catrow.hascash { padding-top: 2px; }
+.cashtot { display: flex; justify-content: flex-end; padding: 2px 2px 0; }
+.cashtot.left { justify-content: flex-start; padding-top: 6px; }
+.cashtot .cashline { font-size: 13.5px; padding: 8px 4px 6px 10px; }
+.acctwrap { display: flex; flex-direction: column; align-items: stretch; min-width: 0; }
+.acctwrap .acct { width: 100%; flex: 1; min-width: 0; }
+.acctwrap .acct b { font-size: 17px; }
+.acctwrap .cashline.mini { text-align: center; font-size: 12.5px; padding: 7px 0 0; }
+.footbtn { display: block; width: 100%; background: transparent; border: 0; color: var(--muted); font: 500 12.5px/1.3 'Inter', sans-serif; text-align: left; padding: 10px 2px 4px; cursor: pointer; }
+.footbtn:active { color: var(--red); }
+.totrow.tapt { width: 100%; background: transparent; border-left: 0; border-right: 0; border-bottom: 0; color: var(--text); cursor: pointer; font-family: 'Inter', sans-serif; min-height: 48px; text-align: left; }
+.totrow.tapt .chev, .sumline .chev { color: var(--red); font-size: 24px; line-height: 1; margin-left: 8px; flex: none; }
+.totrow.tapt .amt { margin-left: auto; }
+.totrow.tapt:active, .sumline:active, .calcpart:active, .splitbtn:active { background: var(--btn-press); }
+.card.grand .totrow.tapt .amt { color: var(--red); }
+.card.income .totrow.tapt .amt { color: var(--green); }
+.card.income .totrow.tapt { border-top: 1px solid var(--green-edge); }
+button.sumline { width: 100%; background: transparent; border: 0; border-bottom: 1px solid var(--line); color: var(--text); font-family: 'Inter', sans-serif; text-align: left; cursor: pointer; min-height: 48px; }
+button.sumline:last-child { border-bottom: 0; }
+button.sumline.minor { color: var(--muted, #9a9a9a); font-size: 15px; }
+button.sumline > span:first-child { flex: 1; min-width: 0; }
+.splitbtn { background: rgba(255,255,255,.04); border: 0; border-radius: var(--radius); padding: 8px 2px; font: 400 13px/1.3 'Inter', sans-serif; color: var(--muted); cursor: pointer; text-align: center; }
+.splitbtn b { display: block; color: #fff; font-size: 17px; }
+.cashtag { color: var(--copper); font-weight: 700; }
+.sheetbtn { margin: 0 0 8px; font-size: 18px; }
+.smallrow { width: 100%; border: 0; font: 700 16px/1.2 'Inter', sans-serif; cursor: pointer; background: var(--btn); color: var(--red); margin-top: 10px; }
+.foot.how { color: #bdbdbd; font-size: 13px; line-height: 1.45; margin-top: 8px; }
+.foot.how b { color: var(--text); }
+.card.calc .big.pos { color: var(--green); } .card.calc .big.neg { color: var(--neg); }
+.card.calc .big.spend { color: var(--red); } .card.calc .big.inc { color: var(--green); }
+.card.calc h3 small { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 12px; }
+.calcparts { margin-top: 8px; border-top: 1px solid var(--line); }
+.calcpart { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; background: transparent; border: 0; border-bottom: 1px solid var(--line);
+  color: var(--text); font: 500 15px/1.25 'Inter', sans-serif; padding: 11px 2px; text-align: left; min-height: 46px; }
+button.calcpart { cursor: pointer; }
+.calcpart .amt { font-weight: 700; font-variant-numeric: tabular-nums; margin-left: auto; white-space: nowrap; }
+.calcpart .chev { color: var(--red); font-size: 22px; line-height: 1; }
+.card h3 { word-break: break-word; }
+.entry .mer { white-space: normal; }
