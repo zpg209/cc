@@ -667,7 +667,7 @@
     var hh = items.filter(function (x) { return x.account === 'Household'; });
     var who = full ? Object.keys(sumBy(hh, 'who')).map(function (k) { return { name: k, amount: r2(sumBy(hh, 'who')[k]) }; })
       : (d.byWho || []).map(function (w) { return { name: w.name, amount: w.amount }; });
-    var srcNames = INCOME_SOURCES.concat([PT_SOURCE]);   // Land & Structure Pay is added below only when the API returns entries for it
+    var srcNames = [PT_SOURCE, INCOME_SOURCES[0], LS_SOURCE, INCOME_SOURCES[1]];   // fixed display order; each shown even at $0
     income.forEach(function (x) { if (srcNames.indexOf(x.source) < 0) srcNames.push(x.source); });
     var lsGid = ''; income.forEach(function (x) { if (x.source === LS_SOURCE && x.gid) lsGid = x.gid; });
     return {
@@ -750,6 +750,17 @@
         '<div class="a amt-in">' + money(e.amount) + '</div></div>';
     }).join('');
   }
+  // Compact per-source entry list for the expanded Income cards: most recent first, date + (client) + amount.
+  function incCompact(list, detail) {
+    if (!list.length) return '<div class="foot empty">No entries this month</div>';
+    var t = function (x) { var v = Date.parse(x.date); return isNaN(v) ? 0 : v; };
+    var rows = list.map(function (e, i) { return { e: e, i: i }; }).sort(function (a, b) { return (t(b.e) - t(a.e)) || (a.i - b.i); });
+    return '<div class="inccompact">' + rows.map(function (r) {
+      var e = r.e, what = detail ? (e.client || '') : 'Week ending';
+      return '<div class="icrow"><span class="icd">' + (detail ? esc(e.label) : 'Wk ending ' + esc(e.label)) + '</span>' +
+        '<span class="icc">' + (detail ? esc(what) : '') + '</span><span class="amt amt-in">' + money(e.amount) + '</span></div>';
+    }).join('') + '</div>';
+  }
   function truncNote(M) {
     return M.truncated ? '<div class="foot">Showing the latest ' + M.items.length + ' of ' + M.entryCount +
       ' entries this month (full list after the API update).</div>' : '';
@@ -831,10 +842,17 @@
         '<button class="footbtn"' + goAttr('spend/all') + '>' + M.entryCount + ' entries' +
         (M.daysLogged != null ? ' \u00b7 ' + M.daysLogged + ' days logged' : '') + ' &rsaquo;</button>');
 
-      var incBody = '<div class="foot sub-note">Weekly lump sums \u00b7 client payments</div>' +
-        barRows(M.sources, incomeRoute, ' inc') +
-        totBtn('Income total', M.incomeTotal, incomeRoute('All'), true);
-      h += vSec('income', 'income', 'Income', '<span class="amt-in">' + money(M.incomeTotal) + '</span>', incomeRoute('All'), incBody);
+      // Income group: one collapsible card per source (heading + green total; heading toggles, total drills down), then Total income.
+      h += '<div class="incgroup">';
+      M.sources.forEach(function (sx) {
+        var l = M.income.filter(function (x) { return x.source === sx.name; });
+        var ds = DETAIL_SRC[sx.name];
+        var b = incCompact(l, !!ds) +
+          sheetLink('Open in spend sheet', ds ? ds.tab : 'income', ds && ds.tab === 'ls' ? M.lsGid : '');
+        h += vSec('inc-' + sx.name, 'income incsrc', esc(sx.label), '<span class="amt-in">' + money(sx.amount) + '</span>', incomeRoute(sx.name), b);
+      });
+      h += '<button class="card incTotal"' + goAttr(incomeRoute('All')) + '><span class="n">Total income</span><span class="amt amt-in">' + money(M.incomeTotal) + '</span><span class="chev">&rsaquo;</span></button>';
+      h += '</div>';
 
       var netLine = function (key, label, inc, sp, spLbl) {
         var n = r2(inc - sp);
