@@ -2380,7 +2380,7 @@
     'buffer.low': 'Working buffer \u00b7 low', 'buffer.high': 'Working buffer \u00b7 high',
     'inc.k1': 'K-1 income / yr', 'inc.w2': 'W-2 income / yr', 'hh.burn': 'Household burn / mo (provisional)',
     'ld.rev': 'Revenue / mo', 'ld.util': 'Utilities / mo', 'ld.rep': 'Repairs / mo', 'ld.ins': 'Insurance / mo',
-    'mw.rent_lease': 'Rent under the lease / mo', 'mw.rent_other': 'Other rent / mo', 'mw.tax': 'Property tax / mo', 'mw.ins': 'Insurance / mo',
+    'mw.rent_lease': 'Tenant rent / mo', 'mw.tax': 'Property tax / mo', 'mw.ins': 'Insurance / mo',
     'st.rent': 'Rent / mo', 'st.tax': 'Property tax / mo', 'st.ins': 'Insurance / mo', 'st.debt': 'Loan payment / mo'
   };
   function ovLabel(r) {
@@ -2564,20 +2564,19 @@
   function ovFlowCard() {
     var N = function (r) { var n = ovN(r); return n === null ? 0 : n; };
     var ldNet = N('ld.rev') - N('ld.util') - N('ld.rep') - N('ld.ins') - N('all.pay');
-    var mwNet = N('mw.rent_lease') + N('mw.rent_other') - N('mw.tax') - N('mw.ins') - N('mono.pay');
+    var mwNet = N('mw.rent_lease') - N('mw.tax') - N('mw.ins') - N('mono.pay');
     var stNet = N('st.rent') - N('st.tax') - N('st.ins') - N('st.debt');
     var wet = -N('wet.pay');
     var cls = function (n) { return n >= 0 ? 'amt-in' : 'amt-out'; };
     var h = '<div class="fxgrp">Laundromat (TiwiK)</div>' + ['ld.rev', 'ld.util', 'ld.rep', 'ld.ins', 'all.pay'].map(function (r) { return ovRow(r, r === 'all.pay' ? 'Equipment loan payment / mo' : null); }).join('') +
       ovCalcRow('Laundromat net / mo', signedMoney2(ldNet), cls(ldNet), 'revenue \u2212 costs \u2212 loan payment', ['ld.rev', 'ld.util', 'ld.rep']);
-    h += '<div class="fxgrp">Mono Way (KiwiT)</div>' + ['mw.rent_lease', 'mw.rent_other', 'mw.tax', 'mw.ins', 'mono.pay'].map(function (r) { return ovRow(r, r === 'mono.pay' ? 'Mortgage payment / mo' : null); }).join('') +
-      ovCalcRow('Mono Way net / mo', signedMoney2(mwNet), cls(mwNet), 'rent \u2212 tax \u2212 insurance \u2212 mortgage', ['mw.rent_other', 'mw.tax']);
+    h += '<div class="fxgrp">Mono Way (KiwiT)</div>' + ['mw.rent_lease', 'mw.tax', 'mw.ins', 'mono.pay'].map(function (r) { return ovRow(r, r === 'mono.pay' ? 'Mortgage payment / mo' : null); }).join('') +
+      ovCalcRow('Mono Way net / mo', signedMoney2(mwNet), cls(mwNet), 'rent \u2212 tax \u2212 insurance \u2212 mortgage', ['mw.tax']);
     h += '<div class="fxgrp">Stewart Street (KiwiT)</div>' + ['st.rent', 'st.tax', 'st.ins', 'st.debt'].map(function (r) { return ovRow(r); }).join('') +
       ovCalcRow('Stewart Street net / mo', signedMoney2(stNet), cls(stNet), 'rent \u2212 tax \u2212 insurance \u2212 loan', ['st.rent', 'st.tax', 'st.ins', 'st.debt']);
     h += '<div class="fxgrp">Wetumka</div>' + ovCalcRow('Rocket Mortgage payment / mo', signedMoney2(wet), 'amt-out', 'verified payment', []);
     var tot = ldNet + mwNet + stNet + wet;
-    h += ovCalcRow('Combined / mo', signedMoney2(tot), cls(tot), 'sum of the four lines above', ['ld.rev', 'ld.util', 'ld.rep', 'mw.rent_other', 'mw.tax', 'st.rent', 'st.tax', 'st.ins', 'st.debt']);
-    h += '<div class="ovnote">If TiwiK pays KiwiT the lease rent, that is intercompany; the combined figure may be overstated by that amount until Zac confirms who pays what.</div>';
+    h += ovCalcRow('Combined / mo', signedMoney2(tot), cls(tot), 'sum of the four lines above', ['ld.rev', 'ld.util', 'ld.rep', 'mw.tax', 'st.rent', 'st.tax', 'st.ins', 'st.debt']);
     return h;
   }
 
