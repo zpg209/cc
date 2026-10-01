@@ -578,6 +578,7 @@
   //   #spend/cat/<Category>[/<Account>], #spend/acct/<Account>, #spend/income/<Source>, #spend/all
   var ACCOUNTS = ['Household', 'TiwiK', 'KiwiT'];
   var INCOME_SOURCES = ["Lisa's Table", 'Mono Village Laundromat'];
+  var PT_SOURCE = 'Personal Training';   // Lisa's personal training income: its own green block, not in INCOME_SOURCES
 
   function loadSpend(force) {
     if (!force && state.spendData && state.spendDataOff === state.monthOffset) return renderSpend();
@@ -602,6 +603,7 @@
   function normSource(s) {
     s = String(s || '').trim() || 'Other';
     var l = loose(s);
+    if (/personaltraining|^pt$/.test(l)) return PT_SOURCE;
     for (var i = 0; i < INCOME_SOURCES.length; i++) {
       var k = loose(INCOME_SOURCES[i]);
       if (k === l || (l && (k.indexOf(l) === 0 || l.indexOf(k) === 0))) return INCOME_SOURCES[i];
@@ -640,8 +642,11 @@
         notes: x.notes || '', account: normAcct(x.account) };
     });
     var income = (Array.isArray(d.income) ? d.income : []).map(function (x) {
-      return { date: x.date, label: x.label || x.date, source: normSource(x.source), amount: Number(x.amount) || 0, notes: x.notes || '' };
+      return { date: x.date, label: x.label || x.date, source: normSource(x.source), amount: Number(x.amount) || 0, notes: x.notes || '',
+        client: x.client || '', method: x.method || '' };
     });
+    var pt = income.filter(function (x) { return x.source === PT_SOURCE; });
+    var otherIncome = income.filter(function (x) { return x.source !== PT_SOURCE; });
     var names = ACCOUNTS.slice();
     items.forEach(function (x) { if (names.indexOf(x.account) < 0) names.push(x.account); });
     var accounts = names.map(function (a) {
@@ -659,16 +664,18 @@
     var who = full ? Object.keys(sumBy(hh, 'who')).map(function (k) { return { name: k, amount: r2(sumBy(hh, 'who')[k]) }; })
       : (d.byWho || []).map(function (w) { return { name: w.name, amount: w.amount }; });
     var srcNames = INCOME_SOURCES.slice();
-    income.forEach(function (x) { if (srcNames.indexOf(x.source) < 0) srcNames.push(x.source); });
+    income.forEach(function (x) { if (x.source !== PT_SOURCE && srcNames.indexOf(x.source) < 0) srcNames.push(x.source); });
     return {
       items: items, full: full, entryCount: full ? items.length : (d.entryCount || items.length),
       truncated: !full && (d.entryCount || 0) > items.length,
       accounts: accounts, who: who, income: income,
       sources: srcNames.map(function (sname) {
-        var l = income.filter(function (x) { return x.source === sname; });
+        var l = otherIncome.filter(function (x) { return x.source === sname; });
         return { name: sname, amount: sum(l), count: l.length };
       }),
-      incomeTotal: sum(income),
+      pt: pt, ptTotal: sum(pt),
+      weeklyTotal: sum(otherIncome),
+      incomeTotal: sum(income),   // everything, incl. Personal Training (Summary math)
       total: full ? sum(items) : Number(d.total) || 0,
       daysLogged: d.daysLogged
     };
@@ -745,7 +752,14 @@
       h += '<div class="card income"><h4 class="sechead">Income</h4>' +
         '<div class="foot sub-note">Weekly lump sums</div>' +
         barRows(M.sources, incomeRoute, ' inc') +
-        '<div class="totrow"><span>Income total</span><span class="amt">' + money(M.incomeTotal) + '</span></div></div>';
+        '<div class="totrow"><span>Income total</span><span class="amt">' + money(M.weeklyTotal) + '</span></div></div>';
+
+      // Lisa's personal training: separate green block (tap -> clients / dates / amounts)
+      h += '<div class="card income pt"><h4 class="sechead">Personal Training</h4>' +
+        '<div class="foot sub-note">Lisa\'s client payments</div>' +
+        '<button class="catrow inc ptrow"' + goAttr(incomeRoute(PT_SOURCE)) + '><span class="n">' + M.pt.length + ' payment' + (M.pt.length === 1 ? '' : 's') + '</span>' +
+        '<span class="amt">' + money(M.ptTotal) + '</span><span class="chev">&rsaquo;</span></button>' +
+        '<div class="totrow"><span>Personal Training total</span><span class="amt">' + money(M.ptTotal) + '</span></div></div>';
 
       var days = periodDays(d.monthOffset != null ? Number(d.monthOffset) : state.spendDataOff);
       var perDay = function (v) { return days > 0 ? money(v / days) : '—'; };
@@ -768,6 +782,7 @@
         '<div class="sumline minor cash"><span>Household cash spent<small>Running month total · Method = Cash</small></span>' +
         '<span class="amt">' + money(hhCashTot) + '</span></div>' +
         '<div class="sumline minor"><span>Avg daily spend</span><span class="amt spend">' + perDay(M.total) + '</span></div>' +
+        '<div class="sumline minor"><span>Total income<small>Incl. Personal Training ' + money(M.ptTotal) + '</small></span><span class="amt inc">' + money(M.incomeTotal) + '</span></div>' +
         '<div class="sumline minor"><span>Avg daily income</span><span class="amt inc">' + perDay(M.incomeTotal) + '</span></div></div>';
 
       h += '<button class="linkrow allbtn"' + goAttr('spend/all') + '>All items (' + M.entryCount + ') &rsaquo;</button>';
@@ -776,12 +791,19 @@
         M.who.map(function (w) { return '<div><b>' + money(w.amount) + '</b>' + esc(w.name) + '</div>'; }).join('') + '</div></div>';
       if (d.missingColumns && d.missingColumns.length) h += '<div class="foot">Columns not found: ' + esc(d.missingColumns.join(', ')) + '</div>';
     } else if (sr.kind === 'income') {
+      var isPT = normSource(sr.val) === PT_SOURCE;
       var inc = M.income.filter(function (x) { return x.source === normSource(sr.val); });
-      h += '<div class="card income"><h3>Income</h3><div class="big">' + money(sum(inc)) + '</div>' +
-        '<div class="foot">' + inc.length + ' week' + (inc.length === 1 ? '' : 's') + '</div></div>';
+      var unit = isPT ? 'payment' : 'week';
+      h += '<div class="card income"><h3>' + (isPT ? 'Personal Training' : 'Income') + '</h3><div class="big">' + money(sum(inc)) + '</div>' +
+        '<div class="foot">' + inc.length + ' ' + unit + (inc.length === 1 ? '' : 's') + '</div></div>';
       h += '<div class="card income">';
       if (!inc.length) h += '<div class="foot">No income entries this month.</div>';
       h += inc.map(function (e) {
+        if (isPT) return '<div class="entry item inc ptitem"><div class="d">' + esc(e.label) + '</div>' +
+          '<div class="m"><div class="mer">' + esc(e.client || '—') + '</div>' +
+          (e.method ? '<div class="meta"><small>' + esc(e.method) + '</small></div>' : '') +
+          (e.notes ? '<div class="notes">' + esc(e.notes) + '</div>' : '') + '</div>' +
+          '<div class="a">' + money(e.amount) + '</div></div>';
         return '<div class="entry item inc"><div class="d">Week ending<br><b>' + esc(e.label) + '</b></div>' +
           '<div class="m">' + (e.notes ? '<div class="notes">' + esc(e.notes) + '</div>' : '<div class="notes">—</div>') + '</div>' +
           '<div class="a">' + money(e.amount) + '</div></div>';

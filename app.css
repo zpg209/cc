@@ -452,3 +452,8 @@ body { overscroll-behavior-y: none; }
 .fxpn.open .ncbody { display: block; } .fxpn.open .chev { transform: rotate(90deg); }
 .fxcard.resolved .nchead { color: var(--pos); }
 .fin .biz-tile .sub { text-align: center; }
+
+/* ---- Vault: Personal Training (separate green income block) ---- */
+.card.income.pt .catrow.ptrow { margin-bottom: 4px; }
+.entry.inc.ptitem { grid-template-columns: 58px 1fr auto; }
+.entry.inc.ptitem .meta { margin-top: 1px; }
