@@ -548,3 +548,9 @@ button.calcpart { cursor: pointer; }
 .todorow.mtget { display: flex; gap: 10px; font-size: 16px; }
 .mtbox { font-style: normal; color: var(--red); font-size: 20px; line-height: 1.2; }
 .fin, .fin .card, .fin .ncbody { overflow-wrap: anywhere; }
+
+/* ---- Universal money colors (v25): money in = green, money out = red. Apply .amt-in / .amt-out to any amount. ---- */
+:root { --amt-in: #3DBE6B; --amt-out: #E5484D; }
+.amt-in, .amt-in b { color: var(--amt-in) !important; }
+.amt-out, .amt-out b { color: var(--amt-out) !important; }
+.catrow.inc .amt.amt-in, .totrow .amt.amt-in { color: var(--amt-in) !important; }
