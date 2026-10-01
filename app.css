@@ -554,3 +554,20 @@ button.calcpart { cursor: pointer; }
 .amt-in, .amt-in b { color: var(--amt-in) !important; }
 .amt-out, .amt-out b { color: var(--amt-out) !important; }
 .catrow.inc .amt.amt-in, .totrow .amt.amt-in { color: var(--amt-in) !important; }
+
+/* ---- Vault v26: collapsible sections (same .ncard/.ncbody/.chev as Laundromat). Collapsed = heading + total only. ---- */
+.vsec .vhead { display: flex; align-items: center; min-height: 56px; }
+.vsec .vhead .nchead { width: auto; padding: 15px 0 15px 14px; }
+.vsec .vhead .vtoggle:first-child { flex: 1 1 auto; min-width: 0; }
+.vsec .vhead .vtoggle span { overflow-wrap: anywhere; }
+.vsec .vhead .vchevb { flex: none; padding: 15px 14px 15px 8px; min-width: 44px; justify-content: center; }
+.vsec.open > .vhead .chev { transform: rotate(90deg); }
+.vsec .vtot { flex: none; background: rgba(255,255,255,.04); border: 1px solid var(--line); border-radius: var(--radius); margin: 6px 0 6px 8px;
+  padding: 9px 11px; min-height: 40px; max-width: 58%; font: 700 17px/1.1 'Inter', sans-serif; font-variant-numeric: tabular-nums; cursor: pointer; color: var(--text); white-space: nowrap; }
+.vsec .vtot:active { background: var(--btn-press); }
+.vsec .vtot .amt-out, .vsec .vtot .amt-in { color: inherit; }
+.vsec .vtot .pos { color: var(--green); } .vsec .vtot .neg { color: var(--neg); }
+.vsec.income > .vhead .nchead { color: var(--green); }
+.vsec.income .vtot { border-color: var(--green-edge); }
+.vsec > .ncbody { padding: 0 10px 10px; }
+.vsec.grand > .ncbody .cashtot { justify-content: flex-start; }

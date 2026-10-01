@@ -700,7 +700,7 @@
     return '<a class="linkrow sheetbtn" data-title="Spend sheet" href="' + esc(u) + '">' + esc(label || 'Open in spend sheet') + ' &#8599;</a>';
   }
   var CALC_LABELS = { 'tiwik-net': 'TiwiK net', 'lt-net': "Lisa's Table net", 'hh-spend': 'Household spend',
-    'avg-spend': 'Avg daily spend', 'avg-income': 'Avg daily income' };
+    'avg-spend': 'Avg daily spend', 'avg-income': 'Avg daily income', 'month-net': 'Net (income \u2212 spend)' };
   function cashRoute(acct, cat) { return 'spend/cash/' + encodeURIComponent(acct || 'All') + (cat ? '/' + encodeURIComponent(cat) : ''); }
   function whoRoute(w) { return 'spend/who/' + encodeURIComponent(w); }
   function calcRoute(k) { return 'spend/calc/' + k; }
@@ -776,6 +776,20 @@
       return cash ? '<div class="catwrap">' + cashBtn(cash.v, cash.route) + btn + '</div>' : btn;
     }).join('');
   }
+  // Collapsible Vault section (same .ncard / .ncbody / .chev pattern as the Laundromat screen). Collapsed by default: only the
+  // heading + its total are visible. Heading / chevron toggle; the total button drills down. Open state survives Back.
+  function vOpenMap() {
+    if (!state.vopen) state.vopen = {};
+    return state.vopen;
+  }
+  function vSec(key, cls, title, totHtml, route, body) {
+    var open = !!vOpenMap()[key];
+    return '<div class="card ncard vsec ' + cls + (open ? ' open' : '') + '" data-vs="' + esc(key) + '">' +
+      '<div class="vhead"><button class="nchead vtoggle" aria-expanded="' + open + '"><span>' + title + '</span></button>' +
+      '<button class="vtot"' + goAttr(route) + '>' + totHtml + '</button>' +
+      '<button class="nchead vtoggle vchevb" aria-label="Expand or collapse"><i class="chev">&rsaquo;</i></button></div>' +
+      '<div class="ncbody">' + body + '</div></div>';
+  }
   function totBtn(label, amt, route, isIn) {
     return '<button class="totrow tapt"' + goAttr(route) + '><span>' + esc(label) + '</span><span class="amt ' + (isIn ? 'amt-in' : 'amt-out') + '">' + money(amt) + '</span><span class="chev">&rsaquo;</span></button>';
   }
@@ -801,29 +815,26 @@
     var cashOK = M.full;   // cash needs the full item list (older API only has the latest 20 rows)
 
     if (!sr.kind) {
-      h += '<div class="card"><h3>Accounts</h3><div class="accts">' + M.accounts.map(function (a) {
-        return '<div class="acctwrap"><button class="acct"' + goAttr(acctRoute(a.name)) + '><span>' + esc(a.name) + '</span><b class="amt-out">' + money(a.amount) + '</b></button>' +
-          (cashOK ? cashBtn(cashOf(inAcct(a.name)), cashRoute(a.name), ' mini') : '') + '</div>';
-      }).join('') + '</div><button class="footbtn"' + goAttr('spend/all') + '><span class="amt-out">' + money(M.total) + '</span> total spend · ' + M.entryCount + ' entries' +
-        (M.daysLogged != null ? ' · ' + M.daysLogged + ' days logged' : '') + ' &rsaquo;</button></div>';
-
       M.accounts.forEach(function (a) {
-        h += '<div class="card acctsec"><h4 class="sechead">' + esc(a.name) + '</h4>';
-        if (!a.cats.length) h += '<div class="foot empty">No entries this month</div>';
+        var b = '';
+        if (!a.cats.length) b += '<div class="foot empty">No entries this month</div>';
         var mine = inAcct(a.name);
-        h += barRows(a.cats, function (c) { return catRoute(c, a.name); }, '',
+        b += barRows(a.cats, function (c) { return catRoute(c, a.name); }, '',
           cashOK ? function (c) { return { v: cashOf(mine.filter(function (x) { return x.category === c; })), route: cashRoute(a.name, c) }; } : null);
-        if (cashOK) h += '<div class="cashtot">' + cashBtn(cashOf(mine), cashRoute(a.name)) + '</div>';
-        h += totBtn(a.name + ' total', a.amount, acctRoute(a.name)).replace('totrow tapt', 'totrow tapt' + (cashOK ? ' hascash' : '')) + '</div>';
+        if (cashOK) b += '<div class="cashtot">' + cashBtn(cashOf(mine), cashRoute(a.name)) + '</div>';
+        b += totBtn(a.name + ' total', a.amount, acctRoute(a.name)).replace('totrow tapt', 'totrow tapt' + (cashOK ? ' hascash' : ''));
+        h += vSec('acct-' + a.name, 'acctsec', esc(a.name), '<span class="amt-out">' + money(a.amount) + '</span>', acctRoute(a.name), b);
       });
 
-      h += '<div class="card grand">' + totBtn('Total spent', M.total, 'spend/all') +
-        (cashOK ? '<div class="cashtot">' + cashBtn(cashOf(M.items), cashRoute('All')) + '</div>' : '') + '</div>';
+      h += vSec('total', 'grand', 'Total spent', '<span class="amt-out">' + money(M.total) + '</span>', 'spend/all',
+        (cashOK ? '<div class="cashtot">' + cashBtn(cashOf(M.items), cashRoute('All')) + '</div>' : '') +
+        '<button class="footbtn"' + goAttr('spend/all') + '>' + M.entryCount + ' entries' +
+        (M.daysLogged != null ? ' \u00b7 ' + M.daysLogged + ' days logged' : '') + ' &rsaquo;</button>');
 
-      h += '<div class="card income"><h4 class="sechead">Income</h4>' +
-        '<div class="foot sub-note">Weekly lump sums · client payments</div>' +
+      var incBody = '<div class="foot sub-note">Weekly lump sums \u00b7 client payments</div>' +
         barRows(M.sources, incomeRoute, ' inc') +
-        totBtn('Income total', M.incomeTotal, incomeRoute('All'), true) + '</div>';
+        totBtn('Income total', M.incomeTotal, incomeRoute('All'), true);
+      h += vSec('income', 'income', 'Income', '<span class="amt-in">' + money(M.incomeTotal) + '</span>', incomeRoute('All'), incBody);
 
       var netLine = function (key, label, inc, sp, spLbl) {
         var n = r2(inc - sp);
@@ -831,7 +842,8 @@
           '<span class="amt ' + (n >= 0 ? 'pos' : 'neg') + '">' + signedMoney(n) + '</span>');
       };
       var hhCashTot = cashOf(inAcct('Household'));
-      h += '<div class="card summary"><h3>Summary <small>(over ' + days + ' day' + (days === 1 ? '' : 's') + ')</small></h3>' +
+      var monthNet = r2(M.incomeTotal - M.total);
+      var sumBody = '<div class="foot sub-note">Over ' + days + ' day' + (days === 1 ? '' : 's') + '</div>' +
         netLine('tiwik-net', 'TiwiK net', srcTot('Mono Village Laundromat'), acctTot('TiwiK'), 'Spent') +
         netLine('lt-net', "Lisa's Table net", srcTot("Lisa's Table"), groc, 'Groceries') +
         sumBtn('net cmp', calcRoute('hh-spend'), 'Household spend<small>Running month total · excludes groceries (counted in Lisa\'s Table net)</small>',
@@ -840,12 +852,13 @@
           '<span class="amt">' + money(hhCashTot) + '</span>') : '') +
         sumBtn('minor', calcRoute('avg-spend'), 'Avg daily spend', '<span class="amt amt-out">' + perDay(M.total) + '</span>') +
         sumBtn('minor', incomeRoute('All'), 'Income total', '<span class="amt amt-in">' + money(M.incomeTotal) + '</span>') +
-        sumBtn('minor', calcRoute('avg-income'), 'Avg daily income', '<span class="amt amt-in">' + perDay(M.incomeTotal) + '</span>') + '</div>';
+        sumBtn('minor', calcRoute('avg-income'), 'Avg daily income', '<span class="amt amt-in">' + perDay(M.incomeTotal) + '</span>');
+      h += vSec('summary', 'summary', 'Summary', '<span class="amt ' + (monthNet >= 0 ? 'pos' : 'neg') + '">' + signedMoney(monthNet) + '</span>', calcRoute('month-net'), sumBody);
+
+      if (M.who.length) h += vSec('who', '', 'Household \u00b7 Zac vs Lisa', '<span class="amt-out">' + money(sum(M.who)) + '</span>', acctRoute('Household'),
+        '<div class="split">' + M.who.map(function (w) { return '<button class="splitbtn"' + goAttr(whoRoute(w.name)) + '><b class="amt-out">' + money(w.amount) + '</b>' + esc(w.name) + '</button>'; }).join('') + '</div>');
 
       h += '<button class="linkrow allbtn"' + goAttr('spend/all') + '>All items (' + M.entryCount + ') &rsaquo;</button>';
-
-      if (M.who.length) h += '<div class="card"><h3>Household · Zac vs Lisa</h3><div class="split">' +
-        M.who.map(function (w) { return '<button class="splitbtn"' + goAttr(whoRoute(w.name)) + '><b class="amt-out">' + money(w.amount) + '</b>' + esc(w.name) + '</button>'; }).join('') + '</div></div>';
       h += sheetLink('Open in spend sheet');
       if (d.missingColumns && d.missingColumns.length) h += '<div class="foot">Columns not found: ' + esc(d.missingColumns.join(', ')) + '</div>';
 
@@ -896,6 +909,11 @@
             part('Groceries (in Lisa\'s Table net)', '\u2212' + money(groc), catRoute('Groceries', 'Household'), 'out') +
             part('= Household spend', money(sum(hhNoG)), '', 'out'),
           secs: [{ head: 'Household entries excluding Groceries', sp: hhNoG }] };
+      } else if (key === 'month-net') {
+        var mn = r2(M.incomeTotal - M.total);
+        c = { val: mn, note: 'Income total \u2212 Total spent. All income sources and all accounts, cash and non-cash.',
+          parts: part('Income total', money(M.incomeTotal), incomeRoute('All'), 'in') + part('Total spent', '\u2212' + money(M.total), 'spend/all', 'out'),
+          secs: [{ head: 'All income entries', inc: allInc }, { head: 'All spend entries', sp: M.items }] };
       } else if (key === 'avg-spend') {
         c = { valHtml: perDay(M.total), cls: 'amt-out', note: 'Total spent ÷ days. All accounts, cash and non-cash; ' + daysNote + '.',
           parts: part('Total spent', money(M.total), 'spend/all', 'out') + part('Days', String(days), ''),
@@ -972,6 +990,14 @@
     $('spend-body').innerHTML = h;
   }
 
+  $('spend-body').addEventListener('click', function (e) {
+    var t = e.target.closest('.vtoggle');
+    if (!t) return;
+    var c = t.closest('.vsec'), key = c.getAttribute('data-vs'), open = !c.classList.contains('open');
+    c.classList.toggle('open', open);
+    var tg = c.querySelector('.vtoggle'); if (tg) tg.setAttribute('aria-expanded', open);
+    vOpenMap()[key] = open;
+  });
   $('spend-prev').addEventListener('click', function () { state.monthOffset--; loadSpend(true); });
   $('spend-next').addEventListener('click', function () { state.monthOffset++; loadSpend(true); });
 
