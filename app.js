@@ -212,17 +212,13 @@
     if ((m = u.match(/\/d\/(?:e\/)?([\w-]+)/)) || (m = u.match(/[?&]id=([\w-]+)/))) return { id: m[1], folder: false };
     return null;
   }
-  function setZoomable(on) {
-    var vp = $('vp');
-    if (vp) vp.setAttribute('content', 'width=device-width,initial-scale=1,' + (on ? 'maximum-scale=5' : 'maximum-scale=1') + ',viewport-fit=cover');
-  }
+  // Pinch-zoom is enabled app-wide via the viewport meta in index.html (no per-screen toggling).
   function openDocScreen(p) {
     var url = p.u || '', ref = driveRef(url), seq = ++state.docSeq;
     state.docFrom = p.from || 'home';
     $('doc-title').textContent = p.t || 'Document';
     $('doc-open').href = url || '#';
     closeDoc(true);
-    setZoomable(true);
     if (!ref || state.proxyOff) return iframeFallback(url);
     var cached = ref.folder && state.folderCache[ref.id];
     if (cached) return renderFolder(cached);
@@ -402,7 +398,6 @@
     if (state.pdf) { try { state.pdf.destroy(); } catch (e) {} state.pdf = null; }
     (state.docUrls || []).forEach(function (u) { URL.revokeObjectURL(u); });
     state.docUrls = [];
-    if (!keepZoom) setZoomable(false);
   }
   // Back replaces the viewer's history entry with the originating screen instead of history.back():
   // Google's viewers can add their own entries inside the iframe, which would make history.back() stall.
