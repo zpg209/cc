@@ -13,7 +13,7 @@
     spendData: null, spendDataOff: null, spendRoute: { kind: '', val: '', acct: '' },
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
-     folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', insSlug: '' };
+     folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', insSlug: '', spendFrom: '' };
   var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'fin', 'insn'];
 
   function $(id) { return document.getElementById(id); }
@@ -126,6 +126,9 @@
     if (SCREENS.indexOf(name) < 0 || name === 'lock') name = 'home';
     if (!getPc()) return lock();
     if (name === 'spend') {
+      var curEl = document.querySelector('.screen.active'), cur = curEl ? curEl.id.replace(/^screen-/, '') : '';
+      if (cur === 'fin') { state.spendFrom = state.finKind === 'laundromat' ? 'fin/laundromat' : ''; state.scrollMem['fin/laundromat'] = window.scrollY || 0; }
+      else if (cur !== 'spend' && cur !== 'doc') state.spendFrom = '';
       var okKind = R.kind === 'all' || (/^(cat|acct|income|cash|who|calc)$/.test(R.kind) && R.val);
       state.spendRoute = okKind ? { kind: R.kind, val: R.kind === 'all' ? '' : R.val, acct: (R.kind === 'cat' || R.kind === 'cash') ? R.acct : '' }
         : { kind: '', val: '', acct: '' };
@@ -482,7 +485,7 @@
       if (/^real estate$/i.test(a.name)) { state.reFolderUrl = a.url; return '<button class="tile small" data-go="re">' + esc(a.name) + '<span class="sub">3 properties</span></button>'; }
       if (/^lisa.s table$/i.test(a.name)) { state.ltFolderUrl = a.url; return '<button class="tile small" data-go="lt">' + esc(a.name) + '<span class="sub">Menus · recipes · macros</span></button>'; }
       if (/^insurance$/i.test(a.name)) { state.insFolderUrl = a.url; return '<button class="tile small" data-go="insn">' + esc(a.name) + '<span class="sub">Policies · renewals · to do</span></button>'; }
-      if (/^financial$/i.test(a.name)) { state.finFolderUrl = a.url; return '<button class="tile small" data-go="fin">Finances<span class="sub">Overview · laundromat</span></button>'; }
+      if (/^financial$/i.test(a.name)) { state.finFolderUrl = a.url; return '<button class="tile small" data-go="fin">Finances<span class="sub">Overview · TiwiK laundromat</span></button>'; }
       if (/^business$/i.test(a.name)) { state.bizFolderUrl = a.url; return '<button class="tile small" data-go="biz">' + esc(a.name) + '<span class="sub">3 businesses</span></button>'; }
       return tile(a, '');
     }).join('');
@@ -714,6 +717,7 @@
   function paintSpendChrome() {
     var sr = state.spendRoute, sub = !!sr.kind;
     $('spend-back').hidden = !sub;
+    $('spend-back').setAttribute('data-go', sub && state.spendFrom ? state.spendFrom : 'spend');
     $('spend-title').textContent = spendTitle(sr);
     $('spend-title').classList.toggle('sub', sub);
   }
@@ -1526,7 +1530,7 @@
   var FIN_TTL = 60000;
   var FIN_PAGES = {
     overview:   { label: 'Overview',   sub: 'Net worth · cash flow · debt' },
-    laundromat: { label: 'Laundromat', sub: 'TiwiK · revenue · loan · payoff' }
+    laundromat: { label: 'Mono Village Laundromat \u00b7 TiwiK', sub: 'TiwiK LLC · income & expenses · loan · maintenance' }
   };
   var INS_ORDER = ['personal', 'wetumka', 'monoway', 'tiwik', 'kiwit', 'sierra', 'stewart'];
   var INS_LABEL = { personal: 'Personal & Autos', wetumka: 'Wetumka', monoway: 'Mono Way', tiwik: 'TiwiK', kiwit: 'KiwiT', sierra: 'Sierra Consultants', stewart: 'Stewart Street' };
@@ -1576,13 +1580,13 @@
   function collCard(key, title, count, inner, dflt, cls) {
     var open = cardOpen(key, !!dflt);
     return '<div class="card ncard fxcard' + (open ? ' open' : '') + (cls ? ' ' + cls : '') + '" data-nc="' + esc(key) + '"><button class="nchead" aria-expanded="' + open + '"><span>' + esc(title) +
-      '</span>' + (count != null ? '<b class="cnt">' + count + '</b>' : '') + '<i class="chev">&rsaquo;</i></button><div class="ncbody">' + inner + '</div></div>';
+      '</span>' + (count != null ? (/^</.test(String(count)) ? count : '<b class="cnt">' + count + '</b>') : '') + '<i class="chev">&rsaquo;</i></button><div class="ncbody">' + inner + '</div></div>';
   }
   function sumCard(label, val, cls, sub) {
     return '<div class="fxsum ' + (cls || '') + '"><div class="fxl">' + esc(label) + '</div><div class="fxv">' + esc(val) + '</div>' + (sub ? '<div class="fxs">' + esc(sub) + '</div>' : '') + '</div>';
   }
   function absMoney(s) { var n = moneyNum(s); if (n === null) return String(s || '\u2014'); return (n < 0 ? '\u2212' : '') + '$' + Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: /\.\d/.test(s) ? 2 : 0 }); }
-  function paraHtml(t) { return '<p class="fxp">' + esc(t) + '</p>'; }
+  function paraHtml(t) { return '<p class="fxp">' + fx(t) + '</p>'; }
   function statusCard(status) {
     return '<div class="card statuscard"><h3>Status</h3>' + (status && status.length
       ? status.map(function (t) { return '<p class="stat">' + esc(t) + '</p>'; }).join('')
@@ -1593,7 +1597,7 @@
   function tableCards(t) {
     var head = t.header || [], rows = t.rows || [];
     if (!rows.length) return '';
-    var short = rows.every(function (r) { return r.slice(1).every(function (c) { return String(c || '').length <= 26; }); });
+    var short = head.length <= 3 && rows.every(function (r) { return r.slice(1).every(function (c) { return String(c || '').length <= 26; }); });
     var h = '<div class="fxtbl' + (short ? ' short' : '') + '">';
     if (head.length > 1 && (head[0] || '').length) h += '<div class="fxth">' + esc(head[0]) + ' \u00b7 ' + esc(head.slice(1).join(' / ')) + '</div>';
     rows.forEach(function (r) {
@@ -1603,14 +1607,14 @@
       if (short) {
         h += '<div class="fxrow' + (isTot ? ' tot' : '') + '"><div class="fxrt">' + esc(title) + '</div><div class="fxcells">';
         rest.forEach(function (c, i) {
-          h += '<div class="fxc' + moneyCls(c, title + ' ' + (head[i + 1] || '')) + '">' + (head.length > 2 ? '<small>' + esc(head[i + 1] || '') + '</small>' : '') + esc(c || '\u2014') + '</div>';
+          h += '<div class="fxc' + moneyCls(c, title + ' ' + (head[i + 1] || '')) + '">' + (head.length > 2 ? '<small>' + esc(head[i + 1] || '') + '</small>' : '') + fx(c || '\u2014') + '</div>';
         });
         h += '</div></div>';
       } else {
         h += '<div class="fxrec"><div class="fxrt">' + esc(title) + '</div>';
         rest.forEach(function (c, i) {
           if (!String(c || '').trim() || c === '-') return;
-          h += '<div class="fxkv"><b>' + esc(head[i + 1] || '') + '</b><span class="' + moneyCls(c, head[i + 1] || '').trim() + '">' + esc(c) + '</span></div>';
+          h += '<div class="fxkv"><b>' + esc(head[i + 1] || '') + '</b><span class="' + moneyCls(c, head[i + 1] || '').trim() + '">' + fx(c) + '</span></div>';
         });
         h += '</div>';
       }
@@ -1622,13 +1626,14 @@
     (sec.blocks || []).forEach(function (b) {
       if (b.k === 'h') h += '<div class="fxh3">' + esc(b.text) + '</div>';
       else if (b.k === 'p') h += paraHtml(b.text);
-      else if (b.k === 'li') h += '<div class="fxli">' + esc(b.text) + '</div>';
+      else if (b.k === 'li') h += '<div class="fxli">' + fx(b.text) + '</div>';
       else if (b.k === 'tbl') { if (!(skip && skip(b))) h += tableCards(b); }
     });
     return h;
   }
   function todoRest(t) {
     var x = t.text || '';
+    if (t.lead) t.lead = t.lead.replace(/^[\u2610-\u2612]\s*/, '');
     if (t.lead && x.indexOf(t.lead) === 0) x = x.slice(t.lead.length).replace(/^[\s:;.\-\u2013\u2014]+/, '');
     return x;
   }
@@ -1658,7 +1663,7 @@
       return '<div class="todorow fxtd' + (t.done ? ' isdone' : '') + (open ? ' open' : '') + (hasMore ? ' more' : '') + '" data-td="' + esc(k) + '">' +
         '<div class="fxtdh">' + (t.done ? '<i class="fxck">\u2713</i>' : '') + '<span>' + esc(head) + '</span></div>' +
         (t.date && !t.done ? '<div>' + dueChip(t.date) + '</div>' : '') +
-        (hasMore ? '<div class="fxtdb">' + esc(t.lead ? rest : t.text) + '</div><div class="fxmore">' + (open ? 'Less' : 'More') + '</div>' : '') + '</div>';
+        (hasMore ? '<div class="fxtdb">' + fx(t.lead ? rest : t.text) + '</div><div class="fxmore">' + (open ? 'Less' : 'More') + '</div>' : '') + '</div>';
     }).join('');
   }
   function todoCards(todo, keyBase) {
@@ -1669,12 +1674,12 @@
     return h;
   }
   function simpleList(items, cls) {
-    return items.length ? items.map(function (t) { return '<div class="donerow ' + (cls || '') + '">' + esc(t) + '</div>'; }).join('') : '<div class="donerow dim">Nothing here yet.</div>';
+    return items.length ? items.map(function (t) { return '<div class="donerow ' + (cls || '') + '">' + fx(t) + '</div>'; }).join('') : '<div class="donerow dim">Nothing here yet.</div>';
   }
   function doneCard(done, key) {
     if (!done || !done.length) return '';
     return collCard(key + 'done', 'Done log', done.length, done.map(function (x) {
-      return '<div class="donerow">' + (x.date ? '<span class="tm">' + esc(fmtDate(x.date) || x.date) + '</span>' : '') + esc(x.text) + '</div>';
+      return '<div class="donerow">' + (x.date ? '<span class="tm">' + esc(fmtDate(x.date) || x.date) + '</span>' : '') + fx(x.text) + '</div>';
     }).join(''), false);
   }
   function notesCard(notes, key) {
@@ -1682,7 +1687,7 @@
     (notes || []).forEach(function (g) { n += g.items.length; });
     if (!n) return '';
     return collCard(key + 'notes', 'Notes', n, notes.map(function (g) {
-      return (g.date ? '<div class="fxh3">' + esc(g.date) + '</div>' : '') + g.items.map(function (t) { return '<div class="donerow">' + esc(t) + '</div>'; }).join('');
+      return (g.date ? '<div class="fxh3">' + esc(g.date) + '</div>' : '') + g.items.map(function (t) { return '<div class="donerow">' + fx(t) + '</div>'; }).join('');
     }).join(''), false);
   }
   function docLink(d) { return '<a class="linkrow" data-title="' + esc(d.title || 'Document') + '" href="' + esc(d.url) + '">Open the full Doc &rsaquo;</a>'; }
@@ -1695,6 +1700,10 @@
     var box = $(boxId);
     if (box._fxBound) return; box._fxBound = true;
     box.addEventListener('click', function (e) {
+      if (e.target.closest('a[href]')) return;   // document links open in the viewer (global handler)
+      var mo = e.target.closest('[data-ld-month]');
+      if (mo) { state.monthOffset += Number(mo.getAttribute('data-ld-month')) || 0; ldSpend(true); renderLd(); return; }
+      if (e.target.closest('[data-ld-retry]')) { loadLd(true); return; }
       var b = e.target.closest('.nchead');
       if (b) {
         var c = b.parentNode, key = c.getAttribute('data-nc'), open = !c.classList.contains('open');
@@ -1723,6 +1732,7 @@
     $('fin-title').textContent = kind ? FIN_PAGES[kind].label : 'Finances';
     $('fin-title').classList.toggle('sub', !!kind);
     if (!kind) return renderFinHub();
+    if (kind === 'laundromat') return loadLd(!!force);
     var cached = fin.cache[kind];
     if (cached) renderFin(kind, cached.data);
     else $('fin-body').innerHTML = '<div class="loading">Loading…</div>';
@@ -1750,7 +1760,7 @@
   function renderFin(kind, d) {
     if (state.finKind !== kind) return;
     var h = '';
-    if (kind === 'overview') h = overviewHtml(d); else h = laundromatHtml(d);
+    h = overviewHtml(d);
     $('fin-body').innerHTML = h + docLink(d) + updatedLine(d);
   }
   function overviewHtml(d) {
@@ -1778,41 +1788,331 @@
     h += notesCard(d.notes, 'ov') + doneCard(d.done, 'ov');
     return h;
   }
-  function laundromatHtml(d) {
-    var s = d.summary || {}, h = '';
-    var after = s.afterDebt, aneg = after && after.monthNum < 0;
-    var pick = function (r, k) { return r ? absMoney(r[k]) : '\u2014'; };
-    h += '<div class="fxgrid">';
-    h += sumCard('Revenue / mo', pick(s.revenue, 'month'), 'pos', s.revenue ? pick(s.revenue, 'year') + ' / yr' : '');
-    h += sumCard('Before debt / mo', pick(s.beforeDebt, 'month'), s.beforeDebt && s.beforeDebt.monthNum < 0 ? 'neg' : 'pos', s.beforeDebt ? pick(s.beforeDebt, 'year') + ' / yr' : '');
-    h += sumCard('Equipment pmt / mo', s.payment ? absMoney(s.payment.month) : '\u2014', 'neg', s.payment ? absMoney(s.payment.year) + ' / yr (sheet)' : '');
-    h += sumCard('Cash flow / mo', pick(after, 'month'), aneg ? 'neg' : 'pos', after ? pick(after, 'year') + ' / yr after debt' : '');
-    h += '</div>';
-    h += statusCard(d.status);
-    if (s.loan && s.loan.rows.length) {
-      h += collCard('ldloan', 'Loan terms', s.loan.rows.length, loanCards(s.loan), true);
-    }
-    if (s.payoff && s.payoff.rows.length) {
-      h += collCard('ldpay', 'Payoff options', s.payoff.rows.length, tableCards(s.payoff), false);
-    }
-    h += todoCards(d.todo || [], 'ld');
-    var isLoan = function (b) { return s.loan && b.header && b.header[1] === s.loan.header[1] && b.header[0] === s.loan.header[0]; };
-    var isPay = function (b) { return s.payoff && b.header && b.header[0] === s.payoff.header[0] && b.header.length === s.payoff.header.length; };
-    (d.sections || []).forEach(function (sec, i) {
-      var inner = sectionInner(sec, function (b) { return isLoan(b) || isPay(b); }), n = (sec.blocks || []).filter(function (b) { return b.k === 'tbl' && !isLoan(b) && !isPay(b); }).length;
-      if (!inner) return;
-      h += collCard('lds' + i, sec.title, n ? n + (n === 1 ? ' table' : ' tables') : null, inner, false);
+  // ---- TiwiK / Mono Village Laundromat screen (v22) ----
+  // Collapsible sections: Income & Expenses (live from the Vault `spend` API, same drill-downs), Loan (Payoff Options Doc via
+  // fin page "loan"; falls back to the Laundromat Doc until the API update), Maintenance (Maintenance Doc via fin page
+  // "maintenance"), TiwiK business facts (Laundromat Doc), To do, Questions, Notes. No Status section.
+  // Every figure is fetched at runtime. Numbers that come from documents are tappable and open the source in the viewer.
+  var LD_DOCS = {   // Drive ids only (no figures): fall-back "open the Doc" links until the API supplies `sources`
+    laundromat:  { id: '1sf4Kqe_a-fXxGkPJm9WU5DM8dLoDc2qVzLk-rEJ6lSc', title: 'Finances - Laundromat (Doc)', doc: true },
+    payoff:      { id: '1qgX-uzO4Ghd-aypEbCie00AHniWxBu3ChLwr0RSWCs4', title: 'Equipment Payoff Options (Doc)', doc: true },
+    maintenance: { id: '1kSS6PjWiWWob2PlWNabFjrpPTu4vmYh7eLovwqVErQE', title: 'TiwiK Laundromat - Machine Maintenance (Doc)', doc: true },
+    loandocs:    { id: '19-uY2ZGuU4L34i3lXGp8uDlHYXNKTBNk', title: 'Alliance loan documents (PDF)' },
+    navigator:   { id: '1hokXjD0TjoUTEJPOwz_H_EohrHKk-axe', title: 'Alliance Loan Navigator (PDF)' }
+  };
+  function ldSrcOf(key, apiSources) {
+    var s = apiSources && apiSources[key], d = LD_DOCS[key] || {};
+    if (s && s.url) return { url: s.url, title: s.title || d.title || 'Source' };
+    return { url: d.doc ? 'https://docs.google.com/document/d/' + d.id + '/edit' : 'https://drive.google.com/file/d/' + d.id + '/view', title: d.title || 'Source' };
+  }
+  var ld = { st: { laundromat: { s: 'load' }, loan: { s: 'load' }, maintenance: { s: 'load' }, spend: { s: 'load' } }, src: null };
+
+  // Money inside document text becomes a tappable link to the source (only while ldSrc is set).
+  var ldSrc = null;
+  function fx(t) {
+    var e = esc(t);
+    if (!ldSrc) return e;
+    return e.replace(/(\$\s?[\d,]+(?:\.\d+)?(?:\s?[kKmM]\b)?)/g, function (m) {
+      return '<a class="srcnum" data-title="' + esc(ldSrc.title) + '" href="' + esc(ldSrc.url) + '">' + m + '</a>';
     });
-    if ((d.questions || []).length) h += collCard('ldq', 'Questions', d.questions.length, simpleList(d.questions), false);
-    h += notesCard(d.notes, 'ld') + doneCard(d.done, 'ld');
+  }
+  function withSrc(src, fn) { var old = ldSrc; ldSrc = src; try { return fn(); } finally { ldSrc = old; } }
+  function tiwikTitle(s) { return String(s || '').replace(/^(\d+\.\s*)?Laundromat\b/i, '$1TiwiK'); }
+  function stripNum(s) { return String(s || '').replace(/^\d+\.\s*/, ''); }
+  function linkify(text, title) {
+    return esc(text).replace(/https?:\/\/[^\s<]+/g, function (u) {
+      var ext = toEmbed(u.replace(/&amp;/g, '&')) ? '' : ' target="_blank" rel="noopener" data-external';
+      return '<a class="srcnum man" data-title="' + esc(title || 'Document') + '" href="' + u + '"' + ext + '>Open file &rsaquo;</a>';
+    });
+  }
+  function leadSplit(b) {
+    var t = b.text || '', lead = b.lead || '', m;
+    if (lead && t.indexOf(lead) === 0) return [lead, t.slice(lead.length).replace(/^[\s:;.\-\u2013\u2014]+/, '')];
+    if ((m = t.match(/^([A-Z][A-Za-z0-9 \/()\-]{2,38}):\s+([\s\S]+)$/))) return [m[1], m[2]];
+    return ['', t];
+  }
+
+  // -- loading --
+  function ldFetch(page, force) {
+    var st = ld.st[page];
+    if (!(fin.cache[page] && !force && Date.now() - fin.cache[page].at < FIN_TTL)) st.s = fin.cache[page] ? 'ok' : 'load';
+    finApi(page, !!force, function (err, data) {
+      if (state.finKind !== 'laundromat') return;
+      if (!err) { st.s = 'ok'; st.data = data; }
+      else if (err.na) { st.s = 'na'; }
+      else if (err instanceof AuthError) { setPc(''); return lock('Passcode changed. Enter the new one.'); }
+      else if (!st.data) { st.s = 'err'; st.err = err; }
+      renderLd();
+    });
+    if (fin.cache[page]) { st.s = 'ok'; st.data = fin.cache[page].data; }
+  }
+  function ldSpend(force) {
+    var st = ld.st.spend, off = state.monthOffset;
+    if (!force && state.spendData && state.spendDataOff === off) { st.s = 'ok'; st.data = state.spendData; return; }
+    st.s = 'load';
+    var seq = ++state.spendSeq;
+    api('spend', off).then(function (d) {
+      if (seq !== state.spendSeq) return;
+      state.spendData = d; state.spendDataOff = off; st.s = 'ok'; st.data = d;
+      if (state.finKind === 'laundromat') renderLd();
+    }, function (err) {
+      if (seq !== state.spendSeq) return;
+      if (err instanceof AuthError) { setPc(''); return lock('Passcode changed. Enter the new one.'); }
+      st.s = 'err'; st.err = err; if (state.finKind === 'laundromat') renderLd();
+    });
+  }
+  function loadLd(force) {
+    ['laundromat', 'loan', 'maintenance'].forEach(function (p) { ldFetch(p, force); });
+    ldSpend(force);
+    renderLd();
+  }
+  function ldWait(st, what) {
+    if (st.s === 'load') return '<div class="loading">Loading\u2026</div>';
+    if (st.s === 'err') return '<div class="error">' + esc(friendly(st.err)) + '<div class="retry"><button class="navbtn" data-ld-retry>Try again</button></div></div>';
+    return '';
+  }
+
+  // -- Income & Expenses (live from the Vault) --
+  function ldIncomeHtml() {
+    var st = ld.st.spend, w = ldWait(st);
+    if (w) return w;
+    var d = st.data, M = spendModel(d), cashOK = M.full;
+    var tiw = M.accounts.filter(function (a) { return a.name === 'TiwiK'; })[0] || { amount: 0, cats: [] };
+    var mine = M.items.filter(function (x) { return x.account === 'TiwiK'; });
+    var inc = M.income.filter(function (x) { return x.source === 'Mono Village Laundromat'; });
+    var incAmt = sum(inc), net = r2(incAmt - tiw.amount);
+    var h = '<div class="ldmonth"><button class="navbtn" data-ld-month="-1">&lsaquo; Prev</button><div class="navlabel">' + esc(d.monthLabel || '') + '</div><button class="navbtn" data-ld-month="1">Next &rsaquo;</button></div>';
+    h += '<div class="foot ldlive">Live from the Vault \u00b7 tap any number to see the entries behind it.</div>';
+    h += '<div class="card income"><h4 class="sechead">Income \u00b7 Mono Village Laundromat</h4><div class="foot sub-note">Weekly lump sums \u00b7 ' + inc.length + (inc.length === 1 ? ' entry' : ' entries') + '</div>' +
+      barRows([{ name: 'Mono Village Laundromat', label: 'TiwiK income', amount: incAmt }], incomeRoute, ' inc') + '</div>';
+    h += '<div class="card acctsec"><h4 class="sechead">TiwiK spend by category</h4>';
+    if (!tiw.cats.length) h += '<div class="foot empty">No TiwiK entries this month</div>';
+    h += barRows(tiw.cats, function (c) { return catRoute(c, 'TiwiK'); }, '',
+      cashOK ? function (c) { return { v: cashOf(mine.filter(function (x) { return x.category === c; })), route: cashRoute('TiwiK', c) }; } : null);
+    if (cashOK) h += '<div class="cashtot">' + cashBtn(cashOf(mine), cashRoute('TiwiK')) + '</div>';
+    h += totBtn('TiwiK total spent', tiw.amount, acctRoute('TiwiK')).replace('totrow tapt', 'totrow tapt' + (cashOK ? ' hascash' : '')) + '</div>';
+    h += '<div class="card summary"><h3>TiwiK net</h3>' +
+      sumBtn('net cmp', calcRoute('tiwik-net'), 'TiwiK net<small>Income ' + money(incAmt) + ' \u2212 Spent ' + money(tiw.amount) + '</small>',
+        '<span class="amt ' + (net >= 0 ? 'pos' : 'neg') + '">' + signedMoney(net) + '</span>') + '</div>';
+    h += '<button class="linkrow allbtn"' + goAttr(acctRoute('TiwiK')) + '>All TiwiK entries (' + mine.length + ') &rsaquo;</button>';
+    h += sheetLink('Open in spend sheet');
     return h;
   }
+
+  // -- Loan --
+  function factSource(txt, apiSrc) {
+    if (/navigator/i.test(txt)) return ldSrcOf('navigator', apiSrc);
+    if (/loan documents|note|approval/i.test(txt)) return ldSrcOf('loandocs', apiSrc);
+    return ldSrcOf('payoff', apiSrc);
+  }
+  function factCards(t, apiSrc) {
+    return '<div class="fxtbl">' + t.rows.map(function (r) {
+      var src = factSource(r[2] || '', apiSrc);
+      return '<div class="fxrec"><div class="fxrt">' + esc(r[0]) + '</div><div class="fxloanv">' + withSrc(src, function () { return fx(r[1] || ''); }) + '</div>' +
+        (r[2] ? '<div class="fxsrc">Source: ' + esc(r[2]) + '</div>' : '') + '</div>';
+    }).join('') + '</div>';
+  }
+  function scenarioCards(t) {
+    return '<div class="fxtbl">' + t.rows.map(function (r) {
+      var h = '<div class="fxrec"><div class="fxrt"><span class="badge">#' + esc(r[0]) + '</span> ' + esc(r[1] || '') + '</div>';
+      for (var i = 2; i < r.length; i++) if (String(r[i] || '').trim() && r[i] !== '-') h += '<div class="fxkv"><b>' + esc(t.header[i] || '') + '</b><span>' + fx(r[i]) + '</span></div>';
+      return h + '</div>';
+    }).join('') + '</div>';
+  }
+  function colIdx(head, re) { for (var i = 0; i < head.length; i++) if (re.test(head[i])) return i; return -1; }
+  function optionCards(t) {
+    var H = t.header, iPay = colIdx(H, /^monthly/i), iCash = colIdx(H, /^cash used/i), iDate = colIdx(H, /^payoff/i), iInt = colIdx(H, /^total interest/i), iVs = colIdx(H, /^vs baseline/i);
+    if (iCash < 0 || iDate < 0 || iInt < 0) return tableCards(t);
+    var keys = [iInt, iVs, iDate, iCash].filter(function (i) { return i >= 0; });
+    var lab = { };
+    lab[iInt] = 'Total interest'; lab[iVs] = 'vs baseline'; lab[iDate] = 'Payoff'; lab[iCash] = 'Cash used';
+    return '<div class="fxtbl">' + t.rows.map(function (r) {
+      var h = '<div class="fxrec ldopt"><div class="fxrt">' + esc(r[0]) + '</div><div class="ldstats">';
+      keys.forEach(function (i) {
+        var v = r[i] || '\u2014', cls = i === iVs ? (/^\s*-/.test(v) ? ' pos' : (/^\s*\+/.test(v) ? ' neg' : '')) : '';
+        h += '<div class="ldst' + cls + '"><small>' + esc(lab[i]) + '</small><span>' + fx(v) + '</span></div>';
+      });
+      h += '</div><details class="lddet"><summary>All figures</summary>';
+      r.forEach(function (c, i) {
+        if (i === 0 || keys.indexOf(i) >= 0 || !String(c || '').trim() || c === '-') return;
+        h += '<div class="fxkv"><b>' + esc(H[i] || '') + '</b><span>' + fx(c) + '</span></div>';
+      });
+      return h + '</details></div>';
+    }).join('') + '</div>';
+  }
+  function proConCards(t) {
+    var H = t.header, iP = colIdx(H, /^pros/i), iC = colIdx(H, /^cons/i);
+    if (iP < 0 || iC < 0) return tableCards(t);
+    return '<div class="fxtbl">' + t.rows.map(function (r) {
+      return '<div class="fxrec"><div class="fxrt">' + esc(r[0]) + '</div>' +
+        '<div class="ldpc pro"><b>Pros</b>' + fx(r[iP] || '\u2014') + '</div><div class="ldpc con"><b>Cons / risks</b>' + fx(r[iC] || '\u2014') + '</div></div>';
+    }).join('') + '</div>';
+  }
+  // Doc blocks -> html; `tblFn(b)` renders each table. H3 headings group into nested collapsibles when there are 2+.
+  function ldBlocks(blocks, key, tblFn) {
+    var h3n = blocks.filter(function (b) { return b.k === 'h'; }).length, h = '', i = 0, grp = null, n = 0;
+    var flush = function () { if (grp) { h += collCard(key + 'g' + (n++), grp.title, grp.count || null, grp.html, false, 'nest'); grp = null; } };
+    blocks.forEach(function (b) {
+      var piece = '';
+      if (b.k === 'h') { if (h3n >= 2) { flush(); grp = { title: b.text, html: '', count: 0 }; return; } piece = '<div class="fxh3">' + esc(b.text) + '</div>'; }
+      else if (b.k === 'p') piece = '<p class="fxp">' + fx(b.text) + '</p>';
+      else if (b.k === 'li') piece = '<div class="fxli">' + fx(b.text) + '</div>';
+      else if (b.k === 'tbl') { piece = tblFn(b); if (grp) grp.count = (grp.count || 0) + (b.rows ? b.rows.length : 0); }
+      if (grp) grp.html += piece; else h += piece;
+    });
+    flush();
+    return h;
+  }
+  function loanSections(d) {
+    var apiSrc = d.sources, pay = ldSrcOf('payoff', apiSrc), h = '';
+    var tblFn = function (b) {
+      var H0 = (b.header[0] || '');
+      if (/^item$/i.test(H0) && /^source/i.test(b.header[2] || '')) return b.rows.length && /^(alliance|payments|rate|maturity|security|lines)/i.test(b.rows[0][0]) ? factCards(b, apiSrc) : tableCards(b);
+      if (H0 === '#') return scenarioCards(b);
+      if (/^option/i.test(H0) && b.header.length >= 7) return optionCards(b);
+      if (/^path/i.test(H0)) return proConCards(b);
+      return tableCards(b);
+    };
+    (d.sections || []).forEach(function (sec, i) {
+      var tn = (sec.blocks || []).filter(function (b) { return b.k === 'tbl'; }).length;
+      var inner = withSrc(pay, function () { return ldBlocks(sec.blocks || [], 'lnx' + i, tblFn); });
+      if (!inner) return;
+      h += collCard('lnsec' + i, stripNum(sec.title), tn ? tn + (tn === 1 ? ' table' : ' tables') : null, inner, i === 0, 'nest');
+    });
+    return h;
+  }
+  function ldLoanHtml() {
+    var st = ld.st.loan, doc = ld.st.laundromat, h = '';
+    var payLink = '<a class="linkrow" data-title="' + esc(LD_DOCS.payoff.title) + '" href="' + esc(ldSrcOf('payoff', st.data && st.data.sources).url) + '">Open the full Payoff Options Doc &rsaquo;</a>';
+    if (st.s === 'ok') {
+      var d = st.data, pay = ldSrcOf('payoff', d.sources);
+      h += '<div class="fxnote"><b>Equipment note</b> TiwiK LLC \u00b7 Alliance Laundry (Huebsch). All figures are read live from the Payoff Options Doc; tap a number to open its source. General information and arithmetic only \u2014 not lending, tax, legal or insurance advice.</div>';
+      if ((d.status || []).length) h += collCard('lnhead', 'Headline findings', null, withSrc(pay, function () { return d.status.map(function (t) { return '<p class="fxp">' + fx(t) + '</p>'; }).join(''); }), true, 'nest');
+      h += loanSections(d);
+      var tdo = d.todo || [];
+      if (tdo.length) h += withSrc(pay, function () { return todoCards(tdo, 'ln'); }).replace(/class="card ncard fxcard/g, 'class="card ncard fxcard nest');
+      if ((d.questions || []).length) h += collCard('lnq', 'Questions / to discuss', d.questions.length, withSrc(pay, function () { return simpleList(d.questions); }), false, 'nest');
+      h += withSrc(pay, function () { return notesCard(d.notes, 'ln') + doneCard(d.done, 'ln'); }).replace(/class="card ncard fxcard/g, 'class="card ncard fxcard nest');
+      return h + payLink;
+    }
+    var w = ldWait(st);
+    if (w) return w;
+    // Fallback until the API update (page "loan" not deployed): the loan facts already in the Laundromat Doc.
+    h += '<div class="fxnote"><b>Update pending</b> The full payoff analysis (Bank of Stockton options, comparison, rate outlook, insurance) appears here after the server update. Showing the loan facts from the Laundromat Doc for now.</div>';
+    if (doc.s === 'ok' && doc.data.summary) {
+      var s = doc.data.summary, src = ldSrcOf('laundromat');
+      if (s.loan && s.loan.rows.length) h += collCard('ldloan', 'Loan terms', s.loan.rows.length, withSrc(src, function () { return loanCards(s.loan); }), true, 'nest');
+      if (s.payoff && s.payoff.rows.length) h += collCard('ldpay', 'Payoff options', s.payoff.rows.length, withSrc(src, function () { return tableCards(s.payoff); }), false, 'nest');
+    } else if (doc.s === 'load') h += '<div class="loading">Loading\u2026</div>';
+    return h + payLink;
+  }
+
+  // -- Maintenance --
+  function manualState(t) {
+    var r = (t && t.rows || []).filter(function (x) { return /^manual$/i.test(x[0]); })[0], v = r ? r[1] : '';
+    if (/^on file/i.test(v)) return { k: 'ok', label: 'Manual on file' };
+    if (/^partial/i.test(v)) return { k: 'part', label: 'Partial' };
+    return { k: 'miss', label: 'No manual' };
+  }
+  function machineBody(sec, key) {
+    var h = '', t = (sec.blocks || []).filter(function (b) { return b.k === 'tbl'; })[0];
+    if (t) {
+      h += '<div class="fxtbl"><div class="fxrec">' + t.rows.map(function (r) {
+        var v = r[1] || '';
+        if (/^manual$/i.test(r[0])) { var ms = manualState(t); return '<div class="fxkv"><b>Manual</b><span><span class="mtbadge ' + ms.k + '">' + esc(ms.label) + '</span> ' + linkify(v, "Owner's manual") + '</span></div>'; }
+        return '<div class="fxkv"><b>' + esc(r[0]) + '</b><span>' + linkify(v, 'Document') + '</span></div>';
+      }).join('') + '</div></div>';
+    }
+    var grp = null;
+    var endGrp = function () { if (grp) { h += grp + '</div>'; grp = null; } };
+    (sec.blocks || []).forEach(function (b) {
+      if (b.k === 'tbl') return;
+      if (b.k === 'h') {
+        endGrp();
+        var cls = /required maintenance/i.test(b.text) ? 'mt-man' : /not on file/i.test(b.text) ? 'mt-miss' : /general manufacturer/i.test(b.text) ? 'mt-gen' : 'mt-man';
+        grp = '<div class="mtgrp ' + cls + '"><div class="mtlab">' + esc(b.text) + '</div>';
+        return;
+      }
+      var piece;
+      if (b.k === 'li') { var ls = leadSplit(b); piece = '<div class="mtrow">' + (ls[0] ? '<b class="mtfreq">' + esc(ls[0]) + '</b> ' : '') + esc(ls[1]) + '</div>'; }
+      else piece = '<p class="fxp">' + esc(b.text) + '</p>';
+      if (grp) grp += piece; else h += piece;
+    });
+    endGrp();
+    return h;
+  }
+  function ldMaintHtml() {
+    var st = ld.st.maintenance, h = '';
+    var link = '<a class="linkrow" data-title="' + esc(LD_DOCS.maintenance.title) + '" href="' + esc(ldSrcOf('maintenance').url) + '">Open the Maintenance Doc &rsaquo;</a>';
+    if (st.s === 'na') return '<div class="fxnote"><b>Update pending</b> The machine-by-machine maintenance list appears here after the server update. It lives in the Maintenance Doc (one section per machine, with a \u201cTo get: owner\u2019s manuals\u201d checklist at the top).</div>' + link;
+    var w = ldWait(st);
+    if (w) return w;
+    var d = st.data, secs = d.sections || [], machines = [], toget = null;
+    secs.forEach(function (s) { if (/^M\d+\./i.test(s.title)) machines.push(s); else if (/^to get/i.test(s.title)) toget = s; });
+    var cnt = { ok: 0, part: 0, miss: 0 };
+    machines.forEach(function (m) { var t = (m.blocks || []).filter(function (b) { return b.k === 'tbl'; })[0]; cnt[manualState(t).k]++; });
+    h += '<div class="fxnote"><b>Owner\u2019s manuals</b> ' + cnt.ok + ' on file \u00b7 ' + cnt.part + ' partial \u00b7 ' + cnt.miss + ' not on file, of ' + machines.length + ' equipment groups. Items labeled \u201cgeneral manufacturer guidance\u201d are NOT from your manual \u2014 verify them.</div>';
+    if (toget) {
+      var items = (toget.blocks || []).filter(function (b) { return b.k === 'li' || b.k === 'p'; });
+      h += collCard('mtget', 'To get: owner\u2019s manuals', items.length, items.map(function (b) {
+        return '<div class="todorow mtget"><i class="mtbox">\u2610</i>' + esc(b.text.replace(/^[\u2610-\u2612]\s*/, '')) + '</div>';
+      }).join(''), true, 'nest');
+    }
+    machines.forEach(function (m, i) {
+      var t = (m.blocks || []).filter(function (b) { return b.k === 'tbl'; })[0], ms = manualState(t);
+      h += collCard('mtm' + i, m.title.replace(/^M\d+\.\s*/i, ''), '<span class="mtbadge ' + ms.k + '">' + esc(ms.label) + '</span>', machineBody(m, 'mtm' + i), false, 'nest mach');
+    });
+    var tdo = (d.todo || []);
+    if (tdo.length) h += todoCards(tdo, 'mt').replace(/class="card ncard fxcard/g, 'class="card ncard fxcard nest');
+    if ((d.questions || []).length) h += collCard('mtq', 'Questions / to discuss', d.questions.length, simpleList(d.questions), false, 'nest');
+    h += notesCard(d.notes, 'mt').replace(/class="card ncard fxcard/g, 'class="card ncard fxcard nest');
+    return h + link + updatedLine(d);
+  }
+
+  // -- TiwiK business facts (Laundromat Doc; Status intentionally not shown) --
+  function ldDocSections(d) {
+    var s = d.summary || {}, src = ldSrcOf('laundromat'), h = '';
+    var isLoan = function (b) { return s.loan && b.header && b.header[1] === s.loan.header[1] && b.header[0] === s.loan.header[0]; };
+    var isPay = function (b) { return s.payoff && b.header && b.header[0] === s.payoff.header[0] && b.header.length === s.payoff.header.length; };
+    withSrc(src, function () {
+      (d.sections || []).forEach(function (sec, i) {
+        var inner = sectionInner(sec, function (b) { return isLoan(b) || isPay(b); }), n = (sec.blocks || []).filter(function (b) { return b.k === 'tbl' && !isLoan(b) && !isPay(b); }).length;
+        if (!inner) return;
+        h += collCard('lds' + i, tiwikTitle(sec.title), n ? n + (n === 1 ? ' table' : ' tables') : null, inner, false, 'nest');
+      });
+    });
+    return h;
+  }
+
+  function renderLd() {
+    if (state.finKind !== 'laundromat') return;
+    var doc = ld.st.laundromat, h = '';
+    h += collCard('ldie', 'Income & expenses', null, ldIncomeHtml(), true);
+    h += collCard('ldloanhub', 'Loan', null, ldLoanHtml(), false);
+    h += collCard('ldmaint', 'Maintenance', null, ldMaintHtml(), false);
+    if (doc.s === 'ok') {
+      var d = doc.data, body = ldDocSections(d);
+      if (body) h += collCard('ldfacts', 'Equipment & business facts', null, body, false);
+      h += withSrc(ldSrcOf('laundromat'), function () { return todoCards(d.todo || [], 'ld'); });
+      if ((d.questions || []).length) h += collCard('ldq', 'Questions', d.questions.length, withSrc(ldSrcOf('laundromat'), function () { return simpleList(d.questions); }), false);
+      h += withSrc(ldSrcOf('laundromat'), function () { return notesCard(d.notes, 'ld') + doneCard(d.done, 'ld'); });
+      h += docLink(d) + updatedLine(d);
+    } else if (doc.s === 'na') {
+      h += '<div class="loading">The Laundromat Doc sections aren\u2019t available yet (server update pending).</div>';
+    } else if (doc.s === 'err') {
+      h += '<div class="error">' + esc(friendly(doc.err)) + '<div class="retry"><button class="navbtn" data-ld-retry>Try again</button></div></div>';
+    } else h += '<div class="loading">Loading the Laundromat Doc\u2026</div>';
+    var box = $('fin-body'), y = window.scrollY;
+    box.innerHTML = h;
+    if (y) window.scrollTo(0, y);
+  }
+
   function loanCards(t) {
     var st = t.header.length - 1;   // last column = status
     return '<div class="fxtbl">' + t.rows.map(function (r) {
       var status = r[st] && st > 1 ? r[st] : '';
       return '<div class="fxrec"><div class="fxrt">' + esc(r[0]) + (status ? ' <span class="badge' + (/^(matches|consistent|resolved|confirmed|schedule ties)/i.test(status) ? ' ok' : '') + '">' + esc(status) + '</span>' : '') + '</div>' +
-        '<div class="fxloanv">' + esc(r[1] || '') + '</div></div>';
+        '<div class="fxloanv">' + fx(r[1] || '') + '</div></div>';
     }).join('') + '</div>';
   }
 

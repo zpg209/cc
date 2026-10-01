@@ -348,9 +348,9 @@ body { overscroll-behavior-y: none; }
 .nchead span { flex: 1 1 auto; }
 .nchead .cnt { font: 700 12px/1 'Inter', sans-serif; color: var(--muted); border: 1px solid var(--line); border-radius: 10px; padding: 4px 8px; }
 .nchead .chev { font-style: normal; font-size: 24px; line-height: 1; transition: transform .15s; }
-.ncard.open .chev { transform: rotate(90deg); }
+.ncard.open > .nchead .chev { transform: rotate(90deg); }
 .ncbody { display: none; padding: 0 14px 12px; }
-.ncard.open .ncbody { display: block; }
+.ncard.open > .ncbody { display: block; }
 .todorow, .donerow { background: var(--btn); border: 1px solid rgba(240,122,42,.2); border-radius: var(--radius); padding: 13px 14px;
   margin-top: 8px; font-size: 17px; line-height: 1.45; color: #f2f2f2; word-break: break-word; }
 .todorow { border-left: 3px solid var(--red); }
@@ -505,3 +505,46 @@ button.calcpart { cursor: pointer; }
 .calcpart .chev { color: var(--red); font-size: 22px; line-height: 1; }
 .card h3 { word-break: break-word; }
 .entry .mer { white-space: normal; }
+
+/* ---- v22: TiwiK / Mono Village Laundromat screen (collapsible Income & expenses / Loan / Maintenance) ---- */
+.fin .ncard.nest { margin: 8px 0 0; background: rgba(255,255,255,.025); border: 1px solid rgba(240,122,42,.22); }
+.fin .ncard.nest > .nchead { font-size: 17px; min-height: 50px; padding: 12px 12px; }
+.fin .ncard.nest > .ncbody { padding: 0 12px 10px; }
+.fin .ncard .ncard.nest .card { margin-bottom: 8px; }
+.fin .ncbody .card.income, .fin .ncbody .card.acctsec, .fin .ncbody .card.summary { padding: 10px 10px; }
+.fin .ncbody .catrow, .fin .ncbody .totrow, .fin .ncbody .sumline { min-height: 44px; }
+.ldmonth { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; margin: 6px 0 8px; }
+.ldlive { text-align: center; margin: 0 0 8px; }
+.srcnum { color: #FFC48A; text-decoration: underline dotted rgba(255,196,138,.7); text-underline-offset: 3px; font-weight: 700; white-space: nowrap; padding: 2px 0; }
+.srcnum:active { color: #fff; }
+.srcnum.man { white-space: normal; display: inline-block; margin-top: 4px; }
+.fxsrc { margin-top: 6px; font-size: 12.5px; color: var(--muted); }
+.ldstats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 2px 0 6px; }
+.ldst { background: rgba(255,255,255,.04); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; min-width: 0; }
+.ldst small { display: block; font: 700 10px/1.2 'Inter', sans-serif; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 3px; }
+.ldst span { font: 700 15px/1.3 'Inter', sans-serif; color: #fff; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.ldst.pos span { color: var(--pos); } .ldst.neg span { color: var(--neg2); }
+.lddet summary { cursor: pointer; color: var(--red); font: 700 12px/1 'Inter', sans-serif; letter-spacing: .6px; text-transform: uppercase; padding: 12px 0 8px; min-height: 44px; list-style: none; }
+.lddet summary::-webkit-details-marker { display: none; }
+.lddet summary::after { content: ' \203A'; }
+.lddet[open] summary::after { content: ' \2039'; }
+.ldpc { font-size: 15px; line-height: 1.5; color: #e9e9e9; padding: 8px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.ldpc b { display: block; font: 700 11px/1.3 'Inter', sans-serif; letter-spacing: .8px; text-transform: uppercase; margin-bottom: 3px; }
+.ldpc.pro b { color: var(--pos); } .ldpc.con b { color: #ff8a80; }
+.mtbadge { display: inline-block; font: 700 10.5px/1 'Inter', sans-serif; letter-spacing: .3px; padding: 5px 7px; border-radius: 3px; white-space: nowrap; border: 1px solid; vertical-align: 1px; }
+.mtbadge.ok { color: #7bd17f; border-color: rgba(123,209,127,.5); background: rgba(123,209,127,.08); }
+.mtbadge.part { color: #ffb74d; border-color: rgba(255,183,77,.5); background: rgba(255,183,77,.08); }
+.mtbadge.miss { color: #ff8a80; border-color: rgba(229,72,77,.55); background: rgba(229,72,77,.1); }
+.nchead .mtbadge { margin-right: 2px; }
+.mtgrp { margin-top: 10px; border-left: 3px solid var(--red); padding: 2px 0 2px 10px; }
+.mtgrp.mt-gen { border-left-color: #a8a8a8; border-left-style: dashed; }
+.mtgrp.mt-miss { border-left-color: #E5484D; }
+.mtlab { font: 700 12px/1.3 'Inter', sans-serif; letter-spacing: .7px; text-transform: uppercase; color: var(--red); margin-bottom: 4px; }
+.mtgrp.mt-gen .mtlab { color: #c9a07e; } .mtgrp.mt-miss .mtlab { color: #ff8a80; }
+.mtrow { font-size: 15px; line-height: 1.5; color: #e9e9e9; padding: 7px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.mtrow:first-of-type { border-top: 0; }
+.mtfreq { color: #fff; }
+.mtgrp.mt-gen .mtrow { color: #cfcfcf; }
+.todorow.mtget { display: flex; gap: 10px; font-size: 16px; }
+.mtbox { font-style: normal; color: var(--red); font-size: 20px; line-height: 1.2; }
+.fin, .fin .card, .fin .ncbody { overflow-wrap: anywhere; }
