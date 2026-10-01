@@ -841,18 +841,16 @@
         return sumBtn('net cmp', calcRoute(key), esc(label) + '<small>Income <span class="amt-in">' + money(inc) + '</span> − ' + spLbl + ' <span class="amt-out">' + money(sp) + '</span></small>',
           '<span class="amt ' + (n >= 0 ? 'pos' : 'neg') + '">' + signedMoney(n) + '</span>');
       };
-      var hhCashTot = cashOf(inAcct('Household'));
       var monthNet = r2(M.incomeTotal - M.total);
       var sumBody = '<div class="foot sub-note">Over ' + days + ' day' + (days === 1 ? '' : 's') + '</div>' +
+        sumBtn('', incomeRoute('All'), 'Total income', '<span class="amt amt-in">' + money(M.incomeTotal) + '</span>') +
+        sumBtn('', 'spend/all', 'Total spend', '<span class="amt amt-out">' + money(M.total) + '</span>') +
+        sumBtn('minor', calcRoute('avg-income'), 'Avg daily income', '<span class="amt amt-in">' + perDay(M.incomeTotal) + '</span>') +
+        sumBtn('minor', calcRoute('avg-spend'), 'Avg daily spend', '<span class="amt amt-out">' + perDay(M.total) + '</span>') +
         netLine('tiwik-net', 'TiwiK net', srcTot('Mono Village Laundromat'), acctTot('TiwiK'), 'Spent') +
         netLine('lt-net', "Lisa's Table net", srcTot("Lisa's Table"), groc, 'Groceries') +
         sumBtn('net cmp', calcRoute('hh-spend'), 'Household spend<small>Running month total · excludes groceries (counted in Lisa\'s Table net)</small>',
-          '<span class="amt neg">−' + money(Math.abs(r2(hhTot - groc))) + '</span>') +
-        (cashOK ? sumBtn('minor cash', cashRoute('Household'), 'Household cash spent<small>Part of Household spend · Method = Cash</small>',
-          '<span class="amt">' + money(hhCashTot) + '</span>') : '') +
-        sumBtn('minor', calcRoute('avg-spend'), 'Avg daily spend', '<span class="amt amt-out">' + perDay(M.total) + '</span>') +
-        sumBtn('minor', incomeRoute('All'), 'Income total', '<span class="amt amt-in">' + money(M.incomeTotal) + '</span>') +
-        sumBtn('minor', calcRoute('avg-income'), 'Avg daily income', '<span class="amt amt-in">' + perDay(M.incomeTotal) + '</span>');
+          '<span class="amt neg">\u2212' + money(Math.abs(r2(hhTot - groc))) + '</span>');
       h += vSec('summary', 'summary', 'Summary', '<span class="amt ' + (monthNet >= 0 ? 'pos' : 'neg') + '">' + signedMoney(monthNet) + '</span>', calcRoute('month-net'), sumBody);
 
       if (M.who.length) h += vSec('who', '', 'Household \u00b7 Zac vs Lisa', '<span class="amt-out">' + money(sum(M.who)) + '</span>', acctRoute('Household'),
