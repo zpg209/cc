@@ -805,11 +805,11 @@
     if (!state.vopen) state.vopen = {};
     return state.vopen;
   }
-  function vSec(key, cls, title, totHtml, route, body) {
+  function vSec(key, cls, title, totHtml, route, body, totAttr) {
     var open = !!vOpenMap()[key];
     return '<div class="card ncard vsec ' + cls + (open ? ' open' : '') + '" data-vs="' + esc(key) + '">' +
       '<div class="vhead"><button class="nchead vtoggle" aria-expanded="' + open + '"><span>' + title + '</span></button>' +
-      '<button class="vtot"' + goAttr(route) + '>' + totHtml + '</button>' +
+      '<button class="vtot"' + (totAttr || goAttr(route)) + '>' + totHtml + '</button>' +
       '<button class="nchead vtoggle vchevb" aria-label="Expand or collapse"><i class="chev">&rsaquo;</i></button></div>' +
       '<div class="ncbody">' + body + '</div></div>';
   }
@@ -933,6 +933,160 @@
     body += balBtn('All balance entries', 'spend/bal/All', 'linkrow smallrow') + sheet + sheetLink('Open Accounts tab', 'acct').replace('linkrow sheetbtn', 'linkrow sheetbtn second');
     return vSec('accounts', 'acctbal', 'Accounts', '<span class="amt-bal">' + balMoney(A.total) + '</span>', 'spend/bal/All', body);
   }
+  /* ---------------- Vault: Debt + Upcoming bills (API action `vaultdebt`, read from the Overview Doc) ---------------- */
+  // No figures live in this file: loans, balances, payments, due dates and bills are fetched at runtime from the Overview Doc via the API.
+  // Colors: section heading + chevron amber (--c-debt); balances neutral light (.amt-neutral); money going out (payments, bills) red (.amt-out).
+  // Every number taps through to the source Doc / PDF in the in-app viewer. Estimate badges explain what is still needed.
+  // state.debt = { s: 'load' | 'ok' | 'na' (server not updated) | 'err', d: model, at: ms, msg }
+  var DEBT_TTL = 60000;
+  function dbDate(iso, withDow) {
+    var m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return String(iso || '');
+    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12).toLocaleDateString('en-US',
+      withDow ? { weekday: 'short', month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  function dbIn(n) { return n == null ? '' : n === 0 ? 'today' : n === 1 ? 'tomorrow' : n < 0 ? Math.abs(n) + ' days ago' : 'in ' + n + ' days'; }
+  function dbStat(v) { v = String(v || '').toUpperCase(); return v === 'VERIFIED' || v === 'DERIVED' ? v : 'ESTIMATE'; }
+  function dbLinks(a) { return (Array.isArray(a) ? a : []).filter(function (l) { return l && l.url; }).map(function (l) { return { label: String(l.label || 'Document'), url: String(l.url) }; }); }
+  function dbField(f) {
+    return f ? { label: f.label || '', value: f.value || '', num: acNum(f.num), status: dbStat(f.status), source: f.source || '', url: f.url || '', ref: f.ref || '' } : null;
+  }
+  function debtModel(d) {
+    var loans = (Array.isArray(d.loans) ? d.loans : []).map(function (l) {
+      var f = l.fields || {};
+      return { key: l.key || l.name || '', name: l.name || 'Loan', entity: l.entity || '', balance: acNum(l.balance), rate: acNum(l.rate), rateText: l.rateText || '',
+        payment: acNum(l.payment), nextDue: l.nextDue || '', daysUntil: acNum(l.daysUntil), nextDueAmount: acNum(l.nextDueAmount), paidThrough: l.paidThrough || '',
+        paymentNext: l.paymentNext && l.paymentNext.amount != null ? { amount: Number(l.paymentNext.amount), from: l.paymentNext.from || '' } : null,
+        maturity: l.maturity || '', status: dbStat(l.status), balanceNote: l.balanceNote || '', rateNote: l.rateNote || '', srcLinks: dbLinks(l.srcLinks),
+        fields: { balance: dbField(f.balance), rate: dbField(f.rate), payment: dbField(f.payment), paymentNext: dbField(f.paymentNext) } };
+    });
+    var bills = (Array.isArray(d.bills) ? d.bills : []).map(function (b) {
+      return { id: b.id || (b.name + b.date), date: b.date || '', daysUntil: acNum(b.daysUntil), kind: b.kind || '', kindLabel: b.kindLabel || '', name: b.name || '', entity: b.entity || '',
+        amount: acNum(b.amount), status: dbStat(b.status), viaEscrow: !!b.viaEscrow, note: b.note || '', ref: b.ref || '', srcLinks: dbLinks(b.srcLinks) };
+    });
+    return { loans: loans, bills: bills, today: d.today || '', windowDays: Number(d.windowDays) || 30, windowEnd: d.windowEnd || '',
+      totalDebt: Number(d.totalDebt) || 0, totalDebtStatus: dbStat(d.totalDebtStatus), totalMonthly: Number(d.totalMonthly) || 0, totalMonthlyStatus: dbStat(d.totalMonthlyStatus),
+      monthlyAfter: d.monthlyAfter && d.monthlyAfter.amount != null ? { amount: Number(d.monthlyAfter.amount), from: d.monthlyAfter.from || '' } : null,
+      billsTotal: Number(d.billsTotal) || 0, billsStatus: dbStat(d.billsStatus), undated: Array.isArray(d.undated) ? d.undated : [],
+      needs: Array.isArray(d.needs) ? d.needs : [], docUrl: d.docUrl || '', docTitle: d.docTitle || 'Finances - Overview' };
+  }
+  function loadDebt(force) {
+    var a = state.debt;
+    if (!force && a && (a.s === 'load' || (a.at && Date.now() - a.at < DEBT_TTL))) return;
+    var prev = a && a.s === 'ok' ? a : null;
+    state.debt = { s: 'load', d: prev ? prev.d : null, at: 0 };
+    var mine = state.debt;
+    api('vaultdebt').then(function (d) {
+      if (state.debt !== mine) return;
+      state.debt = { s: 'ok', d: debtModel(d || {}), at: Date.now() };
+    }, function (err) {
+      if (state.debt !== mine) return;
+      var m = String((err && err.message) || '');
+      state.debt = /bad_action/.test(m) ? { s: 'na', d: null, at: Date.now() } : { s: 'err', d: prev ? prev.d : null, at: Date.now(), msg: m };
+    }).then(function () { if (state.spendData && $('screen-spend').classList.contains('active')) renderSpend(); });
+  }
+  function dbBadge(status, id, needsOn) {
+    status = dbStat(status);
+    if (status === 'ESTIMATE') return '<button class="badge est" data-db-est="' + esc(id) + '">Estimate</button>';
+    return '<span class="badge ' + (status === 'DERIVED' ? 'dv' : 'ok') + '">' + (status === 'DERIVED' ? 'Derived' : 'Verified') + '</span>';
+  }
+  // number that opens its source Doc / PDF in the viewer (plain text when no link)
+  function dbNum(text, url, title, cls) {
+    return url ? '<a class="srcnum dbnum ' + (cls || '') + '" data-title="' + esc(title || 'Source') + '" href="' + esc(url) + '">' + esc(text) + '</a>'
+      : '<span class="dbnum ' + (cls || '') + '">' + esc(text) + '</span>';
+  }
+  function dbNeedBox(D, id, refs) {
+    var seen = {}, h = '';
+    (D.needs || []).forEach(function (n) {
+      var hit = !refs || refs.some(function (r) { return String(n.ref || '').split(/[,\s]+/).some(function (t) { return t === r || (/\.\*$/.test(t) && r.indexOf(t.slice(0, -1)) === 0); }); });
+      var k = n.ref + n.need; if (!hit || seen[k]) return; seen[k] = 1;
+      h += '<div class="dbneedrow">\u2610 ' + esc(String(n.need || '').replace(/^[\u2610\u2611\s]+/, '')) + (n.why ? '<small>' + esc(n.why) + '</small>' : '') + '</div>';
+    });
+    if (!h) h = '<div class="dbneedrow">Needs a dated statement or document from Zac.</div>';
+    return '<div class="dbneed" id="dbneed-' + esc(id) + '" hidden><b>Needed from Zac</b>' + h + '</div>';
+  }
+  function dbDocBtn(D) {
+    return D && D.docUrl ? '<a class="linkrow sheetbtn" data-title="' + esc(D.docTitle || 'Finances - Overview') + '" href="' + esc(D.docUrl) + '">Open the Overview Doc &#8599;</a>' : '';
+  }
+  function dbFallback(key, cls, title, msg, st) {
+    var body = '<div class="foot">' + msg + '</div>';
+    if (st === 'err') body += '<button class="linkrow smallrow" data-debt-retry="1">Try again</button>';
+    body += '<button class="linkrow smallrow" data-go="fin/overview">Open Finances \u203a Overview &rsaquo;</button>';
+    return vSec(key, cls, title, '<span class="amt-neutral">' + (st === 'load' ? '\u2026' : '\u2014') + '</span>', 'fin/overview', body);
+  }
+  function loanCard(l, D) {
+    var f = l.fields, id = 'ln-' + l.key, refs = [];
+    ['balance', 'rate', 'payment'].forEach(function (k) { if (f[k] && f[k].ref) refs.push(f[k].ref); });
+    var row = function (label, html, extra) { return '<div class="dbrow"><span class="dbl">' + label + '</span><span class="dbv">' + html + '</span></div>' + (extra || ''); };
+    var h = '<div class="dbcard"><div class="dbtop"><div class="dbname">' + esc(l.name) + '<small>' + esc(l.entity) + '</small></div>' + dbBadge(l.status, id) + '</div>';
+    h += row('Balance', f.balance ? dbNum(balMoney(l.balance), f.balance.url || D.docUrl, f.balance.source || 'Source', 'amt-neutral') : '<span class="amt-neutral">' + balMoney(l.balance) + '</span>');
+    if (l.status !== 'VERIFIED' && l.balanceNote) h += '<div class="dbnote">' + esc(l.balanceNote.length > 130 ? l.balanceNote.slice(0, 127) + '\u2026' : l.balanceNote) + '</div>';
+    if (l.rate != null) h += row('Rate', f.rate ? dbNum(l.rateText || (l.rate + '%'), f.rate.url || D.docUrl, f.rate.source || 'Source', 'amt-neutral') : esc(l.rateText));
+    if (l.payment != null) h += row('Monthly payment', f.payment ? dbNum(money(l.payment), f.payment.url || D.docUrl, f.payment.source || 'Source', 'amt-out') : '<span class="amt-out">' + money(l.payment) + '</span>');
+    if (l.paymentNext) h += '<div class="dbnote">From ' + esc(dbDate(l.paymentNext.from)) + ': <span class="amt-out">' + money(l.paymentNext.amount) + '</span> / mo</div>';
+    h += row('Next due', l.nextDue ? '<b>' + esc(dbDate(l.nextDue, true)) + '</b><small>' + esc(dbIn(l.daysUntil)) + '</small>' : '<span class="muted">\u2014</span>');
+    if (l.paidThrough && l.paidThrough >= D.today) h += '<div class="dbnote">The ' + esc(dbDate(l.paidThrough)) + ' payment is already paid.</div>';
+    if (l.maturity) h += '<div class="dbnote">Matures ' + esc(l.maturity) + '</div>';
+    if (l.status === 'ESTIMATE') h += dbNeedBox(D, id, refs);
+    return h + '</div>';
+  }
+  function debtSection() {
+    var st = state.debt || { s: 'load' }, D = st.d;
+    if (st.s === 'na') return dbFallback('debt', 'debtsec', 'Debt', 'Debt is not available yet (server update pending). The loans are in Finances \u203a Overview.', 'na');
+    if (!D) return st.s === 'err' ? dbFallback('debt', 'debtsec', 'Debt', 'Could not load debt' + (st.msg ? ': ' + esc(st.msg) : '') + '.', 'err')
+      : dbFallback('debt', 'debtsec', 'Debt', 'Loading debt\u2026', 'load');
+    var body = '';
+    if (!D.loans.length) {
+      body = '<div class="foot">No loan balances found in the Overview Doc.</div>' + dbDocBtn(D);
+      return vSec('debt', 'debtsec', 'Debt', '<span class="amt-neutral">\u2014</span>', '', body, D.docUrl ? ' data-doc="' + esc(D.docUrl) + '" data-title="' + esc(D.docTitle) + '"' : goAttr('fin/overview'));
+    }
+    var sumRow = function (label, html, badge) { return '<div class="dbsumrow"><span>' + label + (badge ? ' ' + badge : '') + '</span><b>' + html + '</b></div>'; };
+    body += '<div class="dbsum">' +
+      sumRow('Total debt', dbNum(balMoney(D.totalDebt), D.docUrl, D.docTitle, 'amt-neutral'), dbBadge(D.totalDebtStatus, 'tot-debt')) +
+      sumRow('Monthly debt service', dbNum(money(D.totalMonthly), D.docUrl, D.docTitle, 'amt-out'), dbBadge(D.totalMonthlyStatus, 'tot-mo')) +
+      (D.monthlyAfter && D.monthlyAfter.from > D.today ? '<div class="dbnote">From ' + esc(dbDate(D.monthlyAfter.from)) + ': <span class="amt-out">' + money(D.monthlyAfter.amount) + '</span> / mo</div>' : '') +
+      '</div>';
+    if (D.totalDebtStatus === 'ESTIMATE' || D.totalMonthlyStatus === 'ESTIMATE') body += dbNeedBox(D, 'tot-debt', null) + dbNeedBox(D, 'tot-mo', null);
+    body += D.loans.map(function (l) { return loanCard(l, D); }).join('');
+    body += '<div class="foot how">Read from the Overview Doc each time the Vault opens. Next due dates are worked out from each loan\u2019s payment day.</div>' + dbDocBtn(D);
+    return vSec('debt', 'debtsec', 'Debt', '<span class="amt-neutral">' + balMoney(D.totalDebt) + '</span>', '', body,
+      D.docUrl ? ' data-doc="' + esc(D.docUrl) + '" data-title="' + esc(D.docTitle) + '"' : goAttr('fin/overview'));
+  }
+  function billRow(b, D) {
+    var link = b.srcLinks[0] ? b.srcLinks[0].url : D.docUrl, title = b.srcLinks[0] ? b.srcLinks[0].label : D.docTitle, id = 'bill-' + b.id.replace(/[^\w-]/g, '_');
+    var amt = b.amount == null ? '<span class="muted">\u2014</span>' : b.viaEscrow ? '<span class="dbesc">' + dbNum(money(b.amount), link, title, 'amt-neutral') + '<small>via escrow</small></span>' : dbNum(money(b.amount), link, title, 'amt-out');
+    return '<div class="bill"><div class="bdate"><b>' + esc(dbDate(b.date, true).replace(/^(\w+), /, '$1 ')) + '</b><small>' + esc(dbIn(b.daysUntil)) + '</small></div>' +
+      '<div class="bmain"><span class="bname">' + esc(b.name) + '</span><small>' + esc([b.kindLabel, b.entity].filter(Boolean).join(' \u00b7 ')) + '</small>' +
+      '<span class="bbadge">' + dbBadge(b.status, id) + '</span>' + (b.note ? '<small class="bnote">' + esc(b.note) + '</small>' : '') + '</div>' +
+      '<div class="bamt">' + amt + '</div></div>' + (b.status === 'ESTIMATE' ? dbNeedBox(D, id, [b.ref]) : '');
+  }
+  function billsSection() {
+    var title = 'Upcoming bills (next 30 days)', st = state.debt || { s: 'load' }, D = st.d;
+    if (st.s === 'na') return dbFallback('bills', 'billsec', title, 'Upcoming bills are not available yet (server update pending). Due dates are in Finances \u203a Overview.', 'na');
+    if (!D) return st.s === 'err' ? dbFallback('bills', 'billsec', title, 'Could not load bills' + (st.msg ? ': ' + esc(st.msg) : '') + '.', 'err')
+      : dbFallback('bills', 'billsec', title, 'Loading bills\u2026', 'load');
+    var body = '<div class="foot sub-note">' + (D.windowEnd ? 'Through ' + esc(dbDate(D.windowEnd)) + ' \u00b7 ' : '') + D.bills.length + ' item' + (D.bills.length === 1 ? '' : 's') + ', soonest first</div>';
+    if (!D.bills.length) body += '<div class="foot empty">Nothing due in the next ' + D.windowDays + ' days.</div>';
+    body += D.bills.map(function (b) { return billRow(b, D); }).join('');
+    if (D.bills.length) body += '<div class="bill total"><div class="bmain"><span class="bname">Total due' + (D.billsStatus ? ' ' : '') + '</span></div><div class="bamt">' + dbNum(money(D.billsTotal), D.docUrl, D.docTitle, 'amt-out') + '</div></div>';
+    if (D.undated.length) {
+      body += '<div class="foot">Not scheduled: ' + D.undated.map(function (u) { return esc(u.name); }).join(', ') + ' \u2014 only a per-month ' +
+        (D.undated.some(function (u) { return dbStat(u.status) === 'ESTIMATE'; }) ? '<button class="badge est" data-db-est="undated">Estimate</button> ' : '') + 'is in the Doc, no due date.</div>' +
+        dbNeedBox(D, 'undated', D.undated.map(function (u) { return u.ref; }));
+    }
+    body += dbDocBtn(D);
+    return vSec('bills', 'billsec', title, '<span class="amt-out">' + money(D.billsTotal) + '</span>', '', body,
+      D.docUrl ? ' data-doc="' + esc(D.docUrl) + '" data-title="' + esc(D.docTitle) + '"' : goAttr('fin/overview'));
+  }
+  document.addEventListener('click', function (e) {
+    var r = e.target.closest('[data-debt-retry]');
+    if (r) { loadDebt(true); if (state.spendData) renderSpend(); return; }
+    var est = e.target.closest('[data-db-est]');
+    if (est) { var box = document.getElementById('dbneed-' + est.getAttribute('data-db-est')); if (box) box.hidden = !box.hidden; return; }
+    var dl = e.target.closest('[data-doc]');
+    if (dl) { e.preventDefault(); e.stopPropagation(); openDoc(dl.getAttribute('data-doc'), dl.getAttribute('data-title') || 'Document'); }
+  });
+
   // Drill-down: the balance entries behind a number (All / one group / one account), straight from the Balances tab, + reconciliation detail for a group.
   function balDrill() {
     var sr = state.spendRoute, st = state.acct || { s: 'load' }, A = st.d, h = '';
@@ -1002,6 +1156,7 @@
     var hhTot = acctTot('Household');
     var cashOK = M.full;   // cash needs the full item list (older API only has the latest 20 rows)
     if (!sr.kind || sr.kind === 'bal') loadAccounts(false);
+    if (!sr.kind) loadDebt(false);
 
     if (!sr.kind) {
       M.accounts.forEach(function (a) {
@@ -1053,6 +1208,8 @@
         '<div class="split">' + M.who.map(function (w) { return '<button class="splitbtn"' + goAttr(whoRoute(w.name)) + '><b class="amt-out">' + money(w.amount) + '</b>' + esc(w.name) + '</button>'; }).join('') + '</div>');
 
       h += accountsSection();
+      h += debtSection();
+      h += billsSection();
 
       h += '<button class="linkrow allbtn"' + goAttr('spend/all') + '>All items (' + M.entryCount + ') &rsaquo;</button>';
       h += sheetLink('Open in spend sheet');
