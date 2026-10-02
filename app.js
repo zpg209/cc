@@ -4112,6 +4112,7 @@
   var LD_DOCS = {   // Drive ids only (no figures): fall-back "open the Doc" links until the API supplies `sources`
     laundromat:  { id: '1sf4Kqe_a-fXxGkPJm9WU5DM8dLoDc2qVzLk-rEJ6lSc', title: 'Finances - Laundromat (Doc)', doc: true },
     payoff:      { id: '1qgX-uzO4Ghd-aypEbCie00AHniWxBu3ChLwr0RSWCs4', title: 'Equipment Payoff Options (Doc)', doc: true },
+    compare:     { id: '1KYk0XPQwZsYVifI3QBBpUz-d0Zi4gWUMCJw4ceN5aRs', title: 'Equipment Payoff - Comparison Table (Doc)', doc: true },
     maintenance: { id: '1kSS6PjWiWWob2PlWNabFjrpPTu4vmYh7eLovwqVErQE', title: 'TiwiK Laundromat - Machine Maintenance (Doc)', doc: true },
     loandocs:    { id: '19-uY2ZGuU4L34i3lXGp8uDlHYXNKTBNk', title: 'Alliance loan documents (PDF)' },
     navigator:   { id: '1hokXjD0TjoUTEJPOwz_H_EohrHKk-axe', title: 'Alliance Loan Navigator (PDF)' }
@@ -4300,9 +4301,10 @@
   function ldLoanHtml() {
     var st = ld.st.loan, doc = ld.st.laundromat, h = '';
     var payLink = '<a class="linkrow" data-title="' + esc(LD_DOCS.payoff.title) + '" href="' + esc(ldSrcOf('payoff', st.data && st.data.sources).url) + '">Open the full Payoff Options Doc &rsaquo;</a>';
+    var cmpLink = '<a class="linkrow cmplink" data-title="' + esc(LD_DOCS.compare.title) + '" href="' + esc(ldSrcOf('compare', st.data && st.data.sources).url) + '">Payoff Comparison Table &rsaquo;</a>';
     if (st.s === 'ok') {
       var d = st.data, pay = ldSrcOf('payoff', d.sources);
-      h += '<div class="fxnote"><b>Equipment note</b> TiwiK LLC \u00b7 Alliance Laundry (Huebsch). All figures are read live from the Payoff Options Doc; tap a number to open its source. General information and arithmetic only \u2014 not lending, tax, legal or insurance advice.</div>';
+      h += '<div class="fxnote"><b>Equipment note</b> TiwiK LLC \u00b7 Alliance Laundry (Huebsch). All figures are read live from the Payoff Options Doc; tap a number to open its source. General information and arithmetic only \u2014 not lending, tax, legal or insurance advice.</div>' + cmpLink;
       if ((d.status || []).length) h += collCard('lnhead', 'Headline findings', null, withSrc(pay, function () { return d.status.map(function (t) { return '<p class="fxp">' + fx(t) + '</p>'; }).join(''); }), true, 'nest');
       h += loanSections(d);
       var tdo = d.todo || [];
@@ -4314,7 +4316,7 @@
     var w = ldWait(st);
     if (w) return w;
     // Fallback until the API update (page "loan" not deployed): the loan facts already in the Laundromat Doc.
-    h += '<div class="fxnote"><b>Update pending</b> The full payoff analysis (Bank of Stockton options, comparison, rate outlook, insurance) appears here after the server update. Showing the loan facts from the Laundromat Doc for now.</div>';
+    h += '<div class="fxnote"><b>Update pending</b> The full payoff analysis (Bank of Stockton options, comparison, rate outlook, insurance) appears here after the server update. Showing the loan facts from the Laundromat Doc for now.</div>' + cmpLink;
     if (doc.s === 'ok' && doc.data.summary) {
       var s = doc.data.summary, src = ldSrcOf('laundromat');
       if (s.loan && s.loan.rows.length) h += collCard('ldloan', 'Loan terms', s.loan.rows.length, withSrc(src, function () { return loanCards(s.loan); }), true, 'nest');
