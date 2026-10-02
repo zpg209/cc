@@ -136,7 +136,9 @@
     if (name === 'fin') state.finKind = (R.kind === 'overview' || R.kind === 'laundromat') ? R.kind : '';
     if (name === 'insn') state.insSlug = R.kind || '';
     if (name === 'punch' && !(PROJ[R.kind] && PROJ[R.kind].punchUrl)) { name = 'proj'; route = 'proj/' + (PROJ[R.kind] ? R.kind : 'terravi'); }
-    if (name === 'proj' || name === 'notes' || name === 'mic' || name === 'docs' || name === 'punch') projSetup(R.kind);
+    var logMic = name === 'mic' && R.kind === 'dailylog';       // #mic/dailylog = Dictate page for the Daily log (Voice notes)
+    if (logMic) micLogSetup();
+    else if (name === 'proj' || name === 'notes' || name === 'mic' || name === 'docs' || name === 'punch') projSetup(R.kind);
     if (name !== 'mic') micStop(true);
     if (name !== 'punch') pmicStop();
     if (name !== 'doc') { state.docPushed = false; state.docSeq++; closeDoc(); }
@@ -146,6 +148,7 @@
       var h = name === 'home' ? '' : name === 'spend' ? spendHash(state.spendRoute) :
         name === 'biz' && R.kind ? '#biz/' + encodeURIComponent(R.kind) :
         name === 'doc' ? '#doc?' + R.query :
+        logMic ? '#mic/dailylog' :
         (name === 'proj' || name === 'notes' || name === 'mic' || name === 'docs' || name === 'punch') ? '#' + name + '/' + state.projSlug :
         name === 'fin' ? '#fin' + (state.finKind ? '/' + state.finKind : '') :
         name === 'insn' ? '#insn' + (state.insSlug ? '/' + encodeURIComponent(state.insSlug) : '') :
@@ -527,6 +530,7 @@
   }
 
   function loadLog() {
+    loadVoiceNotes();
     var seq = ++state.logSeq;
     $('log-body').innerHTML = '<div class="loading">Loading…</div>';
     $('log-range').textContent = '…';
@@ -1907,7 +1911,8 @@
   function projSlugOf(name) { var k = String(name || '').toLowerCase().replace(/[^a-z0-9]/g, ''); return PROJ[k] ? k : ''; }
   function curProj() { return PROJ[state.projSlug] || PROJ.terravi; }
   function projDocUrl() { return (state.projDocUrls && state.projDocUrls[state.projSlug]) || curProj().docUrl; }
-  function draftKey() { return 'cc_note_draft_' + state.projSlug; }      // per project (Terra Vi keeps its original key)
+  var LOG_DRAFT_KEY = 'cc_note_draft_dailylog', LOG_CID_KEY = 'cc_lognote_cid';
+  function draftKey() { return state.micLog ? LOG_DRAFT_KEY : 'cc_note_draft_' + state.projSlug; }      // per project (Terra Vi keeps its original key)
   var OPEN_KEY = 'cc_proj_open';
   var NOTE_MAX = 1500;
   var MIC_NA = 'Live mic isn\u2019t available here \u2014 tap the text box and use your keyboard\u2019s mic key.';
@@ -1924,6 +1929,7 @@
     try { localStorage.setItem(OPEN_KEY, JSON.stringify(openMem)); } catch (e) {}
   }
   function projSetup(slug) {          // wires the Home/Back buttons of the 4 project screens to this project
+    if (state.micLog) micLogReset();  // leaving the Daily log Dictate page for a project page
     var prev = state.projSlug;
     state.projSlug = PROJ[slug] ? slug : 'terravi';
     var s = state.projSlug, p = PROJ[s];
@@ -1937,6 +1943,26 @@
     });
     ['notes', 'mic', 'docs', 'punch'].forEach(function (k) { $(k + '-back').setAttribute('data-go', 'proj/' + s); });
     document.querySelectorAll('[data-pgo]').forEach(function (el) { el.setAttribute('data-go', el.getAttribute('data-pgo') + '/' + s); });
+  }
+  var MIC_PH = 'Your words appear here. You can also type, or use the keyboard\u2019s mic key.';
+  var MIC_PH_LOG = 'What you ate, drank, your workout, weight, sleep\u2026 speak it, type it, or use the keyboard\u2019s mic key.';
+  function micLogSetup() {            // Dictate page in Daily-log mode: same mic + draft box, saved to the fitness sheet's Voice notes
+    if (!state.micLog) {
+      state.micLog = true;
+      if (!mic.on) { var ta = $('note-text'); if (ta) ta.value = ''; var rc = $('note-recovered'); if (rc) rc.hidden = true; mic.msg = ''; }
+    }
+    $('mic-title').textContent = 'Daily log \u00b7 Dictate a note';
+    $('mic-back').setAttribute('data-go', 'log');
+    $('note-text').setAttribute('placeholder', MIC_PH_LOG);
+    $('mic-hint').hidden = false;
+    $('note-save').setAttribute('data-lbl', 'Save to Voice notes');
+  }
+  function micLogReset() {
+    state.micLog = false;
+    if (!mic.on) { var ta = $('note-text'); if (ta) ta.value = ''; var rc = $('note-recovered'); if (rc) rc.hidden = true; mic.msg = ''; }
+    $('note-text').setAttribute('placeholder', MIC_PH);
+    $('mic-hint').hidden = true;
+    $('note-save').removeAttribute('data-lbl');
   }
   function renderProj() {
     $('proj-doc').href = projDocUrl();
@@ -2166,6 +2192,7 @@
     var ta = $('note-text'), text = ta ? ta.value.replace(/\s+/g, ' ').trim() : '';
     if (!text) return;
     if (text.length > NOTE_MAX) return flash('That note is too long (max ' + NOTE_MAX + ' characters).', true);
+    if (state.micLog) return saveLogNote(text);
     notes.saving = true; micUi();
     apiRaw('addnote', { project: curProj().notesProject, text: text }).then(function (j) {
       notes.saving = false;
@@ -2183,6 +2210,81 @@
     });
   }
 
+  /* ---- Daily log voice notes: save (lognote) + the collapsible recent list on the Daily log screen ---- */
+  // Server: Api.gs v22 actions `lognote` (append to the "Voice notes" tab) / `lognotes` (read). Without them the draft just stays on this phone.
+  function logCid(text) {              // same text -> same client id, so a retry after a dropped reply can't double-save
+    var o = null; try { o = JSON.parse(localStorage.getItem(LOG_CID_KEY) || 'null'); } catch (e) {}
+    if (o && o.t === text && o.c) return o.c;
+    var c = 'v' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    try { localStorage.setItem(LOG_CID_KEY, JSON.stringify({ t: text, c: c })); } catch (e) {}
+    return c;
+  }
+  function saveLogNote(text) {
+    var ta = $('note-text');
+    notes.saving = true; micUi();
+    apiRaw('lognote', { text: text, cid: logCid(text) }).then(function (j) {
+      notes.saving = false;
+      if (j.error === 'bad_action') { micUi(); return flash('Saving isn\u2019t available yet (server update pending). Your note is kept on this phone.', true); }
+      if (j.error) { micUi(); return flash((j.message || 'Couldn\u2019t save (' + j.error + ').') + ' Your note is kept on this phone.', true); }
+      draftSet(''); mic.base = mic.committed = mic.interim = '';
+      try { localStorage.removeItem(LOG_CID_KEY); } catch (e) {}
+      if (ta) ta.value = '';
+      vn.at = 0;                                               // the Daily log list reloads when it is shown
+      micUi();
+      flash(j.data && j.data.duplicate ? 'Already saved.' : 'Saved to Voice notes \u2713');
+    }, function (err) {
+      notes.saving = false; micUi();
+      if (err instanceof AuthError) { setPc(''); return lock('Passcode changed. Enter the new one.'); }
+      flash(friendly(err) + ' Your note is kept on this phone.', true);
+    });
+  }
+  var vn = { data: null, state: 'idle', msg: '', seq: 0, at: 0 };
+  function loadVoiceNotes() {
+    var seq = ++vn.seq;
+    if (!vn.data) { vn.state = 'loading'; }
+    renderVoiceNotes();
+    apiRaw('lognotes', {}).then(function (j) {
+      if (seq !== vn.seq) return;
+      if (j.error === 'bad_action') { vn.data = null; vn.state = 'na'; }
+      else if (j.error) { vn.state = vn.data ? 'ok' : 'err'; vn.msg = j.message || ('Server error: ' + j.error); }
+      else { vn.data = j.data || { notes: [], total: 0, pending: 0 }; vn.state = 'ok'; vn.at = Date.now(); }
+      renderVoiceNotes();
+    }, function (err) {
+      if (seq !== vn.seq) return;
+      if (err instanceof AuthError) { setPc(''); return lock('Passcode changed. Enter the new one.'); }
+      vn.state = vn.data ? 'ok' : 'err'; vn.msg = friendly(err);
+      renderVoiceNotes();
+    });
+  }
+  function renderVoiceNotes() {
+    var card = $('vn-card'); if (!card) return;
+    var open = isOpen('vn', false), d = vn.data, h = '';
+    card.classList.toggle('open', open); $('vn-head').setAttribute('aria-expanded', open);
+    var cnt = '';
+    if (vn.state === 'ok' && d) cnt = d.pending ? d.pending + ' new' : (d.total ? d.total + '' : '');
+    var c = $('vn-cnt'); c.textContent = cnt; c.hidden = !cnt;
+    // a note kept on this phone (not saved yet)
+    var dr = ''; try { dr = localStorage.getItem(LOG_DRAFT_KEY) || ''; } catch (e) {}
+    var dv = $('vn-draft');
+    if (dr.trim()) {
+      dv.hidden = false;
+      dv.innerHTML = '<span class="vdt"><b>Unsaved note on this phone</b> ' + esc(dr.trim().length > 90 ? dr.trim().slice(0, 90) + '\u2026' : dr.trim()) + '</span>' +
+        '<button class="navbtn" data-go="mic/dailylog">Open</button>';
+    } else { dv.hidden = true; dv.innerHTML = ''; }
+    if (vn.state === 'loading') h = '<p class="stat dim">Loading\u2026</p>';
+    else if (vn.state === 'na') h = '<p class="stat dim">Saved voice notes will be listed here after the server update. You can already dictate; a note is kept on this phone until it can be saved.</p>';
+    else if (vn.state === 'err') h = '<p class="stat dim">' + esc(vn.msg || 'Couldn\u2019t load voice notes.') + '</p><button class="navbtn" id="vn-retry">Try again</button>';
+    else if (d && d.notes && d.notes.length) {
+      h = '<div class="vnlist">' + d.notes.map(function (n) {
+        return '<div class="vnrow' + (n.done ? ' done' : '') + '"><div class="vnmeta"><span>' + esc(n.time || '') + '</span>' +
+          (n.done ? '<b class="ok">&#10003; logged</b>' : '<b>new</b>') + '</div><div class="vntext">' + esc(n.text) + '</div></div>';
+      }).join('') + '</div><p class="foot">Latest ' + d.notes.length + (d.total > d.notes.length ? ' of ' + d.total : '') + '. Chief of Staff turns new notes into log entries.</p>';
+    } else h = '<p class="stat dim">No voice notes yet. Tap the mic above.</p>';
+    $('vn-body').innerHTML = h;
+  }
+  $('vn-head').addEventListener('click', function () { var o = !isOpen('vn', false); setOpen('vn', o); renderVoiceNotes(); });
+  $('vn-body').addEventListener('click', function (e) { if (e.target.id === 'vn-retry') loadVoiceNotes(); });
+
   /* ---- Mic (Web Speech API) ---- */
   function micUi() {
     var btn = $('mic-btn'); if (!btn) return;
@@ -2191,13 +2293,14 @@
     btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     btn.setAttribute('aria-label', on ? 'Stop dictation' : 'Start dictation');
     $('mic-lbl').textContent = on ? 'Listening \u2014 tap to stop' : (has ? 'Tap to keep talking' : 'Tap to talk');
+    var lg = !!state.micLog;
     var st = $('mic-state'), extra = mic.msg;
     st.className = 'micstate' + (on ? ' rec' : '') + (extra && !on ? ' warn' : '');
-    st.textContent = on ? 'Recording\u2026 speak your note' : (extra || (has ? 'Review the note, then Save or Discard' : 'Tap the mic to dictate a note'));
+    st.textContent = on ? 'Recording\u2026 speak your note' : (extra || (has ? 'Review the note, then Save or Discard' : (lg ? 'Tap the mic and say what you ate, drank, did, weighed, slept' : 'Tap the mic to dictate a note')));
     var tag = $('rec-tag'); if (tag) tag.hidden = !on;
     var dc = $('draft-card'); if (dc) dc.classList.toggle('live', on);
     var sv = $('note-save'), dsc = $('note-discard');
-    if (sv) { sv.disabled = !has || notes.saving; sv.textContent = notes.saving ? 'Saving\u2026' : 'Save note'; }
+    if (sv) { sv.disabled = !has || notes.saving; sv.textContent = notes.saving ? 'Saving\u2026' : (sv.getAttribute('data-lbl') || 'Save note'); }
     if (dsc) dsc.disabled = !has && !on;
     var cnt = $('note-count'); if (cnt) cnt.textContent = ta && ta.value.length ? ta.value.length + ' / ' + NOTE_MAX : '';
   }

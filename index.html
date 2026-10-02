@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=37">
+<link rel="stylesheet" href="app.css?v=38">
 </head>
 <body>
   <div class="bg"></div>
@@ -89,6 +89,7 @@
       <div class="draftbtns"><button class="bigsave" id="note-save">Save note</button><button class="navbtn discard" id="note-discard">Discard</button></div>
       <div class="noteflash" id="notes-flash" hidden></div>
     </div>
+    <p class="foot miclhint" id="mic-hint" hidden>Try: &ldquo;Two eggs and coffee for breakfast, 30 minute walk, weight 211, slept 7 hours.&rdquo; Saved notes go to your Voice notes; Chief of Staff turns them into log entries.</p>
   </section>
 
   <!-- ============ RUNNING NOTES (#notes/<slug>) ============ -->
@@ -178,6 +179,11 @@
   <!-- ============ DAILY LOG ============ -->
   <section id="screen-log" class="screen fitscreen">
     <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><h2>Daily log</h2></div>
+    <div class="vnwrap" id="log-voice">
+      <button class="bigbtn vnbig" id="vn-mic" data-go="mic/dailylog" aria-label="Dictate or type a log note"><span class="bigico" aria-hidden="true">&#127908;</span>Dictate a log note<span class="sub">Ate &middot; drank &middot; workout &middot; weight &middot; sleep</span></button>
+      <div class="vndraft" id="vn-draft" hidden></div>
+      <div class="ncard vncard" id="vn-card"><button class="nchead" id="vn-head" aria-expanded="false"><span>Voice notes</span><b class="cnt" id="vn-cnt"></b><i class="chev">&rsaquo;</i></button><div class="ncbody" id="vn-body"></div></div>
+    </div>
     <div id="log-top"></div>
     <div class="weeknav">
       <button class="navbtn" id="log-prev">&lsaquo; Prev week</button>
@@ -198,6 +204,6 @@
     <div id="spend-body"><div class="loading">Loading…</div></div>
   </section>
 
-  <script src="app.js?v=37"></script>
+  <script src="app.js?v=38"></script>
 </body>
 </html>

@@ -905,3 +905,30 @@ span.dbnum { font-weight: 700; font-variant-numeric: tabular-nums; }
 .pm span { color: var(--muted); } .pm small { color: var(--muted); font-size: 11px; }
 .pm .fitbar { grid-column: 1 / -1; height: 5px; }
 .pwo { font-size: 12.5px; color: #d0d0d0; padding-top: 4px; overflow-wrap: anywhere; }
+
+/* ---- v38: Daily log voice notes (mic button + collapsible recent notes) and the Dictate page's Daily-log mode ---- */
+.vnwrap { display: grid; gap: 10px; margin: 0 0 12px; max-width: 100%; min-width: 0; }
+.fitscreen .vnbig { min-height: 96px; border-color: rgba(240,122,42,.55); width: 100%; box-sizing: border-box; }
+.vnbig .bigico { font-size: 44px; }
+.vnbig .sub { overflow-wrap: anywhere; }
+.vncard { border: 1px solid rgba(240,122,42,.35); background: var(--btn); border-radius: var(--radius); }
+.vncard .nchead { color: var(--c-fit, #F07A2A); font-size: 17px; min-height: 52px; }
+.vncard .nchead .cnt[hidden] { display: none; }
+.vncard .ncbody { padding: 0 12px 12px; min-width: 0; }
+.vncard .stat { margin: 4px 0 8px; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+.vncard .stat.dim { color: var(--muted); }
+.vnlist { display: flex; flex-direction: column; gap: 8px; }
+.vnrow { border-top: 1px solid var(--line); padding-top: 8px; min-width: 0; }
+.vnrow:first-child { border-top: 0; padding-top: 0; }
+.vnmeta { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+.vnmeta b { color: var(--c-fit, #F07A2A); letter-spacing: .4px; text-transform: uppercase; font-size: 10.5px; }
+.vnmeta b.ok { color: #3DBE6B; }
+.vntext { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14.5px; line-height: 1.45; color: #e6e6e6; }
+.vnrow.done .vntext { color: #a8a8a8; }
+.vndraft { display: flex; align-items: center; gap: 10px; background: rgba(255,193,7,.08); border: 1px solid rgba(255,193,7,.4); border-radius: var(--radius); padding: 8px 10px; min-width: 0; }
+.vndraft[hidden] { display: none; }
+.vndraft .vdt { flex: 1 1 auto; min-width: 0; font-size: 13px; line-height: 1.35; color: #e6e6e6; overflow-wrap: anywhere; }
+.vndraft .vdt b { display: block; color: #FFD54F; font-size: 11px; letter-spacing: .4px; text-transform: uppercase; }
+.vndraft .navbtn { flex: none; }
+.miclhint { margin: 12px 2px 0; line-height: 1.45; overflow-wrap: anywhere; }
+.miclhint[hidden] { display: none; }
