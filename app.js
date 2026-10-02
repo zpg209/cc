@@ -14,7 +14,7 @@
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
-  var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn'];
+  var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -133,6 +133,10 @@
       state.spendRoute = okKind ? { kind: R.kind, val: R.kind === 'all' ? '' : R.val, acct: (R.kind === 'cat' || R.kind === 'cash') ? R.acct : '' }
         : { kind: '', val: '', acct: '' };
     }
+    if (name === 'ent') {
+      var entKey = ENTS[R.kind] ? R.kind : 'kiwit', entSub = ENT_SUBS.test(R.val) ? R.val : '';
+      state.entRoute = { key: entKey, kind: entSub, val: entSub ? R.acct : '' };
+    }
     if (name === 'fin') state.finKind = (R.kind === 'overview' || R.kind === 'laundromat') ? R.kind : '';
     if (name === 'insn') state.insSlug = R.kind || '';
     if (name === 'punch' && !(PROJ[R.kind] && PROJ[R.kind].punchUrl)) { name = 'proj'; route = 'proj/' + (PROJ[R.kind] ? R.kind : 'terravi'); }
@@ -150,6 +154,7 @@
         name === 'doc' ? '#doc?' + R.query :
         logMic ? '#mic/dailylog' :
         (name === 'proj' || name === 'notes' || name === 'mic' || name === 'docs' || name === 'punch') ? '#' + name + '/' + state.projSlug :
+        name === 'ent' ? entHash(state.entRoute) :
         name === 'fin' ? '#fin' + (state.finKind ? '/' + state.finKind : '') :
         name === 'insn' ? '#insn' + (state.insSlug ? '/' + encodeURIComponent(state.insSlug) : '') :
         name === 'lt' ? '#lt' + (R.kind ? '/' + encodeURIComponent(R.kind) : '') :
@@ -159,6 +164,7 @@
     if (name === 'projects' || name === 'life') loadLinks();
     if (name === 'log') loadLog();
     if (name === 'spend') loadSpend(false);
+    if (name === 'ent') loadEnt(false);
     if (name === 'biz') { state.bizSlug = R.kind; loadBiz(); }
     if (name === 're') loadRe();
     if (name === 'proj') renderProj();
@@ -993,7 +999,7 @@
       if (opt.acct && e.account !== 'Household') meta.push('<span class="acct-tag">' + esc(e.account) + '</span>');
       return '<div class="entry item"><div class="d">' + esc(e.label) + '<br>' + esc(e.who) + '</div>' +
         '<div class="m"><div class="mer">' + esc(e.merchant || '—') + '</div>' +
-        '<div class="meta">' + (opt.chip ? '<button class="chip"' + goAttr(catRoute(e.category)) + '>' + esc(e.category) + '</button>' : '') +
+        '<div class="meta">' + (opt.chip ? '<button class="chip"' + goAttr((opt.chipRoute || catRoute)(e.category)) + '>' + esc(e.category) + '</button>' : '') +
         (meta.length ? '<small>' + meta.join(' · ') + '</small>' : '') + '</div>' +
         (e.notes ? '<div class="notes">' + esc(e.notes) + '</div>' : '') + '</div>' +
         '<div class="a amt-out">' + money(e.amount) + '</div></div>';
@@ -1234,7 +1240,7 @@
       if (state.debt !== mine) return;
       var m = String((err && err.message) || '');
       state.debt = /bad_action/.test(m) ? { s: 'na', d: null, at: Date.now() } : { s: 'err', d: prev ? prev.d : null, at: Date.now(), msg: m };
-    }).then(function () { if (state.spendData && $('screen-spend').classList.contains('active')) renderSpend(); });
+    }).then(function () { if (state.spendData && $('screen-spend').classList.contains('active')) renderSpend(); if ($('screen-ent').classList.contains('active')) renderEnt(); });
   }
   function dbBadge(status, id, needsOn) {
     status = dbStat(status);
@@ -1607,6 +1613,394 @@
   });
   $('spend-prev').addEventListener('click', function () { state.monthOffset--; loadSpend(true); });
   $('spend-next').addEventListener('click', function () { state.monthOffset++; loadSpend(true); });
+
+  /* ---------------- Entity books: KiwiT LLC + TiwiK LLC (API actions `entity`, `entitytax`) ---------------- */
+  // Two SEPARATE sets of books for tax separation. The Vault above stays the combined view and is not touched.
+  // Routes: #ent/<kiwit|tiwik>, #ent/<key>/cat/<Category>, /income/<Source|All>, /exp, /net, /bal, /flags, /tax
+  // No figures live in this file: everything is fetched at runtime (public repo). Loans / bills reuse the Vault's `vaultdebt` data
+  // (filtered by entity), so they keep working even before the `entity` action is deployed.
+  // Colors: income green, spend red (same as the Vault), copper accents, balances teal, loans amber.
+  var ENTS = { kiwit: { key: 'kiwit', name: 'KiwiT', title: 'KiwiT LLC', sub: 'Landlord \u00b7 Mono Way building' },
+               tiwik: { key: 'tiwik', name: 'TiwiK', title: 'TiwiK LLC', sub: 'Operator \u00b7 Mono Village Laundromat' } };
+  var ENT_SUBS = /^(cat|income|exp|net|bal|flags|tax)$/;
+  var ENT_TTL = 60000;
+  var MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  state.entRoute = { key: '', kind: '', val: '' };
+  state.entOff = 0; state.entCache = {}; state.entTaxCache = {}; state.entYear = new Date().getFullYear();
+
+  function entHash(er) {
+    return '#ent/' + er.key + (er.kind ? '/' + er.kind + (er.val ? '/' + encodeURIComponent(er.val) : '') : '');
+  }
+  function entRoute(key, kind, val) { return 'ent/' + key + (kind ? '/' + kind + (val != null && val !== '' ? '/' + encodeURIComponent(val) : '') : ''); }
+  function entLocalMonth(off) { var t = new Date(); return new Date(t.getFullYear(), t.getMonth() + off, 1, 12).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }); }
+
+  function entModel(d) {
+    var inc = (Array.isArray(d.income) ? d.income : []).map(function (x) {
+      return { date: x.date || '', label: x.label || x.date || '', source: String(x.source || 'Other'), client: x.client || '', amount: Number(x.amount) || 0,
+        notes: x.notes || '', expected: !!x.expected };
+    });
+    var exp = (Array.isArray(d.expenses) ? d.expenses : []).map(function (x) {
+      return { date: x.date || '', label: x.label || x.date || '', who: x.who || '', amount: Number(x.amount) || 0, category: String(x.category || '').trim() || 'Other',
+        merchant: x.merchant || '', method: x.method || '', notes: x.notes || '', account: x.account || '' };
+    });
+    var srcMap = sumBy(inc, 'source');
+    var sources = Object.keys(srcMap).map(function (k) {
+      var l = inc.filter(function (x) { return x.source === k; });
+      return { name: k, amount: r2(srcMap[k]), items: l, expected: l.some(function (x) { return x.expected; }) };
+    }).sort(function (a, b) { return b.amount - a.amount; });
+    var flags = (Array.isArray(d.flags) ? d.flags : []).map(function (f) {
+      return { date: f.date || '', label: f.label || f.date || '', merchant: f.merchant || '', category: f.category || '', amount: Number(f.amount) || 0,
+        account: f.account || '', method: f.method || '', kind: f.kind || 'tag', severity: f.severity === 'high' ? 'high' : 'low', suggest: f.suggest || '', why: f.why || '' };
+    });
+    var b = d.bank || {};
+    var bank = { accounts: (Array.isArray(b.accounts) ? b.accounts : []).map(function (a) {
+      return { name: a.name || '', bank: a.bank || '', type: a.type || '', purpose: a.purpose || '', balance: acNum(a.balance), asOf: a.asOf || '', stale: !!a.stale, notes: a.notes || '',
+        prevBalance: acNum(a.prevBalance), prevAsOf: a.prevAsOf || '', change: acNum(a.change),
+        entries: (Array.isArray(a.entries) ? a.entries : []).map(function (e) { return { date: e.date || '', balance: Number(e.balance) || 0, notes: e.notes || '' }; }) };
+    }), total: acNum(b.total), gid: b.gid != null ? String(b.gid) : SHEET_GIDS.bal };
+    var it = sum(inc), et = sum(exp);
+    return { monthLabel: d.monthLabel || '', month: d.month || '', income: inc, exp: exp, sources: sources, cats: sortedPairs(sumBy(exp, 'category')),
+      incomeTotal: it, expenseTotal: et, net: r2(it - et), scheduled: sum(inc.filter(function (x) { return x.expected; })), flags: flags, bank: bank };
+  }
+  function entFail(err) {
+    if (err instanceof AuthError) { setPc(''); lock('Passcode changed. Enter the new one.'); return null; }
+    return friendly(err);
+  }
+  function entActive() { return $('screen-ent').classList.contains('active'); }
+
+  function loadEnt(force) {
+    var R = state.entRoute, E = ENTS[R.key];
+    if (!E) return;
+    paintEntChrome();
+    loadDebt(false);
+    if (R.kind === 'tax') return loadEntTax(force);
+    var ck = R.key + '|' + state.entOff, c = state.entCache[ck];
+    if (!force && c && (c.s === 'load' || (c.at && Date.now() - c.at < ENT_TTL))) return renderEnt();
+    var mine = state.entCache[ck] = { s: 'load', d: c && c.d ? c.d : null, at: 0 };
+    renderEnt();
+    apiRaw('entity', { entity: R.key, offset: state.entOff }).then(function (j) {
+      if (state.entCache[ck] !== mine) return;
+      if (j.error === 'bad_action') state.entCache[ck] = { s: 'na', d: null, at: Date.now() };
+      else if (j.error) state.entCache[ck] = { s: 'err', d: mine.d, at: Date.now(), msg: j.message || ('Server error: ' + j.error) };
+      else state.entCache[ck] = { s: 'ok', d: entModel(j.data || {}), at: Date.now() };
+      if (entActive()) renderEnt();
+    }, function (err) {
+      if (state.entCache[ck] !== mine) return;
+      var m = entFail(err); if (m === null) return;
+      state.entCache[ck] = { s: 'err', d: mine.d, at: Date.now(), msg: m };
+      if (entActive()) renderEnt();
+    });
+  }
+  function loadEntTax(force) {
+    var R = state.entRoute, ck = R.key + '|' + state.entYear, c = state.entTaxCache[ck];
+    if (!force && c && (c.s === 'load' || (c.at && Date.now() - c.at < ENT_TTL))) return renderEnt();
+    var mine = state.entTaxCache[ck] = { s: 'load', d: c && c.d ? c.d : null, at: 0 };
+    renderEnt();
+    apiRaw('entitytax', { entity: R.key, year: state.entYear }).then(function (j) {
+      if (state.entTaxCache[ck] !== mine) return;
+      if (j.error === 'bad_action') state.entTaxCache[ck] = { s: 'na', d: null, at: Date.now() };
+      else if (j.error) state.entTaxCache[ck] = { s: 'err', d: mine.d, at: Date.now(), msg: j.message || ('Server error: ' + j.error) };
+      else state.entTaxCache[ck] = { s: 'ok', d: entTaxModel(j.data || {}), at: Date.now() };
+      if (entActive()) renderEnt();
+    }, function (err) {
+      if (state.entTaxCache[ck] !== mine) return;
+      var m = entFail(err); if (m === null) return;
+      state.entTaxCache[ck] = { s: 'err', d: mine.d, at: Date.now(), msg: m };
+      if (entActive()) renderEnt();
+    });
+  }
+  function entTaxModel(d) {
+    var m = entModel({ income: (d.items || {}).income, expenses: (d.items || {}).expenses, flags: d.flags });
+    var inc = d.income || {}, ex = d.expenses || {};
+    return { year: Number(d.year) || state.entYear, through: Number(d.through) || 12, items: m, flags: m.flags,
+      incomeTotal: Number(inc.total) || 0, scheduled: Number(inc.scheduled) || 0, expTotal: Number(ex.total) || 0, net: Number(d.net) || 0,
+      sources: (Array.isArray(inc.bySource) ? inc.bySource : []).map(function (s) { return { name: String(s.source), amount: Number(s.amount) || 0, count: s.count || 0, months: s.months || [], expected: Number(s.expectedAmount) > 0 }; }),
+      cats: (Array.isArray(ex.byCategory) ? ex.byCategory : []).map(function (c) { return { name: String(c.category), amount: Number(c.amount) || 0, count: c.count || 0, months: c.months || [] }; }),
+      monthsSeries: Array.isArray(d.months) ? d.months : [] };
+  }
+
+  /* ---- chrome (title, tabs, month nav) ---- */
+  function entSubTitle(R) {
+    var k = R.kind;
+    return k === 'cat' ? R.val : k === 'income' ? (R.val === 'All' ? 'Income' : R.val) : k === 'exp' ? 'Expenses' : k === 'net' ? 'Net profit'
+      : k === 'bal' ? 'Bank' : k === 'flags' ? 'Attribution' : k === 'tax' ? 'Tax' : '';
+  }
+  function paintEntChrome() {
+    var R = state.entRoute, E = ENTS[R.key] || ENTS.kiwit, sub = !!R.kind, tax = R.kind === 'tax';
+    $('ent-back').hidden = !sub;
+    $('ent-back').setAttribute('data-go', 'ent/' + E.key);
+    $('ent-title').textContent = sub ? E.name + ' \u00b7 ' + entSubTitle(R) : E.title;
+    $('ent-title').classList.toggle('sub', sub);
+    $('ent-tabs').hidden = sub;
+    $('ent-tabs').innerHTML = '<button data-go="spend">Vault</button>' + Object.keys(ENTS).map(function (k) {
+      return '<button class="' + (k === E.key ? 'on' : '') + '" data-go="ent/' + k + '">' + esc(ENTS[k].title) + '</button>'; }).join('');
+    var cur = state.entCache[E.key + '|' + state.entOff];
+    var label = tax ? state.entYear + (state.entYear === new Date().getFullYear() ? ' to date' : '') : (cur && cur.d && cur.d.monthLabel) || entLocalMonth(state.entOff);
+    $('ent-month').textContent = label;
+    $('ent-prev').textContent = tax ? '\u2039 Prev year' : '\u2039 Prev month';
+    $('ent-next').textContent = tax ? 'Next year \u203a' : 'Next month \u203a';
+    $('ent-next').disabled = tax ? state.entYear >= new Date().getFullYear() : state.entOff >= 0;
+    $('ent-pick').hidden = tax;
+    if (!tax) { var t = new Date(); $('ent-pick').max = t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2);
+      var p = new Date(t.getFullYear(), t.getMonth() + state.entOff, 1, 12); $('ent-pick').value = p.getFullYear() + '-' + ('0' + (p.getMonth() + 1)).slice(-2); }
+  }
+  $('ent-prev').addEventListener('click', function () { if (state.entRoute.kind === 'tax') state.entYear--; else state.entOff--; loadEnt(false); });
+  $('ent-next').addEventListener('click', function () {
+    if (state.entRoute.kind === 'tax') { if (state.entYear < new Date().getFullYear()) state.entYear++; }
+    else if (state.entOff < 0) state.entOff++;
+    loadEnt(false);
+  });
+  $('ent-pick').addEventListener('change', function () {
+    var m = String(this.value || '').match(/^(\d{4})-(\d{2})$/), t = new Date();
+    if (!m) return;
+    var off = (Number(m[1]) - t.getFullYear()) * 12 + (Number(m[2]) - 1 - t.getMonth());
+    state.entOff = Math.max(-240, Math.min(0, off)); loadEnt(false);
+  });
+
+  /* ---- small renderers ---- */
+  function entIncRows(list, showSrc) {
+    if (!list.length) return '<div class="foot empty">No income this month</div>';
+    return '<div class="inccompact">' + list.map(function (e) {
+      var what = [showSrc ? e.source : '', e.client, e.notes && !e.expected ? e.notes : ''].filter(Boolean).join(' \u00b7 ');
+      return '<div class="icrow"><span class="icd">' + esc(e.label) + '</span><span class="icc">' + esc(what) +
+        (e.expected ? ' <span class="acflag warn" title="' + esc(e.notes) + '">scheduled \u00b7 not logged</span>' : '') + '</span><span class="amt amt-in">' + money(e.amount) + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function entFlagRows(list, max) {
+    if (!list.length) return '<div class="foot empty">Nothing to review.</div>';
+    return list.slice(0, max || list.length).map(function (f) {
+      var chg = f.kind === 'misattributed' && f.suggest && f.suggest !== f.account ? ' <span class="flagto">' + esc(f.account) + ' \u2192 ' + esc(f.suggest) + '?</span>' : '';
+      return '<div class="flagrow sev-' + f.severity + ' k-' + f.kind + '"><div class="fl1"><span class="fk">' + (f.kind === 'tag' ? 'Needs a bank/card tag' : 'May be the wrong book') + '</span>' +
+        '<span class="amt amt-out">' + money(f.amount) + '</span></div><div class="fl2"><b>' + esc(f.merchant || f.category) + '</b> \u00b7 ' + esc(f.label) + ' \u00b7 ' + esc(f.category) +
+        ' \u00b7 ' + esc(f.account) + chg + (f.method ? ' \u00b7 ' + esc(f.method) : '') + '</div><div class="fl3">' + esc(f.why) + '</div></div>';
+    }).join('');
+  }
+  function entDebtFor(E) {
+    var st = state.debt || { s: 'load' }, D = st.d;
+    return { st: st, D: D, loans: D ? D.loans.filter(function (l) { return l.entity === E.name; }) : [], bills: D ? D.bills.filter(function (b) { return b.entity === E.name; }) : [] };
+  }
+  function entLoansSection(E) {
+    var X = entDebtFor(E), key = 'ent-' + E.key + '-debt', st = X.st, D = X.D;
+    if (st.s === 'na') return dbFallback(key, 'debtsec', 'Loans', 'Loans are not available yet (server update pending). They are in Finances \u203a Overview.', 'na');
+    if (!D) return st.s === 'err' ? dbFallback(key, 'debtsec', 'Loans', 'Could not load loans' + (st.msg ? ': ' + esc(st.msg) : '') + '.', 'err') : dbFallback(key, 'debtsec', 'Loans', 'Loading loans\u2026', 'load');
+    var totAttr = D.docUrl ? ' data-doc="' + esc(D.docUrl) + '" data-title="' + esc(D.docTitle) + '"' : goAttr('fin/overview');
+    if (!X.loans.length) return vSec(key, 'debtsec', 'Loans', '<span class="amt-neutral">\u2014</span>', '', '<div class="foot">No loan for ' + esc(E.title) + ' in the Overview Doc.</div>' + dbDocBtn(D), totAttr);
+    var tot = r2(X.loans.reduce(function (t, l) { return t + (l.balance || 0); }, 0)), pay = r2(X.loans.reduce(function (t, l) { return t + (l.payment || 0); }, 0));
+    var body = '<div class="dbsum"><div class="dbsumrow"><span>Total debt</span><b>' + dbNum(balMoney(tot), D.docUrl, D.docTitle, 'amt-neutral') + '</b></div>' +
+      '<div class="dbsumrow"><span>Monthly payment</span><b>' + dbNum(money(pay), D.docUrl, D.docTitle, 'amt-out') + '</b></div></div>' +
+      X.loans.map(function (l) { return loanCard(l, D); }).join('') +
+      '<div class="foot how">Principal and interest are paid from the bank account; they are not in the expense categories unless logged. Ask the lender for the year-end interest statement (Form 1098) for taxes.</div>' + dbDocBtn(D);
+    return vSec(key, 'debtsec', 'Loans', '<span class="amt-neutral">' + balMoney(tot) + '</span>', '', body, totAttr);
+  }
+  function entBillsSection(E) {
+    var X = entDebtFor(E), key = 'ent-' + E.key + '-bills', st = X.st, D = X.D, title = 'Upcoming bills (30 days)';
+    if (st.s === 'na' || !D) return '';
+    var counted = X.bills.filter(function (b) { return !b.viaEscrow && b.amount != null; }), tot = r2(counted.reduce(function (t, b) { return t + b.amount; }, 0));
+    var body = X.bills.length ? X.bills.map(function (b) { return billRow(b, D); }).join('') : '<div class="foot empty">Nothing due in the next ' + D.windowDays + ' days.</div>';
+    return vSec(key, 'billsec', title, '<span class="amt-out">' + money(tot) + '</span>', '', body + dbDocBtn(D), D.docUrl ? ' data-doc="' + esc(D.docUrl) + '" data-title="' + esc(D.docTitle) + '"' : goAttr('fin/overview'));
+  }
+  function entBankCard(E, a, M) {
+    var h = '<div class="acard"><div class="actop"><div class="acname">' + esc(a.name) + '<small>' + esc([a.bank, a.type].filter(Boolean).join(' \u00b7 ')) + '</small></div>';
+    h += a.balance == null ? '<span class="acnone">No balance yet</span>' : '<button class="acbal amt-bal"' + goAttr(entRoute(E.key, 'bal')) + '>' + balMoney(a.balance) + ' <i class="chev">&rsaquo;</i></button>';
+    h += '</div>';
+    if (a.asOf) h += '<div class="acmeta"><span>As of ' + esc(acDate(a.asOf)) + '</span>' + (a.stale ? ' <span class="acflag warn">not this month</span>' : (acMonthEnd(a.asOf) ? '' : ' <span class="acflag">not month end</span>')) + '</div>';
+    if (a.change != null) h += '<button class="acchg"' + goAttr(entRoute(E.key, 'bal')) + '><span>Change vs ' + esc(acDate(a.prevAsOf)) + '</span><b class="amt-bal">' + balSigned(a.change) + '</b></button>';
+    else if (a.balance != null) h += '<div class="acchg none">Change: need another statement</div>';
+    if (a.stale) h += '<div class="acnote">No balance for ' + esc(M.monthLabel || entLocalMonth(state.entOff)) + ' yet. Add a row to the Balances tab ("' + esc(a.name) + '" at month end) to see it here.</div>';
+    if (a.notes) h += '<div class="acnote">' + esc(a.notes) + '</div>';
+    return h + '</div>';
+  }
+  function entSheets(extra) {
+    return sheetLink('Open Daily Spend sheet') + sheetLink('Open Income tab', 'income').replace('linkrow sheetbtn', 'linkrow sheetbtn second') + (extra || '');
+  }
+
+  /* ---- screens ---- */
+  function entNotice(E, c) {
+    if (c.s === 'na') return '<div class="card entna"><b>' + esc(E.title) + ' books are not available yet</b>The server update that adds the entity books is pending. Loans and bills below still work; income and spend are in the sheet.</div>';
+    if (c.s === 'err') return '<div class="error">' + esc(c.msg || 'Could not load.') + '<div class="retry"><button class="navbtn" data-ent-retry="1">Try again</button></div></div>';
+    return '<div class="loading">Loading\u2026</div>';
+  }
+  function entMainView(E, M) {
+    var k = E.key, ek = function (s) { return 'ent-' + k + '-' + s; }, h = '';
+    var n = M.net;
+    h += '<div class="card entscore">' +
+      sumBtn('net cmp', entRoute(k, 'income', 'All'), 'Income' + (M.scheduled ? '<small>incl. ' + money(M.scheduled) + ' scheduled rent not yet logged</small>' : '<small>' + esc(E.sub) + '</small>'), '<span class="amt amt-in">' + money(M.incomeTotal) + '</span>') +
+      sumBtn('net cmp', entRoute(k, 'exp'), 'Expenses<small>Daily Spend rows with Account = ' + esc(E.name) + '</small>', '<span class="amt amt-out">' + money(M.expenseTotal) + '</span>') +
+      sumBtn('net cmp', entRoute(k, 'net'), 'Net profit<small>Income \u2212 expenses for ' + esc(M.monthLabel || entLocalMonth(state.entOff)) + '</small>', '<span class="amt ' + (n >= 0 ? 'pos' : 'neg') + '">' + signedMoney(n) + '</span>') + '</div>';
+    h += '<button class="enttax"' + goAttr(entRoute(k, 'tax')) + '><span>Tax export</span><small>Year-to-date category summary \u00b7 CSV</small><i class="chev">&rsaquo;</i></button>';
+
+    // Income (green), one block per source
+    var ib = M.sources.map(function (s) {
+      return '<div class="entsrc"><button class="entsrchead"' + goAttr(entRoute(k, 'income', s.name)) + '><span class="n">' + esc(s.name) + '</span><span class="amt amt-in">' + money(s.amount) + '</span><span class="chev">&rsaquo;</span></button>' + entIncRows(s.items, false) + '</div>';
+    }).join('') || '<div class="foot empty">No income this month</div>';
+    h += vSec(ek('income'), 'income', 'Income', '<span class="amt-in">' + money(M.incomeTotal) + '</span>', entRoute(k, 'income', 'All'), ib + sheetLink('Open Income tab', 'income'));
+    // Expenses by category (red)
+    var eb = M.cats.length ? barRows(M.cats, function (c) { return entRoute(k, 'cat', c); }, '') : '<div class="foot empty">No expenses this month</div>';
+    eb += totBtn(E.title + ' expenses', M.expenseTotal, entRoute(k, 'exp'));
+    h += vSec(ek('exp'), 'acctsec', 'Expenses by category', '<span class="amt-out">' + money(M.expenseTotal) + '</span>', entRoute(k, 'exp'), eb + sheetLink('Open Daily Spend sheet'));
+    // Net profit
+    var X = entDebtFor(E), pay = r2(X.loans.reduce(function (t, l) { return t + (l.payment || 0); }, 0));
+    var nb = sumBtn('', entRoute(k, 'income', 'All'), 'Income', '<span class="amt amt-in">' + money(M.incomeTotal) + '</span>') +
+      sumBtn('', entRoute(k, 'exp'), 'Expenses', '<span class="amt amt-out">\u2212' + money(M.expenseTotal) + '</span>') +
+      sumBtn('net', entRoute(k, 'net'), 'Net profit', '<span class="amt ' + (n >= 0 ? 'pos' : 'neg') + '">' + signedMoney(n) + '</span>');
+    if (pay > 0 && state.entOff === 0) nb += '<div class="foot how">Loan payment this month: <span class="amt-out">' + money(pay) + '</span> (principal + interest, paid from the bank, not in the expenses above). Cash left after it: <b class="' + (n - pay >= 0 ? 'pos' : 'neg') + '">' + signedMoney(r2(n - pay)) + '</b>.</div>';
+    h += vSec(ek('net'), 'summary', 'Net profit', '<span class="amt ' + (n >= 0 ? 'pos' : 'neg') + '">' + signedMoney(n) + '</span>', entRoute(k, 'net'), nb);
+    // Bank account
+    var B = M.bank, bb = B.accounts.length ? B.accounts.map(function (a) { return entBankCard(E, a, M); }).join('') : '<div class="foot">No ' + esc(E.title) + ' bank account found on the Accounts tab (Owner = ' + esc(E.name) + ').</div>';
+    bb += balBtn('Balance entries', entRoute(k, 'bal'), 'linkrow smallrow') + sheetLink('Open Balances tab', 'bal', B.gid);
+    h += vSec(ek('bal'), 'acctbal', 'Bank balance', '<span class="amt-bal">' + (B.total == null ? '\u2014' : balMoney(B.total)) + '</span>', entRoute(k, 'bal'), bb);
+    h += entLoansSection(E) + entBillsSection(E);
+    // Attribution check
+    var hi = M.flags.filter(function (f) { return f.severity === 'high'; }).length;
+    h += vSec(ek('flags'), 'flagsec', 'Check attribution', '<span class="' + (hi ? 'flagn hot' : 'flagn') + '">' + M.flags.length + '</span>', entRoute(k, 'flags'),
+      '<div class="foot how">Rows that may sit in the wrong book, or that need a separate bank/card tag so ' + esc(E.title) + ' has its own paper trail. Suggestions only; nothing is changed.</div>' +
+      entFlagRows(M.flags, 4) + (M.flags.length > 4 ? balBtn('All ' + M.flags.length + ' items', entRoute(k, 'flags'), 'linkrow smallrow') : ''));
+    h += entSheets();
+    return h;
+  }
+  function entSubView(E, M, R) {
+    var k = E.key, h = '';
+    if (R.kind === 'cat') {
+      var l = M.exp.filter(function (x) { return x.category === R.val; });
+      h += '<div class="card"><h3>' + esc(E.name) + ' \u00b7 category</h3><div class="big amt-out">' + money(sum(l)) + '</div><div class="foot">' + l.length + ' item' + (l.length === 1 ? '' : 's') + ' \u00b7 all payment methods</div></div>' + sheetLink('Open Daily Spend sheet') +
+        '<div class="card">' + itemRows(l, { chip: false, acct: false }) + '</div>';
+    } else if (R.kind === 'exp') {
+      h += '<div class="card"><h3>' + esc(E.title) + ' expenses</h3><div class="big amt-out">' + money(M.expenseTotal) + '</div><div class="foot">' + M.exp.length + ' item' + (M.exp.length === 1 ? '' : 's') + ' \u00b7 Daily Spend rows with Account = ' + esc(E.name) + '</div></div>' + sheetLink('Open Daily Spend sheet') +
+        '<div class="card">' + itemRows(M.exp, { chip: true, acct: false, chipRoute: function (c) { return entRoute(k, 'cat', c); } }) + '</div>';
+    } else if (R.kind === 'income') {
+      var all = R.val === 'All', li = all ? M.income : M.income.filter(function (x) { return x.source === R.val; });
+      h += '<div class="card income"><h3>' + (all ? esc(E.title) + ' income' : esc(R.val)) + '</h3><div class="big amt-in">' + money(sum(li)) + '</div><div class="foot">' + li.length + ' entr' + (li.length === 1 ? 'y' : 'ies') +
+        (M.scheduled && all ? ' \u00b7 incl. ' + money(M.scheduled) + ' scheduled rent (not logged)' : '') + '</div><div class="foot how">Source: the Income tab of the spend sheet' + (E.key === 'kiwit' ? ' (rent from the tenant)' : ' (laundromat weekly lump sums)') + '.</div></div>' +
+        sheetLink('Open in spend sheet (Income tab)', 'income') + '<div class="card income">' + entIncRows(li, all) + '</div>';
+    } else if (R.kind === 'net') {
+      var nn = M.net, part = function (label, html, route) { return '<button class="calcpart"' + goAttr(route) + '><span>' + label + '</span>' + html + '<span class="chev">&rsaquo;</span></button>'; };
+      h += '<div class="card calc"><h3>' + esc(E.title) + ' net profit <small>(' + esc(M.monthLabel) + ')</small></h3><div class="big ' + (nn >= 0 ? 'pos' : 'neg') + '">' + signedMoney(nn) + '</div>' +
+        '<div class="foot how"><b>How it is computed:</b> income (Income tab' + (M.scheduled ? ' + scheduled rent not yet logged' : '') + ') \u2212 expenses (Daily Spend rows whose Account is ' + esc(E.name) + '). Loan principal/interest and owner draws are not included.</div>' +
+        '<div class="calcparts">' + part('Income', '<span class="amt amt-in">' + money(M.incomeTotal) + '</span>', entRoute(k, 'income', 'All')) +
+        part('Expenses', '<span class="amt amt-out">\u2212' + money(M.expenseTotal) + '</span>', entRoute(k, 'exp')) + '</div></div>' + sheetLink('Open Daily Spend sheet') +
+        '<div class="card income"><h3>Income entries \u00b7 ' + M.income.length + ' \u00b7 ' + money(M.incomeTotal) + '</h3>' + entIncRows(M.income, true) + '</div>' +
+        '<div class="card"><h3>Expense entries \u00b7 ' + M.exp.length + ' \u00b7 ' + money(M.expenseTotal) + '</h3>' + itemRows(M.exp, { chip: false, acct: false }) + '</div>';
+    } else if (R.kind === 'bal') {
+      var B = M.bank;
+      h += '<div class="card acdrill"><h3>' + esc(E.title) + ' bank</h3><div class="big amt-bal">' + (B.total == null ? '\u2014' : balMoney(B.total)) + '</div><div class="foot how">Source: the Balances tab of the spend sheet (one row per account per statement date).</div></div>' + sheetLink('Open in spend sheet (Balances tab)', 'bal', B.gid);
+      if (!B.accounts.length) h += '<div class="card acdrill"><div class="foot">No ' + esc(E.title) + ' account found on the Accounts tab.</div></div>';
+      B.accounts.forEach(function (a) {
+        h += '<div class="card acdrill"><h3>' + esc(a.name) + ' <small>' + esc([a.bank, a.type].filter(Boolean).join(' \u00b7 ')) + '</small></h3>';
+        if (!a.entries.length) h += '<div class="foot">No balance entered yet.</div>';
+        a.entries.forEach(function (e, i) {
+          h += '<div class="icrow"><span class="icd">' + esc(acDate(e.date)) + '</span><span class="icc">' + (acMonthEnd(e.date) ? '' : '<span class="acflag">not month end</span> ') + esc(e.notes) + (i === 0 ? ' <small class="muted">(latest)</small>' : '') + '</span><span class="amt amt-bal">' + balMoney(e.balance) + '</span></div>';
+        });
+        h += '</div>';
+      });
+    } else if (R.kind === 'flags') {
+      h += '<div class="card"><h3>Check attribution \u00b7 ' + esc(M.monthLabel) + '</h3><div class="foot how">' + M.flags.length + ' item' + (M.flags.length === 1 ? '' : 's') +
+        '. <b>May be the wrong book:</b> a Household row that looks like ' + esc(E.title) + ' business, or a ' + esc(E.name) + ' row that looks like the other LLC. <b>Needs a tag:</b> a ' + esc(E.name) +
+        ' expense whose Method does not say it was paid from the ' + esc(E.name) + ' bank account/card. Fix the Account / Method cell in the sheet; nothing is changed automatically.</div></div>' +
+        sheetLink('Open Daily Spend sheet (fix Account / Method)') + '<div class="card flaglist">' + entFlagRows(M.flags) + '</div>';
+    }
+    return h;
+  }
+
+  /* ---- Tax export (year to date) ---- */
+  function entMonthsLine(months) {
+    var p = [];
+    (months || []).forEach(function (v, i) { if (v) p.push(MONTHS_SHORT[i] + ' ' + money(v)); });
+    return p.length ? '<div class="foot how">' + p.join(' \u00b7 ') + '</div>' : '';
+  }
+  function entTaxView(E) {
+    var R = state.entRoute, c = state.entTaxCache[R.key + '|' + state.entYear] || { s: 'load' }, T = c.d, h = '';
+    if (!T) return (c.s === 'na' ? '<div class="card entna"><b>Tax export is not available yet</b>The server update that adds the entity books is pending. Until then use the Daily Spend sheet filtered by Account = ' + esc(E.name) + '.</div>' + sheetLink('Open Daily Spend sheet') : entNotice(E, c));
+    var n = T.net, thru = T.through < 12 || T.year === new Date().getFullYear() ? 'Jan\u2013' + MONTHS_SHORT[Math.max(0, T.through - 1)] + ' ' + T.year : 'Full year ' + T.year;
+    h += '<div class="card entscore"><h3>' + esc(E.title) + ' \u00b7 ' + esc(thru) + '</h3>' +
+      '<div class="sumline"><span>Income</span><b class="amt amt-in">' + money(T.incomeTotal) + '</b></div>' +
+      '<div class="sumline"><span>Expenses</span><b class="amt amt-out">' + money(T.expTotal) + '</b></div>' +
+      '<div class="sumline net"><span>Net profit</span><b class="amt ' + (n >= 0 ? 'pos' : 'neg') + '">' + signedMoney(n) + '</b></div>' +
+      (T.scheduled ? '<div class="foot warnfoot">' + money(T.scheduled) + ' of the income is scheduled rent that is not typed into the Income tab (shown as expected, not received). Log each rent receipt so the books show real deposits.</div>' : '') +
+      '<div class="foot how">Cash basis from the Command Center sheet. Not tax advice; give the CSV to your preparer.</div></div>';
+    h += '<button class="enttax csv" data-ent-csv="1"><span>Download CSV</span><small>Category summary + every entry</small><i class="chev">&darr;</i></button><div class="entcsvmsg" id="ent-csvmsg" hidden></div>';
+    h += '<div class="enth">Income by source</div><div class="incgroup">' + (T.sources.map(function (s, i) {
+      var l = T.items.income.filter(function (x) { return x.source === s.name; });
+      return vSec('ent-' + E.key + '-tx-i' + i, 'income incsrc', esc(s.name), '<span class="amt-in">' + money(s.amount) + '</span>', '', entMonthsLine(s.months) + entIncRows(l, false), ' data-tgl="1"');
+    }).join('') || '<div class="foot empty">No income</div>') + '</div>';
+    h += '<div class="enth">Expenses by category</div>' + (T.cats.map(function (cat, i) {
+      var l = T.items.exp.filter(function (x) { return x.category === cat.name; });
+      return vSec('ent-' + E.key + '-tx-e' + i, 'acctsec', esc(cat.name), '<span class="amt-out">' + money(cat.amount) + '</span>', '', '<div class="foot how">' + cat.count + ' entr' + (cat.count === 1 ? 'y' : 'ies') + '</div>' + entMonthsLine(cat.months) + itemRows(l, { chip: false, acct: false }) + sheetLink('Open Daily Spend sheet'), ' data-tgl="1"');
+    }).join('') || '<div class="foot empty">No expenses</div>');
+    var X = entDebtFor(E);
+    if (X.loans.length) h += '<div class="card entloanmemo"><h3>Loans (memo)</h3>' + X.loans.map(function (l) {
+      return '<div class="sumline"><span>' + esc(l.name) + '<small>' + (l.rateText ? esc(l.rateText) + ' \u00b7 ' : '') + 'balance ' + balMoney(l.balance) + '</small></span><b class="amt amt-out">' + money(l.payment || 0) + '/mo</b></div>'; }).join('') +
+      '<div class="foot how">Loan payments are not in the expenses above. For taxes use the lender\u2019s year-end interest statement (Form 1098); only the interest is an expense, principal is not.</div></div>';
+    var hi = T.flags.filter(function (f) { return f.severity === 'high'; }).length;
+    h += vSec('ent-' + E.key + '-tx-flags', 'flagsec', 'Review before filing', '<span class="' + (hi ? 'flagn hot' : 'flagn') + '">' + T.flags.length + '</span>', '',
+      '<div class="foot how">Rows that may sit in the wrong book or need a bank/card tag (whole year).</div>' + entFlagRows(T.flags), ' data-tgl="1"');
+    return h + sheetLink('Open Daily Spend sheet');
+  }
+  function entCsvLocal(E, T) {
+    var q = function (v) { var s = String(v == null ? '' : v); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    var rows = [], line = function (a) { rows.push(a.map(q).join(',')); };
+    line([E.title + ' tax export', 'Year ' + T.year]); rows.push('');
+    line(['Summary', 'Type', 'Category / Source', 'Entries', 'Amount']);
+    T.sources.forEach(function (s) { line(['Summary', 'Income', s.name, s.count, s.amount.toFixed(2)]); });
+    line(['Summary', 'Income', 'TOTAL INCOME', '', T.incomeTotal.toFixed(2)]);
+    T.cats.forEach(function (c) { line(['Summary', 'Expense', c.name, c.count, c.amount.toFixed(2)]); });
+    line(['Summary', 'Expense', 'TOTAL EXPENSES', T.items.exp.length, T.expTotal.toFixed(2)]);
+    line(['Summary', 'Net', 'NET PROFIT', '', T.net.toFixed(2)]); rows.push('');
+    line(['Detail', 'Type', 'Date', 'Category / Source', 'Description', 'Paid with', 'Amount', 'Basis', 'Notes']);
+    T.items.income.slice().reverse().forEach(function (x) { line(['Detail', 'Income', x.date, x.source, x.client, '', x.amount.toFixed(2), x.expected ? 'Scheduled (not logged)' : 'Logged', x.notes]); });
+    T.items.exp.slice().reverse().forEach(function (x) { line(['Detail', 'Expense', x.date, x.category, x.merchant, x.method, x.amount.toFixed(2), 'Logged', x.notes]); });
+    return rows.join('\r\n') + '\r\n';
+  }
+  function entSaveCsv(name, text) {
+    var blob = new Blob([text], { type: 'text/csv' });
+    try {
+      var file = new File([blob], name, { type: 'text/csv' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) { return navigator.share({ files: [file], title: name }).catch(function () {}); }
+    } catch (e) {}
+    var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+  }
+  function entCsv() {
+    var R = state.entRoute, E = ENTS[R.key], c = state.entTaxCache[R.key + '|' + state.entYear], msg = $('ent-csvmsg');
+    if (!E || !c || !c.d) return;
+    var say = function (t) { msg.textContent = t; msg.hidden = !t; };
+    say('Preparing CSV\u2026');
+    apiRaw('entitytax', { entity: R.key, year: state.entYear, format: 'csv' }).then(function (j) {
+      var d = j && j.data;
+      if (j.error || !d || !d.csv) throw new Error('csv unavailable');
+      entSaveCsv(d.filename || (E.title.replace(/\s+/g, '') + '-tax-' + state.entYear + '.csv'), d.csv); say('');
+    }).catch(function (err) {
+      if (err instanceof AuthError) { setPc(''); lock('Passcode changed. Enter the new one.'); return; }
+      entSaveCsv(E.title.replace(/\s+/g, '') + '-tax-' + state.entYear + '.csv', entCsvLocal(E, c.d)); say('Saved from the data on screen.');
+    });
+  }
+
+  function renderEnt() {
+    var R = state.entRoute, E = ENTS[R.key];
+    if (!E) return;
+    paintEntChrome();
+    var h = '';
+    if (R.kind === 'tax') { $('ent-body').innerHTML = entTaxView(E); return; }
+    var c = state.entCache[R.key + '|' + state.entOff] || { s: 'load' }, M = c.d;
+    if (!M) {
+      h = entNotice(E, c);
+      if (c.s === 'na' && !R.kind) h += entLoansSection(E) + entBillsSection(E) + entSheets();
+      $('ent-body').innerHTML = h; return;
+    }
+    h = c.s === 'err' ? '<div class="foot warnfoot">Could not refresh: ' + esc(c.msg || '') + ' (showing the last data) <button class="linkrow smallrow" data-ent-retry="1">Try again</button></div>' : '';
+    h += R.kind ? entSubView(E, M, R) : entMainView(E, M);
+    $('ent-body').innerHTML = h;
+  }
+  $('ent-body').addEventListener('click', function (e) {
+    var t = e.target.closest('.vtoggle, .vtot[data-tgl]');
+    if (t) {
+      var c = t.closest('.vsec'), key = c.getAttribute('data-vs'), open = !c.classList.contains('open');
+      c.classList.toggle('open', open);
+      var tg = c.querySelector('.vtoggle'); if (tg) tg.setAttribute('aria-expanded', open);
+      vOpenMap()[key] = open; return;
+    }
+    if (e.target.closest('[data-ent-retry]')) { loadEnt(true); return; }
+    if (e.target.closest('[data-ent-csv]')) entCsv();
+  });
 
   /* ---------------- Business (Life areas > Business) ---------------- */
   // #biz = three business buttons; #biz/<slug> = grouped, linked document list.

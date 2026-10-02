@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=38">
+<link rel="stylesheet" href="app.css?v=39">
 </head>
 <body>
   <div class="bg"></div>
@@ -51,6 +51,8 @@
       <button class="tile" data-go="spend">Vault</button>
       <button class="tile" data-go="fin">Finances</button>
       <button class="tile" data-go="insn">Insurance</button>
+      <button class="tile" data-go="ent/kiwit">KiwiT LLC</button>
+      <button class="tile" data-go="ent/tiwik">TiwiK LLC</button>
     </div>
   </section>
 
@@ -204,6 +206,18 @@
     <div id="spend-body"><div class="loading">Loading…</div></div>
   </section>
 
-  <script src="app.js?v=38"></script>
+  <!-- ============ ENTITY BOOKS (KiwiT LLC / TiwiK LLC) ============ -->
+  <section id="screen-ent" class="screen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="ent-back" data-go="ent/kiwit" hidden>&lsaquo; Back</button><h2 id="ent-title">KiwiT LLC</h2></div>
+    <div class="enttabs" id="ent-tabs"></div>
+    <div class="weeknav">
+      <button class="navbtn" id="ent-prev">&lsaquo; Prev month</button>
+      <label class="navlabel entpick"><span id="ent-month">&nbsp;</span><input type="month" id="ent-pick" min="2025-01" aria-label="Pick a month"></label>
+      <button class="navbtn" id="ent-next">Next month &rsaquo;</button>
+    </div>
+    <div id="ent-body"><div class="loading">Loading…</div></div>
+  </section>
+
+  <script src="app.js?v=39"></script>
 </body>
 </html>

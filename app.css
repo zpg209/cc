@@ -932,3 +932,54 @@ span.dbnum { font-weight: 700; font-variant-numeric: tabular-nums; }
 .vndraft .navbtn { flex: none; }
 .miclhint { margin: 12px 2px 0; line-height: 1.45; overflow-wrap: anywhere; }
 .miclhint[hidden] { display: none; }
+
+/* ---- v39: Entity books (KiwiT LLC / TiwiK LLC). Income green, spend red (shared with the Vault), copper/charcoal accents. ---- */
+.enttabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
+.enttabs[hidden] { display: none; }
+.enttabs button { background: var(--btn); color: var(--muted); border: 1px solid var(--line); border-radius: var(--radius); min-height: 44px; padding: 0 6px;
+  font: 700 14px/1.1 'Inter', sans-serif; cursor: pointer; }
+.enttabs button.on { color: #1b1b1b; background: var(--copper); border-color: var(--copper); }
+.enttabs button:active { background: var(--btn-press); }
+.entpick { position: relative; display: flex; align-items: center; justify-content: center; min-height: 48px; cursor: pointer; }
+.entpick span { border-bottom: 1px dashed rgba(208,138,85,.7); padding-bottom: 1px; }
+.entpick input[type=month] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 16px; }
+.entpick input[hidden] { display: none; }
+.navbtn:disabled { opacity: .35; pointer-events: none; }
+.entscore { padding: 6px 12px; }
+.entscore h3 { margin: 8px 0 4px; }
+.entscore .sumline { min-height: 50px; width: 100%; background: transparent; border: 0; border-bottom: 1px solid var(--line); color: var(--text); font-family: 'Inter', sans-serif; text-align: left; cursor: pointer; }
+.entscore .sumline:last-child { border-bottom: 0; }
+div.sumline { cursor: default; }
+.sumline small { display: block; margin-top: 2px; font-size: 11.5px; font-weight: 400; color: var(--muted); }
+.sumline .amt.pos { color: var(--green); } .sumline .amt.neg, .sumline b.neg { color: var(--neg); } .sumline b.pos { color: var(--green); }
+.enttax { display: flex; align-items: center; gap: 10px; width: 100%; margin: 8px 0 10px; padding: 12px 14px; min-height: 58px; text-align: left; cursor: pointer;
+  background: linear-gradient(180deg, rgba(208,138,85,.22), rgba(208,138,85,.1)); border: 1px solid var(--copper); border-radius: var(--radius); color: var(--copper); font-family: 'Inter', sans-serif; }
+.enttax span { font-weight: 800; font-size: 17px; }
+.enttax small { flex: 1 1 auto; text-align: right; color: var(--muted); font-size: 11.5px; line-height: 1.25; }
+.enttax .chev { font-style: normal; font-size: 24px; line-height: 1; }
+.enttax:active { background: var(--btn-press); }
+.enttax.csv { margin-top: 4px; }
+.entcsvmsg { margin: -4px 2px 8px; font-size: 12.5px; color: var(--muted); }
+.entsrc { margin-bottom: 6px; }
+.entsrchead { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 6px 0; background: transparent; border: 0; border-bottom: 1px solid var(--green-edge);
+  font: 700 15px/1.2 'Inter', sans-serif; color: var(--c-inc); text-align: left; cursor: pointer; }
+.entsrchead .n { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.entsrchead .amt { flex: none; font-variant-numeric: tabular-nums; }
+.entsrchead .chev { flex: none; font-size: 22px; line-height: 1; color: var(--c-inc); }
+.entsrchead:active { background: var(--btn-press); }
+.vsec.flagsec { --sec: var(--copper); border-color: rgba(208,138,85,.4); }
+.flagn { color: var(--copper); } .flagn.hot { color: #ffb74d; }
+.flagrow { padding: 9px 10px; margin: 6px 0; border: 1px solid var(--line); border-left: 3px solid rgba(208,138,85,.7); border-radius: 8px; background: rgba(255,255,255,.025); }
+.flagrow.sev-high { border-left-color: #ffb74d; background: rgba(255,183,77,.06); }
+.flagrow .fl1 { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.flagrow .fk { font: 700 10.5px/1 'Inter', sans-serif; letter-spacing: .5px; text-transform: uppercase; color: var(--copper); }
+.flagrow.sev-high .fk { color: #ffb74d; }
+.flagrow .amt { font-weight: 700; font-variant-numeric: tabular-nums; }
+.flagrow .fl2 { margin-top: 4px; font-size: 13.5px; line-height: 1.35; overflow-wrap: anywhere; }
+.flagrow .fl3 { margin-top: 3px; font-size: 12px; line-height: 1.35; color: var(--muted); }
+.flagto { color: #ffb74d; font-weight: 700; white-space: nowrap; }
+.enth { margin: 14px 2px 6px; font: 700 12px/1 'Inter', sans-serif; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); }
+.entna { color: var(--muted); font-size: 13.5px; line-height: 1.45; }
+.entna b { display: block; color: var(--copper); margin-bottom: 4px; font-size: 15px; }
+.warnfoot { color: #ffb74d; }
+.entloanmemo .sumline { align-items: flex-start; }
