@@ -1092,6 +1092,7 @@
   var INCOME_SOURCES = ["Lisa's Table", 'Mono Village Laundromat'];
   var PT_SOURCE = 'Personal Training';   // Lisa's personal training income: a line item in the Income section (tap -> clients/dates/amounts)
   var PT_LABEL = "Lisa's Personal Training";
+  var KR_SOURCE = 'KiwiT rent';   // KiwiT's rent check (Income tab, Source = "KiwiT rent"): fifth income card, after Mono Village Laundromat
   var LS_SOURCE = 'Land & Structure Pay';   // Zac's pay (twice a month): own spend-sheet tab, same list/tap-through as Personal Training; hidden until the API returns it
   // Income sources that live on their own spend-sheet tab and list per-entry (description/client, method, notes)
   var DETAIL_SRC = {};
@@ -1123,6 +1124,7 @@
     var l = loose(s);
     if (/personaltraining|^pt$/.test(l)) return PT_SOURCE;
     if (/landstructure/.test(l)) return LS_SOURCE;
+    if (/kiwit|monoway|hatler|standardfit|^rents?$|^rental/.test(l)) return KR_SOURCE;   // before the mono/laundr test below: "Mono Way rent" is KiwiT, not the laundromat
     for (var i = 0; i < INCOME_SOURCES.length; i++) {
       var k = loose(INCOME_SOURCES[i]);
       if (k === l || (l && (k.indexOf(l) === 0 || l.indexOf(k) === 0))) return INCOME_SOURCES[i];
@@ -1180,7 +1182,7 @@
     var hh = items.filter(function (x) { return x.account === 'Household'; });
     var who = full ? Object.keys(sumBy(hh, 'who')).map(function (k) { return { name: k, amount: r2(sumBy(hh, 'who')[k]) }; })
       : (d.byWho || []).map(function (w) { return { name: w.name, amount: w.amount }; });
-    var srcNames = [PT_SOURCE, INCOME_SOURCES[0], LS_SOURCE, INCOME_SOURCES[1]];   // fixed display order; each shown even at $0
+    var srcNames = [PT_SOURCE, INCOME_SOURCES[0], LS_SOURCE, INCOME_SOURCES[1], KR_SOURCE];   // fixed display order; each shown even at $0
     income.forEach(function (x) { if (srcNames.indexOf(x.source) < 0) srcNames.push(x.source); });
     var lsGid = ''; income.forEach(function (x) { if (x.source === LS_SOURCE && x.gid) lsGid = x.gid; });
     return {
