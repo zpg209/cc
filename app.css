@@ -562,7 +562,7 @@ button.calcpart { cursor: pointer; }
 .vsec .vtot:active { background: var(--btn-press); }
 .vsec .vtot .amt-out, .vsec .vtot .amt-in { color: inherit; }
 .vsec .vtot .pos { color: var(--green); } .vsec .vtot .neg { color: var(--neg); }
-.vsec.income > .vhead .nchead { color: var(--green); }
+.vsec.income > .vhead .nchead { color: var(--c-inc); }
 .vsec.income .vtot { border-color: var(--green-edge); }
 .vsec > .ncbody { padding: 0 10px 10px; }
 .vsec.grand > .ncbody .cashtot { justify-content: flex-start; }
@@ -596,10 +596,10 @@ button.badge.est:active { background: rgba(255,183,77,.25); }
 .icrow .icc { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; color: var(--text); }
 .icrow .amt { flex: none; margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
 .incTotal { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 56px; text-align: left; cursor: pointer;
-  font: 700 17px/1.2 'Inter', sans-serif; color: var(--green); border-color: var(--green-edge); }
-.incTotal .n { flex: 1 1 auto; color: var(--green); }
+  font: 700 17px/1.2 'Inter', sans-serif; color: var(--c-inc); border-color: var(--green-edge); }
+.incTotal .n { flex: 1 1 auto; color: var(--c-inc); }
 .incTotal .amt { flex: none; font-variant-numeric: tabular-nums; }
-.incTotal .chev { flex: none; color: var(--green); }
+.incTotal .chev { flex: none; color: var(--c-inc); }
 .incTotal:active { background: var(--btn-press); }
 
 
@@ -715,8 +715,8 @@ button.badge.est:active { background: rgba(255,183,77,.25); }
 .pdoclink { display: block; margin: 14px 0 4px; padding: 10px; text-align: center; font-size: 14px; font-weight: 600; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
 
 /* ---- Vault v34: Accounts section (balances). Neutral copper, never red/green: a balance is neither money in nor out. ---- */
-.amt-bal, .amt-bal b, b.amt-bal { color: var(--copper) !important; font-variant-numeric: tabular-nums; }
-.vsec .vtot .amt-bal { color: var(--copper) !important; }
+.amt-bal, .amt-bal b, b.amt-bal { color: var(--c-bal) !important; font-variant-numeric: tabular-nums; }
+.vsec .vtot .amt-bal { color: var(--c-bal) !important; }
 .vsec.acctbal { border-color: rgba(208,138,85,.35); }
 .vsec.acctbal > .ncbody { padding: 0 10px 10px; }
 .acgroup { margin: 0 0 12px; }
@@ -754,10 +754,34 @@ button.badge.est:active { background: rgba(255,183,77,.25); }
   color: var(--text); font: 400 13.5px/1.3 'Inter', sans-serif; padding: 6px 0; cursor: pointer; text-align: left; margin-top: 4px; }
 .recline b { font-weight: 700; white-space: nowrap; }
 .warnv { color: #ffb74d !important; font-variant-numeric: tabular-nums; }
-.card.acdrill .big { color: var(--copper); }
+.card.acdrill .big { color: var(--c-bal); }
 .card.acdrill h3 small { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 11px; }
 .card.acdrill .muted { color: var(--muted); }
 .card.acdrill .icc { min-width: 0; }
 .card.acdrill .sumline { min-height: 36px; gap: 10px; }
 .card.acdrill .sumline span { min-width: 0; overflow-wrap: anywhere; }
 a.sheetbtn.second { margin-top: 8px; }
+
+/* ---- Vault v35: per-section label colors. Headings / subjects / chevrons take the section color (--sec); amounts keep their money colors
+   (.amt-out red #E5484D, .amt-in green #3DBE6B, .amt-bal teal). "of which Cash" lines stay copper. Scoped to .vsec (Vault home only), so the
+   shared catrow / totrow / sumline / chev classes on the Laundromat and Finances screens are unchanged. ---- */
+:root {
+  --c-spend: #CF4059;   /* burgundy: spend section headings (about 4.1:1 on the near-black cards; #A3243B was only 2.6:1) */
+  --c-inc: #2E8B57;     /* dark green */
+  --c-sum: #B07CE8;     /* purple */
+  --c-acct: #4C7DD9;    /* dark blue */
+  --c-bal: #2EC4B6;     /* teal: account amounts */
+}
+.vsec { --sec: var(--red); }
+.vsec.acctsec, .vsec.grand, .vsec.whosec { --sec: var(--c-spend); }
+.vsec.income { --sec: var(--c-inc); }
+.vsec.summary { --sec: var(--c-sum); }
+.vsec.acctbal { --sec: var(--c-acct); }
+.vsec > .vhead .nchead { color: var(--sec); }
+.vsec.vsec .chev { color: var(--sec); }
+.vsec .ncbody .catrow .n, .vsec .ncbody .totrow.tapt > span:first-child, .vsec .ncbody .splitbtn,
+.vsec .ncbody .footbtn, .vsec.income .icrow .icc, .vsec.summary .ncbody button.sumline > span:first-child,
+.vsec.acctbal .acghead > span, .vsec.acctbal .acname { color: var(--sec); }
+.vsec.acctbal .acname small, .vsec.acctbal .acghead small { color: var(--muted); }
+.vsec.summary .ncbody button.sumline > span:first-child small { color: var(--muted, #9a9a9a); }
+.vsec.acctbal .reccard h4, .vsec.acctbal .rechead > span:first-child { color: var(--sec); }

@@ -1049,7 +1049,7 @@
           '<span class="amt neg">\u2212' + money(Math.abs(r2(hhTot - groc))) + '</span>');
       h += vSec('summary', 'summary', 'Summary', '<span class="amt ' + (monthNet >= 0 ? 'pos' : 'neg') + '">' + signedMoney(monthNet) + '</span>', calcRoute('month-net'), sumBody);
 
-      if (M.who.length) h += vSec('who', '', 'Household \u00b7 Zac vs Lisa', '<span class="amt-out">' + money(sum(M.who)) + '</span>', acctRoute('Household'),
+      if (M.who.length) h += vSec('who', 'whosec', 'Household \u00b7 Zac vs Lisa', '<span class="amt-out">' + money(sum(M.who)) + '</span>', acctRoute('Household'),
         '<div class="split">' + M.who.map(function (w) { return '<button class="splitbtn"' + goAttr(whoRoute(w.name)) + '><b class="amt-out">' + money(w.amount) + '</b>' + esc(w.name) + '</button>'; }).join('') + '</div>');
 
       h += accountsSection();
