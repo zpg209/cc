@@ -14,7 +14,7 @@
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
-  var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track'];
+  var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -176,6 +176,7 @@
     if (name === 'fin') loadFin(false);
     if (name === 'insn') loadInsn(false);
     if (name === 'lt') { state.ltPart = LT_PARTS[R.kind] ? R.kind : ''; loadLt(); }
+    if (name === 'trust') loadTrust(false);
     if (name === 'doc') { state.docKey = String(route || '').replace(/^#/, ''); openDocScreen(qparams(R.query)); }
     else restoreScroll(String(route || '').replace(/^#/, '') || 'home');
   }
@@ -488,6 +489,22 @@
     return '<a class="tile small"' + extAttr(item.url) + ' href="' + esc(item.url) + '" data-title="' + esc(item.name) + '">' + esc(item.name) +
       (sub ? '<span class="sub">' + esc(sub) + '</span>' : '') + '</a>';
   }
+  // Folder URLs of the life areas, kept for the "Open ... folder" links on the Home-level screens (Finances, Insurance,
+  // Lisa's Table, Trust & Estate) even though those areas no longer have a tile on the Life areas tab.
+  function applyAreaUrls(d) {
+    (d.lifeAreas || []).forEach(function (a) {
+      if (/^real estate$/i.test(a.name)) state.reFolderUrl = a.url;
+      else if (/^lisa.s table$/i.test(a.name)) state.ltFolderUrl = a.url;
+      else if (/^insurance$/i.test(a.name)) state.insFolderUrl = a.url;
+      else if (/^financial$/i.test(a.name)) state.finFolderUrl = a.url;
+      else if (/^business$/i.test(a.name)) state.bizFolderUrl = a.url;
+      else if (/^trust\s*(&|and)\s*estate$/i.test(a.name)) state.trustFolderUrl = a.url;
+    });
+  }
+  function ensureLinks(done, fail) {
+    if (state.links) return done();
+    api('links').then(function (d) { state.links = d; applyAreaUrls(d); done(); }, fail || function () { done(); });
+  }
   function renderLinks() {
     var d = state.links;
     var plist = d.projects.slice();
@@ -502,12 +519,13 @@
       }
       return tile(p, p.kind === 'doc' ? 'Running notes' : p.kind === 'folder' ? 'Drive folder' : '');
     }).join('');
+    applyAreaUrls(d);
+    // Life areas keeps only the areas with no other home. Financial / Insurance live on Home (Finances, Insurance);
+    // Lisa's Table and Trust & Estate are Home tiles too. Their folder URLs are still read from `links` (applyAreaUrls).
     $('life-list').innerHTML = d.lifeAreas.map(function (a) {
-      if (/^real estate$/i.test(a.name)) { state.reFolderUrl = a.url; return '<button class="tile small" data-go="re">' + esc(a.name) + '<span class="sub">3 properties</span></button>'; }
-      if (/^lisa.s table$/i.test(a.name)) { state.ltFolderUrl = a.url; return '<button class="tile small" data-go="lt">' + esc(a.name) + '<span class="sub">Menus · recipes · macros</span></button>'; }
-      if (/^insurance$/i.test(a.name)) { state.insFolderUrl = a.url; return '<button class="tile small" data-go="insn">' + esc(a.name) + '<span class="sub">Policies · renewals · to do</span></button>'; }
-      if (/^financial$/i.test(a.name)) { state.finFolderUrl = a.url; return '<button class="tile small" data-go="fin">Finances<span class="sub">Overview · TiwiK laundromat</span></button>'; }
-      if (/^business$/i.test(a.name)) { state.bizFolderUrl = a.url; return '<button class="tile small" data-go="biz">' + esc(a.name) + '<span class="sub">3 businesses</span></button>'; }
+      if (/^(financial|insurance|lisa.s table|trust\s*(&|and|&amp;)\s*estate)$/i.test(a.name)) return '';
+      if (/^real estate$/i.test(a.name)) return '<button class="tile small" data-go="re">' + esc(a.name) + '<span class="sub">3 properties</span></button>';
+      if (/^business$/i.test(a.name)) return '<button class="tile small" data-go="biz">' + esc(a.name) + '<span class="sub">3 businesses</span></button>';
       return tile(a, '');
     }).join('');
     $('sb-root').href = d.secondBrainUrl;
@@ -2395,13 +2413,14 @@
 
   function loadLt(force) {
     var part = state.ltPart, cfg = LT_PARTS[part];
-    $('lt-back').setAttribute('data-go', part ? 'lt' : 'life');
+    $('lt-back').setAttribute('data-go', part ? 'lt' : 'home');
     $('lt-title').textContent = cfg ? cfg.label : 'Lisa\u2019s Table';
     $('lt-title').classList.toggle('sub', !!part);
     if (!cfg) {
       $('lt-body').innerHTML = '<div class="grid2">' + LT_ORDER.map(function (k) {
         return '<button class="tile" data-go="lt/' + k + '">' + esc(LT_PARTS[k].label) + '</button>';
       }).join('') + '</div>' + (state.ltFolderUrl ? '<a class="linkrow" data-title="Lisa\u2019s Table" href="' + esc(state.ltFolderUrl) + '">Open Lisa\u2019s Table folder &rsaquo;</a>' : '');
+      if (!state.ltFolderUrl && !state.links) ensureLinks(function () { if (state.ltPart === '' && $('screen-lt').classList.contains('active') && state.ltFolderUrl) loadLt(); });
       return;
     }
     var key = cfg.folder || 'macros', c = state.ltCache[key];
@@ -2420,6 +2439,52 @@
       renderLt();
     }).catch(function (err) { if (want === state.ltPart) onFail(['lt-body'], function () { loadLt(true); })(err); });
   }
+
+
+  /* ---------------- Trust & Estate (Home tile) ---------------- */
+  // Live listing of the Trust & Estate Drive folder through the existing action=folder (no API change). The folder is empty today,
+  // so the page shows a friendly placeholder; documents appear here as soon as they are added to Drive.
+  var TRUST_FOLDER = '13zQGJYKKKcsmYau2no2Bn_vzSIdqDS2Y';
+  function trustFolderId() {
+    var m = String(state.trustFolderUrl || '').match(/folders\/([\w-]+)/);
+    return m ? m[1] : TRUST_FOLDER;
+  }
+  function trustLink() {
+    var u = state.trustFolderUrl || ('https://drive.google.com/drive/folders/' + TRUST_FOLDER);
+    return '<a class="linkrow" data-title="Trust &amp; Estate" href="' + esc(u) + '">Open Trust &amp; Estate folder &rsaquo;</a>';
+  }
+  function trustEmpty(msg) {
+    return '<div class="card bizgroup"><h4 class="sechead">Documents</h4><div class="foot empty">' + msg + '</div></div>' + trustLink();
+  }
+  function loadTrust(force) {
+    var c = state.trustCache;
+    if (c && !force && Date.now() - c.at < 60000) return renderTrust();
+    $('trust-body').innerHTML = '<div class="loading">Loading…</div>';
+    ensureLinks(function () {
+      apiRaw('folder', { id: trustFolderId() }).then(function (j) {
+        if (!$('screen-trust').classList.contains('active')) return;
+        if (j.error === 'bad_action' || j.error === 'forbidden' || j.error === 'not_found') {
+          $('trust-body').innerHTML = trustEmpty('Documents can\u2019t be listed here yet. Open the folder in Drive instead.');
+          return;
+        }
+        if (j.error) throw new Error(j.message || j.error);
+        state.trustCache = { at: Date.now(), data: j.data };
+        renderTrust();
+      }).catch(function (err) { onFail(['trust-body'], function () { loadTrust(true); })(err); });
+    });
+  }
+  function renderTrust() {
+    var d = state.trustCache.data, items = (d && d.items) || [];
+    if (!items.length) {
+      $('trust-body').innerHTML = trustEmpty('Nothing here yet \u2014 no trust or estate documents have been filed. Add files to Drive \u203a Trust &amp; Estate and they will show up on this page.');
+      return;
+    }
+    $('trust-body').innerHTML = '<div class="card bizgroup"><h4 class="sechead">Documents</h4><ul class="doclist">' +
+      items.map(function (x) { return ltItemLink(x); }).join('') + '</ul></div>' +
+      '<div class="foot">' + items.length + ' item' + (items.length === 1 ? '' : 's') + '</div>' + trustLink();
+  }
+
+  $('trust-refresh').addEventListener('click', function () { loadTrust(true); });
 
   var MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
   // "Menu week of Apr 13th 26" -> Date. Without a year, pick the most recent year (not in the future)
