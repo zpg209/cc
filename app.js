@@ -913,7 +913,7 @@
     var items = (full ? d.items : (d.recent || [])).map(function (x) {
       return { date: x.date, label: x.label || x.date, who: x.who || '', amount: Number(x.amount) || 0,
         category: normCat(x.category), merchant: x.merchant || '', method: x.method || '',
-        notes: x.notes || '', account: normAcct(x.account) };
+        notes: x.notes || '', account: normAcct(x.account), paidFrom: x.paidFrom || '' };
     });
     var income = (Array.isArray(d.income) ? d.income : []).map(function (x) {
       return { date: x.date, label: x.label || x.date, source: normSource(x.source), amount: Number(x.amount) || 0, notes: x.notes || '',
@@ -997,6 +997,7 @@
       var meta = [];
       if (e.method) meta.push(isCash(e) ? '<span class="cashtag">' + esc(e.method) + '</span>' : esc(e.method));
       if (opt.acct && e.account !== 'Household') meta.push('<span class="acct-tag">' + esc(e.account) + '</span>');
+      if (opt.paid) meta.push(e.paidFrom ? '<span class="pf-tag' + (e.paidFrom === 'Household card/account' ? ' pf-hh' : '') + '">Paid from: ' + esc(e.paidFrom) + '</span>' : (opt.paid === 'need' ? '<span class="pf-tag pf-none">Paid from: not set</span>' : ''));
       return '<div class="entry item"><div class="d">' + esc(e.label) + '<br>' + esc(e.who) + '</div>' +
         '<div class="m"><div class="mer">' + esc(e.merchant || '—') + '</div>' +
         '<div class="meta">' + (opt.chip ? '<button class="chip"' + goAttr((opt.chipRoute || catRoute)(e.category)) + '>' + esc(e.category) + '</button>' : '') +
@@ -1641,7 +1642,7 @@
     });
     var exp = (Array.isArray(d.expenses) ? d.expenses : []).map(function (x) {
       return { date: x.date || '', label: x.label || x.date || '', who: x.who || '', amount: Number(x.amount) || 0, category: String(x.category || '').trim() || 'Other',
-        merchant: x.merchant || '', method: x.method || '', notes: x.notes || '', account: x.account || '' };
+        merchant: x.merchant || '', method: x.method || '', notes: x.notes || '', account: x.account || '', paidFrom: x.paidFrom || '' };
     });
     var srcMap = sumBy(inc, 'source');
     var sources = Object.keys(srcMap).map(function (k) {
@@ -1650,7 +1651,7 @@
     }).sort(function (a, b) { return b.amount - a.amount; });
     var flags = (Array.isArray(d.flags) ? d.flags : []).map(function (f) {
       return { date: f.date || '', label: f.label || f.date || '', merchant: f.merchant || '', category: f.category || '', amount: Number(f.amount) || 0,
-        account: f.account || '', method: f.method || '', kind: f.kind || 'tag', severity: f.severity === 'high' ? 'high' : 'low', suggest: f.suggest || '', why: f.why || '' };
+        account: f.account || '', method: f.method || '', paidFrom: f.paidFrom || '', hasCol: d.paidFromColumn === true, kind: f.kind || 'tag', severity: f.severity === 'high' ? 'high' : 'low', suggest: f.suggest || '', why: f.why || '' };
     });
     var b = d.bank || {};
     var bank = { accounts: (Array.isArray(b.accounts) ? b.accounts : []).map(function (a) {
@@ -1660,7 +1661,9 @@
     }), total: acNum(b.total), gid: b.gid != null ? String(b.gid) : SHEET_GIDS.bal };
     var it = sum(inc), et = sum(exp);
     return { monthLabel: d.monthLabel || '', month: d.month || '', income: inc, exp: exp, sources: sources, cats: sortedPairs(sumBy(exp, 'category')),
-      incomeTotal: it, expenseTotal: et, net: r2(it - et), scheduled: sum(inc.filter(function (x) { return x.expected; })), flags: flags, bank: bank };
+      incomeTotal: it, expenseTotal: et, net: r2(it - et), scheduled: sum(inc.filter(function (x) { return x.expected; })), flags: flags, bank: bank,
+      paidFromColumn: d.paidFromColumn === true ? true : (d.paidFromColumn === false ? false : null),
+      reimburse: r2(sum(exp.filter(function (x) { return x.paidFrom === 'Household card/account'; }))), reimburseN: exp.filter(function (x) { return x.paidFrom === 'Household card/account'; }).length };
   }
   function entFail(err) {
     if (err instanceof AuthError) { setPc(''); lock('Passcode changed. Enter the new one.'); return null; }
@@ -1710,13 +1713,13 @@
     });
   }
   function entTaxModel(d) {
-    var m = entModel({ income: (d.items || {}).income, expenses: (d.items || {}).expenses, flags: d.flags });
+    var m = entModel({ income: (d.items || {}).income, expenses: (d.items || {}).expenses, flags: d.flags, paidFromColumn: d.paidFromColumn });
     var inc = d.income || {}, ex = d.expenses || {};
     return { year: Number(d.year) || state.entYear, through: Number(d.through) || 12, items: m, flags: m.flags,
       incomeTotal: Number(inc.total) || 0, scheduled: Number(inc.scheduled) || 0, expTotal: Number(ex.total) || 0, net: Number(d.net) || 0,
       sources: (Array.isArray(inc.bySource) ? inc.bySource : []).map(function (s) { return { name: String(s.source), amount: Number(s.amount) || 0, count: s.count || 0, months: s.months || [], expected: Number(s.expectedAmount) > 0 }; }),
       cats: (Array.isArray(ex.byCategory) ? ex.byCategory : []).map(function (c) { return { name: String(c.category), amount: Number(c.amount) || 0, count: c.count || 0, months: c.months || [] }; }),
-      monthsSeries: Array.isArray(d.months) ? d.months : [] };
+      monthsSeries: Array.isArray(d.months) ? d.months : [], paidFromColumn: m.paidFromColumn, reimburse: m.reimburse, reimburseN: m.reimburseN };
   }
 
   /* ---- chrome (title, tabs, month nav) ---- */
@@ -1766,11 +1769,23 @@
         (e.expected ? ' <span class="acflag warn" title="' + esc(e.notes) + '">scheduled \u00b7 not logged</span>' : '') + '</span><span class="amt amt-in">' + money(e.amount) + '</span></div>';
     }).join('') + '</div>';
   }
+  function entPaid(X) { return X && X.paidFromColumn === true ? 'need' : true; }
+  function entFlagLabel(f) {
+    if (f.kind === 'reimburse') return 'Reimburse';
+    if (f.kind === 'tag') return f.hasCol ? (f.paidFrom ? 'Check Paid from' : 'Needs Paid from') : 'Needs a bank/card tag';
+    return 'May be the wrong book';
+  }
+  function entPfNote(M, E) {
+    var h = '';
+    if (M.reimburse > 0) h += '<div class="foot warnfoot pfwarn">Reimburse: <b>' + money(M.reimburse) + '</b> (' + M.reimburseN + ' item' + (M.reimburseN === 1 ? '' : 's') + ') of ' + esc(E.title) + ' expenses ' + (M.reimburseN === 1 ? 'was' : 'were') + ' paid from a Household card/account. The LLC owes it back.</div>';
+    if (M.paidFromColumn === false) h += '<div class="foot how pfhint">The \u201cPaid from\u201d column is not in the Daily Spend sheet yet. Run the <b>spendcol</b> admin action once to add it.</div>';
+    return h;
+  }
   function entFlagRows(list, max) {
     if (!list.length) return '<div class="foot empty">Nothing to review.</div>';
     return list.slice(0, max || list.length).map(function (f) {
       var chg = f.kind === 'misattributed' && f.suggest && f.suggest !== f.account ? ' <span class="flagto">' + esc(f.account) + ' \u2192 ' + esc(f.suggest) + '?</span>' : '';
-      return '<div class="flagrow sev-' + f.severity + ' k-' + f.kind + '"><div class="fl1"><span class="fk">' + (f.kind === 'tag' ? 'Needs a bank/card tag' : 'May be the wrong book') + '</span>' +
+      return '<div class="flagrow sev-' + f.severity + ' k-' + f.kind + '"><div class="fl1"><span class="fk">' + entFlagLabel(f) + '</span>' +
         '<span class="amt amt-out">' + money(f.amount) + '</span></div><div class="fl2"><b>' + esc(f.merchant || f.category) + '</b> \u00b7 ' + esc(f.label) + ' \u00b7 ' + esc(f.category) +
         ' \u00b7 ' + esc(f.account) + chg + (f.method ? ' \u00b7 ' + esc(f.method) : '') + '</div><div class="fl3">' + esc(f.why) + '</div></div>';
     }).join('');
@@ -1826,7 +1841,7 @@
     h += '<div class="card entscore">' +
       sumBtn('net cmp', entRoute(k, 'income', 'All'), 'Income' + (M.scheduled ? '<small>incl. ' + money(M.scheduled) + ' scheduled rent not yet logged</small>' : '<small>' + esc(E.sub) + '</small>'), '<span class="amt amt-in">' + money(M.incomeTotal) + '</span>') +
       sumBtn('net cmp', entRoute(k, 'exp'), 'Expenses<small>Daily Spend rows with Account = ' + esc(E.name) + '</small>', '<span class="amt amt-out">' + money(M.expenseTotal) + '</span>') +
-      sumBtn('net cmp', entRoute(k, 'net'), 'Net profit<small>Income \u2212 expenses for ' + esc(M.monthLabel || entLocalMonth(state.entOff)) + '</small>', '<span class="amt ' + (n >= 0 ? 'pos' : 'neg') + '">' + signedMoney(n) + '</span>') + '</div>';
+      sumBtn('net cmp', entRoute(k, 'net'), 'Net profit<small>Income \u2212 expenses for ' + esc(M.monthLabel || entLocalMonth(state.entOff)) + '</small>', '<span class="amt ' + (n >= 0 ? 'pos' : 'neg') + '">' + signedMoney(n) + '</span>') + entPfNote(M, E) + '</div>';
     h += '<button class="enttax"' + goAttr(entRoute(k, 'tax')) + '><span>Tax export</span><small>Year-to-date category summary \u00b7 CSV</small><i class="chev">&rsaquo;</i></button>';
 
     // Income (green), one block per source
@@ -1863,10 +1878,10 @@
     if (R.kind === 'cat') {
       var l = M.exp.filter(function (x) { return x.category === R.val; });
       h += '<div class="card"><h3>' + esc(E.name) + ' \u00b7 category</h3><div class="big amt-out">' + money(sum(l)) + '</div><div class="foot">' + l.length + ' item' + (l.length === 1 ? '' : 's') + ' \u00b7 all payment methods</div></div>' + sheetLink('Open Daily Spend sheet') +
-        '<div class="card">' + itemRows(l, { chip: false, acct: false }) + '</div>';
+        '<div class="card">' + itemRows(l, { chip: false, acct: false, paid: entPaid(M) }) + '</div>';
     } else if (R.kind === 'exp') {
-      h += '<div class="card"><h3>' + esc(E.title) + ' expenses</h3><div class="big amt-out">' + money(M.expenseTotal) + '</div><div class="foot">' + M.exp.length + ' item' + (M.exp.length === 1 ? '' : 's') + ' \u00b7 Daily Spend rows with Account = ' + esc(E.name) + '</div></div>' + sheetLink('Open Daily Spend sheet') +
-        '<div class="card">' + itemRows(M.exp, { chip: true, acct: false, chipRoute: function (c) { return entRoute(k, 'cat', c); } }) + '</div>';
+      h += '<div class="card"><h3>' + esc(E.title) + ' expenses</h3><div class="big amt-out">' + money(M.expenseTotal) + '</div><div class="foot">' + M.exp.length + ' item' + (M.exp.length === 1 ? '' : 's') + ' \u00b7 Daily Spend rows with Account = ' + esc(E.name) + '</div>' + entPfNote(M, E) + '</div>' + sheetLink('Open Daily Spend sheet') +
+        '<div class="card">' + itemRows(M.exp, { chip: true, acct: false, paid: entPaid(M), chipRoute: function (c) { return entRoute(k, 'cat', c); } }) + '</div>';
     } else if (R.kind === 'income') {
       var all = R.val === 'All', li = all ? M.income : M.income.filter(function (x) { return x.source === R.val; });
       h += '<div class="card income"><h3>' + (all ? esc(E.title) + ' income' : esc(R.val)) + '</h3><div class="big amt-in">' + money(sum(li)) + '</div><div class="foot">' + li.length + ' entr' + (li.length === 1 ? 'y' : 'ies') +
@@ -1879,7 +1894,7 @@
         '<div class="calcparts">' + part('Income', '<span class="amt amt-in">' + money(M.incomeTotal) + '</span>', entRoute(k, 'income', 'All')) +
         part('Expenses', '<span class="amt amt-out">\u2212' + money(M.expenseTotal) + '</span>', entRoute(k, 'exp')) + '</div></div>' + sheetLink('Open Daily Spend sheet') +
         '<div class="card income"><h3>Income entries \u00b7 ' + M.income.length + ' \u00b7 ' + money(M.incomeTotal) + '</h3>' + entIncRows(M.income, true) + '</div>' +
-        '<div class="card"><h3>Expense entries \u00b7 ' + M.exp.length + ' \u00b7 ' + money(M.expenseTotal) + '</h3>' + itemRows(M.exp, { chip: false, acct: false }) + '</div>';
+        '<div class="card"><h3>Expense entries \u00b7 ' + M.exp.length + ' \u00b7 ' + money(M.expenseTotal) + '</h3>' + itemRows(M.exp, { chip: false, acct: false, paid: entPaid(M) }) + '</div>';
     } else if (R.kind === 'bal') {
       var B = M.bank;
       h += '<div class="card acdrill"><h3>' + esc(E.title) + ' bank</h3><div class="big amt-bal">' + (B.total == null ? '\u2014' : balMoney(B.total)) + '</div><div class="foot how">Source: the Balances tab of the spend sheet (one row per account per statement date).</div></div>' + sheetLink('Open in spend sheet (Balances tab)', 'bal', B.gid);
@@ -1895,8 +1910,8 @@
     } else if (R.kind === 'flags') {
       h += '<div class="card"><h3>Check attribution \u00b7 ' + esc(M.monthLabel) + '</h3><div class="foot how">' + M.flags.length + ' item' + (M.flags.length === 1 ? '' : 's') +
         '. <b>May be the wrong book:</b> a Household row that looks like ' + esc(E.title) + ' business, or a ' + esc(E.name) + ' row that looks like the other LLC. <b>Needs a tag:</b> a ' + esc(E.name) +
-        ' expense whose Method does not say it was paid from the ' + esc(E.name) + ' bank account/card. Fix the Account / Method cell in the sheet; nothing is changed automatically.</div></div>' +
-        sheetLink('Open Daily Spend sheet (fix Account / Method)') + '<div class="card flaglist">' + entFlagRows(M.flags) + '</div>';
+        ' expense whose <b>Paid from</b> is empty (or, if the sheet has no Paid from column yet, whose Method does not say it was paid from the ' + esc(E.name) + ' bank account/card). <b>Reimburse:</b> a ' + esc(E.name) + ' expense that was Paid from a Household card/account, so the LLC owes the household back. Fix the Account / Paid from cell in the sheet; nothing is changed automatically.</div></div>' +
+        sheetLink('Open Daily Spend sheet (fix Account / Paid from)') + '<div class="card flaglist">' + entFlagRows(M.flags) + '</div>';
     }
     return h;
   }
@@ -1924,7 +1939,7 @@
     }).join('') || '<div class="foot empty">No income</div>') + '</div>';
     h += '<div class="enth">Expenses by category</div>' + (T.cats.map(function (cat, i) {
       var l = T.items.exp.filter(function (x) { return x.category === cat.name; });
-      return vSec('ent-' + E.key + '-tx-e' + i, 'acctsec', esc(cat.name), '<span class="amt-out">' + money(cat.amount) + '</span>', '', '<div class="foot how">' + cat.count + ' entr' + (cat.count === 1 ? 'y' : 'ies') + '</div>' + entMonthsLine(cat.months) + itemRows(l, { chip: false, acct: false }) + sheetLink('Open Daily Spend sheet'), ' data-tgl="1"');
+      return vSec('ent-' + E.key + '-tx-e' + i, 'acctsec', esc(cat.name), '<span class="amt-out">' + money(cat.amount) + '</span>', '', '<div class="foot how">' + cat.count + ' entr' + (cat.count === 1 ? 'y' : 'ies') + '</div>' + entMonthsLine(cat.months) + itemRows(l, { chip: false, acct: false, paid: entPaid(T) }) + sheetLink('Open Daily Spend sheet'), ' data-tgl="1"');
     }).join('') || '<div class="foot empty">No expenses</div>');
     var X = entDebtFor(E);
     if (X.loans.length) h += '<div class="card entloanmemo"><h3>Loans (memo)</h3>' + X.loans.map(function (l) {
@@ -1944,10 +1959,13 @@
     line(['Summary', 'Income', 'TOTAL INCOME', '', T.incomeTotal.toFixed(2)]);
     T.cats.forEach(function (c) { line(['Summary', 'Expense', c.name, c.count, c.amount.toFixed(2)]); });
     line(['Summary', 'Expense', 'TOTAL EXPENSES', T.items.exp.length, T.expTotal.toFixed(2)]);
-    line(['Summary', 'Net', 'NET PROFIT', '', T.net.toFixed(2)]); rows.push('');
-    line(['Detail', 'Type', 'Date', 'Category / Source', 'Description', 'Paid with', 'Amount', 'Basis', 'Notes']);
-    T.items.income.slice().reverse().forEach(function (x) { line(['Detail', 'Income', x.date, x.source, x.client, '', x.amount.toFixed(2), x.expected ? 'Scheduled (not logged)' : 'Logged', x.notes]); });
-    T.items.exp.slice().reverse().forEach(function (x) { line(['Detail', 'Expense', x.date, x.category, x.merchant, x.method, x.amount.toFixed(2), 'Logged', x.notes]); });
+    line(['Summary', 'Net', 'NET PROFIT', '', T.net.toFixed(2)]);
+    var rb = T.items.exp.filter(function (x) { return x.paidFrom === 'Household card/account'; });
+    if (rb.length) line(['Summary', 'Memo', 'Paid from Household card/account (reimburse the LLC)', rb.length, sum(rb).toFixed(2)]);
+    rows.push('');
+    line(['Detail', 'Type', 'Date', 'Category / Source', 'Description', 'Method', 'Paid from', 'Amount', 'Basis', 'Notes']);
+    T.items.income.slice().reverse().forEach(function (x) { line(['Detail', 'Income', x.date, x.source, x.client, '', '', x.amount.toFixed(2), x.expected ? 'Scheduled (not logged)' : 'Logged', x.notes]); });
+    T.items.exp.slice().reverse().forEach(function (x) { line(['Detail', 'Expense', x.date, x.category, x.merchant, x.method, x.paidFrom || '', x.amount.toFixed(2), 'Logged', x.notes]); });
     return rows.join('\r\n') + '\r\n';
   }
   function entSaveCsv(name, text) {

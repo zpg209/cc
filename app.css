@@ -983,3 +983,7 @@ div.sumline { cursor: default; }
 .entna b { display: block; color: var(--copper); margin-bottom: 4px; font-size: 15px; }
 .warnfoot { color: #ffb74d; }
 .entloanmemo .sumline { align-items: flex-start; }
+
+.pf-tag { color: var(--muted); } .pf-tag.pf-hh { color: #ffb74d; font-weight: 700; } .pf-tag.pf-none { color: var(--copper); font-style: italic; }
+.pfwarn { margin-top: 8px; } .pfhint { margin-top: 6px; }
+.flagrow.k-reimburse { border-left-color: #ef6c5a; background: rgba(239,108,90,.07); } .flagrow.k-reimburse .fk { color: #ef6c5a; }
