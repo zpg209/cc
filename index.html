@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=40">
+<link rel="stylesheet" href="app.css?v=41">
 </head>
 <body>
   <div class="bg"></div>
@@ -47,7 +47,8 @@
     <div class="grid2">
       <button class="tile" data-go="projects">L&amp;S projects</button>
       <button class="tile" data-go="life">Life areas</button>
-      <button class="tile" data-go="log">Daily log</button>
+      <button class="tile" data-go="track">Daily Tracker</button>
+      <button class="tile" data-go="log">Daily Log</button>
       <button class="tile" data-go="spend">Vault</button>
       <button class="tile" data-go="fin">Finances</button>
       <button class="tile" data-go="insn">Insurance</button>
@@ -179,13 +180,24 @@
   </section>
 
   <!-- ============ DAILY LOG ============ -->
-  <section id="screen-log" class="screen fitscreen">
-    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><h2>Daily log</h2></div>
+  <section id="screen-track" class="screen fitscreen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><h2>Daily Tracker</h2></div>
+    <div class="enttabs two" aria-label="Daily Tracker and Daily Log"><button data-go="track" class="on">Tracker</button><button data-go="log">Log</button></div>
     <div class="vnwrap" id="log-voice">
       <button class="bigbtn vnbig" id="vn-mic" data-go="mic/dailylog" aria-label="Dictate or type a log note"><span class="bigico" aria-hidden="true">&#127908;</span>Dictate a log note<span class="sub">Ate &middot; drank &middot; workout &middot; weight &middot; sleep</span></button>
       <div class="vndraft" id="vn-draft" hidden></div>
-      <div class="ncard vncard" id="vn-card"><button class="nchead" id="vn-head" aria-expanded="false"><span>Voice notes</span><b class="cnt" id="vn-cnt"></b><i class="chev">&rsaquo;</i></button><div class="ncbody" id="vn-body"></div></div>
     </div>
+    <div id="trk-prog"><div class="loading">Loading…</div></div>
+    <div id="trk-forms"></div>
+    <div class="vnwrap">
+      <div class="ncard vncard" id="vn-card"><button class="nchead" id="vn-head" aria-expanded="false"><span>Today&rsquo;s voice notes</span><b class="cnt" id="vn-cnt"></b><i class="chev">&rsaquo;</i></button><div class="ncbody" id="vn-body"></div></div>
+    </div>
+    <button class="enttax trklink" data-go="log"><span>Daily Log</span><small>History, weekly summary, running totals, weight trend, streaks</small><i class="chev">&rsaquo;</i></button>
+  </section>
+
+  <section id="screen-log" class="screen fitscreen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><h2>Daily Log</h2></div>
+    <div class="enttabs two" aria-label="Daily Tracker and Daily Log"><button data-go="track">Tracker</button><button data-go="log" class="on">Log</button></div>
     <div id="log-top"></div>
     <div class="weeknav">
       <button class="navbtn" id="log-prev">&lsaquo; Prev week</button>
@@ -218,6 +230,6 @@
     <div id="ent-body"><div class="loading">Loading…</div></div>
   </section>
 
-  <script src="app.js?v=40"></script>
+  <script src="app.js?v=41"></script>
 </body>
 </html>

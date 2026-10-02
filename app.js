@@ -9,12 +9,12 @@
   var PC_KEY = 'cc_passcode';
   var FALLBACK_URL = 'https://script.google.com/a/macros/landstruc.com/s/AKfycbyigotJxdJD3CeCpRyCEfhHdL7zcv2ZE_ibTm2ZyITgODqrh_NxGhONx6m8CcBlxaPD/exec';
 
-  var state = { weekOffset: 0, monthOffset: 0, links: null, logSeq: 0, logData: null, logOpen: {}, waterBusy: false, bodyBusy: false, spendSeq: 0,
+  var state = { weekOffset: 0, monthOffset: 0, links: null, logSeq: 0, logData: null, logOpen: {}, trkSeq: 0, trackData: null, trkMode: 'add', trkBusy: false, trkFormsFor: '', logTot: 'month', waterBusy: false, bodyBusy: false, spendSeq: 0,
     spendData: null, spendDataOff: null, spendRoute: { kind: '', val: '', acct: '' },
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
-  var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent'];
+  var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -92,7 +92,7 @@
     SCREENS.forEach(function (s) { $('screen-' + s).classList.toggle('active', s === name); });
     window.scrollTo(0, 0);
   }
-  // Routes: "home", "log", "spend", "spend/cat/<Category>[/<Account>]", "spend/acct/<Account>",
+  // Routes: "home", "track" (Daily Tracker), "log" (Daily Log), "spend", "spend/cat/<Category>[/<Account>]", "spend/acct/<Account>",
   //         "spend/income/<Source|All>", "spend/all", "spend/cash/<Account|All>[/<Category>]",
   //         "spend/who/<Zac|Lisa>", "spend/calc/<tiwik-net|lt-net|hh-spend|avg-spend|avg-income>"   (segments are URI-encoded)
   function dec(v) { try { return decodeURIComponent(v || ''); } catch (e) { return v || ''; } }
@@ -163,6 +163,7 @@
     }
     if (name === 'projects' || name === 'life') loadLinks();
     if (name === 'log') loadLog();
+    if (name === 'track') loadTrack();
     if (name === 'spend') loadSpend(false);
     if (name === 'ent') loadEnt(false);
     if (name === 'biz') { state.bizSlug = R.kind; loadBiz(); }
@@ -536,7 +537,6 @@
   }
 
   function loadLog() {
-    loadVoiceNotes();
     var seq = ++state.logSeq;
     $('log-body').innerHTML = '<div class="loading">Loading…</div>';
     $('log-range').textContent = '…';
@@ -692,36 +692,130 @@
   }
 
   // Today (progress bars + water button), streaks and body: not tied to the week shown below.
-  function renderLogTop(d) {
-    var ext = d.ext, T = fitTargets(d), t = ext.today || {}, h = '';
-    var canWater = !!(ext.write && ext.write.water);
-    h += '<div class="card fitcard fittoday"><h3>Today · ' + esc(t.label || '') + '</h3>';
-    FIT_ROWS.forEach(function (row) {
-      var extra = (row.key === 'water' && canWater) ? '<button type="button" class="fitbtn" id="fit-water" aria-label="Add 8 ounces of water">+' + ((ext.write && ext.write.waterStepOz) || 8) + ' oz</button>' : '';
-      h += fitRow(row, t[row.key], T[row.key], extra);
+  /* ---- Daily Log: running totals (month to date / all time), weight trend, streaks ----
+   * logAgg mirrors Api.gs apiLogAgg_ (keep in step). Server `ext.totals` (month + all time, whole tab) is used when present; otherwise the
+   * phone computes the same numbers from ext.history (the last ~120 days) and says so. Averages are over FINISHED days with a value; sums include today. */
+  function logAgg(days, today, T) {
+    var logged = days.filter(function (x) { return x && x.logged; }).sort(function (p, q) { return p.date < q.date ? -1 : p.date > q.date ? 1 : 0; });   // oldest first
+    var isNum = function (v) { return typeof v === 'number' && isFinite(v); }, r1 = function (v) { return Math.round(v * 10) / 10; };
+    function mean(f) { var s = 0, c = 0; logged.forEach(function (x) { if (x.date < today && isNum(x[f]) && x[f] > 0) { s += x[f]; c++; } }); return { avg: c ? r1(s / c) : null, days: c }; }
+    function hits(f, ok) { var c = 0; logged.forEach(function (x) { if (x.date < today && isNum(x[f]) && x[f] > 0 && ok(x[f])) c++; }); return c; }
+    function sumOf(f) { var s = 0, c = 0; logged.forEach(function (x) { if (isNum(x[f]) && x[f] > 0) { s += x[f]; c++; } }); return { total: r1(s), days: c }; }
+    var cal = mean('calories'), pro = mean('protein'), car = mean('carbs'), fat = mean('fat'), wat = mean('water'), slp = mean('sleep');
+    cal.hit = hits('calories', function (v) { return v <= T.calories; });
+    pro.hit = hits('protein', function (v) { return v >= T.protein; });
+    wat.hit = hits('water', function (v) { return v >= T.water; });
+    var workouts = 0, minutes = 0;
+    logged.forEach(function (x) {
+      if (x.did) workouts++;
+      var m = isNum(x.minutes) ? x.minutes : ((/(\d+(?:\.\d+)?)\s*min/i.exec(x.workout || '') || [])[1]);
+      if (m !== undefined && m !== null && isFinite(Number(m))) minutes += Number(m);
     });
-    h += '<div class="fitwo">Workout: ' + (t.workout ? esc(t.workout) : (t.logged ? '—' : 'not logged yet')) + '</div>';
-    h += '<div class="fitmsg" id="fit-msg" role="status"></div></div>';
-
-    var S = ext.streaks;
-    if (S) {
-      var tiles = [
-        { n: S.calories, lbl: 'Calories', sub: '\u2264 ' + fmt(T.calories) + ' kcal' },
-        { n: S.water, lbl: 'Water', sub: '\u2265 ' + fmt(T.water) + ' oz' },
-        { n: S.workouts, lbl: 'Workouts', sub: 'any workout' }
-      ];
-      h += '<div class="card fitcard"><h3>Streaks · days in a row</h3><div class="streaks">' + tiles.map(function (x) {
-        var c = (x.n && x.n.current) || 0, b = (x.n && x.n.best) || 0;
-        return '<div class="stk' + (c ? ' live' : '') + '"><b>' + c + '</b><span class="sl">' + x.lbl + '</span><span class="ss">' + x.sub + '</span><span class="ss">best ' + b + '</span></div>';
-      }).join('') + '</div><div class="foot">Calories count finished days (today can still change); water and workouts count today once met. A day with no entry breaks a streak.</div></div>';
+    var hike = sumOf('hike'), steps = sumOf('steps');
+    steps.avg = steps.days ? Math.round(steps.total / steps.days) : null;
+    var wp = logged.filter(function (x) { return isNum(x.weight) && x.weight > 0; }), weight = null;
+    if (wp.length) {
+      var lo = wp[0]; wp.forEach(function (x) { if (x.weight < lo.weight) lo = x; });
+      weight = { first: wp[0].weight, firstDate: wp[0].date, latest: wp[wp.length - 1].weight, latestDate: wp[wp.length - 1].date, min: lo.weight, minDate: lo.date,
+        change: r1(wp[wp.length - 1].weight - wp[0].weight), n: wp.length };
     }
-    h += bodyCardHtml(ext, t);
-    $('log-top').innerHTML = h;
-    var wb = $('fit-water');
-    if (wb) wb.addEventListener('click', function () { addWater(((ext.write && ext.write.waterStepOz) || 8)); });
-    var sv = $('fit-save');
-    if (sv) sv.addEventListener('click', saveBody);
+    return { logged: logged.length, since: logged.length ? logged[0].date : '', until: logged.length ? logged[logged.length - 1].date : '',
+      calories: cal, protein: pro, carbs: car, fat: fat, water: wat, sleep: slp, workouts: workouts, minutes: Math.round(minutes), hike: hike, steps: steps, weight: weight };
   }
+  function logMD(k) { return k ? (+k.slice(5, 7)) + '/' + (+k.slice(8, 10)) : ''; }
+  function logTotals(d, which) {
+    var ext = d.ext, tot = ext.totals, today = (ext.today && ext.today.date) || '', T = fitTargets(d), hist = ext.history || [];
+    if (which === 'month') {
+      var ms = today.slice(0, 8) + '01';
+      if (tot && tot.month) return { a: tot.month, server: true, since: tot.monthStart || ms };
+      return { a: logAgg(hist.filter(function (x) { return x.date >= ms; }), today, T), server: false, since: ms };
+    }
+    if (tot && tot.all) return { a: tot.all, server: true, since: tot.all.since };
+    var a = logAgg(hist, today, T);
+    return { a: a, server: false, since: a.since, partial: true };
+  }
+  function avgRow(d, key, a, T) {
+    var row = FIT_ROWS.filter(function (r) { return r.key === key; })[0], v = a[key] ? a[key].avg : null, st = fitStatus(row.rule, v, T[key]);
+    return '<div class="fitrow"><div class="fl">' + row.name + ' avg</div><div class="fv t-' + (st || 'none') + '"><b>' + fmt(v) + '</b> / ' + fmt(T[key]) + ' ' + row.unit + '</div>' +
+      '<div class="fn">' + (v === null || v === undefined ? 'not logged' : fitNote(row, v, T[key], st).replace('to go', 'short')) + '</div>' + fitBar(v, T[key], st) + '</div>';
+  }
+  function totalsCardHtml(d) {
+    var T = fitTargets(d), ext = d.ext, cols = ext.columns || {}, which = state.logTot === 'all' ? 'all' : 'month', W = logTotals(d, which), a = W.a, h = '';
+    h += '<div class="card fitcard"><h3>Running totals</h3><div class="seg"><button type="button" data-tot="month" class="' + (which === 'month' ? 'on' : '') + '">Month to date</button>' +
+      '<button type="button" data-tot="all" class="' + (which === 'all' ? 'on' : '') + '">All time</button></div>';
+    if (!a.logged) return h + '<div class="foot">' + (which === 'month' ? 'Nothing logged yet this month.' : 'Nothing logged yet.') + '</div></div>';
+    h += avgRow(d, 'calories', a, T) + avgRow(d, 'protein', a, T) + avgRow(d, 'water', a, T);
+    var v = function (x, dec, unit) { return x === null || x === undefined ? '\u2014' : fmt(x, dec) + (unit || ''); };
+    var tiles = [
+      ['Days logged', a.logged], ['Carbs avg', v(a.carbs.avg, 0, ' g')], ['Fat avg', v(a.fat.avg, 0, ' g')],
+      ['Workouts', a.workouts], ['Workout min', fmt(a.minutes)], ['Min / workout', a.workouts ? fmt(Math.round(a.minutes / a.workouts)) : '\u2014'],
+      ['Hike miles', cols.hike === false ? '\u2014' : v(a.hike.total, 1, ' mi')], ['Steps total', cols.steps === false ? '\u2014' : v(a.steps.total, 0)], ['Steps / day', cols.steps === false ? '\u2014' : v(a.steps.avg, 0)],
+      ['Sleep avg', v(a.sleep.avg, 1, ' h')], ['Weight change', a.weight ? (a.weight.change > 0 ? '+' : '') + fmt(a.weight.change, 1) + ' lb' : '\u2014']
+    ];
+    h += '<div class="btiles tot">' + tiles.map(function (x) { return '<div><span>' + x[0] + '</span><b>' + x[1] + '</b></div>'; }).join('') + '</div>';
+    var hit = [];
+    if (a.calories.days) hit.push('calories at/under target ' + a.calories.hit + ' of ' + a.calories.days + ' days');
+    if (a.protein.days) hit.push('protein met ' + a.protein.hit + ' of ' + a.protein.days);
+    if (a.water.days) hit.push('water met ' + a.water.hit + ' of ' + a.water.days);
+    h += '<div class="foot">' + (which === 'month' ? 'Since ' + logMD(W.since) : (W.partial ? 'Last ' + (ext.history || []).length + ' logged days, since ' + logMD(W.since) : 'Since ' + logMD(W.since) + ' (first entry)')) +
+      ' \u00b7 ' + a.logged + ' day' + (a.logged === 1 ? '' : 's') + ' logged. Averages are over finished days; workouts, minutes, hike and steps include today.' + (hit.length ? ' ' + hit.join(' \u00b7 ') + '.' : '') + '</div>';
+    if (W.partial) h += '<div class="foot hint2">All-time totals cover the whole sheet once the server update is live. For now this is the recent history only.</div>';
+    return h + '</div>';
+  }
+  function weightCardHtml(d) {
+    var ext = d.ext, cols = ext.columns || {}, w = ext.weight || {}, b = ext.body || {}, A = logTotals(d, 'all').a, wa = A.weight, h = '';
+    h += '<div class="card fitcard"><h3>Weight &amp; body</h3>';
+    if (cols.weight) {
+      if (w.latest != null) {
+        var toGo = w.goal != null ? w.latest - w.goal : null, tr = '';
+        if (w.goal != null && w.avg7 != null && w.prevAvg7 != null && Math.abs(w.avg7 - w.prevAvg7) >= 0.1) {
+          var toward = Math.abs(w.avg7 - w.goal) < Math.abs(w.prevAvg7 - w.goal);
+          tr = '<span class="trend ' + (toward ? 'toward' : 'away') + '">' + (w.avg7 > w.prevAvg7 ? '&#9650;' : '&#9660;') + ' ' + fmt(Math.abs(w.avg7 - w.prevAvg7), 1) + ' lb vs last week \u00b7 ' + (toward ? 'toward goal' : 'away from goal') + '</span>';
+        } else if (w.avg7 != null && w.prevAvg7 == null) tr = '<span class="trend">trend needs a prior week of weights</span>';
+        else if (w.avg7 != null) tr = '<span class="trend">steady vs last week</span>';
+        h += '<div class="wline"><div><b class="wnum">' + fmt(w.latest, 1) + '</b> lb<small> ' + (w.latestDate ? 'on ' + logMD(w.latestDate) : '') + '</small></div>' +
+          (toGo != null ? '<div class="wgoal">' + (toGo > 0 ? fmt(toGo, 1) + ' lb to goal' : toGo < 0 ? fmt(-toGo, 1) + ' lb past goal' : 'at goal') + ' <small>(goal ' + fmt(w.goal) + ')</small></div>' : '') + '</div>' + tr;
+        if (wa && wa.n > 1) h += '<span class="trend ' + (w.goal != null ? (Math.abs(wa.latest - w.goal) < Math.abs(wa.first - w.goal) ? 'toward' : 'away') : '') + '">' + (wa.change > 0 ? '&#9650; ' : wa.change < 0 ? '&#9660; ' : '') + fmt(Math.abs(wa.change), 1) + ' lb since ' + logMD(wa.firstDate) + ' (first entry) \u00b7 lowest ' + fmt(wa.min, 1) + ' lb on ' + logMD(wa.minDate) + '</span>';
+        var series = (ext.totals && ext.totals.weightSeries && ext.totals.weightSeries.length > 1) ? ext.totals.weightSeries : w.series;
+        h += sparkSvg(series, w.goal);
+        h += '<div class="foot">' + ((ext.totals && ext.totals.weightSeries) ? 'Trend line covers every weight on record' : 'Trend line covers the last 30 weigh-ins') + '; dashed line is the goal.</div>';
+      } else h += '<div class="foot">No weight logged yet. Add today\u2019s on the Tracker.</div>';
+    }
+    var tiles = [];
+    if (cols.sleep) tiles.push(['Sleep avg 7d', b.sleepAvg7 != null ? fmt(b.sleepAvg7, 1) + ' h' : '\u2014']);
+    if (cols.steps) tiles.push(['Steps avg 7d', b.stepsAvg7 != null ? fmt(b.stepsAvg7) : '\u2014']);
+    if (cols.hike) tiles.push(['Hike, 7 days', b.hikeMiles7 != null ? fmt(b.hikeMiles7, 1) + ' mi' : '\u2014']);
+    if (tiles.length) h += '<div class="btiles">' + tiles.map(function (x) { return '<div><span>' + x[0] + '</span><b>' + x[1] + '</b></div>'; }).join('') + '</div>';
+    var miss = [];
+    if (!cols.weight) miss.push('\u201CWeight (lb)\u201D');
+    if (!cols.sleep) miss.push('\u201CSleep (hours)\u201D');
+    if (!cols.steps) miss.push('\u201CSteps\u201D');
+    if (!cols.hike) miss.push('\u201CHike miles\u201D');
+    if (miss.length) h += '<div class="foot hint2">' + (!cols.steps || !cols.hike ? 'Steps and Hike miles columns are created on the first Tracker entry. ' : '') +
+      ((!cols.weight || !cols.sleep) ? 'To track ' + miss.filter(function (m) { return /Weight|Sleep/.test(m); }).join(' and ') + ', add a column with that header to the Phone Log tab.' : '') + '</div>';
+    return h + '</div>';
+  }
+  function streaksCardHtml(d) {
+    var S = d.ext.streaks, T = fitTargets(d);
+    if (!S) return '';
+    var tiles = [
+      { n: S.calories, lbl: 'Calories', sub: '\u2264 ' + fmt(T.calories) + ' kcal' },
+      { n: S.water, lbl: 'Water', sub: '\u2265 ' + fmt(T.water) + ' oz' },
+      { n: S.workouts, lbl: 'Workouts', sub: 'any workout' }
+    ];
+    return '<div class="card fitcard"><h3>Streaks \u00b7 days in a row</h3><div class="streaks">' + tiles.map(function (x) {
+      var c = (x.n && x.n.current) || 0, b = (x.n && x.n.best) || 0;
+      return '<div class="stk' + (c ? ' live' : '') + '"><b>' + c + '</b><span class="sl">' + x.lbl + '</span><span class="ss">' + x.sub + '</span><span class="ss">best ' + b + '</span></div>';
+    }).join('') + '</div><div class="foot">Calories count finished days (today can still change); water and workouts count today once met. A day with no entry breaks a streak.</div></div>';
+  }
+  function renderLogTop(d) {   // Daily Log screen, top: totals, weight, streaks
+    $('log-top').innerHTML = totalsCardHtml(d) + weightCardHtml(d) + streaksCardHtml(d);
+  }
+  $('log-top').addEventListener('click', function (ev) {
+    var b = ev.target.closest ? ev.target.closest('[data-tot]') : null;
+    if (!b || !state.logData || !state.logData.ext) return;
+    state.logTot = b.getAttribute('data-tot'); renderLogTop(state.logData);
+  });
 
   function sparkSvg(series, goal) {
     if (!series || series.length < 2) return '';
@@ -739,86 +833,197 @@
       '<polyline points="' + pts + '" class="sline"/><circle cx="' + X(series.length - 1).toFixed(1) + '" cy="' + Y(last.v).toFixed(1) + '" r="3.2" class="sdot"/></svg>';
   }
 
-  function bodyCardHtml(ext, t) {
-    var cols = ext.columns || {}, w = ext.weight || {}, b = ext.body || {}, set = (ext.write && ext.write.set) || [], h = '';
-    h += '<div class="card fitcard"><h3>Body</h3>';
-    if (cols.weight) {
-      if (w.latest != null) {
-        var toGo = w.goal != null ? w.latest - w.goal : null, tr = '';
-        if (w.goal != null && w.avg7 != null && w.prevAvg7 != null && Math.abs(w.avg7 - w.prevAvg7) >= 0.1) {
-          var toward = Math.abs(w.avg7 - w.goal) < Math.abs(w.prevAvg7 - w.goal);
-          tr = '<span class="trend ' + (toward ? 'toward' : 'away') + '">' + (w.avg7 > w.prevAvg7 ? '&#9650;' : '&#9660;') + ' ' + fmt(Math.abs(w.avg7 - w.prevAvg7), 1) + ' lb vs last week · ' + (toward ? 'toward goal' : 'away from goal') + '</span>';
-        } else if (w.avg7 != null && w.prevAvg7 == null) tr = '<span class="trend">trend needs a prior week of weights</span>';
-        else if (w.avg7 != null) tr = '<span class="trend">steady vs last week</span>';
-        h += '<div class="wline"><div><b class="wnum">' + fmt(w.latest, 1) + '</b> lb<small> ' + (w.latestDate ? 'on ' + (+w.latestDate.slice(5, 7)) + '/' + (+w.latestDate.slice(8, 10)) : '') + '</small></div>' +
-          (toGo != null ? '<div class="wgoal">' + (toGo > 0 ? fmt(toGo, 1) + ' lb to goal' : toGo < 0 ? fmt(-toGo, 1) + ' lb past goal' : 'at goal') + ' <small>(goal ' + fmt(w.goal) + ')</small></div>' : '') + '</div>' + tr + sparkSvg(w.series, w.goal);
-      } else h += '<div class="foot">No weight logged yet. Enter today\u2019s below.</div>';
-    }
-    var tiles = [];
-    if (cols.sleep) tiles.push(['Sleep avg', b.sleepAvg7 != null ? fmt(b.sleepAvg7, 1) + ' h' : '—']);
-    if (cols.steps) tiles.push(['Steps avg', b.stepsAvg7 != null ? fmt(b.stepsAvg7) : '—']);
-    if (cols.hike) tiles.push(['Hike, 7 days', b.hikeMiles7 != null ? fmt(b.hikeMiles7, 1) + ' mi' : '—']);
-    if (tiles.length) h += '<div class="btiles">' + tiles.map(function (x) { return '<div><span>' + x[0] + '</span><b>' + x[1] + '</b></div>'; }).join('') + '</div><div class="foot">Averages are the last 7 days.</div>';
-    var miss = [];
-    if (!cols.weight) miss.push('\u201CWeight (lb)\u201D');
-    if (!cols.sleep) miss.push('\u201CSleep (hours)\u201D');
-    if (!cols.steps) miss.push('\u201CSteps\u201D');
-    if (!cols.hike) miss.push('\u201CHike miles\u201D');
-    if (miss.length) h += '<div class="foot hint2">To track ' + miss.join(', ').replace(/, ([^,]*)$/, ' and $1') + ', add ' + (miss.length > 1 ? 'columns' : 'a column') + ' with ' + (miss.length > 1 ? 'those headers' : 'that header') + ' to the Phone Log tab. It will appear here automatically.</div>';
-    if (set.length) {
-      var lab = { weight: ['Weight (lb)', '0.1'], sleep: ['Sleep (hours)', '0.1'], steps: ['Steps', '1'], hike: ['Hike miles', '0.1'] };
-      h += '<div class="bform"><div class="bhead">Update today</div><div class="bgrid">' + set.map(function (f) {
-        var cur = ext.today ? ext.today[f] : null;
-        return '<label>' + lab[f][0] + '<input type="number" inputmode="decimal" step="' + lab[f][1] + '" min="0" data-f="' + f + '" data-cur="' + (cur == null ? '' : cur) + '" value="' + (cur == null ? '' : cur) + '" autocomplete="off"></label>';
-      }).join('') + '</div><button type="button" class="fitbtn wide" id="fit-save">Save today</button><div class="fitmsg" id="fit-bmsg" role="status"></div></div>';
-    }
-    return h + '</div>';
-  }
-
+  /* ---- Daily Tracker: today's progress bars, one-tap water (+Undo), quick-add forms (logday / logset), today's voice notes ----
+   * Needs the extended `log` action (ext) for the bars; quick-add uses ext.write.logday (meal / workout / hike / steps) and ext.write.set (weight / sleep).
+   * Without them the screen degrades: progress from the old payload, forms replaced by a short note. */
   function fitCid() { return 'w' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
   function fitSay(id, text, bad) { var e = $(id); if (e) { e.textContent = text || ''; e.className = 'fitmsg' + (bad ? ' bad' : ''); } }
 
+  function loadTrack() {
+    loadVoiceNotes();
+    var seq = ++state.trkSeq;
+    if (state.trackData) renderTrack(state.trackData, false);
+    else { $('trk-prog').innerHTML = '<div class="loading">Loading\u2026</div>'; $('trk-forms').innerHTML = ''; }
+    api('log', 0).then(function (d) { if (seq === state.trkSeq) { state.trackData = d; renderTrack(d, !state.trkFormsFor || state.trkFormsFor !== formsKey(d)); } },
+      function (err) { if (seq === state.trkSeq && !state.trackData) { $('trk-forms').innerHTML = ''; onFail(['trk-prog'], loadTrack)(err); } });
+  }
+  function formsKey(d) { var e = d.ext; return e ? JSON.stringify([e.write, e.columns]) : 'legacy'; }
+  function renderTrack(d, rebuildForms) {
+    renderTrackProg(d);
+    if (rebuildForms) { renderTrackForms(d); state.trkFormsFor = formsKey(d); }
+  }
+  function trackToday(d) {   // today's numbers: ext.today, or the old payload's "today" day
+    if (d.ext && d.ext.today) return d.ext.today;
+    var t = null; (d.days || []).forEach(function (x) { if (x.isToday) t = x; });
+    return t ? { label: t.label, calories: t.calories, protein: t.protein, carbs: t.carbs, fat: t.fat, water: t.water, workout: t.workout || '', logged: !!t.logged } : { label: '', logged: false };
+  }
+  function renderTrackProg(d) {
+    var ext = d.ext, T = fitTargets(d), t = trackToday(d), h = '';
+    var canWater = !!(ext && ext.write && ext.write.water);
+    h += '<div class="card fitcard fittoday"><h3>Today \u00b7 ' + esc(t.label || '') + '</h3>';
+    FIT_ROWS.forEach(function (row) {
+      var extra = (row.key === 'water' && canWater) ? '<button type="button" class="fitbtn" id="fit-water" aria-label="Add 8 ounces of water">+' + ((ext.write && ext.write.waterStepOz) || 8) + ' oz</button>' : '';
+      h += fitRow(row, t[row.key], T[row.key], extra);
+    });
+    h += '<div class="fitmsg" id="fit-msg" role="status"></div>';
+    var cols = ext && ext.columns || {}, v = function (x, dec, u) { return x === null || x === undefined ? '\u2014' : fmt(x, dec) + (u || ''); };
+    var wk = t.workout ? esc(t.workout) : (t.logged ? '\u2014' : 'not yet');
+    var tiles = [['Workout', wk]];
+    if (ext) {
+      tiles.push(['Hike', v(t.hike, 1, ' mi')], ['Steps', v(t.steps, 0)], ['Weight', v(t.weight, 1, ' lb')], ['Sleep', v(t.sleep, 1, ' h')]);
+    }
+    h += '<div class="btiles today">' + tiles.map(function (x) { return '<div><span>' + x[0] + '</span><b>' + x[1] + '</b></div>'; }).join('') + '</div>';
+    if (!ext) h += '<div class="foot hint2">Quick add and the extra progress details need the server update. Dictate a note meanwhile; it is saved to Voice notes.</div>';
+    h += '</div>';
+    $('trk-prog').innerHTML = h;
+    var wb = $('fit-water');
+    if (wb) wb.addEventListener('click', function () { addWater(((ext.write && ext.write.waterStepOz) || 8)); });
+  }
+
+  var TRK_BODY = { hike: ['Hike miles', '0.1'], steps: ['Steps', '1'], weight: ['Weight (lb)', '0.1'], sleep: ['Sleep (hours)', '0.1'] };
+  function renderTrackForms(d) {
+    var ext = d.ext, h = '';
+    if (!ext || !ext.write) { $('trk-forms').innerHTML = ''; return; }
+    var canDay = !!ext.write.logday, set = ext.write.set || [], t = ext.today || {}, cols = ext.columns || {};
+    var inp = function (id, label, step, cur, attrs) {
+      return '<label>' + label + '<input type="number" inputmode="decimal" step="' + step + '" min="0" ' + (attrs || '') + ' value="' + (cur == null ? '' : cur) + '" autocomplete="off"></label>';
+    };
+    if (canDay) {
+      h += '<div class="card fitcard qa" id="qa-meal"><h3>Add a meal</h3><div class="qgrid4">' +
+        [['calories', 'kcal', '1'], ['protein', 'Protein g', '1'], ['carbs', 'Carbs g', '1'], ['fat', 'Fat g', '1']].map(function (f) { return inp('', f[1], f[2], '', 'data-m="' + f[0] + '"'); }).join('') + '</div>' +
+        '<div class="seg small" id="qa-mode"><button type="button" data-mode="add" class="' + (state.trkMode === 'set' ? '' : 'on') + '">Add to today</button><button type="button" data-mode="set" class="' + (state.trkMode === 'set' ? 'on' : '') + '">Set today\u2019s total</button></div>' +
+        '<button type="button" class="fitbtn wide" id="qa-meal-go">Add meal</button><div class="fitmsg" id="qa-meal-msg" role="status"></div></div>';
+      h += '<div class="card fitcard qa" id="qa-wo"><h3>Workout</h3><div class="qgrid2w"><label>Type<input type="text" id="qa-wo-type" maxlength="60" placeholder="Run, strength, walk\u2026" autocomplete="off"></label>' +
+        inp('', 'Minutes', '1', '', 'id="qa-wo-min"') + '</div><button type="button" class="fitbtn wide" id="qa-wo-go">Save workout</button><div class="fitmsg" id="qa-wo-msg" role="status"></div></div>';
+    } else {
+      h += '<div class="card fitcard"><h3>Quick add</h3><div class="foot hint2">Meal and workout quick-add need the server update (logday). Dictate a note meanwhile.</div></div>';
+    }
+    var fields = [];
+    ['hike', 'steps'].forEach(function (f) { if (canDay || set.indexOf(f) >= 0) fields.push(f); });
+    ['weight', 'sleep'].forEach(function (f) { if (set.indexOf(f) >= 0) fields.push(f); });
+    if (fields.length) {
+      h += '<div class="card fitcard qa" id="qa-body"><h3>Activity &amp; body \u00b7 today</h3><div class="bgrid">' + fields.map(function (f) {
+        var cur = t[f];
+        return '<label>' + TRK_BODY[f][0] + '<input type="number" inputmode="decimal" step="' + TRK_BODY[f][1] + '" min="0" data-f="' + f + '" data-cur="' + (cur == null ? '' : cur) + '" value="' + (cur == null ? '' : cur) + '" autocomplete="off"></label>';
+      }).join('') + '</div><button type="button" class="fitbtn wide" id="qa-body-go">Save today</button><div class="fitmsg" id="qa-body-msg" role="status"></div>' +
+        (canDay && (!cols.steps || !cols.hike) ? '<div class="foot hint2">The ' + (!cols.steps && !cols.hike ? 'Steps and Hike miles columns are' : !cols.steps ? 'Steps column is' : 'Hike miles column is') + ' added to the Phone Log on the first save.</div>' : '') + '</div>';
+    }
+    $('trk-forms').innerHTML = h;
+  }
+  function trkWriteErr(err, id) {
+    if (err instanceof AuthError) { setPc(''); lock('Passcode changed. Enter the new one.'); return; }
+    fitSay(id, 'Not saved: ' + friendly(err), true);
+  }
+  function trkRes(j) {
+    if (j.error === 'bad_action') throw new Error('Server update pending.');
+    if (j.error || !j.data) throw new Error(j.message || 'Could not save.');
+    return j.data;
+  }
+  function loadTrackQuiet() {
+    var seq = ++state.trkSeq;
+    return api('log', 0).then(function (d) { if (seq === state.trkSeq) { state.trackData = d; renderTrackProg(d); } }, function () {});
+  }
+  function trkNum(v) { return v === '' ? null : Number(v); }
+  function trkGo(btn, id, run) {
+    if (state.trkBusy) return;
+    state.trkBusy = true; btn.disabled = true; fitSay(id, 'Saving\u2026');
+    run().catch(function (err) { trkWriteErr(err, id); }).then(function () { state.trkBusy = false; btn.disabled = false; });
+  }
+  function trkMeal(btn) {
+    var vals = {}, any = false, bad = false;
+    Array.prototype.forEach.call(document.querySelectorAll('#qa-meal input[data-m]'), function (i) {
+      if (i.value === '') return;
+      var n = Number(i.value); if (!isFinite(n) || n < 0) bad = true; vals[i.getAttribute('data-m')] = n; any = true;
+    });
+    if (bad) return fitSay('qa-meal-msg', 'Use positive numbers.', true);
+    if (!any) return fitSay('qa-meal-msg', 'Enter calories and/or macros.', true);
+    var mode = state.trkMode === 'set' ? 'set' : 'add', p = { mode: mode, cid: fitCid() };
+    Object.keys(vals).forEach(function (k) { p[k] = vals[k]; });
+    trkGo(btn, 'qa-meal-msg', function () {
+      return apiRaw('logday', p).then(function (j) {
+        var r = trkRes(j), w = r.written || {}, now = [];
+        ['calories', 'protein', 'carbs', 'fat'].forEach(function (k) { if (w[k]) now.push(fmt(w[k].after) + (k === 'calories' ? ' kcal' : ' g ' + k)); });
+        Array.prototype.forEach.call(document.querySelectorAll('#qa-meal input[data-m]'), function (i) { i.value = ''; });
+        fitSay('qa-meal-msg', (mode === 'add' ? 'Added. Today now ' : 'Set. Today is ') + now.join(' \u00b7 '));
+        var m = $('qa-meal-msg');
+        if (m && !r.duplicate) {
+          var u = document.createElement('button'); u.type = 'button'; u.className = 'fitundo'; u.textContent = 'Undo';
+          u.addEventListener('click', function () {
+            var back = { mode: 'set', cid: fitCid() }; Object.keys(w).forEach(function (k) { if (['calories', 'protein', 'carbs', 'fat'].indexOf(k) >= 0) back[k] = w[k].before == null ? 0 : w[k].before; });
+            u.remove(); fitSay('qa-meal-msg', 'Undoing\u2026');
+            apiRaw('logday', back).then(function (j2) { trkRes(j2); fitSay('qa-meal-msg', 'Undone.'); return loadTrackQuiet(); }).catch(function (e) { trkWriteErr(e, 'qa-meal-msg'); });
+          });
+          m.appendChild(u); setTimeout(function () { if (u.parentNode) u.remove(); }, 12000);
+        }
+        return loadTrackQuiet();
+      });
+    });
+  }
+  function trkWorkout(btn) {
+    var type = $('qa-wo-type').value.trim(), min = $('qa-wo-min').value;
+    if (!type && min === '') return fitSay('qa-wo-msg', 'Enter a type and/or minutes.', true);
+    var p = { cid: fitCid() };
+    if (type) p.workout = type; else p.workout = 'Workout';
+    if (min !== '') { var n = Number(min); if (!isFinite(n) || n < 0) return fitSay('qa-wo-msg', 'Minutes must be a positive number.', true); p.workout_min = n; }
+    trkGo(btn, 'qa-wo-msg', function () {
+      return apiRaw('logday', p).then(function (j) {
+        trkRes(j); $('qa-wo-type').value = ''; $('qa-wo-min').value = '';
+        fitSay('qa-wo-msg', 'Saved: ' + p.workout + (p.workout_min != null ? ' \u00b7 ' + fmt(p.workout_min) + ' min' : ''));
+        return loadTrackQuiet();
+      });
+    });
+  }
+  function trkBody(btn) {
+    var d = state.trackData, canDay = !!(d && d.ext && d.ext.write && d.ext.write.logday), jobs = [], dayP = {}, bad = false;
+    Array.prototype.forEach.call(document.querySelectorAll('#qa-body input[data-f]'), function (i) {
+      if (i.value === '' || i.value === i.getAttribute('data-cur')) return;
+      var n = Number(i.value); if (!isFinite(n) || n < 0) { bad = true; return; }
+      var f = i.getAttribute('data-f');
+      if (canDay && f === 'hike') dayP.hike_miles = n;
+      else if (canDay && f === 'steps') dayP.steps = n;
+      else jobs.push({ f: f, v: i.value });
+    });
+    if (bad) return fitSay('qa-body-msg', 'Use positive numbers.', true);
+    if (!jobs.length && !Object.keys(dayP).length) return fitSay('qa-body-msg', 'Nothing changed.');
+    trkGo(btn, 'qa-body-msg', function () {
+      var done = 0, chain = Promise.resolve();
+      if (Object.keys(dayP).length) { dayP.cid = fitCid(); chain = chain.then(function () { return apiRaw('logday', dayP).then(function (j) { trkRes(j); done += Object.keys(dayP).length - 1; }); }); }
+      jobs.forEach(function (j) { chain = chain.then(function () { return apiRaw('logset', { field: j.f, value: j.v, cid: fitCid() }).then(function (r) { trkRes(r); done++; }); }); });
+      return chain.then(function () {
+        Array.prototype.forEach.call(document.querySelectorAll('#qa-body input[data-f]'), function (i) { i.setAttribute('data-cur', i.value); });
+        fitSay('qa-body-msg', 'Saved ' + done + ' value' + (done === 1 ? '' : 's') + '.');
+        return loadTrackQuiet();
+      }, function (err) { return loadTrackQuiet().then(function () { throw err; }); });
+    });
+  }
+  $('trk-forms').addEventListener('click', function (ev) {
+    var t = ev.target.closest ? ev.target.closest('button') : null; if (!t) return;
+    if (t.id === 'qa-meal-go') trkMeal(t);
+    else if (t.id === 'qa-wo-go') trkWorkout(t);
+    else if (t.id === 'qa-body-go') trkBody(t);
+    else if (t.getAttribute('data-mode')) {
+      state.trkMode = t.getAttribute('data-mode');
+      Array.prototype.forEach.call(document.querySelectorAll('#qa-mode button'), function (b) { b.classList.toggle('on', b === t); });
+      $('qa-meal-go').textContent = state.trkMode === 'set' ? 'Set total' : 'Add meal';
+    }
+  });
+
   // One-tap water: optimistic, retry-safe (client id), undoable. Only offered when the API advertises ext.write.water.
   function addWater(oz) {
-    var d = state.logData; if (!d || !d.ext || state.waterBusy) return;
+    var d = state.trackData; if (!d || !d.ext || state.waterBusy) return;
     var t = d.ext.today, before = t.water == null ? null : t.water;
     state.waterBusy = true;
-    t.water = (before || 0) + oz; t.logged = true; renderLogTop(d); fitSay('fit-msg', 'Saving +' + oz + ' oz…');
+    t.water = (before || 0) + oz; t.logged = true; renderTrackProg(d); fitSay('fit-msg', 'Saving +' + oz + ' oz\u2026');
     apiRaw('logadd', { value: oz, cid: fitCid() }).then(function (j) {
       if (j.error || !j.data) throw new Error(j.message || (j.error === 'bad_action' ? 'Server update pending.' : 'Could not save.'));
-      t.water = j.data.after; renderLogTop(d);
+      t.water = j.data.after; renderTrackProg(d);
       fitSay('fit-msg', 'Saved: ' + fmt(j.data.after) + ' oz today');
       var m = $('fit-msg');
       if (m && oz > 0) { var u = document.createElement('button'); u.type = 'button'; u.className = 'fitundo'; u.textContent = 'Undo'; u.addEventListener('click', function () { u.remove(); addWater(-oz); }); m.appendChild(u); clearTimeout(state.undoT); state.undoT = setTimeout(function () { if (u.parentNode) u.remove(); }, 9000); }
     }).catch(function (err) {
       if (err instanceof AuthError) { setPc(''); lock('Passcode changed. Enter the new one.'); return; }
-      t.water = before; renderLogTop(d); fitSay('fit-msg', 'Not saved: ' + friendly(err), true);
+      t.water = before; renderTrackProg(d); fitSay('fit-msg', 'Not saved: ' + friendly(err), true);
     }).then(function () { state.waterBusy = false; });
-  }
-
-  function saveBody() {
-    var d = state.logData; if (!d || !d.ext || state.bodyBusy) return;
-    var inputs = Array.prototype.slice.call(document.querySelectorAll('#log-top .bform input[data-f]')), jobs = [];
-    inputs.forEach(function (i) { if (i.value !== '' && i.value !== i.getAttribute('data-cur')) jobs.push({ f: i.getAttribute('data-f'), v: i.value }); });
-    if (!jobs.length) return fitSay('fit-bmsg', 'Nothing changed.');
-    state.bodyBusy = true; $('fit-save').disabled = true; fitSay('fit-bmsg', 'Saving…');
-    var done = 0;
-    (function next() {
-      var j = jobs.shift();
-      if (!j) { state.bodyBusy = false; fitSay('fit-bmsg', 'Saved ' + done + ' value' + (done === 1 ? '' : 's') + '.'); return loadLogQuiet(); }
-      apiRaw('logset', { field: j.f, value: j.v, cid: fitCid() }).then(function (r) {
-        if (r.error) throw new Error(r.message || 'Could not save.');
-        done++; next();
-      }).catch(function (err) {
-        if (err instanceof AuthError) { setPc(''); lock('Passcode changed. Enter the new one.'); return; }
-        state.bodyBusy = false; var b = $('fit-save'); if (b) b.disabled = false;
-        fitSay('fit-bmsg', 'Not saved (' + j.f + '): ' + friendly(err), true);
-      });
-    })();
-  }
-  function loadLogQuiet() {   // refresh without the loading flash (after a save)
-    var seq = ++state.logSeq;
-    api('log', state.weekOffset).then(function (d) { if (seq === state.logSeq) { var msg = ($('fit-bmsg') || {}).textContent; renderLog(d); if (msg) fitSay('fit-bmsg', msg); } }, function () {});
   }
 
   function renderLog(d) {
@@ -2363,8 +2568,8 @@
       state.micLog = true;
       if (!mic.on) { var ta = $('note-text'); if (ta) ta.value = ''; var rc = $('note-recovered'); if (rc) rc.hidden = true; mic.msg = ''; }
     }
-    $('mic-title').textContent = 'Daily log \u00b7 Dictate a note';
-    $('mic-back').setAttribute('data-go', 'log');
+    $('mic-title').textContent = 'Daily Tracker \u00b7 Dictate a note';
+    $('mic-back').setAttribute('data-go', 'track');
     $('note-text').setAttribute('placeholder', MIC_PH_LOG);
     $('mic-hint').hidden = false;
     $('note-save').setAttribute('data-lbl', 'Save to Voice notes');
@@ -2668,9 +2873,13 @@
       renderVoiceNotes();
     });
   }
+  function vnTodayPrefix() {   // note times read like "Fri 10/2 \u00b7 4:12 AM" (script time zone); today = this phone's date
+    var t = new Date(), dn = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    return dn[t.getDay()] + ' ' + (t.getMonth() + 1) + '/' + t.getDate() + ' ';
+  }
   function renderVoiceNotes() {
     var card = $('vn-card'); if (!card) return;
-    var open = isOpen('vn', false), d = vn.data, h = '';
+    var open = isOpen('vnt', true), d = vn.data, h = '';
     card.classList.toggle('open', open); $('vn-head').setAttribute('aria-expanded', open);
     var cnt = '';
     if (vn.state === 'ok' && d) cnt = d.pending ? d.pending + ' new' : (d.total ? d.total + '' : '');
@@ -2687,15 +2896,23 @@
     else if (vn.state === 'na') h = '<p class="stat dim">Saved voice notes will be listed here after the server update. You can already dictate; a note is kept on this phone until it can be saved.</p>';
     else if (vn.state === 'err') h = '<p class="stat dim">' + esc(vn.msg || 'Couldn\u2019t load voice notes.') + '</p><button class="navbtn" id="vn-retry">Try again</button>';
     else if (d && d.notes && d.notes.length) {
-      h = '<div class="vnlist">' + d.notes.map(function (n) {
+      var pre = vnTodayPrefix(), row = function (n) {
         return '<div class="vnrow' + (n.done ? ' done' : '') + '"><div class="vnmeta"><span>' + esc(n.time || '') + '</span>' +
           (n.done ? '<b class="ok">&#10003; logged</b>' : '<b>new</b>') + '</div><div class="vntext">' + esc(n.text) + '</div></div>';
-      }).join('') + '</div><p class="foot">Latest ' + d.notes.length + (d.total > d.notes.length ? ' of ' + d.total : '') + '. Chief of Staff turns new notes into log entries.</p>';
+      };
+      var tod = d.notes.filter(function (n) { return String(n.time || '').indexOf(pre) === 0; }), old = d.notes.filter(function (n) { return String(n.time || '').indexOf(pre) !== 0; });
+      h = tod.length ? '<div class="vnlist">' + tod.map(row).join('') + '</div>' : '<p class="stat dim">No voice notes yet today. Tap the mic above.</p>';
+      if (old.length) {
+        var oo = isOpen('vnold', false);
+        h += '<button type="button" class="navbtn vnmore" id="vn-more" aria-expanded="' + oo + '">' + (oo ? 'Hide earlier notes' : 'Earlier notes (' + old.length + ')') + '</button>' +
+          (oo ? '<div class="vnlist vnearlier">' + old.map(row).join('') + '</div>' : '');
+      }
+      h += '<p class="foot">Latest ' + d.notes.length + (d.total > d.notes.length ? ' of ' + d.total : '') + '. Chief of Staff turns new notes into log entries.</p>';
     } else h = '<p class="stat dim">No voice notes yet. Tap the mic above.</p>';
     $('vn-body').innerHTML = h;
   }
-  $('vn-head').addEventListener('click', function () { var o = !isOpen('vn', false); setOpen('vn', o); renderVoiceNotes(); });
-  $('vn-body').addEventListener('click', function (e) { if (e.target.id === 'vn-retry') loadVoiceNotes(); });
+  $('vn-head').addEventListener('click', function () { var o = !isOpen('vnt', true); setOpen('vnt', o); renderVoiceNotes(); });
+  $('vn-body').addEventListener('click', function (e) { if (e.target.id === 'vn-retry') loadVoiceNotes(); if (e.target.id === 'vn-more') { setOpen('vnold', !isOpen('vnold', false)); renderVoiceNotes(); } });
 
   /* ---- Mic (Web Speech API) ---- */
   function micUi() {

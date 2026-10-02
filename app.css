@@ -987,3 +987,25 @@ div.sumline { cursor: default; }
 .pf-tag { color: var(--muted); } .pf-tag.pf-hh { color: #ffb74d; font-weight: 700; } .pf-tag.pf-none { color: var(--copper); font-style: italic; }
 .pfwarn { margin-top: 8px; } .pfhint { margin-top: 6px; }
 .flagrow.k-reimburse { border-left-color: #ef6c5a; background: rgba(239,108,90,.07); } .flagrow.k-reimburse .fk { color: #ef6c5a; }
+
+/* ---- v41: Daily Tracker / Daily Log split (tab strip, running totals, quick add) ---- */
+.enttabs.two { grid-template-columns: repeat(2, 1fr); }
+.fitscreen .enttabs button.on { background: var(--c-fit); border-color: var(--c-fit); color: #1b1b1b; font-weight: 800; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 2px 0 8px; }
+.seg button { background: var(--btn); color: var(--muted); border: 1px solid var(--line); border-radius: var(--radius); min-height: 40px; font: 700 14px/1 'Inter', sans-serif; cursor: pointer; padding: 0 6px; }
+.seg button.on { background: rgba(240,122,42,.18); color: var(--c-fit, #F07A2A); border-color: rgba(240,122,42,.7); }
+.seg.small button { min-height: 36px; font-size: 12.5px; }
+.seg.small { margin: 8px 0 0; }
+.btiles.tot { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.btiles.today { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.btiles.today div:first-child { grid-column: 1 / -1; }
+.btiles b { overflow-wrap: anywhere; }
+.qgrid4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.qgrid2w { display: grid; grid-template-columns: minmax(0, 1fr) 96px; gap: 8px; }
+.qa label { display: block; font-size: 11px; color: var(--muted); min-width: 0; }
+.qa input { display: block; width: 100%; min-width: 0; box-sizing: border-box; margin-top: 3px; background: #0b0b0b; color: #fff; border: 1px solid rgba(240,122,42,.4); border-radius: var(--radius);
+  font: 600 17px/1 'Inter', sans-serif; padding: 0 8px; min-height: 46px; }
+.qa input:focus { outline: 2px solid var(--c-fit, #F07A2A); outline-offset: 1px; }
+.vnmore { width: 100%; margin-top: 8px; }
+.vnearlier { margin-top: 8px; }
+.trklink small { flex: 1 1 auto; }
