@@ -1009,3 +1009,7 @@ div.sumline { cursor: default; }
 .vnmore { width: 100%; margin-top: 8px; }
 .vnearlier { margin-top: 8px; }
 .trklink small { flex: 1 1 auto; }
+
+/* v42: four-way totals toggle */
+.seg.four { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+.seg.four button { font-size: 12.5px; padding: 0 2px; }

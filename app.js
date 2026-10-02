@@ -725,6 +725,14 @@
   function logMD(k) { return k ? (+k.slice(5, 7)) + '/' + (+k.slice(8, 10)) : ''; }
   function logTotals(d, which) {
     var ext = d.ext, tot = ext.totals, today = (ext.today && ext.today.date) || '', T = fitTargets(d), hist = ext.history || [];
+    var FUT = '9999-12-31';   // passed as "today" so today counts as a finished day (averages include it)
+    if (which === 'today') return { a: logAgg(hist.filter(function (x) { return x.date === today; }), FUT, T), server: false, since: today };
+    if (which === 'week') {   // Monday..Sunday, same convention as the weekly summary (Code.gs getDailyLog)
+      var td = new Date(+today.slice(0, 4), +today.slice(5, 7) - 1, +today.slice(8, 10), 12), dow = (td.getDay() + 6) % 7;
+      var mon = new Date(td.getFullYear(), td.getMonth(), td.getDate() - dow, 12);
+      var ws = mon.getFullYear() + '-' + ('0' + (mon.getMonth() + 1)).slice(-2) + '-' + ('0' + mon.getDate()).slice(-2);
+      return { a: logAgg(hist.filter(function (x) { return x.date >= ws && x.date <= today; }), FUT, T), server: false, since: ws, dayN: dow + 1 };
+    }
     if (which === 'month') {
       var ms = today.slice(0, 8) + '01';
       if (tot && tot.month) return { a: tot.month, server: true, since: tot.monthStart || ms };
@@ -734,31 +742,45 @@
     var a = logAgg(hist, today, T);
     return { a: a, server: false, since: a.since, partial: true };
   }
-  function avgRow(d, key, a, T) {
+  function avgRow(d, key, a, T, plain) {
     var row = FIT_ROWS.filter(function (r) { return r.key === key; })[0], v = a[key] ? a[key].avg : null, st = fitStatus(row.rule, v, T[key]);
-    return '<div class="fitrow"><div class="fl">' + row.name + ' avg</div><div class="fv t-' + (st || 'none') + '"><b>' + fmt(v) + '</b> / ' + fmt(T[key]) + ' ' + row.unit + '</div>' +
+    return '<div class="fitrow"><div class="fl">' + row.name + (plain ? '' : ' avg') + '</div><div class="fv t-' + (st || 'none') + '"><b>' + fmt(v) + '</b> / ' + fmt(T[key]) + ' ' + row.unit + '</div>' +
       '<div class="fn">' + (v === null || v === undefined ? 'not logged' : fitNote(row, v, T[key], st).replace('to go', 'short')) + '</div>' + fitBar(v, T[key], st) + '</div>';
   }
+  var LOG_TOT_TABS = [['today', 'Today'], ['week', 'Week'], ['month', 'Month'], ['all', 'All time']];
   function totalsCardHtml(d) {
-    var T = fitTargets(d), ext = d.ext, cols = ext.columns || {}, which = state.logTot === 'all' ? 'all' : 'month', W = logTotals(d, which), a = W.a, h = '';
-    h += '<div class="card fitcard"><h3>Running totals</h3><div class="seg"><button type="button" data-tot="month" class="' + (which === 'month' ? 'on' : '') + '">Month to date</button>' +
-      '<button type="button" data-tot="all" class="' + (which === 'all' ? 'on' : '') + '">All time</button></div>';
-    if (!a.logged) return h + '<div class="foot">' + (which === 'month' ? 'Nothing logged yet this month.' : 'Nothing logged yet.') + '</div></div>';
-    h += avgRow(d, 'calories', a, T) + avgRow(d, 'protein', a, T) + avgRow(d, 'water', a, T);
+    var T = fitTargets(d), ext = d.ext, cols = ext.columns || {}, which = LOG_TOT_TABS.some(function (x) { return x[0] === state.logTot; }) ? state.logTot : 'month', W = logTotals(d, which), a = W.a, h = '';
+    var one = which === 'today';
+    h += '<div class="card fitcard"><h3>Running totals</h3><div class="seg four">' + LOG_TOT_TABS.map(function (x) {
+      return '<button type="button" data-tot="' + x[0] + '" class="' + (which === x[0] ? 'on' : '') + '">' + x[1] + '</button>'; }).join('') + '</div>';
+    if (!a.logged) return h + '<div class="foot">' + ({ today: 'Nothing logged yet today.', week: 'Nothing logged yet this week.', month: 'Nothing logged yet this month.', all: 'Nothing logged yet.' })[which] + '</div></div>';
+    h += avgRow(d, 'calories', a, T, one) + avgRow(d, 'protein', a, T, one) + avgRow(d, 'water', a, T, one);
     var v = function (x, dec, unit) { return x === null || x === undefined ? '\u2014' : fmt(x, dec) + (unit || ''); };
-    var tiles = [
-      ['Days logged', a.logged], ['Carbs avg', v(a.carbs.avg, 0, ' g')], ['Fat avg', v(a.fat.avg, 0, ' g')],
-      ['Workouts', a.workouts], ['Workout min', fmt(a.minutes)], ['Min / workout', a.workouts ? fmt(Math.round(a.minutes / a.workouts)) : '\u2014'],
-      ['Hike miles', cols.hike === false ? '\u2014' : v(a.hike.total, 1, ' mi')], ['Steps total', cols.steps === false ? '\u2014' : v(a.steps.total, 0)], ['Steps / day', cols.steps === false ? '\u2014' : v(a.steps.avg, 0)],
-      ['Sleep avg', v(a.sleep.avg, 1, ' h')], ['Weight change', a.weight ? (a.weight.change > 0 ? '+' : '') + fmt(a.weight.change, 1) + ' lb' : '\u2014']
-    ];
+    var tiles = [];
+    if (!one) tiles.push(['Days logged', a.logged]);
+    tiles.push(['Carbs' + (one ? '' : ' avg'), v(a.carbs.avg, 0, ' g')], ['Fat' + (one ? '' : ' avg'), v(a.fat.avg, 0, ' g')],
+      ['Workouts', a.workouts], ['Workout min', fmt(a.minutes)]);
+    if (!one) tiles.push(['Min / workout', a.workouts ? fmt(Math.round(a.minutes / a.workouts)) : '\u2014']);
+    tiles.push(['Hike miles', cols.hike === false || !a.hike.days ? '\u2014' : v(a.hike.total, 1, ' mi')], [one ? 'Steps' : 'Steps total', cols.steps === false || !a.steps.days ? '\u2014' : v(a.steps.total, 0)]);
+    if (!one) tiles.push(['Steps / day', cols.steps === false ? '\u2014' : v(a.steps.avg, 0)]);
+    tiles.push([one ? 'Sleep' : 'Sleep avg', v(a.sleep.avg, 1, ' h')]);
+    if (one) tiles.push(['Weight', a.weight ? fmt(a.weight.latest, 1) + ' lb' : '\u2014']);
+    else tiles.push(['Weight change', a.weight ? (a.weight.change > 0 ? '+' : '') + fmt(a.weight.change, 1) + ' lb' : '\u2014']);
     h += '<div class="btiles tot">' + tiles.map(function (x) { return '<div><span>' + x[0] + '</span><b>' + x[1] + '</b></div>'; }).join('') + '</div>';
     var hit = [];
-    if (a.calories.days) hit.push('calories at/under target ' + a.calories.hit + ' of ' + a.calories.days + ' days');
-    if (a.protein.days) hit.push('protein met ' + a.protein.hit + ' of ' + a.protein.days);
-    if (a.water.days) hit.push('water met ' + a.water.hit + ' of ' + a.water.days);
-    h += '<div class="foot">' + (which === 'month' ? 'Since ' + logMD(W.since) : (W.partial ? 'Last ' + (ext.history || []).length + ' logged days, since ' + logMD(W.since) : 'Since ' + logMD(W.since) + ' (first entry)')) +
-      ' \u00b7 ' + a.logged + ' day' + (a.logged === 1 ? '' : 's') + ' logged. Averages are over finished days; workouts, minutes, hike and steps include today.' + (hit.length ? ' ' + hit.join(' \u00b7 ') + '.' : '') + '</div>';
+    if (!one && !(which === 'week')) {
+      if (a.calories.days) hit.push('calories at/under target ' + a.calories.hit + ' of ' + a.calories.days + ' days');
+      if (a.protein.days) hit.push('protein met ' + a.protein.hit + ' of ' + a.protein.days);
+      if (a.water.days) hit.push('water met ' + a.water.hit + ' of ' + a.water.days);
+    }
+    var note;
+    if (one) note = (ext.today && ext.today.label ? ext.today.label + ' \u00b7 ' : '') + 'today so far; the day is not finished.';
+    else if (which === 'week') note = 'Mon ' + logMD(W.since) + ' to today \u00b7 ' + a.logged + ' of ' + W.dayN + ' day' + (W.dayN === 1 ? '' : 's') + ' logged. Averages are over logged days including today, like the weekly summary below; workouts, minutes, hike and steps are sums.';
+    else {
+      note = (which === 'month' ? 'Since ' + logMD(W.since) : (W.partial ? 'Last ' + (ext.history || []).length + ' logged days, since ' + logMD(W.since) : 'Since ' + logMD(W.since) + ' (first entry)')) +
+        ' \u00b7 ' + a.logged + ' day' + (a.logged === 1 ? '' : 's') + ' logged. Averages are over finished days; workouts, minutes, hike and steps include today.' + (hit.length ? ' ' + hit.join(' \u00b7 ') + '.' : '');
+    }
+    h += '<div class="foot">' + note + '</div>';
     if (W.partial) h += '<div class="foot hint2">All-time totals cover the whole sheet once the server update is live. For now this is the recent history only.</div>';
     return h + '</div>';
   }
