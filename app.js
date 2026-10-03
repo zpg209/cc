@@ -3887,7 +3887,7 @@
     ['overview', 'laundromat'].forEach(function (k) {
       h += '<button class="bigbtn" data-go="fin/' + k + '">' + esc(FIN_PAGES[k].label) + '<span class="sub">' + esc(FIN_PAGES[k].sub) + '</span></button>';
     });
-    h += '<button class="bigbtn" data-go="insn">Insurance<span class="sub">Policies · renewals · to do by entity</span></button></div>';
+    h += '</div>';
     var link = '';
     if (state.links) (state.links.lifeAreas || []).forEach(function (a) { if (/^financial$/i.test(a.name) && a.url) link = a.url; });
     if (link) h += '<a class="linkrow" data-title="Finances" href="' + esc(link) + '">Open Finances folder &rsaquo;</a>';
