@@ -1092,3 +1092,6 @@ h4.dbh { margin: 16px 2px 8px; font-size: 12px; letter-spacing: .8px; text-trans
 .bigsave { border-width: var(--btn-border); border-style: solid; border-color: rgba(61,190,107,.75); }
 /* Vault Income total button: same border as every other section total (was green-edged) */
 .vsec .vtot, .vsec.income .vtot, .vsec.income > .vhead .vtot { border-width: var(--btn-border); border-style: solid; border-color: var(--btn-edge); background: rgba(255,255,255,.04); }
+/* Vault section cards: border matches the section heading color */
+.vsec { border-width: var(--btn-border); border-style: solid; border-color: var(--sec); }
+.vsec.debtsec, .vsec.billsec { border-color: var(--c-debt); }
