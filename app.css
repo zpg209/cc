@@ -1068,3 +1068,18 @@ div.sumline { cursor: default; }
 .ovlink { min-height: 52px; font-size: 16px; }
 .ovlink.alt { opacity: .85; }
 .srcnum.ovsrc { font-size: inherit; font-weight: 400; text-decoration: underline; text-decoration-color: rgba(208,138,85,.5); }
+
+/* Vault Debt / Upcoming bills from the Debts + Bills tabs (source 'sheet'): descriptions, tappable numbers, drill-down rows */
+button.dbtap { background: none; border: 0; font: inherit; font-weight: 700; font-variant-numeric: tabular-nums; text-decoration: underline; text-decoration-color: rgba(217,164,65,.55); text-underline-offset: 3px; padding: 6px 0; min-height: 32px; display: inline-block; cursor: pointer; white-space: nowrap; -webkit-tap-highlight-color: transparent; }
+button.dbtap:active { opacity: .7; }
+.dbdesc { font-size: 12.5px; line-height: 1.4; color: #c4c4c4; padding: 2px 0 8px; overflow-wrap: anywhere; }
+.bmain .bdesc { display: block; font-size: 12px; line-height: 1.4; color: #b5b5b5; margin-top: 3px; overflow-wrap: anywhere; }
+.bill.overdue .bdate small { color: #ff6b6b; font-weight: 700; }
+.bill.overdue .bdate b { color: #ff8a80; }
+.card.dbd .big { margin: 4px 0 6px; }
+.card.dbd .foot .badge { margin-right: 6px; vertical-align: 1px; }
+.dbd + .linkrow, .dbcard + .linkrow { margin-top: 6px; }
+h4.dbh { margin: 16px 2px 8px; font-size: 12px; letter-spacing: .8px; text-transform: uppercase; color: var(--c-debt); font-weight: 700; }
+.dbrow .dbl small { color: var(--muted); font-weight: 400; }
+.dbrow .dbv small { display: block; font-size: 10.5px; color: var(--muted); font-weight: 400; text-align: right; }
+.dbcard .foot.how { padding: 6px 0 0; margin: 0; font-size: 11px; }
