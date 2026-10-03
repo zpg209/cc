@@ -1846,7 +1846,7 @@
           sheetLink('Open in spend sheet', ds ? ds.tab : 'income', ds && ds.tab === 'ls' ? M.lsGid : '');
         h += vSec('inc-' + sx.name, 'income incsrc', esc(sx.label), '<span class="amt-in">' + money(sx.amount) + '</span>', incomeRoute(sx.name), b);
       });
-      h += '<button class="card incTotal"' + goAttr(incomeRoute('All')) + '><span class="n">Total income</span><span class="amt amt-in">' + money(M.incomeTotal) + '</span><span class="chev">&rsaquo;</span></button>';
+      h += vSec('inc-total', 'income', 'Total income', '<span class="amt-in">' + money(M.incomeTotal) + '</span>', incomeRoute('All'), '<div class="foot">Sum of the income sources above.</div>');
       h += '</div>';
 
       var netLine = function (key, label, inc, sp, spLbl) {
@@ -1870,7 +1870,6 @@
         '<div class="split">' + M.who.map(function (w) { return '<button class="splitbtn"' + goAttr(whoRoute(w.name)) + '><b class="amt-out">' + money(w.amount) + '</b>' + esc(w.name) + '</button>'; }).join('') + '</div>');
 
       h += accountsSection();
-      h += debtSection();
       h += billsSection();
 
       h += '<button class="linkrow allbtn"' + goAttr('spend/all') + '>All items (' + M.entryCount + ') &rsaquo;</button>';
