@@ -1601,7 +1601,7 @@
   function billRow(b, D) {
     var sh = dbSheet(D), link = b.srcLinks[0] ? b.srcLinks[0].url : D.docUrl, title = b.srcLinks[0] ? b.srcLinks[0].label : D.docTitle, id = 'bill-' + b.id.replace(/[^\w-]/g, '_');
     var br = dbRoute('bill', b.id);
-    var amt = b.amount == null ? '<span class="muted">n/a</span>' : b.viaEscrow ? '<span class="dbesc">' + dbVal(D, money(b.amount), br, link, title, 'amt-neutral') + '<small>via escrow</small></span>' : dbVal(D, money(b.amount), br, link, title, 'amt-out');
+    var amt = b.amount == null ? '<span class="muted">n/a</span>' : b.viaEscrow ? '<span class="dbesc">' + dbVal(D, money(b.amount), br, link, title, 'amt-neutral') + '<small>via escrow</small></span>' : dbVal(D, money(b.amount), br, link, title, 'amt-gold');
     var meta = [b.kindLabel, b.entity].filter(Boolean).join(' \u00b7 ') + (sh && b.repeat && b.repeat !== 'One-time' ? ' \u00b7 ' + b.repeat : '');
     return '<div class="bill' + (b.overdue ? ' overdue' : '') + '"><div class="bdate"><b>' + esc(dbDate(b.date, true).replace(/^(\w+), /, '$1 ')) + '</b><small>' + esc(b.overdue ? 'overdue' : dbIn(b.daysUntil)) + '</small></div>' +
       '<div class="bmain"><span class="bname">' + esc(b.name) + '</span><small>' + esc(meta) + '</small>' + (sh ? dbDesc(b.description, 'bdesc') : '') +
@@ -1617,7 +1617,7 @@
     var body = '<div class="foot sub-note">' + (D.windowEnd ? 'Through ' + esc(dbDate(D.windowEnd)) + ' \u00b7 ' : '') + D.bills.length + ' item' + (D.bills.length === 1 ? '' : 's') + ', soonest first</div>';
     if (!D.bills.length) body += '<div class="foot empty">Nothing due in the next ' + D.windowDays + ' days.</div>';
     body += D.bills.map(function (b) { return billRow(b, D); }).join('');
-    if (D.bills.length) body += '<div class="bill total"><div class="bmain"><span class="bname">Total due' + (D.billsStatus ? ' ' : '') + '</span></div><div class="bamt">' + dbVal(D, money(D.billsTotal), dbRoute('bills'), D.docUrl, D.docTitle, 'amt-out') + '</div></div>';
+    if (D.bills.length) body += '<div class="bill total"><div class="bmain"><span class="bname">Total due' + (D.billsStatus ? ' ' : '') + '</span></div><div class="bamt">' + dbVal(D, money(D.billsTotal), dbRoute('bills'), D.docUrl, D.docTitle, 'amt-gold') + '</div></div>';
     if (D.undated.length) {
       if (sh) {
         body += '<div class="foot">Not scheduled yet (no due date on the Bills tab): ' + D.undated.map(function (u) { return esc(u.name); }).join(', ') +
@@ -1631,7 +1631,7 @@
     }
     if (sh) body += balBtn('All Bills tab rows', dbRoute('bills'), 'linkrow smallrow') + dbTabBtn(D, 'bills') + dbTabBtn(D, 'debts', true);
     else body += dbDocBtn(D);
-    return vSec('bills', 'billsec', title, '<span class="amt-out">' + money(D.billsTotal) + '</span>', '', body, sh ? goAttr(dbRoute('bills')) : docAttr);
+    return vSec('bills', 'billsec', title, '<span class="amt-gold">' + money(D.billsTotal) + '</span>', '', body, sh ? goAttr(dbRoute('bills')) : docAttr);
   }
 
   /* ---- Drill-down (#spend/debt/...): the Debts / Bills tab rows behind a number, each with its description ---- */
@@ -1721,12 +1721,14 @@
     // bills (all entities, or one)
     var due = D.bills.filter(entF), counted = due.filter(function (b) { return !b.viaEscrow && b.amount != null; }), btot = r2(counted.reduce(function (t, b) { return t + b.amount; }, 0));
     var bst = counted.reduce(function (w, b) { return b.status === 'ESTIMATE' || w === 'ESTIMATE' ? 'ESTIMATE' : b.status === 'DERIVED' || w === 'DERIVED' ? 'DERIVED' : w; }, 'VERIFIED');
-    h += '<div class="card dbd"><h3>Upcoming bills' + (a ? ' \u00b7 ' + esc(a) : '') + '</h3><div class="big amt-out">' + money(btot) + '</div>' +
+    h += '<div class="card dbd"><h3>Upcoming bills' + (a ? ' \u00b7 ' + esc(a) : '') + '</h3><div class="big amt-gold">' + money(btot) + '</div>' +
       '<div class="foot">' + dbStatic(bst) + ' ' + due.length + ' item' + (due.length === 1 ? '' : 's') + ' due through ' + esc(dbDate(D.windowEnd)) + '</div>' +
       '<div class="foot how">Source: the Bills tab (insurance, taxes, other bills) and the Debts tab (loan payments, by due day) of the spend sheet. Items paid through escrow are listed but not added up.</div></div>';
     h += dbTabBtn(D, 'bills') + dbTabBtn(D, 'debts', true);
     if (!due.length) h += '<div class="foot empty">Nothing due in the next ' + D.windowDays + ' days.</div>';
-    due.forEach(function (b) { h += dbBillDetail(b, D); });
+    due.forEach(function (b) {
+      h += '<button class="linkrow billsyn"' + goAttr(dbRoute('bill', b.id)) + '><span class="bsl"><b>' + esc(b.name) + '</b><small>' + esc([dbDate(b.date, true), b.entity].filter(Boolean).join(' \u00b7 ')) + '</small></span><span class="amt-gold">' + (b.amount == null ? 'n/a' : money(b.amount)) + '</span><i class="chev">&rsaquo;</i></button>';
+    });
     var inIds = {}; due.forEach(function (b) { if (b.tab === 'bills') inIds[b.rowNum] = 1; });
     var others = rows.bills.filter(entF).filter(function (r) { return !inIds[r.rowNum]; });
     var sched = others.filter(function (r) { return r.nextDue && !(r.paid && r.repeat === 'One-time'); }), nodate = others.filter(function (r) { return !r.nextDue && !r.paid; }), paid = others.filter(function (r) { return r.paid && r.repeat === 'One-time'; });
@@ -1821,6 +1823,20 @@
     if (!sr.kind || sr.kind === 'debt') loadDebt(false);
 
     if (!sr.kind) {
+      h += billsSection();
+
+      // Income group: one collapsible card per source (heading + green total; heading toggles, total drills down), then Total income.
+      h += '<div class="incgroup">';
+      M.sources.forEach(function (sx) {
+        var l = M.income.filter(function (x) { return x.source === sx.name; });
+        var ds = DETAIL_SRC[sx.name];
+        var b = incCompact(l, !!ds) +
+          sheetLink('Open in spend sheet', ds ? ds.tab : 'income', ds && ds.tab === 'ls' ? M.lsGid : '');
+        h += vSec('inc-' + sx.name, 'income incsrc', esc(sx.label), '<span class="amt-in">' + money(sx.amount) + '</span>', incomeRoute(sx.name), b);
+      });
+      h += vSec('inc-total', 'income', 'Total income', '<span class="amt-in">' + money(M.incomeTotal) + '</span>', incomeRoute('All'), '<div class="foot">Sum of the income sources above.</div>');
+      h += '</div>';
+
       M.accounts.forEach(function (a) {
         var b = '';
         if (!a.cats.length) b += '<div class="foot empty">No entries this month</div>';
@@ -1836,18 +1852,6 @@
         (cashOK ? '<div class="cashtot">' + cashBtn(cashOf(M.items), cashRoute('All')) + '</div>' : '') +
         '<button class="footbtn"' + goAttr('spend/all') + '>' + M.entryCount + ' entries' +
         (M.daysLogged != null ? ' \u00b7 ' + M.daysLogged + ' days logged' : '') + ' &rsaquo;</button>');
-
-      // Income group: one collapsible card per source (heading + green total; heading toggles, total drills down), then Total income.
-      h += '<div class="incgroup">';
-      M.sources.forEach(function (sx) {
-        var l = M.income.filter(function (x) { return x.source === sx.name; });
-        var ds = DETAIL_SRC[sx.name];
-        var b = incCompact(l, !!ds) +
-          sheetLink('Open in spend sheet', ds ? ds.tab : 'income', ds && ds.tab === 'ls' ? M.lsGid : '');
-        h += vSec('inc-' + sx.name, 'income incsrc', esc(sx.label), '<span class="amt-in">' + money(sx.amount) + '</span>', incomeRoute(sx.name), b);
-      });
-      h += vSec('inc-total', 'income', 'Total income', '<span class="amt-in">' + money(M.incomeTotal) + '</span>', incomeRoute('All'), '<div class="foot">Sum of the income sources above.</div>');
-      h += '</div>';
 
       var netLine = function (key, label, inc, sp, spLbl) {
         var n = r2(inc - sp);
@@ -1870,7 +1874,6 @@
         '<div class="split">' + M.who.map(function (w) { return '<button class="splitbtn"' + goAttr(whoRoute(w.name)) + '><b class="amt-out">' + money(w.amount) + '</b>' + esc(w.name) + '</button>'; }).join('') + '</div>');
 
       h += accountsSection();
-      h += billsSection();
 
       h += '<button class="linkrow allbtn"' + goAttr('spend/all') + '>All items (' + M.entryCount + ') &rsaquo;</button>';
       h += sheetLink('Open in spend sheet');

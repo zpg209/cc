@@ -1095,3 +1095,12 @@ h4.dbh { margin: 16px 2px 8px; font-size: 12px; letter-spacing: .8px; text-trans
 /* Vault section cards: border matches the section heading color */
 .vsec { border-width: var(--btn-border); border-style: solid; border-color: var(--sec); }
 .vsec.debtsec, .vsec.billsec { border-color: var(--c-debt); }
+/* Upcoming bills: gold numbers; synopsis rows on the bills drill-down */
+.amt-gold, .amt-gold b, a.amt-gold, button.dbtap.amt-gold { color: var(--c-debt, #D9A441) !important; font-variant-numeric: tabular-nums; }
+.vsec .vtot .amt-gold { color: var(--c-debt, #D9A441) !important; }
+.billsyn { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; min-height: 56px; padding: 8px 12px; margin: 6px 0; }
+.billsyn .bsl { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.billsyn .bsl b { font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.billsyn .bsl small { color: var(--muted, #9a9a9a); font-size: 12px; }
+.billsyn > span.amt-gold { flex: none; font-weight: 700; font-size: 16px; }
+.billsyn .chev { flex: none; color: var(--c-debt, #D9A441); font-style: normal; font-size: 20px; }
