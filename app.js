@@ -3930,8 +3930,8 @@
   }
   // ---- Overview v4 (FIN2): document ledger (fin page "overview", Finances - Overview v4 Doc) + live Vault (`spend` API) ----
   // No figures live in this file. Every number is fetched at runtime: Vault numbers drill to the #spend/... routes, document numbers
-  // open the source Doc / PDF in the viewer, ESTIMATE figures carry a tappable "Estimate" badge that lists what Zac needs to provide.
-  var ov = { fin: { s: 'load' }, sp: { s: 'load' }, cache: {}, seq: 0, estOpen: {}, idx: {}, d: null };
+  // open the source Doc / PDF in the viewer, Incomplete figures carry a tappable "Incomplete" badge that lists what Zac needs to provide (v54ov: only Verified numbers are shown or counted).
+  var ov = { fin: { s: 'load' }, sp: { s: 'load' }, cache: {}, seq: 0, estOpen: {}, idx: {}, d: null, virt: {}, fixed: {}, dyn: {}, ev: {}, ovr: {}, stated: {} };
   var OV_LABEL = {
     'inv.af': 'American Funds', 'inv.etrade': 'E*TRADE', 're.total': 'Real estate (3 properties)', 'eq.value': 'Laundromat equipment',
     'wet.bal': 'Balance', 'wet.rate': 'Rate (fixed)', 'wet.pi': 'Principal & interest', 'wet.escrow': 'Escrow', 'wet.pay': 'Monthly payment', 'wet.due': 'Next payment due', 'wet.maturity': 'Maturity',
@@ -3940,10 +3940,49 @@
     'bos.cl.limit': 'Commercial line limit (unused)', 'bos.heloc.limit': 'HELOC limit (unused)',
     'cash.bos_chk': 'BoS checking', 'cash.bos_sav': 'BoS savings', 'cash.lisa': 'Lisa\u2019s account', 'cash.tiwik': 'TiwiK account', 'cash.kiwit': 'KiwiT account', 'cash.ov_hsa': 'Oak Valley HSA', 'cash.ov_mm': 'Oak Valley money market',
     'buffer.low': 'Working buffer \u00b7 low', 'buffer.high': 'Working buffer \u00b7 high',
-    'inc.k1': 'K-1 income / yr', 'inc.w2': 'W-2 income / yr', 'hh.burn': 'Household burn / mo (provisional)',
+    'inc.k1': 'K-1 income / yr', 'inc.w2': 'W-2 income / yr', 'hh.burn': 'Household burn / mo',
     'ld.rev': 'Revenue / mo', 'ld.util': 'Utilities / mo', 'ld.rep': 'Repairs / mo', 'ld.ins': 'Insurance / mo',
     'mw.rent_lease': 'Tenant rent / mo', 'mw.tax': 'Property tax / mo', 'mw.ins': 'Insurance / mo',
-    'st.rent': 'Rent / mo', 'st.tax': 'Property tax / mo', 'st.ins': 'Insurance / mo', 'st.debt': 'Loan payment / mo'
+    'st.rent': 'Rent / mo', 'st.tax': 'Property tax / mo', 'st.ins': 'Insurance / mo', 'st.debt': 'Loan payment / mo',
+    'ins.kiwit': 'KiwiT building policy', 'ins.sierra_wc': 'Sierra workers comp',
+    're.wet': 'Wetumka', 're.st': 'Stewart Street', 're.mono': 'Mono Way'
+  };
+  // ---- v54ov: statuses are Verified or Incomplete. No figures here: only which rows are exact calculations, which Incomplete rows still show a
+  // figure, facts Zac stated, and the plain-words list of what Zac must provide for each Incomplete row. ----
+  var OV_FOLD = { 'ld.ins': 1, 'wet.maturity': 1 };   // Doc "DERIVED" rows that are exact calculations from verified documents: shown as Verified
+  var OV_KEEP = { 'mono.bal': 1, 'buffer.low': 1, 'buffer.high': 1 };   // Incomplete rows whose figure is still shown and counted (calculated from the signed note; Zac's own targets)
+  var OV_STATED = {   // facts Zac stated (10/3/2026) that are not in the Doc yet; a Doc row already Verified always wins
+    'st.tax': { value: '$0', num: 0, source: 'Zac\u2019s statement 10/3/2026 (triple net: the tenant pays the property tax)' }
+  };
+  var OV_PROPS = [{ ref: 're.wet', label: 'Real estate \u00b7 Wetumka' }, { ref: 're.st', label: 'Real estate \u00b7 Stewart Street' }, { ref: 're.mono', label: 'Real estate \u00b7 Mono Way' }];
+  var OV_GROUP = { inv: 'Investments', re: 'Real estate', eq: 'Equipment', mono: 'Mono Way loan', all: 'Equipment loan', wet: 'Wetumka loan', ld: 'Laundromat (TiwiK)',
+    mw: 'Mono Way (KiwiT)', st: 'Stewart Street (KiwiT)', ins: 'Insurance', inc: 'Income', hh: 'Household', buffer: 'Cash buffer', cash: 'Cash' };
+  var OV_REF_ORDER = ['inv.af', 're.wet', 're.st', 're.mono', 'eq.value', 'mono.bal', 'all.payoff', 'ld.rev', 'ld.util', 'ld.rep', 'mw.tax', 'mw.ins', 'ins.kiwit',
+    'st.rent', 'st.tax', 'st.ins', 'ins.sierra_wc', 'inc.k1', 'inc.w2', 'hh.burn', 'buffer.low', 'buffer.high'];
+  var OV_NEEDS = {
+    'inv.af': [['Latest American Funds statement, with the statement date', 'American Funds is not in the Vault. Its balance is not counted until a statement arrives.']],
+    're.wet': [['Appraisal or county tax-assessed value for Wetumka, with the date', 'Property values are not counted without a documented value.']],
+    're.st': [['Appraisal or tax-assessed value for Stewart Street, with the date', 'Property values are not counted without a documented value.']],
+    're.mono': [['Appraisal for Mono Way (the Bank of Stockton / FieldSmart report from the 2026 refinance) or its tax-assessed value, with the date', 'Property values are not counted without a documented value.']],
+    'eq.value': [['The value to carry for the TiwiK laundromat equipment: an appraisal, or your decision to carry the invoice cost or a depreciated book value (your CPA\u2019s depreciation schedule)', 'The invoice cost and the insured amount are not a current value.']],
+    'mono.bal': [['Bank of Stockton statement for the Mono Way loan: balance, escrow/impound and next payment due', 'The balance shown is calculated from the signed note and the payments since 7/5/2026, so it can be off by a little until a statement confirms it.']],
+    'all.payoff': [['Written payoff quote from Alliance for the equipment loan, with the good-through date', 'No written quote is on file, so a payoff figure is not shown. The loan balance above is verified.']],
+    'ld.rev': [['Laundromat revenue for the last 12 months (machine back-office report), or a full month of weekly deposits logged in the Vault Income tab', 'Only part of one month is in the Vault so far.']],
+    'ld.util': [['Laundromat utility bills for the last 12 months: PG&E, water and gas (or log them in the Vault under TiwiK)', 'No utility payments are in the Vault yet.']],
+    'ld.rep': [['Laundromat repair and maintenance invoices for the last 12 months (or log them in the Vault under TiwiK)', 'Only a few repair payments are in the Vault so far.']],
+    'mw.tax': [['Mono Way property tax bills showing the amount and the period each payment covers', 'The Vault shows one tax check paid by KiwiT, but not whether it is a full year or one installment, so no monthly figure is shown.']],
+    'mw.ins': [['KiwiT building policy declarations page (THREE / Berkshire Hathaway) with the actual premium and the payment plan', 'The Vault shows the last insurance payment, but the policy premium and whether it is paid monthly are not documented.']],
+    'ins.kiwit': [['KiwiT building policy declarations page (THREE / Berkshire Hathaway) with the actual premium and the payment plan', 'The premium on file is an estimate, so no premium is shown.']],
+    'st.rent': [['Stewart Street lease with Sierra Consultants Inc. showing the monthly rent (triple net), and the first rent payment logged in the Vault Income tab', 'No lease or rent payment is on file, so no rent is shown.']],
+    'st.tax': [['Lease page showing the tenant pays Stewart Street property tax (triple net)', 'Confirms the tenant, not KiwiT, pays the tax.']],
+    'st.ins': [['Who insures Stewart Street: the tenant\u2019s certificate of insurance naming KiwiT, or KiwiT\u2019s own policy declarations page', 'No Stewart Street policy is on file.']],
+    'ins.sierra_wc': [['Sierra Consultants workers comp final audited premium', 'The premium on file is an estimate, so no premium is shown.']],
+    'inc.k1': [['Sierra Consultants K-1: the latest year-end K-1, or 2026 year-to-date distributions', 'No K-1 income is in the Vault (Sierra Consultants stays out of the Vault).']],
+    'inc.w2': [['Your latest pay stub or W-2, Lisa\u2019s income documents, and the 2025 tax returns', 'Only checks logged in the Vault are counted as income.']],
+    'hh.burn': [['Keep logging household spend in the Vault until at least 14 days of the month are logged (about 30 days for a full picture)', 'Household burn is counted only from Vault rows.'],
+      ['Tell me whether your household spend already includes the Wetumka mortgage payment', 'Avoids counting the mortgage twice in cash flow.']],
+    'buffer.low': [['Confirm the working cash buffer you want to hold (low end)', 'This is your decision, not a document.']],
+    'buffer.high': [['Confirm the working cash buffer you want to hold (high end)', 'This is your decision, not a document.']]
   };
   function ovLabel(r) {
     if (OV_LABEL[r.ref]) return OV_LABEL[r.ref];
@@ -3952,19 +3991,41 @@
   }
   function ovIndex(d) {
     var idx = {};
-    (d.ledger || []).forEach(function (r) { idx[r.ref] = r; });
+    ov.stated = {};
+    (d.ledger || []).forEach(function (r) {
+      var s = OV_STATED[r.ref];
+      if (s && !/^verified/i.test(String(r.status || ''))) {   // a fact Zac stated (not in the Doc yet): treated like the Doc's "Zac's statement" rows
+        r = { ref: r.ref, figure: r.figure, value: s.value, num: s.num, status: 'VERIFIED', source: s.source };
+        ov.stated[r.ref] = 1;
+      }
+      idx[r.ref] = r;
+    });
     ov.idx = idx; ov.d = d;
   }
-  function ovN(ref) {
+  // Status model (v54ov): every figure is Verified or Incomplete. A Doc DERIVED row is Verified only when it is an exact calculation from
+  // verified documents (OV_FOLD); other DERIVED / ESTIMATE rows are Incomplete: their number is NOT shown or counted (except OV_KEEP).
+  function ovEst(ref) {
+    if (ov.fixed[ref]) return false;
+    if (ov.virt[ref]) return true;
+    var r = ov.idx[ref];
+    if (!r) return false;
+    var t = String(r.status || '');
+    if (/^verified/i.test(t)) return false;
+    if (/^derived/i.test(t)) return !OV_FOLD[ref];
+    return true;
+  }
+  function ovN(ref) {   // the verified number for a ledger row (or null)
+    var o = ov.ovr[ref];
+    if (o && o.val != null) return o.val;
     var r = ov.idx[ref];
     if (!r) return null;
+    if (ovEst(ref) && !OV_KEEP[ref]) return null;
     if (typeof r.num === 'number' && isFinite(r.num)) return r.num;
     var m = moneyNum(r.value);
     if (m !== null) return m;
     if (/%/.test(r.value)) { var p = parseFloat(String(r.value).replace(/[^\d.\-]/g, '')); return isNaN(p) ? null : p; }
     return null;
   }
-  function ovEst(ref) { var r = ov.idx[ref]; return !!r && /^estimate/i.test(r.status || ''); }
   function ovUrl(label) {
     var d = ov.d, hit = null;
     (d.srcLinks || []).forEach(function (s) { if (s.label === label) hit = s.url; });
@@ -3974,6 +4035,9 @@
   function ovWhole(n) { return (n < 0 ? '\u2212' : '') + '$' + Math.round(Math.abs(n)).toLocaleString('en-US'); }
   function ovMo(n) { return n === null || !isFinite(n) ? '\u2014' : (Math.round(n * 10) / 10).toFixed(1) + ' mo'; }
   function ovNeeds(ref) {
+    if (ov.dyn[ref]) return ov.dyn[ref];
+    if (ref === 're.total') return ['re.wet', 're.st', 're.mono'].reduce(function (a, k) { return a.concat(ovNeeds(k)); }, []);
+    if (OV_NEEDS[ref]) return OV_NEEDS[ref].map(function (n) { return { ref: ref, need: n[0], why: n[1] }; });
     return (ov.d.needs || []).filter(function (n) {
       return String(n.ref || '').split(/[,\s]+/).some(function (t) {
         return t === ref || (/\.\*$/.test(t) && ref.indexOf(t.slice(0, -1)) === 0);
@@ -3981,22 +4045,23 @@
     });
   }
   function ovEstKey(refs) { return refs.join(' '); }
+  function ovIncOf(refs) { return refs.filter(function (r, i) { return ovEst(r) && refs.indexOf(r) === i; }); }
   function ovEstBtn(refs) {
-    refs = refs.filter(function (r, i) { return ovEst(r) && refs.indexOf(r) === i; });
+    refs = ovIncOf(refs);
     if (!refs.length) return '';
-    return '<button class="badge est" data-ov-est="' + esc(ovEstKey(refs)) + '">Estimate</button>';
+    return '<button class="badge est" data-ov-est="' + esc(ovEstKey(refs)) + '">Incomplete</button>';
   }
   function ovNeedBox(refs) {
-    refs = refs.filter(function (r, i) { return ovEst(r) && refs.indexOf(r) === i; });
+    refs = ovIncOf(refs);
     if (!refs.length) return '';
     var seen = {}, h = '';
     refs.forEach(function (r) {
       ovNeeds(r).forEach(function (n) {
-        var k = n.ref + n.need; if (seen[k]) return; seen[k] = 1;
+        var k = String(n.need || ''); if (seen[k]) return; seen[k] = 1;
         h += '<div class="ovneedrow">\u2610 ' + esc(String(n.need || '').replace(/^[\u2610\u2611\s]+/, '')) + (n.why ? '<small>' + esc(n.why) + '</small>' : '') + '</div>';
       });
     });
-    if (!h) h = '<div class="ovneedrow">Needs a dated statement or document from Zac.</div>';
+    if (!h) h = '<div class="ovneedrow">\u2610 A dated statement or document for this figure.</div>';
     var key = ovEstKey(refs);
     return '<div class="ovneed" data-ov-need="' + esc(key) + '"' + (ov.estOpen[key] ? '' : ' hidden') + '><b>Needed from Zac</b>' + h + '</div>';
   }
@@ -4004,16 +4069,26 @@
     var u = ovUrl(label);
     return u ? '<a class="srcnum" data-title="' + esc(label || 'Document') + '" href="' + esc(u) + '">' + esc(text) + '</a>' : esc(text);
   }
+  // Vault rows that back (part of) a figure, shown under it and tappable to the rows. Month on screen.
+  function ovEvLine(ref) {
+    var e = ov.ev[ref];
+    if (!e) return '';
+    return '<div class="ovrow calc"><div class="ovl"><small><span class="badge ok">Vault</span> ' + esc(e.text) + '</small></div>' +
+      '<div class="ovv"><button class="ovgo amt-bal"' + goAttr(e.route) + '>' + money(e.amt) + ' &rsaquo;</button></div></div>';
+  }
   // one document figure: label, tappable value (opens the source), status badge + source name
   function ovRow(ref, label, cls) {
     var r = ov.idx[ref];
     if (!r) return '';
-    var est = ovEst(ref), isDer = /^derived/i.test(r.status || '');
-    var badge = est ? ovEstBtn([ref]) : '<span class="badge ' + (isDer ? 'dv' : 'ok') + '">' + (isDer ? 'Derived' : 'Verified') + '</span>';
-    return '<div class="ovrow"><div class="ovl"><span>' + esc(label || ovLabel(r)) + '</span><small>' + badge + ' ' + esc(r.source || '') + '</small></div>' +
-      '<div class="ovv' + (cls ? ' ' + cls : '') + '">' + ovLink(r.value, r.source) + '</div></div>' + (est ? ovNeedBox([ref]) : '');
+    var est = ovEst(ref), n = ovN(ref), o = ov.ovr[ref], val, src;
+    var badge = est ? ovEstBtn([ref]) : '<span class="badge ok">Verified</span>';
+    if (o && o.val != null) { val = '<button class="ovgo"' + goAttr(o.route) + '>' + money(o.val) + ' &rsaquo;</button>'; src = o.src; }
+    else if (est && n === null) { val = '\u2014'; src = 'No verified figure yet'; }
+    else { val = ov.stated[ref] ? esc(r.value) : ovLink(r.value, r.source); src = r.source || ''; }
+    return '<div class="ovrow"><div class="ovl"><span>' + esc(label || ovLabel(r)) + '</span><small>' + badge + ' ' + esc(src) + '</small></div>' +
+      '<div class="ovv' + (cls ? ' ' + cls : '') + '">' + val + '</div></div>' + (est ? ovNeedBox([ref]) : '') + (o ? '' : ovEvLine(ref));
   }
-  // a computed figure (always from the document figures above / Vault); estBadge from the refs it uses
+  // a computed figure (always from the document figures above / Vault); the Incomplete badge comes from the refs it uses
   function ovCalcRow(label, valHtml, cls, sub, refs) {
     var b = refs && refs.length ? ovEstBtn(refs) : '';
     return '<div class="ovrow calc"><div class="ovl"><span>' + esc(label) + '</span>' + (sub || b ? '<small>' + b + (b && sub ? ' ' : '') + (sub ? esc(sub) : '') + '</small>' : '') + '</div>' +
@@ -4023,8 +4098,6 @@
     return '<div class="fxsum ovsum ' + (cls || '') + '" role="button" tabindex="0" data-ov-open="' + esc(open || '') + '"><div class="fxl">' + esc(label) + '</div><div class="fxv">' + esc(val) + '</div>' +
       (sub ? '<div class="fxs">' + esc(sub) + '</div>' : '') + '</div>';
   }
-  function ovSumRefs(refs) { var out = []; refs.forEach(function (r) { if (ov.idx[r] && ovEst(r)) out.push(r); }); return out; }
-  function ovCashRefs() { return (ov.d.ledger || []).filter(function (r) { return /^cash\./.test(r.ref); }).map(function (r) { return r.ref; }); }
   function ovTot(refs) {
     var t = 0, ok = false;
     refs.forEach(function (r) { var n = ovN(r); if (n !== null) { t += n; ok = true; } });
@@ -4034,14 +4107,17 @@
 
   // Vault numbers for the month on screen
   function ovVault() {
+    ov.ev = {}; ov.ovr = {};
     if (ov.sp.s !== 'ok') return null;
     var d = ov.sp.data, M = spendModel(d), off = state.monthOffset, days = periodDays(off), dim = ovDaysIn(off);
     var logged = d.daysLogged != null ? Number(d.daysLogged) : days;
     var acct = function (n) { var a = M.accounts.filter(function (x) { return x.name === n; })[0]; return a ? a.amount : 0; };
     var reliable = days > 0 && logged >= 14, scale = days > 0 ? dim / days : 0;
     var hh = acct('Household');
-    return { d: d, M: M, off: off, days: days, logged: logged, reliable: reliable, hh: hh,
+    var V = { d: d, M: M, off: off, days: days, logged: logged, reliable: reliable, hh: hh,
       burn: reliable ? r2(hh * scale) : null, incM: reliable ? r2(M.incomeTotal * scale) : null, acct: acct };
+    ovEvid(V);
+    return V;
   }
 
   function ovVaultCard(V) {
@@ -4069,31 +4145,33 @@
       sumBtn('net cmp', acctRoute('Household'), 'Household burn (month so far)<small>' + (cashOK ? 'of which Cash ' + money(cashOf(hhItems)) : 'all Household spend') + '</small>', '<span class="amt amt-out">' + money(V.hh) + '</span>') +
       (cashOK ? sumBtn('minor', cashRoute('Household'), 'Household cash subset', '<span class="amt amt-out">' + money(cashOf(hhItems)) + '</span>') : '') +
       '</div>';
-    if (!V.reliable) h += '<div class="fxnote"><b>Not enough days yet</b> Fewer than 14 days are logged this month, so the runway and coverage below use the provisional burn from the Doc (badged Estimate) instead of the Vault.</div>';
+    if (!V.reliable) h += '<div class="fxnote"><b>Not enough days yet</b> Fewer than 14 days are logged this month, so household burn, runway and cash flow show as Incomplete until more days are logged.</div>';
     h += sheetLink('Open in spend sheet');
     return h;
   }
   function sumOf(list, src) { return r2(list.filter(function (x) { return x.source === src; }).reduce(function (s, x) { return s + x.amount; }, 0)); }
 
-  function ovCashCard(V) {
-    var cashRefs = ovCashRefs(), cash = ovTot(cashRefs), lo = ovN('buffer.low'), hi = ovN('buffer.high');
-    var burnEst = ovN('hh.burn'), burn = V && V.burn !== null ? V.burn : burnEst, burnSrc = V && V.burn !== null;
+  function ovCashCard(V, M) {
+    var H = M.heads.cash, B = M.heads.burn, cash = H.val, lo = ovN('buffer.low'), hi = ovN('buffer.high'), burn = B.val, burnSrc = !!(V && V.reliable && burn !== null);
+    var accts = H.groups[0] ? H.groups[0].comps : [];
     var h = '';
-    h += ovCalcRow('Cash (7 accounts)', cash === null ? '\u2014' : ovWhole(cash), '', 'sum of the accounts below', cashRefs);
-    h += collCard('ovcash', 'Accounts', cashRefs.length, cashRefs.map(function (r) { return ovRow(r); }).join(''), false, 'nest');
+    h += ovCalcRow('Cash (' + accts.length + (accts.length === 1 ? ' account' : ' accounts') + ')', cash === null ? '\u2014' : ovWhole(cash), '', 'sum of the Vault accounts below', H.needRefs);
+    h += collCard('ovcash', 'Accounts', accts.length, accts.map(ovCompRow).join(''), false, 'nest');
     h += ovRow('buffer.low') + ovRow('buffer.high');
     if (cash !== null && lo !== null && hi !== null) {
-      h += ovCalcRow('Usable above buffer', ovWhole(cash - hi) + ' \u2013 ' + ovWhole(cash - lo), cash - hi >= 0 ? 'amt-in' : 'amt-out', 'cash \u2212 buffer (high \u2013 low)', cashRefs.concat(['buffer.low', 'buffer.high']));
+      h += ovCalcRow('Usable above buffer', ovWhole(cash - hi) + ' \u2013 ' + ovWhole(cash - lo), cash - hi >= 0 ? 'amt-in' : 'amt-out', 'cash \u2212 buffer (high \u2013 low)', H.needRefs.concat(['buffer.low', 'buffer.high']));
     }
-    if (burnSrc) h += '<div class="ovrow calc"><div class="ovl"><span>Household burn / mo</span><small><span class="badge ok">Vault</span> ' + esc(String(V.logged)) + ' days logged, scaled to the month</small></div>' +
+    if (burnSrc) h += '<div class="ovrow calc"><div class="ovl"><span>Household burn / mo</span><small><span class="badge ok">Verified</span> Vault \u00b7 ' + esc(String(V.logged)) + ' days logged, scaled to the month</small></div>' +
       '<div class="ovv"><button class="ovgo amt-out" data-go="' + esc(acctRoute('Household')) + '">' + ovWhole(burn) + ' &rsaquo;</button></div></div>';
     else h += ovRow('hh.burn');
     if (cash !== null && burn) {
-      var refs = cashRefs.concat(burnSrc ? [] : ['hh.burn']);
-      h += ovCalcRow('Runway: all cash \u00f7 burn', ovMo(cash / burn), '', burnSrc ? 'Vault burn' : 'provisional burn', refs);
+      var refs = H.needRefs.concat(burnSrc ? [] : ['hh.burn']);
+      h += ovCalcRow('Runway: all cash \u00f7 burn', ovMo(cash / burn), '', burnSrc ? 'Vault burn' : 'household burn', refs);
       if (lo !== null && hi !== null) h += ovCalcRow('Runway above buffer', ovMo(Math.max(0, cash - hi) / burn) + ' \u2013 ' + ovMo(Math.max(0, cash - lo) / burn), '', 'cash \u2212 buffer (high \u2013 low), \u00f7 burn', refs.concat(['buffer.low', 'buffer.high']));
+    } else {
+      h += ovCalcRow('Runway: all cash \u00f7 burn', '\u2014', '', 'needs a verified household burn', ['hh.burn']);
     }
-    return { html: h, cash: cash, burn: burn, burnSrc: burnSrc, runway: cash !== null && burn ? cash / burn : null, refs: cashRefs.concat(burnSrc ? [] : ['hh.burn']) };
+    return { html: h, cash: cash, burn: burn, burnSrc: burnSrc, runway: cash !== null && burn ? cash / burn : null };
   }
 
   function ovLoan(title, refs, key, openDefault) {
@@ -4103,11 +4181,11 @@
   function ovDebtCard(V, C) {
     var pays = ['wet.pay', 'mono.pay', 'all.pay'], ds = ovTot(pays), ds2 = ds !== null && ovN('all.pay2') !== null ? ds - ovN('all.pay') + ovN('all.pay2') : null;
     var h = ovRow('wet.pay', 'Wetumka \u00b7 Rocket (incl. escrow)') + ovRow('mono.pay', 'Mono Way \u00b7 Bank of Stockton') + ovRow('all.pay', 'Equipment \u00b7 Alliance (now)') + ovRow('all.pay2', 'Equipment \u00b7 Alliance (after reset)');
-    h += ovCalcRow('Debt service / mo', ds === null ? '\u2014' : ovWhole(ds), 'amt-out', ds2 !== null ? 'after reset: ' + ovWhole(ds2) : '', []);
+    h += ovCalcRow('Debt service / mo', ds === null ? '\u2014' : ovWhole(ds), 'amt-out', ds2 !== null ? 'after reset: ' + ovWhole(ds2) : '', pays);
     var inc = 0, refs = [];
     if (V && V.M) {
       inc = V.M.incomeTotal || 0;
-      h += '<div class="ovrow calc"><div class="ovl"><span>Vault income</span><small><span class="badge ok">Vault</span> logged this month so far</small></div><div class="ovv"><button class="ovgo amt-in" data-go="' + esc(incomeRoute('All')) + '">' + ovWhole(inc) + ' &rsaquo;</button></div></div>';
+      h += '<div class="ovrow calc"><div class="ovl"><span>Vault income</span><small><span class="badge ok">Verified</span> Vault \u00b7 logged this month so far</small></div><div class="ovv"><button class="ovgo amt-in" data-go="' + esc(incomeRoute('All')) + '">' + ovWhole(inc) + ' &rsaquo;</button></div></div>';
     } else h += '<div class="ovnote">Vault income is not loaded yet.</div>';
     h += ovCalcRow('Total income (month to date)', ovWhole(inc), 'amt-in', '', refs);
     if (ds !== null && inc > 0) h += ovCalcRow('Debt service \u00f7 income', Math.round(ds / inc * 100) + '%', '', 'lower is better', refs);
@@ -4115,69 +4193,98 @@
       var cf = inc - C.burn - ds;
       h += ovCalcRow('Monthly cash flow', signedMoney2(cf), cf >= 0 ? 'amt-in' : 'amt-out', 'income \u2212 household burn \u2212 debt service', refs.concat(C.burnSrc ? [] : ['hh.burn']));
       h += '<div class="ovnote">Indicative. If the household burn already includes the Wetumka mortgage, or the Vault TiwiK/KiwiT accounts already include the loan payments, those are counted twice.</div>';
+    } else {
+      h += ovCalcRow('Monthly cash flow', '\u2014', '', 'needs a verified household burn', ['hh.burn']);
     }
+    h += '<div class="fxgrp">Annual income (K-1 and W-2)</div>' + ovRow('inc.k1') + ovRow('inc.w2');
     return { html: h, ds: ds, ds2: ds2 };
   }
   function signedMoney2(v) { return (v >= 0 ? '+' : '\u2212') + '$' + Math.round(Math.abs(v)).toLocaleString('en-US'); }
 
+  // Property & business cash flow: only verified figures are summed. A net is labelled with what it leaves out.
   function ovFlowCard() {
     var N = function (r) { var n = ovN(r); return n === null ? 0 : n; };
-    var ldNet = N('ld.rev') - N('ld.util') - N('ld.rep') - N('ld.ins') - N('all.pay');
-    var mwNet = N('mw.rent_lease') - N('mw.tax') - N('mw.ins') - N('mono.pay');
-    var stNet = N('st.rent') - N('st.tax') - N('st.ins') - N('st.debt');
-    var wet = -N('wet.pay');
     var cls = function (n) { return n >= 0 ? 'amt-in' : 'amt-out'; };
-    var h = '<div class="fxgrp">Laundromat (TiwiK)</div>' + ['ld.rev', 'ld.util', 'ld.rep', 'ld.ins', 'all.pay'].map(function (r) { return ovRow(r, r === 'all.pay' ? 'Equipment loan payment / mo' : null); }).join('') +
-      ovCalcRow('Laundromat net / mo', signedMoney2(ldNet), cls(ldNet), 'revenue \u2212 costs \u2212 loan payment', ['ld.rev', 'ld.util', 'ld.rep']);
-    h += '<div class="fxgrp">Mono Way (KiwiT)</div>' + ['mw.rent_lease', 'mw.tax', 'mw.ins', 'mono.pay'].map(function (r) { return ovRow(r, r === 'mono.pay' ? 'Mortgage payment / mo' : null); }).join('') +
-      ovCalcRow('Mono Way net / mo', signedMoney2(mwNet), cls(mwNet), 'rent \u2212 tax \u2212 insurance \u2212 mortgage', ['mw.tax']);
-    h += '<div class="fxgrp">Stewart Street (KiwiT)</div>' + ['st.rent', 'st.tax', 'st.ins', 'st.debt'].map(function (r) { return ovRow(r); }).join('') +
-      ovCalcRow('Stewart Street net / mo', signedMoney2(stNet), cls(stNet), 'rent \u2212 tax \u2212 insurance \u2212 loan', ['st.rent', 'st.tax', 'st.ins', 'st.debt']);
+    function part(label, signed, refs, sub0) {   // signed: list of [ref, +1|-1]
+      var miss = refs.filter(function (r) { return ovEst(r) && ovN(r) === null; }), t = 0, any = false;
+      signed.forEach(function (s) { var n = ovN(s[0]); if (n !== null) { t += s[1] * n; if (n !== 0) any = true; } });
+      var sub = miss.length ? 'verified items only \u2014 leaves out ' + miss.map(function (r) { return (OV_LABEL[r] || r).replace(/ \/ mo$/, '').toLowerCase(); }).join(', ') : sub0;
+      var none = ovN(signed[0][0]) === null || (miss.length && !any);
+      return { net: t, calc: ovCalcRow(label, none ? '\u2014' : signedMoney2(t), none ? '' : cls(t), sub, refs) };
+    }
+    var ld = part('Laundromat net / mo', [['ld.rev', 1], ['ld.util', -1], ['ld.rep', -1], ['ld.ins', -1], ['all.pay', -1]], ['ld.rev', 'ld.util', 'ld.rep', 'ld.ins', 'all.pay'], 'revenue \u2212 costs \u2212 loan payment');
+    var mw = part('Mono Way net / mo', [['mw.rent_lease', 1], ['mw.tax', -1], ['mw.ins', -1], ['mono.pay', -1]], ['mw.rent_lease', 'mw.tax', 'mw.ins', 'mono.pay'], 'rent \u2212 tax \u2212 insurance \u2212 mortgage');
+    var st = part('Stewart Street net / mo', [['st.rent', 1], ['st.tax', -1], ['st.ins', -1], ['st.debt', -1]], ['st.rent', 'st.tax', 'st.ins', 'st.debt'], 'rent \u2212 tax \u2212 insurance \u2212 loan');
+    var wet = -N('wet.pay');
+    var h = '<div class="fxgrp">Laundromat (TiwiK)</div>' + ['ld.rev', 'ld.util', 'ld.rep', 'ld.ins', 'all.pay'].map(function (r) { return ovRow(r, r === 'all.pay' ? 'Equipment loan payment / mo' : null); }).join('') + ld.calc;
+    h += '<div class="fxgrp">Mono Way (KiwiT)</div>' + ['mw.rent_lease', 'mw.tax', 'mw.ins', 'mono.pay'].map(function (r) { return ovRow(r, r === 'mono.pay' ? 'Mortgage payment / mo' : null); }).join('') + mw.calc;
+    h += '<div class="fxgrp">Stewart Street (KiwiT)</div>' + ['st.rent', 'st.tax', 'st.ins', 'st.debt'].map(function (r) { return ovRow(r); }).join('') + st.calc;
     h += '<div class="fxgrp">Wetumka</div>' + ovCalcRow('Rocket Mortgage payment / mo', signedMoney2(wet), 'amt-out', 'verified payment', []);
-    var tot = ldNet + mwNet + stNet + wet;
-    h += ovCalcRow('Combined / mo', signedMoney2(tot), cls(tot), 'sum of the four lines above', ['ld.rev', 'ld.util', 'ld.rep', 'mw.tax', 'st.rent', 'st.tax', 'st.ins', 'st.debt']);
+    var tot = ld.net + mw.net + st.net + wet, all = ['ld.rev', 'ld.util', 'ld.rep', 'mw.rent_lease', 'mw.tax', 'mw.ins', 'st.rent', 'st.tax', 'st.ins'];
+    var inc = ovIncOf(all).length > 0;
+    h += ovCalcRow('Combined / mo', inc ? '\u2014' : signedMoney2(tot), inc ? '' : cls(tot), inc ? 'needs the Incomplete items above' : 'sum of the four lines above', all);
     return h;
   }
 
-  function ovNetWorth() {
-    var cashRefs = ovCashRefs(), cash = ovTot(cashRefs);
-    var aRefs = ['inv.af', 'inv.etrade', 're.total', 'eq.value'], dRefs = ['wet.bal', 'mono.bal', 'all.bal'];
-    var assets = ovTot(aRefs.concat(cash === null ? [] : [])) , debt = ovTot(dRefs);
-    if (assets === null) assets = 0;
-    if (cash !== null) assets += cash;
-    var nw = debt === null ? null : assets - debt;
-    var h = ovCalcRow('Cash (7 accounts)', cash === null ? '\u2014' : ovWhole(cash), '', 'see Cash & runway', cashRefs) + aRefs.map(function (r) { return ovRow(r); }).join('');
-    h += ovCalcRow('Total assets', ovWhole(assets), '', '', cashRefs.concat(aRefs));
-    h += dRefs.map(function (r) { return ovRow(r, { 'wet.bal': 'Wetumka \u00b7 Rocket Mortgage', 'mono.bal': 'Mono Way \u00b7 Bank of Stockton (KiwiT)', 'all.bal': 'Equipment \u00b7 Alliance (TiwiK)' }[r], 'amt-out'); }).join('');
-    h += ovCalcRow('Total debt', debt === null ? '\u2014' : ovWhole(debt), 'amt-out', '', []);
-    if (nw !== null) h += ovCalcRow('Net worth', ovWhole(nw), nw >= 0 ? 'amt-in' : 'amt-out', 'assets \u2212 debt', cashRefs.concat(aRefs));
+  function ovNetWorth(M) {
+    var H = M.heads.nw, h = '';
+    H.groups.forEach(function (g) {
+      if (!g.comps.length && !g.total) return;
+      if (g.title) h += '<div class="fxgrp">' + esc(g.title) + '</div>';
+      h += g.comps.map(ovCompRow).join('');
+      if (g.total) h += '<div class="ovrow calc"><div class="ovl"><span>' + esc(g.total.label) + '</span></div><div class="ovv"><span class="' + esc(g.total.cls || '') + '">' + ovWhole(g.total.val) + '</span></div></div>';
+    });
+    if (H.val !== null) h += ovCalcRow('Net worth', ovWhole(H.val), H.val >= 0 ? 'amt-in' : 'amt-out', 'assets \u2212 debt', H.needRefs);
+    else h += ovCalcRow('Net worth', '\u2014', '', 'needs the Incomplete assets above', H.needRefs);
     h += ovRow('bos.cl.limit') + ovRow('bos.heloc.limit') + '<div class="ovnote">The two unused Bank of Stockton lines are not in net worth.</div>';
-    return { html: h, assets: assets, debt: debt, nw: nw, refs: cashRefs.concat(aRefs) };
+    return { html: h, nw: H.val };
   }
 
-  // Investments (E*TRADE from the live Balances rows, American Funds from the Doc as an Estimate): the Vault Accounts no longer lists them.
-  function ovInvCard() {
-    var M = ovModel(), c = M.invC || [];
+  // Investments (E*TRADE from the live Balances rows; American Funds is not in the Vault, so it is Incomplete until a statement arrives).
+  function ovInvCard(M) {
+    M = M || ovModel();
+    var c = M.invC || [];
     if (!c.length) return '<div class="foot">No investment balances yet.</div>';
-    return c.map(ovCompRow).join('') + '<div class="ovrow calc"><div class="ovl"><span>Investments total</span></div><div class="ovv"><span class="amt-bal">' + ovWhole(M.invTotal) + '</span></div></div>' +
+    var refs = []; c.forEach(function (x) { if (x.tag === 'est' && x.ref) refs.push(x.ref); });
+    return c.map(ovCompRow).join('') + ovCalcRow('Investments total' + (refs.length ? ' (verified items only)' : ''), M.invTotal === null ? '\u2014' : ovWhole(M.invTotal), 'amt-bal', '', refs) +
       '<button class="bigbtn ovlink" ' + goAttr(balRoute('g:Investments')) + '>Investment balances (Balances tab rows) &rsaquo;</button>' +
       '<div class="ovnote">Counted in Net worth and Total assets. Not in Cash, the Vault Accounts total or reconciliation.</div>';
   }
+
+  // Every Incomplete item and what Zac must provide for it (built from the same state that draws the badges).
+  function ovIncRefs() {
+    var out = [], seen = {};
+    function add(ref) { if (!seen[ref] && ovEst(ref)) { seen[ref] = 1; out.push(ref); } }
+    OV_REF_ORDER.forEach(add);
+    Object.keys(ov.virt).forEach(add);
+    (ov.d.ledger || []).forEach(function (r) { if (!/^(cash|bos)\./.test(r.ref) && !(r.ref === 're.total' && ov.virt['re.wet'])) add(r.ref); });
+    return out;
+  }
+  function ovIncTitle(ref) {
+    var g = OV_GROUP[ref.split('.')[0]] || '', r = ov.idx[ref], l = OV_LABEL[ref] || (r ? ovLabel(r) : ref);
+    if (/^cash\./.test(ref)) return 'Cash \u00b7 ' + ref.slice(5);
+    return g && l.indexOf(g) !== 0 ? g + ' \u00b7 ' + l : l;
+  }
   function ovNeedsCard() {
-    var needs = ov.d.needs || [];
-    if (!needs.length) return '';
-    return collCard('ovneeds', 'Needs from Zac', needs.length, needs.map(function (n) {
-      var firstRef = String(n.ref || '').split(/[,\s]+/)[0], row = ov.idx[firstRef];
-      return '<div class="todorow ovneedit"><div class="fxtdh"><span>' + esc(String(n.need || '').replace(/^[\u2610\u2611\s]+/, '')) + '</span></div>' +
-        (n.why ? '<div class="ovwhy">' + esc(n.why) + '</div>' : '') +
-        (row ? '<div class="ovwhy">' + ovEstBtn([firstRef]) + ' ' + ovLink(row.value, row.source) + '</div>' : '') + '</div>';
+    var rows = [], seen = {};
+    ovIncRefs().forEach(function (ref) {
+      ovNeeds(ref).forEach(function (n) {
+        var k = String(n.need || ''); if (seen[k]) return; seen[k] = 1;
+        rows.push({ ref: ref, need: k, why: n.why, title: ovIncTitle(ref) });
+      });
+    });
+    if (!rows.length) return '';
+    return collCard('ovneeds', 'Needs from Zac', rows.length, rows.map(function (n) {
+      return '<div class="todorow ovneedit"><div class="fxtdh"><span>' + esc(n.need.replace(/^[\u2610\u2611\s]+/, '')) + '</span></div>' +
+        '<div class="ovwhy"><span class="badge est">Incomplete</span> ' + esc(n.title) + '</div>' +
+        (n.why ? '<div class="ovwhy">' + esc(n.why) + '</div>' : '') + '</div>';
     }).join(''), false);
   }
 
   // ---- Headline numbers (v46): live model + tap-through detail ----
   // Each headline is built from components. A component is Vault-backed when its value comes from the Vault (Accounts balances, Debt
   // loans, logged income / spend) and otherwise comes from the Overview Doc ledger. Where the Vault has a real number it replaces the
-  // Doc's (often Estimate) one and any difference is flagged. No figures live in this file.
+  // Doc's one and any difference from a Verified Doc figure is flagged. No figures live in this file.
   var OV_HEADS = {
     nw: { title: 'Net worth', tile: 'Net worth', how: 'Assets \u2212 debt' },
     debt: { title: 'Total debt', tile: 'Total debt', how: 'Sum of the loan balances' },
@@ -4189,12 +4296,12 @@
     flow: { title: 'Cash flow / mo', tile: 'Cash flow / mo', how: 'Income \u2212 burn \u2212 debt service' }
   };
   var OV_ORDER = ['nw', 'debt', 'cash', 'ds', 'inc', 'burn', 'runway', 'flow'];
-  var OV_RANK = { ver: 0, der: 1, est: 2 };
+  var OV_RANK = { ver: 0, est: 1 };
   var OV_STOP = { account: 1, accounts: 1, the: 1, and: 1, of: 1, llc: 1, inc: 1, business: 1, personal: 1, acct: 1, s: 1 };
-  function ovTagOf(s) { s = String(s || ''); return /^verified/i.test(s) ? 'ver' : /^derived/i.test(s) ? 'der' : 'est'; }
+  function ovTagOf(s) { return /^verified/i.test(String(s || '')) ? 'ver' : 'est'; }   // Vault Debt / Doc status text: anything but Verified is Incomplete
   function ovTagBadge(tag, ref) {
-    if (tag === 'est' && ref && ov.idx[ref] && ovEst(ref)) return ovEstBtn([ref]);
-    return '<span class="badge ' + (tag === 'ver' ? 'ok' : tag === 'der' ? 'dv' : 'est') + '">' + (tag === 'ver' ? 'Verified' : tag === 'der' ? 'Derived' : 'Estimate') + '</span>';
+    if (tag === 'est' && ref) { var b = ovEstBtn([ref]); if (b) return b; }
+    return tag === 'est' ? '<span class="badge est">Incomplete</span>' : '<span class="badge ok">Verified</span>';
   }
   function ovToks(s) {
     s = String(s || '').toLowerCase().replace(/e[\s*\-]*trade/g, 'etrade').replace(/bank of stockton/g, 'bos').replace(/oak valley( community)?( bank)?/g, 'ov')
@@ -4221,7 +4328,9 @@
   function ovDocComp(ref, label) {
     var r = ov.idx[ref];
     if (!r) return null;
-    return { id: ref, ref: ref, label: label || ovLabel(r), val: ovN(ref), tag: ovTagOf(r.status), vault: false, src: r.source || 'Overview Doc', docSrc: r.source || '' };
+    var est = ovEst(ref), v = ovN(ref);
+    return { id: ref, ref: ref, label: label || ovLabel(r), val: v, tag: est ? 'est' : 'ver', vault: false,
+      src: est && v === null ? 'No verified figure yet' : (r.source || 'Overview Doc'), docSrc: est && v === null || ov.stated[ref] ? '' : (r.source || '') };
   }
   function ovAcctComp(a) {
     return { id: a.name, label: a.name, val: a.balance, tag: 'ver', vault: true, src: 'Vault Accounts \u00b7 ' + a.name, asOf: a.asOf, go: balRoute(a.name), vsec: 'accounts', goLabel: 'Vault Accounts' };
@@ -4229,20 +4338,21 @@
   function ovInvComp(a) {
     return { id: a.name, label: a.name, val: a.balance, tag: 'ver', vault: true, src: 'Vault Balances \u00b7 ' + a.name, asOf: a.asOf, go: balRoute(a.name), goLabel: 'Balances' };
   }
-  function ovApplyInv(c, m) {   // live Investments row replaces the Doc value (never both); a difference is flagged
+  function ovApplyInv(c, m) {   // live Investments row replaces the Doc value (never both); a difference from a Verified Doc figure is flagged
     if (!c) return null;
-    if (!m.a) { if (m.n > 1) c.note = 'The Vault has ' + m.n + ' investment rows that could match, so the Doc figure is used.'; return c; }
+    if (!m.a) { if (m.n > 1) c.note = 'The Vault has ' + m.n + ' investment rows that could match, so none is used.'; return c; }
     var o = ovInvComp(m.a);
     o.id = c.id; o.ref = c.ref; o.label = c.label; o.vaultName = m.a.name;
-    if (c.val !== null && Math.abs(c.val - m.a.balance) >= 1) o.mismatch = { doc: c.val, docTag: c.tag, ref: c.ref, vault: m.a.balance };
+    ov.fixed[c.ref] = true;
+    if (c.val !== null && c.tag !== 'est' && Math.abs(c.val - m.a.balance) >= 1) o.mismatch = { doc: c.val, docTag: c.tag, ref: c.ref, vault: m.a.balance };
     return o;
   }
   function ovApplyAcct(c, m) {
     if (!c) return null;
-    if (!m.a) { if (m.n > 1) c.note = 'The Vault has ' + m.n + ' accounts that could match, so the Doc figure is used.'; return c; }
+    if (!m.a) { if (m.n > 1) c.note = 'The Vault has ' + m.n + ' accounts that could match, so none is used.'; return c; }
     var o = ovAcctComp(m.a);
     o.id = c.id; o.ref = c.ref; o.label = c.label; o.vaultName = m.a.name;
-    if (c.val !== null && Math.abs(c.val - m.a.balance) >= 1) o.mismatch = { doc: c.val, docTag: c.tag, ref: c.ref, vault: m.a.balance };
+    if (c.val !== null && c.tag !== 'est' && Math.abs(c.val - m.a.balance) >= 1) o.mismatch = { doc: c.val, docTag: c.tag, ref: c.ref, vault: m.a.balance };
     return o;
   }
   var OV_LOANS = [
@@ -4267,7 +4377,8 @@
     var o = l ? ovLoanComp(l, which) : null;
     if (!o) return c;
     o.label = c.label; o.ref = c.ref; o.id = c.id;
-    if (c.val !== null && Math.abs(c.val - o.val) >= 1) o.mismatch = { doc: c.val, docTag: c.tag, ref: c.ref, vault: o.val };
+    if (o.tag === 'est') ov.virt[c.ref] = true; else ov.fixed[c.ref] = true;   // the Vault Debt row decides Verified / Incomplete
+    if (c.val !== null && c.tag !== 'est' && Math.abs(c.val - o.val) >= 1) o.mismatch = { doc: c.val, docTag: c.tag, ref: c.ref, vault: o.val };
     if (which === 'payment' && o.next == null && ov.idx[c.ref.replace(/\.pay$/, '.pay2')]) o.next = ovN(c.ref.replace(/\.pay$/, '.pay2'));
     return o;
   }
@@ -4287,7 +4398,7 @@
   function ovWorstTag(list) {
     var r = 0;
     list.forEach(function (c) { if (c) r = Math.max(r, OV_RANK[c.tag] || 0); });
-    return ['ver', 'der', 'est'][r];
+    return ['ver', 'est'][r];
   }
   function ovAsOf(list) {
     var lo = '', hi = '';
@@ -4302,8 +4413,12 @@
   function ovHead(key, comps, o) {
     comps = comps.filter(function (c) { return c; });
     var h = { key: key, groups: o.groups || [{ title: o.gtitle || 'Components', comps: comps }], val: o.val, comps: comps, flags: [], notes: o.notes || [], calc: o.calc || OV_HEADS[key].how,
-      cls: o.cls || '', fmt: o.fmt || 'money', vsecs: o.vsecs || [], sub: o.sub || '', extra: o.extra || '' };
+      cls: o.cls || '', fmt: o.fmt || 'money', vsecs: o.vsecs || [], sub: o.sub || '', noneSub: o.noneSub || '', extra: o.extra || '', needRefs: [] };
     h.cov = ovCov(comps); h.tag = ovWorstTag(comps); h.asOf = ovAsOf(comps);
+    comps.forEach(function (c) {
+      var rs = c.agg ? (c.needRefs || []) : (c.tag === 'est' && c.ref ? [c.ref] : []);
+      rs.forEach(function (r) { if (h.needRefs.indexOf(r) < 0) h.needRefs.push(r); });
+    });
     comps.forEach(function (c) {
       if (c.agg) { (c.flags || []).forEach(function (f) { h.flags.push(f); }); }
       else if (c.mismatch) h.flags.push({ label: c.label, vault: c.mismatch.vault, doc: c.mismatch.doc, docTag: c.mismatch.docTag, ref: c.mismatch.ref, inline: true });
@@ -4313,42 +4428,83 @@
     return h;
   }
   function ovAgg(head, label, sign) {
-    return { agg: true, key: head.key, label: label, val: head.val === null ? null : sign * head.val, tag: head.tag, cov: head.cov, flags: head.flags, go: 'fin/overview/' + head.key, fmt: head.fmt, cls: head.cls };
+    return { agg: true, key: head.key, label: label, val: head.val === null ? null : sign * head.val, tag: head.tag, cov: head.cov, flags: head.flags, needRefs: head.needRefs, go: 'fin/overview/' + head.key, fmt: head.fmt, cls: head.cls };
   }
 
+  function ovVirt(ref, label) { ov.virt[ref] = true; return { id: ref, ref: ref, label: label, val: null, tag: 'est', vault: false, src: 'No verified figure yet' }; }
+  function ovDocOrVirt(ref, label) { return ovDocComp(ref, label) || ovVirt(ref, label || OV_LABEL[ref] || ref); }
+  // Vault rows that back a Doc figure for the month on screen (shown under the figure; one of them supplies the verified number for mw.ins).
+  function ovEvid(V) {
+    var M = V.M, mon = V.d && V.d.monthLabel ? V.d.monthLabel : '';
+    function sum(l) { return r2(l.reduce(function (s, x) { return s + x.amount; }, 0)); }
+    function newest(l) { return l.slice().sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; })[0]; }
+    function inc(rx) { return M.income.filter(function (x) { return x.amount && rx.test(x.source); }); }
+    function exp(acct, rx) { return M.items.filter(function (x) { return x.account === acct && x.amount && rx.test(x.category + ' ' + x.merchant); }); }
+    function cat(l, acct) { var c = l[0].category; return l.every(function (x) { return x.category === c; }) ? catRoute(c, acct) : acctRoute(acct); }
+    function put(ref, l, desc, route) { if (l.length) ov.ev[ref] = { text: mon + ': ' + desc + ' (' + l.length + (l.length === 1 ? ' row' : ' rows') + ')', amt: sum(l), route: route }; }
+    var l;
+    put('mw.rent_lease', inc(/kiwit rent/i), 'rent received', incomeRoute(KR_SOURCE));
+    put('ld.rev', inc(/laundromat/i), 'laundromat income logged (not a full month)', incomeRoute('Mono Village Laundromat'));
+    put('inc.w2', inc(/land & structure/i), 'pay checks logged', incomeRoute(LS_SOURCE));
+    l = inc(/stewart|sierra/i); if (l.length) put('st.rent', l, 'Stewart Street rent logged', incomeRoute(l[0].source));
+    l = exp('TiwiK', /repair|plumb|maint|hvac/i); if (l.length) put('ld.rep', l, 'laundromat repairs logged', cat(l, 'TiwiK'));
+    l = exp('TiwiK', /util|pg&e|pge|water|gas|sewer|trash|power/i); if (l.length) put('ld.util', l, 'laundromat utilities logged', cat(l, 'TiwiK'));
+    l = exp('KiwiT', /tax/i); if (l.length) put('mw.tax', l, 'property tax paid (period covered not documented)', cat(l, 'KiwiT'));
+    put('hh.burn', M.items.filter(function (x) { return x.account === 'Household' && x.amount; }), 'household spend logged, ' + V.logged + (V.logged === 1 ? ' day' : ' days'), acctRoute('Household'));
+    l = exp('KiwiT', /insur/i);
+    if (l.length) {
+      var n = newest(l);
+      ov.ovr['mw.ins'] = { val: n.amount, src: 'Vault \u00b7 last insurance payment logged ' + n.label + (n.merchant ? ' (' + n.merchant + ')' : ''), route: cat(l, 'KiwiT') };
+    }
+  }
+
+  function ovNwMissing(list) {
+    var k = [];
+    list.forEach(function (c) { var t = c.agg ? 'cash balances' : /^re\./.test(c.ref || '') ? 'real estate' : c.ref === 'eq.value' ? 'equipment' : c.ref === 'inv.af' ? 'American Funds' : (c.label || 'balances'); if (k.indexOf(t) < 0) k.push(t); });
+    return k.length > 1 ? k.slice(0, -1).join(', ') + ' and ' + k[k.length - 1] : k[0] || '';
+  }
   function ovModel() {
     var f = ov.fin, hasL = !!(f.s === 'ok' && f.data && Array.isArray(f.data.ledger) && f.data.ledger.length);
-    if (hasL) ovIndex(f.data); else ov.idx = {};
+    ov.virt = {}; ov.fixed = {}; ov.dyn = {};
+    if (hasL) ovIndex(f.data); else { ov.idx = {}; ov.stated = {}; }
     var V = ovVault(), A = state.acct && state.acct.d ? state.acct.d : null, D = state.debt && state.debt.d ? state.debt.d : null;
-    var claimed = [], M = { hasL: hasL, V: V, A: A, D: D, heads: {}, leftover: [] };
-    // ---- Cash + investments (Vault Accounts first, Doc as fallback) ----
+    var M = { hasL: hasL, V: V, A: A, D: D, heads: {}, leftover: [] };
+    // ---- Cash (every Vault bank account) + investments (Vault Balances rows; Doc rows only when the Doc has them Verified) ----
     var cashC = [], invC = [], reC = [], eqC = [], invClaimed = [];
+    (A ? A.accounts : []).forEach(function (a) {
+      if (ovIsInv(a)) return;
+      if (a.balance !== null) {
+        var c = ovAcctComp(a);
+        if (a.asOf && !acMonthEnd(a.asOf)) c.note = 'Last balance in the Vault is from ' + acDate(a.asOf) + ' (not month end); the month-end statement is pending.';
+        cashC.push(c);
+      } else {
+        var k = 'cash.' + a.name;
+        ov.virt[k] = true;
+        ov.dyn[k] = [{ ref: k, need: 'Latest statement balance, with the date, for ' + a.name, why: 'The Vault lists this account but has no balance for it yet.' }];
+        cashC.push({ id: a.name, ref: k, label: a.name, val: null, tag: 'est', vault: false, src: 'No balance in the Vault yet' });
+      }
+    });
     if (hasL) {
-      ovCashRefs().forEach(function (ref) { var c = ovDocComp(ref), m = ovFindAcct(A, c.label, claimed); if (m.a) claimed.push(m.a); cashC.push(ovApplyAcct(c, m)); });
       ['inv.af', 'inv.etrade'].forEach(function (ref) {
-        var c = ovDocComp(ref); if (!c) return;
+        var c = ovDocOrVirt(ref, OV_LABEL[ref]);
         var m = ovFindAcct(A, c.label, invClaimed, 'investments'); if (m.a) invClaimed.push(m.a);
-        c = ovApplyInv(c, m);
-        if (!c.vault) { c.tag = 'est'; if (ref === 'inv.af') c.note = c.note || 'Unverified estimate. Not in the Vault; shown here with the other investments.'; }
-        invC.push(c);
+        invC.push(ovApplyInv(c, m));
       });
       if (A) (A.investments || []).forEach(function (a) { if (a.balance !== null && invClaimed.indexOf(a) < 0) invC.push(ovInvComp(a)); });   // any other live Investments row counts too
-      reC = [ovDocComp('re.total')]; eqC = [ovDocComp('eq.value')];
-      if (A) M.leftover = A.accounts.filter(function (a) { return a.balance !== null && claimed.indexOf(a) < 0; });
+      if (ov.idx['re.total'] && !ovEst('re.total')) reC = [ovDocComp('re.total')];
+      else OV_PROPS.forEach(function (p) { reC.push(ovVirt(p.ref, p.label)); });
+      eqC = [ovDocOrVirt('eq.value', OV_LABEL['eq.value'])];
     } else if (A) {
-      A.accounts.forEach(function (a) { if (a.balance !== null && !ovIsInv(a)) cashC.push(ovAcctComp(a)); });
       (A.investments || []).forEach(function (a) { if (a.balance !== null) invC.push(ovInvComp(a)); });
     }
-    invC = invC.filter(function (c) { return c && c.val !== null; });
-    M.invC = invC; M.invTotal = invC.length ? ovSumC(invC) : null;
-    cashC = cashC.filter(function (c) { return c && c.val !== null; });
-    var cashNotes = [];
-    if (M.leftover.length) cashNotes.push('Vault accounts not in the Overview Doc list (not counted): ' + M.leftover.map(function (a) { return a.name + ' ' + ovWhole(a.balance); }).join(', ') + '.');
+    invC = invC.filter(function (c) { return c && (c.val !== null || c.tag === 'est'); });
+    M.invC = invC; M.invTotal = ovSumC(invC);
+    cashC = cashC.filter(function (c) { return c && (c.val !== null || c.tag === 'est'); });
     var cashInfo = [];
-    if (hasL) { cashInfo = [ovDocComp('buffer.low'), ovDocComp('buffer.high')].filter(function (c) { return c; }); }
-    var cashV = cashC.length ? ovSumC(cashC) : null;
-    M.heads.cash = ovHead('cash', cashC, { val: cashV, cls: 'amt-bal', notes: cashNotes, vsecs: [{ label: 'Open Vault Accounts', route: 'spend', vsec: 'accounts' }],
-      groups: [{ title: 'Accounts', comps: cashC }, cashInfo.length ? { title: 'Working buffer (Overview Doc)', comps: cashInfo, info: true } : null].filter(function (g) { return g; }),
+    if (hasL) { cashInfo = [ovDocOrVirt('buffer.low'), ovDocOrVirt('buffer.high')]; }
+    var cashV = ovSumC(cashC);
+    M.heads.cash = ovHead('cash', cashC, { val: cashV, cls: 'amt-bal', notes: [], vsecs: [{ label: 'Open Vault Accounts', route: 'spend', vsec: 'accounts' }],
+      groups: [{ title: 'Accounts', comps: cashC }, cashInfo.length ? { title: 'Working buffer (your target)', comps: cashInfo, info: true } : null].filter(function (g) { return g; }),
       sub: cashC.length + (cashC.length === 1 ? ' account' : ' accounts') });
     // ---- Debt (Vault Debt first, Doc as fallback) ----
     var loanClaim = [], balC = [], payC = [];
@@ -4364,6 +4520,7 @@
     balC = balC.filter(function (c) { return c && c.val !== null; }); payC = payC.filter(function (c) { return c && c.val !== null; });
     M.heads.debt = ovHead('debt', balC, { val: balC.length ? ovSumC(balC) : null, cls: 'ov-debt', gtitle: 'Loans', sub: balC.length + (balC.length === 1 ? ' loan' : ' loans'),
       vsecs: [{ label: 'Open Vault Debt', route: 'spend', vsec: 'debt' }] });
+    if (M.heads.debt.tag === 'est' && M.heads.debt.val !== null) M.heads.debt.sub += ' \u00b7 includes a calculated balance';
     var ds = payC.length ? ovSumC(payC) : null, ds2 = null;
     if (ds !== null) {
       var nx = payC.filter(function (c) { return c.next != null; });
@@ -4371,12 +4528,9 @@
     }
     M.heads.ds = ovHead('ds', payC, { val: ds, cls: 'amt-out', gtitle: 'Monthly payments', sub: ds2 !== null ? 'after reset: ' + ovWhole(ds2) : '',
       notes: ds2 !== null ? ['After the Alliance reset the monthly total becomes ' + ovWhole(ds2) + '.'] : [], vsecs: [{ label: 'Open Vault Debt', route: 'spend', vsec: 'debt' }] });
-    // ---- Income + burn (Vault logged data first, Doc as fallback) ----
-    var scale = V && V.days > 0 ? ovDaysIn(V.off) / V.days : 1, incC = [], incInfo = [], incNotes = [], incFlags = [], incVal = null;
-    var k1 = hasL ? ovDocComp('inc.k1') : null, w2 = hasL ? ovDocComp('inc.w2') : null;
-    var docInc = k1 && w2 && k1.val !== null && w2.val !== null ? (k1.val + w2.val) / 12 : null;
-    var docIncTag = k1 && w2 ? ovWorstTag([k1, w2]) : 'est';
-    // Income is Vault-logged only (no K-1 / W-2): actual income logged so far in the month on screen.
+    // ---- Income + burn (Vault logged data only) ----
+    var scale = V && V.days > 0 ? ovDaysIn(V.off) / V.days : 1, incC = [], incNotes = [], incFlags = [], incVal = null;
+    // Income is Vault-logged only: actual income logged so far in the month on screen. K-1 / W-2 are separate Incomplete rows (annual).
     if (V) {
       V.M.sources.forEach(function (s) {
         if (!s.amount) return;
@@ -4384,60 +4538,65 @@
           src: 'Vault Income \u00b7 logged ' + (V.logged ? V.logged + ' day' + (V.logged === 1 ? '' : 's') + ' into the month' : 'this month'), go: incomeRoute(s.name), goLabel: 'Vault income' });
       });
       incVal = incC.length ? ovSumC(incC) : 0;
-      incNotes.push('Only income logged in the Vault is counted, month to date. No K-1 or W-2.');
+      incNotes.push('Only income logged in the Vault is counted, month to date. The K-1 and W-2 amounts are listed below as Incomplete.');
     } else {
       incNotes.push('The live Vault income is not loaded yet.');
     }
+    var annC = hasL ? [ovDocOrVirt('inc.k1'), ovDocOrVirt('inc.w2')] : [];
     M.heads.inc = ovHead('inc', incC, { val: incVal, cls: 'amt-in', fmt: 'money', gtitle: 'Income by source (logged)',
-      groups: [{ title: 'Income by source (logged)', comps: incC }],
+      groups: [{ title: 'Income by source (logged)', comps: incC }, annC.length ? { title: 'Annual income (K-1 and W-2)', comps: annC, info: true } : null].filter(function (g) { return g; }),
       notes: incNotes, flags: incFlags, sub: 'Vault logged, month to date', vsecs: [{ label: 'Open Vault income', route: incomeRoute('All') }] });
-    var burnC = [], burnInfo = [], burnNotes = [], burnFlags = [], burnVal = null, hhDoc = hasL ? ovDocComp('hh.burn') : null;
+    var burnC = [], burnInfo = [], burnNotes = [], burnFlags = [], burnVal = null, hhDoc = hasL ? ovDocOrVirt('hh.burn') : null;
     var hhAcct = V ? V.M.accounts.filter(function (a) { return a.name === 'Household'; })[0] : null;
     if (V && V.reliable) {
+      var bsrc = scale === 1 ? '' : ' over ' + V.days + ' days, scaled to the month';
       (hhAcct ? hhAcct.cats : []).forEach(function (c) {
-        burnC.push({ id: 'b-' + c.name, label: c.name, val: r2(c.amount * scale), tag: scale === 1 ? 'ver' : 'der', vault: true,
-          src: 'Vault spend \u00b7 ' + money(c.amount) + ' logged', go: catRoute(c.name, 'Household'), goLabel: 'Vault spend' });
+        burnC.push({ id: 'b-' + c.name, label: c.name, val: r2(c.amount * scale), tag: 'ver', vault: true,
+          src: 'Vault spend \u00b7 ' + money(c.amount) + ' logged' + bsrc, go: catRoute(c.name, 'Household'), goLabel: 'Vault spend' });
       });
-      if (!burnC.length && V.hh) burnC.push({ id: 'b-hh', label: 'Household spend', val: r2(V.hh * scale), tag: scale === 1 ? 'ver' : 'der', vault: true, src: 'Vault spend \u00b7 ' + money(V.hh) + ' logged', go: acctRoute('Household') });
+      if (!burnC.length && V.hh) burnC.push({ id: 'b-hh', label: 'Household spend', val: r2(V.hh * scale), tag: 'ver', vault: true, src: 'Vault spend \u00b7 ' + money(V.hh) + ' logged' + bsrc, go: acctRoute('Household') });
       burnVal = V.burn;
       if (hhDoc && hhDoc.val !== null) {
-        burnInfo.push({ id: 'dburn', label: 'Provisional burn (Overview Doc)', val: hhDoc.val, tag: hhDoc.tag, vault: false, src: hhDoc.src, ref: hhDoc.ref, docSrc: hhDoc.docSrc });
+        burnInfo.push({ id: 'dburn', label: 'Household burn (Overview Doc)', val: hhDoc.val, tag: hhDoc.tag, vault: false, src: hhDoc.src, ref: hhDoc.ref, docSrc: hhDoc.docSrc });
         if (burnVal !== null && Math.abs(burnVal - hhDoc.val) > 0.1 * Math.max(hhDoc.val, 1)) burnFlags.push({ label: 'Household burn / mo', vault: burnVal, doc: hhDoc.val, docTag: hhDoc.tag, ref: hhDoc.ref });
       }
-    } else if (hhDoc && hhDoc.val !== null) {
-      burnC.push(hhDoc); burnVal = hhDoc.val;
-      burnNotes.push(V ? 'The Vault has fewer than 14 days logged this month, so the provisional Doc burn is used until it fills in.' : 'The live Vault spend is not loaded, so the provisional Doc burn is used.');
+    } else {
+      if (hhDoc) { burnC.push(hhDoc); burnVal = hhDoc.val; }
+      burnNotes.push(V ? 'Fewer than 14 days are logged in the Vault this month, so the household burn is Incomplete and is not estimated. Keep logging.' : 'The live Vault spend is not loaded yet.');
       if (V && V.hh) burnInfo.push({ id: 'vmtd', label: 'Vault Household spend so far', val: V.hh, tag: 'ver', vault: true, src: 'Vault spend \u00b7 ' + V.logged + ' days logged', go: acctRoute('Household') });
     }
-    M.heads.burn = ovHead('burn', burnC, { val: burnVal, cls: 'amt-out', gtitle: V && V.reliable ? 'Household spend by category (logged)' : 'Overview Doc',
-      groups: [{ title: V && V.reliable ? 'Household spend by category (logged)' : 'Overview Doc', comps: burnC }, burnInfo.length ? { title: V && V.reliable ? 'Overview Doc comparison (not counted)' : 'For reference', comps: burnInfo, info: true } : null].filter(function (g) { return g; }),
-      notes: burnNotes, flags: burnFlags, sub: V && V.reliable ? 'Vault logged' : 'Doc estimate', vsecs: [{ label: 'Open Household spend', route: acctRoute('Household') }] });
+    M.heads.burn = ovHead('burn', burnC, { val: burnVal, cls: 'amt-out', gtitle: V && V.reliable ? 'Household spend by category (logged)' : 'Household spend',
+      groups: [{ title: V && V.reliable ? 'Household spend by category (logged)' : 'Household spend', comps: burnC }, burnInfo.length ? { title: V && V.reliable ? 'Overview Doc comparison (not counted)' : 'Logged so far (not a full month)', comps: burnInfo, info: true } : null].filter(function (g) { return g; }),
+      notes: burnNotes, flags: burnFlags, sub: V && V.reliable ? 'Vault logged' : '', noneSub: V ? 'needs 14+ days logged (' + V.logged + ' so far)' : 'Vault not loaded', vsecs: [{ label: 'Open Household spend', route: acctRoute('Household') }] });
     // ---- Composite headlines ----
     var H = M.heads, hasDebtOrDoc = H.debt.val !== null;
     var assetsC = [];
     if (cashC.length) assetsC.push(ovAgg(H.cash, 'Cash (' + cashC.length + (cashC.length === 1 ? ' account' : ' accounts') + ')', 1));
-    reC.concat(eqC).forEach(function (c) { if (c && c.val !== null) assetsC.push(c); });
+    reC.concat(eqC).forEach(function (c) { if (c) assetsC.push(c); });
     var invTot = M.invTotal;
     var assetsAll = assetsC.concat(invC);
-    var assets = assetsAll.length ? ovSumC(assetsAll) : null;
-    var nwVal = hasL && assets !== null && hasDebtOrDoc ? assets - H.debt.val : null;
+    var assets = ovSumC(assetsAll);
+    var nwMiss = assetsAll.filter(function (c) { return c.tag === 'est'; });
+    var nwPart = hasL && assets !== null && hasDebtOrDoc ? assets - H.debt.val : null;
+    var nwVal = nwMiss.length ? null : nwPart;   // no net worth while an asset is Incomplete: a total without real estate would mislead
     var nwComps = assetsAll.concat(balC);
-    M.heads.nw = ovHead('nw', nwComps, { val: nwVal, cls: nwVal !== null && nwVal < 0 ? 'amt-out' : 'amt-in', sub: '',
+    M.heads.nw = ovHead('nw', nwComps, { val: nwVal, cls: nwVal !== null && nwVal < 0 ? 'amt-out' : 'amt-in', sub: '', noneSub: nwMiss.length ? 'needs ' + ovNwMissing(nwMiss) + ' values' : 'needs the Vault balances',
       groups: [{ title: 'Assets', comps: assetsC },
         { title: 'Investments', comps: invC, total: invTot === null ? null : { label: 'Investments subtotal', val: invTot, cls: 'amt-bal' } },
-        { title: '', comps: [], total: assets === null ? null : { label: 'Total assets', val: assets, cls: 'amt-bal' } },
+        { title: '', comps: [], total: assets === null ? null : { label: 'Total assets (verified items only)', val: assets, cls: 'amt-bal' } },
         { title: 'Debt', comps: balC, total: H.debt.val === null ? null : { label: 'Total debt', val: H.debt.val, cls: 'ov-debt' } }],
-      notes: hasL ? ['The two unused Bank of Stockton lines (commercial line, HELOC) are not in net worth.', 'Investments (E*TRADE live from the Balances tab, American Funds from the Overview Doc) count here, not in the Vault Accounts or Cash.'] : ['Net worth needs the Overview Doc figures (real estate, equipment), which are not loaded.'],
+      notes: (nwPart !== null && nwVal === null ? ['Verified assets minus verified debt is ' + ovWhole(nwPart) + '. This is not net worth: it leaves out the Incomplete assets below, so no net worth is shown until they have a documented value.'] : []).concat(hasL ? ['Only verified figures are counted. Incomplete assets are left out until a documented value is provided.', 'The two unused Bank of Stockton lines (commercial line, HELOC) are not in net worth.'] : ['Net worth needs the Overview Doc figures (real estate, equipment), which are not loaded.']),
       vsecs: [{ label: 'Open Vault Accounts', route: 'spend', vsec: 'accounts' }, { label: 'Open Vault Debt', route: 'spend', vsec: 'debt' }] });
     M.heads.nw.cov = ovCov(assetsAll.concat(balC));
+    if (M.heads.nw.tag === 'est') M.heads.nw.sub = 'verified items only';
     var runVal = H.cash.val !== null && H.burn.val ? H.cash.val / H.burn.val : null, runRange = '';
     var bl = hasL ? ovN('buffer.low') : null, bh = hasL ? ovN('buffer.high') : null;
     if (runVal !== null && bl !== null && bh !== null) runRange = ovMo(Math.max(0, H.cash.val - bh) / H.burn.val) + ' \u2013 ' + ovMo(Math.max(0, H.cash.val - bl) / H.burn.val);
-    var runC = [ovAgg(H.cash, 'Cash', 1), H.burn.val !== null ? ovAgg(H.burn, 'Household burn / mo', 1) : null];
-    M.heads.runway = ovHead('runway', runC, { val: runVal, fmt: 'mo', cls: '', sub: runRange ? 'above buffer: ' + runRange : '',
+    var runC = [ovAgg(H.cash, 'Cash', 1), ovAgg(H.burn, 'Household burn / mo', 1)];
+    M.heads.runway = ovHead('runway', runC, { val: runVal, fmt: 'mo', cls: '', sub: runRange ? 'above buffer: ' + runRange : '', noneSub: 'needs a verified household burn',
       notes: runRange ? ['Above the working buffer (high \u2013 low): ' + runRange + '.'] : [], vsecs: [{ label: 'Open Vault Accounts', route: 'spend', vsec: 'accounts' }] });
     var flowVal = H.inc.val !== null && H.burn.val !== null && H.ds.val !== null ? H.inc.val - H.burn.val - H.ds.val : null;
-    M.heads.flow = ovHead('flow', [ovAgg(H.inc, 'Income / mo', 1), ovAgg(H.burn, 'Household burn / mo', -1), ovAgg(H.ds, 'Debt service / mo', -1)], { val: flowVal, fmt: 'signed',
+    M.heads.flow = ovHead('flow', [ovAgg(H.inc, 'Income / mo', 1), ovAgg(H.burn, 'Household burn / mo', -1), ovAgg(H.ds, 'Debt service / mo', -1)], { val: flowVal, fmt: 'signed', noneSub: 'needs a verified household burn',
       cls: flowVal !== null && flowVal < 0 ? 'amt-out' : 'amt-in', notes: ['Income is month to date from the Vault, so early in the month this reads low. Indicative. If the household burn already includes the Wetumka mortgage, or the Vault TiwiK/KiwiT accounts already include the loan payments, those are counted twice.'],
       vsecs: [{ label: 'Open Vault summary', route: 'spend', vsec: 'summary' }] });
     // flags shown per head are de-duplicated by label
@@ -4457,10 +4616,10 @@
     return '<span class="ovcov ' + cls + (small ? ' sm' : '') + '" title="Components backed by live Vault data"><i style="width:' + pct + '%"></i><b>' + (small ? 'Vault ' + cov.x + '/' + cov.y : 'Vault-backed ' + cov.x + ' of ' + cov.y) + '</b></span>';
   }
   function ovSrcNotes(hasL) {
-    var out = [], a = state.acct, d = state.debt, fb = hasL ? ' Doc figures are used.' : '';
+    var out = [], a = state.acct, d = state.debt, fb = hasL ? ' Doc figures are used.' : '', fa = hasL ? ' Cash is Incomplete until it loads.' : '';
     if (a && a.s === 'load' && !a.d) out.push('Loading Vault balances\u2026');
-    else if (a && a.s === 'na') out.push('Vault Accounts is not available from the server yet.' + fb);
-    else if (a && a.s === 'err' && !a.d) out.push('Vault Accounts could not load.' + fb);
+    else if (a && a.s === 'na') out.push('Vault Accounts is not available from the server yet.' + fa);
+    else if (a && a.s === 'err' && !a.d) out.push('Vault Accounts could not load.' + fa);
     if (d && d.s === 'load' && !d.d) out.push('Loading Vault loans\u2026');
     else if (d && d.s === 'na') out.push('Vault Debt is not available from the server yet.' + fb);
     else if (d && d.s === 'err' && !d.d) out.push('Vault Debt could not load.' + fb);
@@ -4468,11 +4627,11 @@
   }
   function ovTile(h) {
     var m = OV_HEADS[h.key], none = h.val === null;
-    var sub = none ? 'not available yet' : h.sub;
+    var sub = none ? (h.noneSub || 'not available yet') : h.sub;
     return '<div class="fxsum ovsum ovt ' + (none ? 'none' : '') + '" role="button" tabindex="0" data-go="fin/overview/' + h.key + '"><div class="fxl">' + esc(m.tile) + (h.flags.length ? ' <span class="ovwarn" title="Doc and Vault differ">!</span>' : '') + '</div>' +
       '<div class="fxv ' + esc(h.cls) + '">' + esc(ovFmt(h, h.val)) + '</div>' +
       (sub ? '<div class="fxs">' + esc(sub) + '</div>' : '') +
-      '<div class="ovtm">' + (none ? '' : ovTagBadge(h.tag, '').replace(/<span class="badge/, '<span class="badge sm') + ' ' + ovCovChip(h.cov, true)) + '</div></div>';
+      '<div class="ovtm">' + ovTagBadge(none ? 'est' : h.tag, '').replace(/<span class="badge/, '<span class="badge sm') + (none ? '' : ' ' + ovCovChip(h.cov, true)) + '</div></div>';
   }
   function ovStripHtml(M) {
     var h = '<div class="fxgrid ovstrip">' + OV_ORDER.map(function (k) { return ovTile(M.heads[k]); }).join('') + '</div>';
@@ -4508,14 +4667,14 @@
   // ---- Detail view ----
   function ovFlagHtml(fl) {
     var diff = fl.vault - fl.doc;
-    return '<div class="ovflag"><b>' + esc(fl.label) + '</b> Overview Doc says ' + ovWhole(fl.doc) + ' (' + (fl.docTag === 'ver' ? 'Verified' : fl.docTag === 'der' ? 'Derived' : 'Estimate') + '); live Vault says ' + ovWhole(fl.vault) +
+    return '<div class="ovflag"><b>' + esc(fl.label) + '</b> Overview Doc says ' + ovWhole(fl.doc) + ' (' + (fl.docTag === 'ver' ? 'Verified' : 'Incomplete') + '); live Vault says ' + ovWhole(fl.vault) +
       ' (' + signedMoney2(diff) + '). The Vault number is used.</div>';
   }
   function ovCompRow(c) {
     var left = '<span>' + esc(c.label) + '</span>', meta = [];
     if (c.agg) meta.push(ovTagBadge(c.tag, '') + ' ' + ovCovChip(c.cov, true));
     else {
-      meta.push(ovTagBadge(c.tag, c.ref && !c.vault ? c.ref : ''));
+      meta.push(ovTagBadge(c.tag, c.ref || ''));
       var src = c.src || '';
       if (!c.vault && c.docSrc) src = '<a class="srcnum ovsrc" data-title="' + esc(c.docSrc) + '" href="' + esc(ovUrl(c.docSrc)) + '">' + esc(c.docSrc) + '</a>'; else src = esc(src);
       if (c.url) src = '<a class="srcnum ovsrc" data-title="' + esc(c.src) + '" href="' + esc(c.url) + '">' + esc(c.src) + '</a>';
@@ -4534,7 +4693,7 @@
     var h = c.go ? '<div class="ovrow ovdr" role="button" tabindex="0"' + go + '>' + inner + '</div>' : '<div class="ovrow">' + inner + '</div>';
     if (c.mismatch) h += ovFlagHtml({ label: c.label, vault: c.mismatch.vault, doc: c.mismatch.doc, docTag: c.mismatch.docTag });
     if (c.note) h += '<div class="ovnote">' + esc(c.note) + '</div>';
-    if (c.tag === 'est' && c.ref && !c.vault) h += ovNeedBox([c.ref]);
+    if (c.tag === 'est' && c.ref) h += ovNeedBox([c.ref]);
     return h;
   }
   function ovDetailHtml(key) {
@@ -4544,10 +4703,11 @@
     if (!H) return '<div class="error">Unknown figure.</div>';
     var cls = H.cls || '';
     h += '<div class="card ovhd"><div class="ovhl">' + esc(m.title) + '</div><div class="ovhv ' + esc(cls) + '">' + esc(ovFmt(H, H.val)) + '</div>';
-    if (H.val === null) h += '<div class="ovnote">Not available yet. The sources it needs have not loaded or are missing.</div>';
-    else h += '<div class="ovhm">' + ovTagBadge(H.tag, '') + ' ' + ovCovChip(H.cov, false) + '</div>';
+    var hb = H.tag === 'est' || H.val === null ? ovEstBtn(H.needRefs) || ovTagBadge('est', '') : ovTagBadge(H.tag, '');
+    if (H.val === null) h += '<div class="ovnote">Not available yet. ' + (H.noneSub ? esc(H.noneSub.charAt(0).toUpperCase() + H.noneSub.slice(1)) + '.' : 'The sources it needs have not loaded or are missing.') + '</div><div class="ovhm">' + hb + '</div>' + ovNeedBox(H.needRefs);
+    else h += '<div class="ovhm">' + hb + ' ' + ovCovChip(H.cov, false) + '</div>' + (H.tag === 'est' ? ovNeedBox(H.needRefs) : '');
     h += '<div class="ovnote">' + esc(H.calc) + (H.asOf ? ' \u00b7 Vault data as of ' + esc(H.asOf[0] === H.asOf[1] ? acDate(H.asOf[0]) : acDate(H.asOf[0]) + ' \u2013 ' + acDate(H.asOf[1])) : '') + '</div>';
-    if (H.tag === 'est' && H.val !== null) h += '<div class="ovnote">Tagged Estimate because at least one component is an Estimate.</div>';
+    if (H.tag === 'est' && H.val !== null) h += '<div class="ovnote">Marked Incomplete because information is missing for at least one component. Only verified numbers are counted unless a row says it is calculated. Tap Incomplete to see what is needed.</div>';
     h += '</div>';
     var sn = ovSrcNotes(M.hasL);
     if (sn.length) h += '<div class="fxnote"><b>Sources</b> ' + sn.map(esc).join(' ') + '</div>';
@@ -4584,10 +4744,11 @@
     }
     var d = ok ? f.data : null, C = null, D = null, NW = null;
     var loadingL = f.s === 'load' && !f.data;
-    if (!loadingL) h += ovStripHtml(ovModel());
+    var MD = loadingL ? null : ovModel();
+    if (MD) h += ovStripHtml(MD);
     h += ovSummaryHtml(V);
     if (ok) {
-      C = ovCashCard(V); D = ovDebtCard(V, C); NW = ovNetWorth();
+      C = ovCashCard(V, MD); D = ovDebtCard(V, C); NW = ovNetWorth(MD);
       h += statusCard(d.status) + todoCards(d.todo || [], 'ov');
     }
     h += collCard('ovlive', 'Live Vault \u00b7 income & spend', null, ovVaultCard(V), true);
@@ -4597,7 +4758,7 @@
       h += collCard('ovliab', 'Liabilities', 3, ovLoan('Wetumka \u00b7 Rocket Mortgage', ['wet.bal', 'wet.rate', 'wet.pay', 'wet.pi', 'wet.escrow', 'wet.due', 'wet.maturity'], 'ovl-wet', false) +
         ovLoan('Mono Way \u00b7 Bank of Stockton (KiwiT)', ['mono.bal', 'mono.orig', 'mono.rate', 'mono.pay', 'mono.maturity'], 'ovl-mono', false) +
         ovLoan('Equipment \u00b7 Alliance (TiwiK)', ['all.bal', 'all.rate', 'all.pay', 'all.pay2', 'all.maturity', 'all.payoff'], 'ovl-all', false), false);
-      h += collCard('ovinv', 'Investments', null, ovInvCard(), false);
+      h += collCard('ovinv', 'Investments', null, ovInvCard(MD), false);
       h += collCard('ovnw', 'Assets & net worth', null, NW.html, false);
       h += collCard('ovflow', 'Property & business cash flow', null, ovFlowCard(), false);
       var ins = (d.ledger || []).filter(function (r) { return /^ins\./.test(r.ref); });
