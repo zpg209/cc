@@ -1354,3 +1354,14 @@ button.vdelbtn:disabled { opacity: .4; pointer-events: none; }
 #screen-lt .macgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; margin-top: 10px; }
 #screen-lt .macf .wlin { width: 100%; }
 body.macopen { overflow: hidden; }
+
+/* v69: Menu Items "+" (add menu item), sheet-only "added" rows, Add menu item screen */
+#screen-lt .ltplus { flex: none; width: 44px; height: 44px; padding: 0; border-radius: 50%; background: #000; color: var(--lt-t); border: 0.75px solid var(--lt-e);
+  box-shadow: 0 0 10px rgba(244,166,192,.28), inset 0 0 6px rgba(244,166,192,.12); font: 400 28px/1 'Inter', sans-serif; cursor: pointer; transition: transform .08s, background .12s; }
+#screen-lt .ltplus:active { transform: scale(.92); background: #1d0b10; }
+#screen-lt .ltname { flex: 1 1 auto; min-width: 0; padding: 8px 0; background: none; border: 0; text-align: left; color: #f2f2f2; font: 400 14px/1.35 'Inter', sans-serif; cursor: pointer; word-break: break-word; }
+#screen-lt .ltname:active { color: var(--lt-t); }
+#screen-lt .ltname .ft { display: inline-block; font: 700 9px/1 'Inter', sans-serif; border: 1px solid var(--lt-e); color: var(--lt-t); border-radius: 3px; padding: 3px 4px; margin-right: 8px; vertical-align: 1px; text-transform: uppercase; }
+#screen-lt .ma .card { margin-bottom: 12px; }
+#screen-lt .ma .vchips { gap: 6px; }
+#screen-lt .ma .vchip { min-height: 38px; padding: 6px 12px; font-size: 14px; }

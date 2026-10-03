@@ -149,7 +149,8 @@
     var vk = (name === 'vmic' || name === 'vcam') ? (R.kind === 'exp' ? 'exp' : 'inc') : '';   // #vmic/<inc|exp>, #vcam/<inc|exp>
     if (name !== 'vmic') vmicStop(true);
     if (!(name === 'lt' && R.kind === 'wish')) wlMicStop(true);
-    if (!(name === 'lt' && R.kind === 'macros')) macClose(true);
+    if (!(name === 'lt' && (R.kind === 'macros' || R.kind === 'recipes'))) macClose(true);
+    if (!(name === 'lt' && R.kind === 'menu-add')) maMicStop(true);
     if (name !== 'punch') pmicStop();
     if (name !== 'doc') { state.docPushed = false; state.docSeq++; closeDoc(); }
     activate(name);
@@ -2639,7 +2640,8 @@
     menus:   { label: 'Past Menus',            folder: '11tV_huL874mr4F3LdGA-2fvGQZyEWKZY', sort: 'date', search: 'Search menus' },
     macros:  { label: 'Menu Macros', sheet: 'https://docs.google.com/spreadsheets/d/1YhDpmch8pWIAFKEwrSv7AMwWHyhuVW1OyeqbSNOPk3w/edit' },
     wish:    { label: 'Wish List', wish: true },
-    'menu-gen': { label: 'Generate menu', gen: true, back: 'lt/recipes' }      // not a tile: opened from the Menu Items screen
+    'menu-gen': { label: 'Generate menu', gen: true, back: 'lt/recipes' },      // not a tile: opened from the Menu Items screen
+    'menu-add': { label: 'Add menu item', add: true, back: 'lt/recipes' }       // not a tile: the + button on the Menu Items screen
   };
   var LT_ORDER = ['ops', 'recipes', 'menus', 'macros', 'wish'];
   var LT_TTL = 60000;
@@ -2658,6 +2660,7 @@
     }
     if (cfg.wish) { openWish(); return; }
     if (cfg.gen) { openMenuGen(); return; }
+    if (cfg.add) { openMenuAdd(); return; }
     var key = cfg.folder || 'macros', c = state.ltCache[key];
     if (c && !force && Date.now() - c.at < LT_TTL) return renderLt();
     $('lt-body').innerHTML = '<div class="loading">Loading…</div>';
@@ -2746,7 +2749,7 @@
   function renderLt() {
     var part = state.ltPart, cfg = LT_PARTS[part], data = state.ltCache[cfg.folder || 'macros'].data;
     var h = '';
-    if (cfg.check) h += ltSelBarHtml();
+    if (cfg.check) h += ltSelBarHtml() + '<div class="noteflash" id="lt-flash" hidden></div>';
     if (part === 'macros') h += '<div class="noteflash" id="lt-flash" hidden></div>';
     if (cfg.search || part === 'macros') {
       h += '<input class="searchbox" id="lt-q" type="search" autocomplete="off" placeholder="' +
@@ -2763,14 +2766,23 @@
     };
     if (q) q.addEventListener('input', paint);
     state.ltPaint = paint;
-    if (cfg.check) ltSelPrune(data.items);
+    var c0 = state.ltCache.macros;
+    if (cfg.check) ltSelPrune(data.items, c0 && c0.data ? c0.data.items.filter(function (x) { return !(x.sources && x.sources.length); }) : null);
     if (cfg.check) ltSelBar();
     paint();
+    if (cfg.check) {
+      if (state.ltAddedFlash) { macFlash(state.ltAddedFlash); state.ltAddedFlash = ''; }
+      ltEnsureMacros(function () {
+        if (state.ltPart !== 'recipes' || !$('lt-list')) return;
+        var cc = state.ltCache.macros; ltSelPrune(data.items, cc.data.items.filter(function (x) { return !(x.sources && x.sources.length); })); ltSelBar(); paint();
+      });
+    }
   }
   function ltFolderHtml(d, cfg, term) {
-    var items = d.items.filter(function (x) { return !term || x.name.toLowerCase().indexOf(term) >= 0; });
+    var all = cfg.check ? d.items.concat(ltAddedEntries()) : d.items;
+    var items = all.filter(function (x) { return !term || x.name.toLowerCase().indexOf(term) >= 0; });
     if (!items.length) return '<div class="loading">' + (term ? 'No matches.' : 'This folder is empty.') + '</div>';
-    var foot = '<div class="foot">' + items.length + ' of ' + d.items.length + ' item' + (d.items.length === 1 ? '' : 's') + '</div>';
+    var foot = '<div class="foot">' + items.length + ' of ' + all.length + ' item' + (all.length === 1 ? '' : 's') + '</div>';
     if (cfg.sort === 'az') {
       items = items.slice().sort(function (a, b) {
         if (!!a.folder !== !!b.folder) return a.folder ? -1 : 1;
@@ -2778,7 +2790,7 @@
       });
       return foot + '<div class="card"><ul class="doclist folderlist' + (cfg.check ? ' ltchecklist' : '') + '">' + items.map(function (x) {
         var label = x.name.replace(/\.(docx?|pdf)$/i, '').trim();
-        return cfg.check && !x.folder ? ltCheckRow(x, label) : ltItemLink(x, label);
+        return cfg.check && !x.folder ? ltCheckRow(x, x.added ? x.name : label) : ltItemLink(x, label);
       }).join('') + '</ul></div>';
     }
     if (cfg.sort === 'date') {
@@ -2847,10 +2859,11 @@
     ltSelSave(); ltSelBar();
     return i < 0;
   }
-  function ltSelPrune(items) {      // drop selected files that are no longer in the folder
+  function ltSelPrune(items, macItems) {      // drop selected files that are no longer in the folder (and added items no longer in the sheet)
     if (!items || !items.length) return;
     var have = {}; items.forEach(function (x) { have[x.id] = 1; });
-    var s = ltSel(), keep = s.filter(function (x) { return have[x.id]; });
+    if (macItems) macItems.forEach(function (x) { have['added:' + x.item] = 1; });
+    var s = ltSel(), keep = s.filter(function (x) { return have[x.id] || (!macItems && x.id.indexOf('added:') === 0); });
     if (keep.length !== s.length) { state.ltSel = keep; ltSelSave(); }
   }
   function ltSelBar() {
@@ -2863,10 +2876,31 @@
     var n = ltSel().length;
     return '<div class="ltbar" id="lt-selbar"><span class="ltcount" id="lt-selcount">' + n + ' selected</span>' +
       '<button type="button" class="navbtn ltgen" id="lt-gen" data-ltk="gen"' + (n ? '' : ' disabled') + '>Generate menu</button>' +
-      '<button type="button" class="ltclear" id="lt-selclear" data-ltk="clear"' + (n ? '' : ' hidden') + '>Clear</button></div>';
+      '<button type="button" class="ltclear" id="lt-selclear" data-ltk="clear"' + (n ? '' : ' hidden') + '>Clear</button>' +
+      '<button type="button" class="ltplus" data-ltk="add" aria-label="Add menu item" title="Add menu item">+</button></div>';
+  }
+  function ltAddedEntries() {      // sheet-only menu items (no Source doc): added from the app, no Drive file
+    var c = state.ltCache.macros, out = [];
+    if (c && c.data) c.data.items.forEach(function (it, i) { if (!(it.sources && it.sources.length)) out.push({ id: 'added:' + it.item, name: it.item, added: true, idx: i, mime: '' }); });
+    return out;
+  }
+  function ltEnsureMacros(cb) {
+    var c = state.ltCache.macros;
+    if (c && Date.now() - c.at < LT_TTL * 5) return;
+    if (state.ltMacBusy) return;
+    state.ltMacBusy = true;
+    apiRaw('ltmacros', {}).then(function (j) {
+      state.ltMacBusy = false;
+      if (j.error || !j.data) return;
+      state.ltCache.macros = { at: Date.now(), data: j.data }; cb && cb();
+    }, function (err) { state.ltMacBusy = false; vAuth(err); });
   }
   function ltCheckRow(x, label) {
     var on = ltSelIdx(x.id) >= 0;
+    if (x.added) {
+      return '<li class="ltck"><button type="button" class="ltbox' + (on ? ' on' : '') + '" data-ltsel="' + esc(x.id) + '" data-n="' + esc(x.name) + '" role="checkbox" aria-checked="' + on + '" aria-label="Select ' + esc(label) + '">' + (on ? '\u2713' : '') + '</button>' +
+        '<button type="button" class="ltname" data-ltedit="' + x.idx + '"><span class="ft">added</span>' + esc(label) + '</button></li>';
+    }
     var href = 'https://drive.google.com/file/d/' + x.id + '/view';
     return '<li class="ltck"><button type="button" class="ltbox' + (on ? ' on' : '') + '" data-ltsel="' + esc(x.id) + '" data-n="' + esc(x.name) + '" role="checkbox" aria-checked="' + on + '" aria-label="Select ' + esc(label) + '">' + (on ? '\u2713' : '') + '</button>' +
       '<a href="' + esc(href) + '" data-title="' + esc(x.name) + '"><span class="ft">' + fileKind(x.mime) + '</span>' + esc(label) + '</a></li>';
@@ -3115,10 +3149,13 @@
       b.classList.toggle('on', on); b.setAttribute('aria-checked', on ? 'true' : 'false'); b.textContent = on ? '\u2713' : '';
       return;
     }
+    var ed = e.target.closest('[data-ltedit]');
+    if (ed && state.ltPart === 'recipes') { macOpen(+ed.getAttribute('data-ltedit')); return; }
     var k = e.target.closest('[data-ltk]');
     if (k && state.ltPart === 'recipes') {
       var a = k.getAttribute('data-ltk');
-      if (a === 'gen' && ltSel().length) show('lt/menu-gen');
+      if (a === 'add') show('lt/menu-add');
+      else if (a === 'gen' && ltSel().length) show('lt/menu-gen');
       else if (a === 'clear') {
         state.ltSel = []; ltSelSave(); ltSelBar();
         [].forEach.call($('lt-body').querySelectorAll('.ltbox.on'), function (x) { x.classList.remove('on'); x.setAttribute('aria-checked', 'false'); x.textContent = ''; });
@@ -3375,6 +3412,192 @@
   $('screen-lt').addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && mm.idx >= 0) macClose();
     else if ((e.key === 'Enter' || e.key === ' ') && state.ltPart === 'macros' && e.target.classList && e.target.classList.contains('mac-row')) { e.preventDefault(); macOpen(+e.target.getAttribute('data-mac')); }
+  });
+
+  /* ---------------- Lisa's Table: Add menu item (#lt/menu-add): type or dictate -> editable fields -> Save (menuitemadd) ---------------- */
+  var MA_DRAFT_KEY = 'cc_maddraft';
+  var ma = { rec: null, on: false, base: '', committed: '', interim: '', msg: '', f: {}, text: '', cid: '', sig: '', busy: false, seq: 0 };
+  function maClean(s) { return String(s || '').replace(/^[\s,.:;\-]+|[\s,.:;\-]+$/g, '').replace(/\s+/g, ' ').trim(); }
+  function maTitle(s) {            // all-lowercase dictation -> Title Case; anything with capitals is left alone
+    s = maClean(s);
+    return s && s === s.toLowerCase() ? s.replace(/(^|[\s(\-\/])([a-z])/g, function (m, a, b) { return a + b.toUpperCase(); }) : s;
+  }
+  // "lemon bars category snack serving one bar ingredients lemon butter sugar price 4 calories 210 protein 3 carbs 30 fat 8"
+  // -> {name, category, serving, ingredients, price, cal, protein, carbs, fat}; text before the first label is the name.
+  function maParse(text) {
+    var s = String(text || '').replace(/\s+/g, ' ').trim().replace(/(\d),(\d{3})/g, '$1$2'), out = { name: '', category: '', serving: '', ingredients: '', price: '', cal: '', protein: '', carbs: '', fat: '', found: 0 };
+    var A = {}, B = {}, ca = 0, cb = 0;
+    Object.keys(MAC_KEYS).forEach(function (k) {
+      var ra = new RegExp('\\b' + MAC_KEYS[k] + '\\b[\\s:=\\-]*(?:is|are|of|at|about|around|equals|total)?[\\s:=\\-]*(\\d+(?:\\.\\d+)?)', 'i').exec(s);
+      var rb = new RegExp('(\\d+(?:\\.\\d+)?)\\s*(?:g|gr|grams?|gram|kcal|calories?|cals?)?\\s*(?:of\\s+)?(?:total\\s+)?\\b' + MAC_KEYS[k] + '\\b', 'i').exec(s);
+      if (ra) { A[k] = { v: ra[1], i: ra.index, l: ra[0].length }; ca++; }
+      if (rb) { B[k] = { v: rb[1], i: rb.index, l: rb[0].length }; cb++; }
+    });
+    var pick = cb > ca ? B : A, spans = [];
+    Object.keys(pick).forEach(function (k) { out[k] = pick[k].v; spans.push([pick[k].i, pick[k].l]); });
+    var pm = /\b(?:price|priced at|cost|costs)\b[\s:,\-]*(?:is|at|of)?\s*\$?\s*(\d+(?:\.\d{1,2})?)/i.exec(s) || /\$\s*(\d+(?:\.\d{1,2})?)/.exec(s) || /(\d+(?:\.\d{1,2})?)\s*dollars?\b/i.exec(s);
+    if (pm) { out.price = pm[1]; spans.push([pm.index, pm[0].length]); }
+    spans.sort(function (a, b) { return b[0] - a[0]; }).forEach(function (sp) { s = s.slice(0, sp[0]) + ' , ' + s.slice(sp[0] + sp[1]); });
+    var re = /\b(name|called|category|serving size|serving|ingredients?)\b/ig, hits = [], m;
+    while ((m = re.exec(s))) hits.push({ k: /^serving/i.test(m[1]) ? 'serving' : /^ingredient/i.test(m[1]) ? 'ingredients' : /^category/i.test(m[1]) ? 'category' : 'name', i: m.index, e: m.index + m[0].length });
+    var lead = maClean(s.slice(0, hits.length ? hits[0].i : s.length)).replace(/^(?:add|new|create)\b(?:\s+(?:a|an|the|new|menu|item))*\s*(?:called|named)?\s*/i, '');
+    if (lead) out.name = lead;
+    hits.forEach(function (h, n) {
+      var seg = maClean(s.slice(h.e, n + 1 < hits.length ? hits[n + 1].i : s.length)).replace(/^(?:is|are|of|called|named)\s+/i, '');
+      if (seg) out[h.k] = seg;
+    });
+    out.name = maTitle(out.name); out.category = maTitle(out.category); out.serving = maClean(out.serving).slice(0, 80);
+    out.ingredients = maClean(out.ingredients); out.ingredients = out.ingredients.charAt(0).toUpperCase() + out.ingredients.slice(1);
+    ['name', 'category', 'serving', 'ingredients', 'price', 'cal', 'protein', 'carbs', 'fat'].forEach(function (k) { if (out[k] !== '') out.found++; });
+    return out;
+  }
+  function maDraftSave() { lsSet(MA_DRAFT_KEY, { f: ma.f, text: ma.text, cid: ma.cid, sig: ma.sig, at: Date.now() }); }
+  function maOnScreen() { return state.ltPart === 'menu-add' && $('screen-lt').classList.contains('active'); }
+  function maF(k) { return $('ma-f-' + k); }
+  function maRead() { ['name', 'category', 'serving', 'ingredients', 'price', 'cal', 'protein', 'carbs', 'fat'].forEach(function (k) { var el = maF(k); if (el) ma.f[k] = el.value; }); }
+  function maMsg(text, bad) { var el = $('ma-msg'); if (!el) return; el.textContent = text || ''; el.hidden = !text; el.className = 'noteflash' + (text ? ' show' : '') + (bad ? ' bad' : ''); }
+  function maUi() {
+    var btn = $('ma-mic'); if (!btn) return;
+    btn.classList.toggle('rec', ma.on); btn.setAttribute('aria-pressed', ma.on ? 'true' : 'false');
+    $('ma-lbl').textContent = ma.on ? 'Listening\u2026 tap to stop' : 'Tap to talk';
+    var st = $('ma-state'); st.className = 'micstate' + (ma.on ? ' rec' : '') + (ma.msg && !ma.on ? ' warn' : '');
+    st.textContent = ma.on ? 'Listening\u2026' : (ma.msg || 'Say the name, then anything else, like \u201clemon bars, category snack, serving one bar, ingredients lemon, butter, sugar, price 4, calories 210\u201d. You review before saving.');
+  }
+  function maChips() {
+    var box = $('ma-chips'); if (!box) return;
+    var c = state.ltCache.macros, cats = c && c.data && c.data.categories || [], cur = norm(String(ma.f.category || ''));
+    box.innerHTML = cats.map(function (x) { var on = norm(x) === cur && cur; return '<button type="button" class="vchip' + (on ? ' on' : '') + '" data-ma="chip" data-c="' + esc(x) + '" aria-pressed="' + !!on + '">' + esc(x) + '</button>'; }).join('');
+  }
+  function norm(s) { return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
+  function openMenuAdd() {
+    maMicStop(true);
+    var d = lsGet(MA_DRAFT_KEY, null), restored = false;
+    ma.f = { name: '', category: '', serving: '', ingredients: '', price: '', cal: '', protein: '', carbs: '', fat: '' }; ma.text = ''; ma.cid = ''; ma.sig = ''; ma.msg = ''; ma.busy = false; ma.on = false;
+    if (d && d.f && Date.now() - (d.at || 0) < 12 * 3600 * 1000) { Object.keys(ma.f).forEach(function (k) { if (d.f[k] != null) ma.f[k] = String(d.f[k]); }); ma.text = d.text || ''; ma.cid = d.cid || ''; ma.sig = d.sig || ''; restored = !!(ma.f.name || ma.text); }
+    var fld = function (k, label, ph, extra) {
+      return '<label class="vfield macf"><span>' + label + '</span><input type="text" class="wlin" id="ma-f-' + k + '" ' + (extra || '') + ' placeholder="' + esc(ph || '') + '" value="' + esc(ma.f[k]) + '" autocomplete="off"></label>';
+    };
+    $('lt-body').innerHTML = '<div class="ma">' +
+      '<div class="micstage macmic"><button type="button" class="micbtn" id="ma-mic" data-ma="mic" aria-pressed="false" aria-label="Start dictation"><span class="micico" aria-hidden="true">' + vsvg('mic', 34) + '</span><span class="miclbl" id="ma-lbl">Tap to talk</span></button><div class="micstate" id="ma-state">&nbsp;</div></div>' +
+      '<div class="card draft"><h3>What I heard</h3><textarea id="ma-text" class="notebox" rows="3" maxlength="600" autocapitalize="off" placeholder="Speak it, type it, or use the keyboard\u2019s mic key."></textarea>' +
+      '<div class="draftbtns"><button type="button" class="navbtn" data-ma="parse">Fill the fields</button><button type="button" class="navbtn discard" data-ma="clear">Clear all</button></div></div>' +
+      '<div class="card vform"><label class="vfield"><span>Name (required)</span><input type="text" class="wlin" id="ma-f-name" maxlength="120" value="' + esc(ma.f.name) + '" autocomplete="off" placeholder="e.g. Lemon Bars"></label>' +
+      '<div class="vfield"><span>Category</span><div class="vchips" id="ma-chips"></div><input type="text" class="wlin" id="ma-f-category" maxlength="40" value="' + esc(ma.f.category) + '" placeholder="pick one above or type a new one" autocomplete="off" style="margin-top:8px"></div>' +
+      fld('serving', 'Serving', 'e.g. 1 bar', 'maxlength="80"') +
+      '<label class="vfield"><span>Ingredients</span><textarea class="notebox" id="ma-f-ingredients" rows="3" maxlength="300" placeholder="e.g. Lemon, butter, sugar, flour">' + esc(ma.f.ingredients) + '</textarea></label>' +
+      fld('price', 'Price $ (optional, stays on this phone)', 'e.g. 4', 'inputmode="decimal" maxlength="8"') +
+      '<div class="macgrid">' + fld('cal', 'Calories (optional)', '', 'inputmode="decimal" maxlength="8"') + fld('protein', 'Protein g', '', 'inputmode="decimal" maxlength="8"') + fld('carbs', 'Carbs g', '', 'inputmode="decimal" maxlength="8"') + fld('fat', 'Fat g', '', 'inputmode="decimal" maxlength="8"') + '</div>' +
+      '<div class="foot">Macros you enter are saved as an estimate (\u201cto be measured\u201d) until you measure them on the Menu Macros screen.</div>' +
+      '<div class="noteflash" id="ma-msg" hidden></div>' +
+      '<div class="draftbtns"><button type="button" class="bigsave" id="ma-save" data-ma="save">Add menu item</button><button type="button" class="navbtn" data-go="lt/recipes">Cancel</button></div></div></div>';
+    $('ma-text').value = ma.text;
+    maUi(); maChips();
+    if (restored) maMsg('Restored your unsaved entry. Nothing is added until you tap Add menu item.');
+    var seq = ++ma.seq, c = state.ltCache.macros;
+    if (!c) ltEnsureMacros(function () { if (seq === ma.seq && maOnScreen()) maChips(); });
+  }
+  function maMicStop(quiet) {
+    var r = ma.rec;
+    if (quiet) { ma.rec = null; ma.on = false; try { r && r.abort(); } catch (e) {} return; }
+    if (r) { try { r.stop(); } catch (e2) { ma.rec = null; ma.on = false; maUi(); } }
+  }
+  function maMicFail(msg) { ma.on = false; var r = ma.rec; ma.rec = null; try { r && r.abort(); } catch (e) {} ma.msg = msg; maUi(); var ta = $('ma-text'); if (ta) ta.focus(); }
+  function maMicStart() {
+    var ta = $('ma-text');
+    if (!SR) { ma.msg = MIC_NA; maUi(); ta.focus(); return; }
+    ma.msg = ''; ma.base = ta.value ? ta.value.replace(/\s+$/, '') + ' ' : ''; ma.committed = ''; ma.interim = '';
+    var rec; try { rec = new SR(); } catch (e) { return maMicFail(MIC_NA); }
+    rec.continuous = false; rec.interimResults = true; rec.lang = 'en-US'; rec.maxAlternatives = 1;
+    rec.onresult = function (ev) {
+      var interim = '';
+      for (var i = ev.resultIndex; i < ev.results.length; i++) {
+        var r = ev.results[i], t = r[0] ? r[0].transcript : '';
+        if (r.isFinal) ma.committed = micSpace(ma.committed, t.trim() + ' '); else interim += t;
+      }
+      ma.interim = interim.replace(/^\s+/, ''); ta.value = ma.base + ma.committed + ma.interim;
+    };
+    rec.onerror = function (ev) {
+      var e = ev && ev.error;
+      if (e === 'not-allowed' || e === 'service-not-allowed' || e === 'audio-capture' || e === 'language-not-supported') return maMicFail(MIC_NA);
+      if (e === 'network') return maMicFail('The speech service couldn\u2019t be reached. Tap the text box and use your keyboard\u2019s mic key.');
+      if (e === 'no-speech') ma.msg = 'Didn\u2019t catch anything. Tap the mic and try again.';
+    };
+    rec.onend = function () {
+      if (ma.rec !== rec) return;
+      ma.committed = micSpace(ma.committed, ma.interim ? ma.interim.trim() + ' ' : ''); ma.interim = '';
+      ma.on = false; ma.rec = null;
+      ta.value = (ma.base + ma.committed).replace(/\s+$/, ''); ma.text = ta.value;
+      if (ta.value.trim()) maFill(); else maUi();
+    };
+    ma.rec = rec; ma.on = true;
+    try { rec.start(); } catch (e2) { return maMicFail(MIC_NA); }
+    maUi();
+  }
+  function maFill() {              // transcript -> fields (only what was heard); the user reviews and edits before Save
+    var ta = $('ma-text'); if (!ta) return;
+    ma.text = ta.value; var p = maParse(ta.value), got = 0;
+    ['name', 'category', 'serving', 'ingredients', 'price', 'cal', 'protein', 'carbs', 'fat'].forEach(function (k) { if (p[k] !== '') { maF(k).value = p[k]; got++; } });
+    maRead(); maDraftSave(); maUi(); maChips();
+    maMsg(!got ? 'Didn\u2019t hear anything to fill in. Try again, or type in the boxes.' : (maF('name').value.trim() ? 'Check the boxes, then tap Add menu item.' : 'Check the boxes. A name is still needed.'), !got);
+  }
+  function maSave() {
+    if (ma.busy) return;
+    maRead();
+    var f = ma.f, name = String(f.name || '').replace(/\s+/g, ' ').trim(), errs = [], body = { item: name };
+    if (!name) errs.push('Enter a name');
+    if (name.length > 120) errs.push('The name is limited to 120 characters');
+    var cat = String(f.category || '').replace(/\s+/g, ' ').trim(); if (cat.length > 40) errs.push('The category is limited to 40 characters'); else if (cat) body.category = cat;
+    var sv = String(f.serving || '').trim(); if (sv.length > 80) errs.push('The serving is limited to 80 characters'); else if (sv) body.serving = sv;
+    var ing = String(f.ingredients || '').replace(/\s+/g, ' ').trim(); if (ing.length > 300) errs.push('The ingredients are limited to 300 characters'); else if (ing) body.ingredients = ing;
+    var names = { cal: 'Calories', protein: 'Protein', carbs: 'Carbs', fat: 'Fat' };
+    ['cal', 'protein', 'carbs', 'fat'].forEach(function (k) {
+      var v = String(f[k] == null ? '' : f[k]).replace(/[,\s]/g, ''); if (v === '') return;
+      if (!/^\d+(\.\d+)?$/.test(v) || Number(v) > MAC_LIM[k]) errs.push(names[k] + ' must be a number from 0 to ' + MAC_LIM[k] + ' (or empty)'); else body[k] = v;
+    });
+    var price = mgPrice(f.price); if (price === null) errs.push('The price should look like 12 or 12.50');
+    if (errs.length) return maMsg(errs.join('. ') + '.', true);
+    var sig = JSON.stringify(body);
+    if (ma.sig !== sig || !ma.cid) { ma.sig = sig; ma.cid = vNewCid(); }
+    body.cid = ma.cid; ma.busy = true; var b = $('ma-save'); b.disabled = true; b.textContent = 'Adding\u2026'; maMsg(''); maDraftSave();
+    apiRaw('menuitemadd', body).then(function (j) {
+      ma.busy = false; var bb = $('ma-save'); if (bb) { bb.disabled = false; bb.textContent = 'Add menu item'; }
+      if (j.error === 'bad_action') return maMsg('Saving will work after the next server update.', true);
+      if (j.error) return maMsg((j.message || ('Server error: ' + j.error)) + ' Nothing was added.', true);
+      var u = (j.data && j.data.item) || null;
+      var it = u || { item: name, category: body.category || 'Other', serving: body.serving || '', cal: body.cal != null ? Number(body.cal) : null, protein: body.protein != null ? Number(body.protein) : null,
+        carbs: body.carbs != null ? Number(body.carbs) : null, fat: body.fat != null ? Number(body.fat) : null, sources: [], listings: null, ingredients: body.ingredients || '',
+        basis: 'Estimate \u2014 to be measured', notes: 'Added from app ' + vToday(), measured: false };
+      var c = state.ltCache.macros;
+      if (c && c.data) {
+        var have = c.data.items.some(function (x) { return norm(x.item) === norm(it.item); });
+        if (!have) { c.data.items.push(it); if (c.data.categories.indexOf(it.category) < 0) c.data.categories.push(it.category); }
+      }
+      if (price) { var pr = lsGet(LT_PRICE_KEY, {}); pr[mgNorm(it.item)] = price.replace(/^\$/, ''); lsSet(LT_PRICE_KEY, pr); }
+      var sid = 'added:' + it.item; if (ltSelIdx(sid) < 0) { ltSel().push({ id: sid, n: it.item }); ltSelSave(); }
+      try { localStorage.removeItem(MA_DRAFT_KEY); } catch (e) {}
+      state.ltAddedFlash = 'Added \u201c' + it.item + '\u201d and ticked it.';
+      show('lt/recipes');
+    }, function (err) {
+      ma.busy = false; var bb = $('ma-save'); if (bb) { bb.disabled = false; bb.textContent = 'Add menu item'; }
+      if (vAuth(err)) return;
+      maMsg(friendly(err) + ' Nothing is confirmed yet: tap Add menu item again to retry (same entry id, it will not double).', true);
+    });
+  }
+  $('lt-body').addEventListener('click', function (e) {
+    if (state.ltPart !== 'menu-add') return;
+    var b = e.target.closest('[data-ma]'); if (!b) return;
+    var a = b.getAttribute('data-ma');
+    if (a === 'mic') { if (ma.on) maMicStop(); else maMicStart(); }
+    else if (a === 'parse') { maMicStop(true); ma.on = false; maFill(); }
+    else if (a === 'clear') { maMicStop(true); ma.f = {}; ma.text = ''; ma.cid = ''; ma.sig = ''; try { localStorage.removeItem(MA_DRAFT_KEY); } catch (er) {} openMenuAdd(); }
+    else if (a === 'chip') { var c = b.getAttribute('data-c'); maF('category').value = norm(maF('category').value) === norm(c) ? '' : c; maRead(); maDraftSave(); maChips(); }
+    else if (a === 'save') maSave();
+  });
+  $('lt-body').addEventListener('input', function (e) {
+    if (state.ltPart !== 'menu-add') return;
+    var t = e.target;
+    if (t.id === 'ma-text') ma.text = t.value; else if (t.id && t.id.indexOf('ma-f-') === 0) { maRead(); if (t.id === 'ma-f-category') maChips(); }
+    maDraftSave();
   });
 
   /* ---------------- L&S project pages: project home / Dictate / Running notes / Documents ---------------- */
@@ -6733,7 +6956,7 @@
     if (!e.target.value.trim()) return;
     wl.items.push(''); wlDraftSave(); wlFormRender(''); var ins = $('wl-rows').querySelectorAll('.wlin'); if (ins.length) ins[ins.length - 1].focus();
   });
-  document.addEventListener('visibilitychange', function () { if (document.hidden && wl.on) wlMicStop(true), wlUi(); if (document.hidden && mm.on) { macMicStop(true); macUi(); } });
+  document.addEventListener('visibilitychange', function () { if (document.hidden && wl.on) wlMicStop(true), wlUi(); if (document.hidden && mm.on) { macMicStop(true); macUi(); } if (document.hidden && ma.on) { maMicStop(true); maUi(); } });
 
   /* ---- #vcam: receipt photo -> shrink -> optional details -> Save (POST receiptsave) ---- */
   var VCAM_TARGET = 1400000, VCAM_HARD = 2800000;      // base64 characters (~1 MB / ~2 MB of JPEG); the server accepts up to ~3 MB of JPEG
