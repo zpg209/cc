@@ -1824,7 +1824,7 @@
 
     if (!sr.kind) {
       // Income group: one collapsible card per source (heading + green total; heading toggles, total drills down), then Total income.
-      h += vgHead('inc', 'Income', 'inc');
+      h += vgHead('inc', 'Income', 'inc', '<span>Total income</span><b class="amt-in">' + money(M.incomeTotal) + '</b>');
       h += '<div class="incgroup">';
       M.sources.forEach(function (sx) {
         var l = M.income.filter(function (x) { return x.source === sx.name; });
@@ -1837,7 +1837,7 @@
       h += '</div>';
       h += vgEnd();
 
-      h += vgHead('exp', 'Expenses', 'exp');
+      h += vgHead('exp', 'Expenses', 'exp', '<span>Total spent</span><b class="amt-out">' + money(M.total) + '</b>');
       M.accounts.forEach(function (a) {
         var b = '';
         if (!a.cats.length) b += '<div class="foot empty">No entries this month</div>';
@@ -1870,7 +1870,7 @@
         netLine('lt-net', "Lisa's Table net", srcTot("Lisa's Table"), groc, 'Groceries') +
         sumBtn('net cmp', calcRoute('hh-spend'), 'Household spend<small>Running month total · excludes groceries (counted in Lisa\'s Table net)</small>',
           '<span class="amt neg">\u2212' + money(Math.abs(r2(hhTot - groc))) + '</span>');
-      h += vgHead('sum', 'Summary', '');
+      h += vgHead('sum', 'Summary', '', '<span>Net this month</span><b class="amt ' + (monthNet >= 0 ? 'pos' : 'neg') + '">' + signedMoney(monthNet) + '</b>');
       h += vSec('summary', 'summary', 'Summary', '<span class="amt ' + (monthNet >= 0 ? 'pos' : 'neg') + '">' + signedMoney(monthNet) + '</span>', calcRoute('month-net'), sumBody);
       h += vgEnd();
 
@@ -5569,14 +5569,14 @@
     var m = vgMap(); if (col) m[key] = 1; else delete m[key];
     try { localStorage.setItem(VG_KEY, JSON.stringify(m)); } catch (e) {}
   }
-  function vgHead(cls, title, kind) {      // opens a group card: title (tap = collapse) + optional mic / camera buttons; close it with vgEnd()
+  function vgHead(cls, title, kind, tot) {      // opens a group card: title (tap = collapse) + optional mic / camera buttons; close it with vgEnd()
     var nm = kind === 'inc' ? 'income' : 'expense', col = !!vgMap()[cls];
     return '<div class="vgcard ' + cls + (col ? ' collapsed' : '') + '" data-vg="' + cls + '"><div class="vghead">' +
       '<h2 class="vgrp ' + cls + '" role="button" tabindex="0" aria-expanded="' + !col + '"><span class="vgt">' + title + '</span><i class="vgchev" aria-hidden="true">&rsaquo;</i></h2>' +
       (kind ? '<div class="vgbtns">' +
       '<button type="button" class="vgbtn" data-go="vmic/' + kind + '" aria-label="Dictate ' + nm + '" title="Dictate ' + nm + '">' + vsvg('mic') + '</button>' +
       '<button type="button" class="vgbtn" data-go="vcam/' + kind + '" aria-label="Photo of ' + nm + ' receipt" title="Receipt photo">' + vsvg('cam') + '</button></div>' : '') +
-      '</div><div class="vgbody">';
+      '</div>' + (tot ? '<div class="vgtot ' + cls + '">' + tot + '</div>' : '') + '<div class="vgbody">';
   }
   function vgEnd() { return '</div></div>'; }
   $('spend-body').addEventListener('click', function (e) {

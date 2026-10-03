@@ -1278,3 +1278,12 @@ button.vdelbtn:disabled { opacity: .4; pointer-events: none; }
 #screen-lt .wlconf { padding: 8px 0 2px 56px; }
 #screen-lt .wldonebtn { display: block; width: 100%; min-height: 46px; margin: 0 0 8px; text-align: left; padding: 10px 14px; font-weight: 700; }
 #screen-lt .wl .foot.empty { padding: 10px 2px; }
+
+/* v63: Vault group cards: black background, one continuous black header bar under title + mic + camera, totals shown when collapsed */
+.vgcard { background: #000; }
+.vgcard > .vghead { margin: 0 -10px; padding: 8px 10px; background: #000; border-bottom: 1px solid var(--vg); border-radius: var(--radius) var(--radius) 0 0; }
+.vgcard.collapsed > .vghead { border-radius: var(--radius) var(--radius) 0 0; }
+.vgtot { display: none; }
+.vgcard.collapsed > .vgtot { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 2px 12px; font-size: 15px; color: var(--muted, #bbb); }
+.vgcard.collapsed > .vgtot b { font-size: 22px; font-weight: 700; }
+.vgcard.collapsed > .vghead { border-bottom-color: transparent; }
