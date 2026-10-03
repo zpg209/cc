@@ -2786,8 +2786,9 @@
     if (cfg.sort === 'az') {
       items = items.slice().sort(function (a, b) {
         if (!!a.folder !== !!b.folder) return a.folder ? -1 : 1;
-        return a.name.localeCompare(b.name, 'en', { numeric: true, sensitivity: 'base' });
+        return a.name.replace(/\.(docx?|pdf)\s*$/i, '').localeCompare(b.name.replace(/\.(docx?|pdf)\s*$/i, ''), 'en', { numeric: true, sensitivity: 'base' });
       });
+      if (cfg.check && state.ltCache.macros && state.ltCache.macros.data) return foot + ltGroupedHtml(items, term);
       return foot + '<div class="card"><ul class="doclist folderlist' + (cfg.check ? ' ltchecklist' : '') + '">' + items.map(function (x) {
         var label = x.name.replace(/\.(docx?|pdf)$/i, '').trim();
         return cfg.check && !x.folder ? ltCheckRow(x, x.added ? x.name : label) : ltItemLink(x, label);
@@ -2894,6 +2895,43 @@
       if (j.error || !j.data) return;
       state.ltCache.macros = { at: Date.now(), data: j.data }; cb && cb();
     }, function (err) { state.ltMacBusy = false; vAuth(err); });
+  }
+  // ---- Menu Items grouped by macros-sheet category (collapsible; state in localStorage cc_ltcat = {category: true when collapsed}) ----
+  var LT_CAT_KEY = 'cc_ltcat';
+  function ltCatOf(items) {          // file/added entry -> category (matched to the macros sheet like Generate menu does; no match -> Other)
+    var m = state.ltCache.macros.data, memo = state.ltCatMemo;
+    if (!memo || memo.at !== state.ltCache.macros.at || memo.n !== m.items.length) memo = state.ltCatMemo = { at: state.ltCache.macros.at, n: m.items.length, map: {} };
+    return items.map(function (x) {
+      if (memo.map[x.id] === undefined) {
+        var it = x.added ? m.items[x.idx] : mgMatch({ id: x.id, n: x.name }, m.items);
+        memo.map[x.id] = (it && it.category) || 'Other';
+      }
+      return memo.map[x.id];
+    });
+  }
+  function ltGroupedHtml(items, term) {
+    var m = state.ltCache.macros.data, folders = items.filter(function (x) { return x.folder; }), files = items.filter(function (x) { return !x.folder; });
+    var cats = ltCatOf(files), by = {}, order = [];
+    (m.categories || []).forEach(function (c) { if (c !== 'Other') order.push(c); });
+    files.forEach(function (x, i) { var c = cats[i]; if (c !== 'Other' && order.indexOf(c) < 0) order.push(c); (by[c] = by[c] || []).push(x); });
+    order.push('Other');
+    var col = lsGet(LT_CAT_KEY, {}), h = '';
+    if (folders.length) h += '<div class="card"><ul class="doclist folderlist">' + folders.map(function (x) { return ltItemLink(x, x.name.replace(/\.(docx?|pdf)$/i, '').trim()); }).join('') + '</ul></div>';
+    order.forEach(function (c) {
+      var list = by[c]; if (!list || !list.length) return;
+      var closed = !term && !!col[c], tk = list.filter(function (x) { return ltSelIdx(x.id) >= 0; }).length;
+      h += '<div class="card ltgroup" data-cat="' + esc(c) + '"><button type="button" class="ltcat" data-ltcat="' + esc(c) + '" aria-expanded="' + !closed + '"><span class="ltchev">' + (closed ? '\u25b8' : '\u25be') + '</span><span class="ltcatname">' + esc(c) + '</span>' +
+        '<small class="ltcatn">' + list.length + (list.length === 1 ? ' item' : ' items') + (tk ? ' \u00b7 ' + tk + ' ticked' : '') + '</small></button>' +
+        '<ul class="doclist folderlist ltchecklist"' + (closed ? ' hidden' : '') + '>' + list.map(function (x) {
+          return ltCheckRow(x, x.added ? x.name : x.name.replace(/\.(docx?|pdf)$/i, '').trim());
+        }).join('') + '</ul></div>';
+    });
+    return h;
+  }
+  function ltCatRecount(g) {
+    if (!g) return;
+    var tot = g.querySelectorAll('.ltbox').length, tk = g.querySelectorAll('.ltbox.on').length, n = g.querySelector('.ltcatn');
+    if (n) n.textContent = tot + (tot === 1 ? ' item' : ' items') + (tk ? ' \u00b7 ' + tk + ' ticked' : '');
   }
   function ltCheckRow(x, label) {
     var on = ltSelIdx(x.id) >= 0;
@@ -3147,6 +3185,15 @@
     if (b && state.ltPart === 'recipes') {
       var on = ltSelToggle(b.getAttribute('data-ltsel'), b.getAttribute('data-n'));
       b.classList.toggle('on', on); b.setAttribute('aria-checked', on ? 'true' : 'false'); b.textContent = on ? '\u2713' : '';
+      ltCatRecount(b.closest('.ltgroup'));
+      return;
+    }
+    var cg = e.target.closest('[data-ltcat]');
+    if (cg && state.ltPart === 'recipes') {
+      var grp = cg.closest('.ltgroup'), ul = grp.querySelector('ul'), q = $('lt-q'), cname = cg.getAttribute('data-ltcat');
+      var nowClosed = !ul.hidden;
+      ul.hidden = nowClosed; cg.setAttribute('aria-expanded', nowClosed ? 'false' : 'true'); cg.querySelector('.ltchev').textContent = nowClosed ? '\u25b8' : '\u25be';
+      if (!(q && q.value.trim())) { var st = lsGet(LT_CAT_KEY, {}); if (nowClosed) st[cname] = true; else delete st[cname]; lsSet(LT_CAT_KEY, st); }
       return;
     }
     var ed = e.target.closest('[data-ltedit]');
@@ -3159,6 +3206,7 @@
       else if (a === 'clear') {
         state.ltSel = []; ltSelSave(); ltSelBar();
         [].forEach.call($('lt-body').querySelectorAll('.ltbox.on'), function (x) { x.classList.remove('on'); x.setAttribute('aria-checked', 'false'); x.textContent = ''; });
+        [].forEach.call($('lt-body').querySelectorAll('.ltgroup'), ltCatRecount);
       }
       return;
     }
