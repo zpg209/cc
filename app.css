@@ -1292,3 +1292,9 @@ button.vdelbtn:disabled { opacity: .4; pointer-events: none; }
 #screen-home { padding-top: calc(env(safe-area-inset-top, 0px) + 4px); }
 #screen-home .home-head { padding: 0 0 22px; }
 #screen-home .home-logo { width: 92%; max-width: 380px; height: auto; margin: 0 auto 4px; border-radius: 0; box-shadow: none; mix-blend-mode: lighten; }
+
+/* v67: full-width black band behind the Home header icon (bleeds to screen edges and under the status bar) */
+#screen-home { padding-top: 0; }
+#screen-home .logoband { width: 100vw; margin: 0 0 18px calc(50% - 50vw); background: #000; padding: calc(env(safe-area-inset-top, 0px) + 10px) 0 12px; border-bottom: 0.75px solid #D08A55; }
+#screen-home .home-head { padding: 0 0 22px; }
+#screen-home .logoband .home-logo { margin: 0 auto; }
