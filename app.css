@@ -1374,3 +1374,7 @@ body.macopen { overflow: hidden; }
 #screen-lt .ltcatname { flex: 1 1 auto; min-width: 0; font-family: 'Playfair Display', Georgia, serif; font-weight: 700; font-size: 17px; line-height: 1.25; color: var(--lt-t); }
 #screen-lt .ltcatn { flex: none; font: 400 12px/1.2 'Inter', sans-serif; color: var(--muted); }
 #screen-lt .ltgroup ul[hidden] { display: none; }
+
+/* v71: Lisa's Table main page: logo band (cream, full width; multiply drops the logo's white background) */
+#screen-lt .ltband { width: 100vw; margin: 0 0 16px calc(50% - 50vw); background: #f6efe3; padding: 10px 0; border-bottom: 0.75px solid #F4A6C0; text-align: center; }
+#screen-lt .ltlogo { display: block; margin: 0 auto; width: 62%; max-width: 260px; height: auto; mix-blend-mode: multiply; }
