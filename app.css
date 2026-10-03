@@ -1378,3 +1378,85 @@ body.macopen { overflow: hidden; }
 /* v71: Lisa's Table main page: logo band (cream, full width; multiply drops the logo's white background) */
 #screen-lt .ltband { width: 100vw; margin: 0 0 16px calc(50% - 50vw); background: #000; padding: 4px 0; text-align: center; }
 #screen-lt .ltlogo { display: block; margin: 0 auto; width: 94%; max-width: 420px; height: 150px; object-fit: fill; }
+
+/* v72: Menu Items price chip; Lisa's Table Orders (Current | Previous | Summary) */
+#screen-lt .ltprice { flex: none; min-width: 56px; min-height: 36px; padding: 4px 10px; background: #000; color: var(--lt-t); border: 0.75px solid var(--lt-e); border-radius: var(--radius); font: 700 14px/1 'Inter', sans-serif; cursor: pointer; }
+#screen-lt .ltprice.none { color: var(--muted); font-weight: 400; border-style: dashed; }
+#screen-lt .ltprice:active { background: #1d0b10; }
+#screen-lt .ltpin { flex: none; width: 76px; min-height: 36px; padding: 4px 8px; text-align: right; font-size: 15px; }
+#screen-lt .od .card { margin-bottom: 12px; }
+#screen-lt .odtabs { position: sticky; top: 0; z-index: 20; display: flex; gap: 0; margin: 0 -14px 10px; padding: calc(env(safe-area-inset-top, 0px) + 8px) 14px 8px; background: #1c1c1c; border-bottom: 0.75px solid var(--lt-e); }
+#screen-lt .odtab { flex: 1 1 0; min-height: 46px; padding: 8px 4px; background: #000; color: var(--lt-t); border: 0.75px solid var(--lt-e); border-left-width: 0; font: 700 15px/1.2 'Inter', sans-serif; cursor: pointer; }
+#screen-lt .odtab:first-child { border-left-width: 0.75px; border-radius: var(--radius) 0 0 var(--radius); }
+#screen-lt .odtab:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+#screen-lt .odtab.on { background: var(--lt-t); color: #0b0b0b; }
+#screen-lt .odwk { display: flex; align-items: center; gap: 10px; margin: 4px 0 10px; }
+#screen-lt .odwkstatic { justify-content: center; text-align: center; }
+#screen-lt .odarrow { flex: none; width: 46px; height: 46px; padding: 0; background: #000; color: var(--lt-t); border: 0.75px solid var(--lt-e); border-radius: var(--radius); font: 400 28px/1 'Inter', sans-serif; cursor: pointer; }
+#screen-lt .odarrow:active { background: #1d0b10; }
+#screen-lt .odwkl { flex: 1 1 auto; min-width: 0; text-align: center; }
+#screen-lt .odwkl b { display: block; font-family: 'Playfair Display', Georgia, serif; font-size: 18px; color: var(--lt-t); }
+#screen-lt .odwkl small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+#screen-lt .odmenunote { margin: 0 0 8px; }
+#screen-lt .odcard { padding: 12px; }
+#screen-lt .odtop { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+#screen-lt .odname { font: 700 18px/1.25 'Inter', sans-serif; color: var(--text); overflow-wrap: anywhere; }
+#screen-lt .odcost { flex: none; font: 700 18px/1.25 'Inter', sans-serif; color: var(--lt-t); }
+#screen-lt .odlines { list-style: none; margin: 0 0 10px; padding: 0; }
+#screen-lt .odlines li { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; font-size: 14px; color: #ddd; }
+#screen-lt .odlines li span:last-child { flex: none; color: var(--muted); }
+#screen-lt .odrow { display: flex; gap: 8px; align-items: stretch; }
+#screen-lt .odrow .navbtn { flex: 0 0 auto; min-height: 44px; padding: 8px 14px; font-size: 14px; font-weight: 700; }
+#screen-lt .odpaid { flex: 1 1 auto; min-height: 44px; padding: 8px 12px; background: #000; color: var(--lt-t); border: 0.75px solid var(--lt-e); border-radius: var(--radius); font: 700 15px/1.2 'Inter', sans-serif; cursor: pointer; }
+#screen-lt .odpaid.on { background: var(--lt-t); color: #0b0b0b; }
+#screen-lt .odpaid:disabled { opacity: .5; }
+#screen-lt .odconf { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); color: var(--lt-t); font-weight: 600; }
+#screen-lt .odtotal { padding: 12px; }
+#screen-lt .odtrow { display: flex; justify-content: space-between; padding: 3px 0; font-size: 15px; color: #ddd; }
+#screen-lt .odtrow.big { font-size: 20px; font-weight: 700; color: var(--lt-t); padding-bottom: 6px; }
+#screen-lt .odweeks { padding: 0 12px; }
+#screen-lt .odweek { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 58px; padding: 10px 0; background: none; border: 0; border-bottom: 1px solid var(--line); text-align: left; cursor: pointer; color: var(--text); }
+#screen-lt .odweek:last-child { border-bottom: 0; }
+#screen-lt .odwk1 { flex: 1 1 auto; min-width: 0; }
+#screen-lt .odwk1 b { display: block; font-size: 16px; color: var(--lt-t); }
+#screen-lt .odwk1 small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+#screen-lt .odwk2 { flex: none; font-weight: 700; }
+#screen-lt .odsum { padding: 4px 12px; }
+#screen-lt .odsrow { display: grid; grid-template-columns: 1fr 44px 78px; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+#screen-lt .odsrow span:nth-child(2), #screen-lt .odsrow span:nth-child(3) { text-align: right; }
+#screen-lt .odsrow.head { font: 700 11px/1.2 'Inter', sans-serif; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+#screen-lt .odsrow.tot { border-bottom: 0; font-weight: 700; color: var(--lt-t); }
+#screen-lt .odform { padding: 12px; }
+#screen-lt .odpick { position: relative; }
+#screen-lt .odpick .wlin, #screen-lt .odnew .wlin { width: 100%; }
+#screen-lt .odsug { position: absolute; left: 0; right: 0; top: 100%; z-index: 15; margin-top: 2px; background: #111; border: 0.75px solid var(--lt-t); border-radius: var(--radius); box-shadow: 0 8px 18px rgba(0,0,0,.6); }
+#screen-lt .odsel { min-height: 6px; margin: 6px 0; }
+#screen-lt .odchip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 6px 6px 12px; border: 0.75px solid var(--lt-e); border-radius: 18px; color: var(--text); font-size: 14px; }
+#screen-lt .odchip b { color: var(--lt-t); }
+#screen-lt .odchip button { width: 30px; height: 30px; padding: 0; background: #000; color: var(--lt-t); border: 0.75px solid var(--lt-e); border-radius: 50%; font-size: 18px; line-height: 1; cursor: pointer; }
+#screen-lt .odclist { max-height: 188px; overflow-y: auto; -webkit-overflow-scrolling: touch; border: 0.75px solid var(--lt-e); border-radius: var(--radius); margin-bottom: 10px; background: #000; }
+#screen-lt .odclist .foot { padding: 10px; }
+#screen-lt .odclient { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; min-height: 46px; padding: 8px 12px; background: none; border: 0; border-bottom: 1px solid var(--line); color: var(--text); font-size: 16px; text-align: left; cursor: pointer; }
+#screen-lt .odclient:last-child { border-bottom: 0; }
+#screen-lt .odclient small { flex: none; color: var(--muted); font-size: 12px; }
+#screen-lt .odclient.on { background: var(--lt-t); color: #0b0b0b; font-weight: 700; }
+#screen-lt .odclient.on small { color: #0b0b0b; }
+#screen-lt .odsug .odclient { background: #111; }
+#screen-lt .odnew { display: flex; gap: 8px; align-items: stretch; }
+#screen-lt .odmic { flex: none; width: 54px; min-height: 46px; padding: 0; }
+#screen-lt .odmic svg { width: 26px; height: 26px; }
+#screen-lt .odsec { margin: 12px 0 6px; }
+#screen-lt .oditems { margin: 8px 0; max-height: 52vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+#screen-lt .oditem { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+#screen-lt .oditem.on .odiname { color: var(--lt-t); font-weight: 700; }
+#screen-lt .odiname { flex: 1 1 auto; min-width: 0; min-height: 46px; padding: 4px 0; background: none; border: 0; text-align: left; color: var(--text); font: 400 15px/1.3 'Inter', sans-serif; cursor: pointer; overflow-wrap: anywhere; }
+#screen-lt .odiname small { display: block; color: var(--muted); font-size: 12px; }
+#screen-lt .odstep { flex: none; display: flex; align-items: center; gap: 4px; }
+#screen-lt .odstep button { width: 40px; height: 40px; padding: 0; background: #000; color: var(--lt-t); border: 0.75px solid var(--lt-e); border-radius: var(--radius); font: 400 22px/1 'Inter', sans-serif; cursor: pointer; }
+#screen-lt .odstep button:disabled { opacity: .3; }
+#screen-lt .odq { min-width: 26px; text-align: center; font-weight: 700; }
+#screen-lt .odline { flex: none; width: 58px; text-align: right; font-size: 14px; color: var(--lt-t); }
+#screen-lt .odftot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0; font-size: 16px; }
+#screen-lt .odftot b { color: var(--lt-t); }
+#screen-lt .odftot .odpaid { flex: 0 0 120px; }
+#screen-lt .odadd { margin-top: 0; }

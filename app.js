@@ -149,6 +149,7 @@
     var vk = (name === 'vmic' || name === 'vcam') ? (R.kind === 'exp' ? 'exp' : 'inc') : '';   // #vmic/<inc|exp>, #vcam/<inc|exp>
     if (name !== 'vmic') vmicStop(true);
     if (!(name === 'lt' && R.kind === 'wish')) wlMicStop(true);
+    if (!(name === 'lt' && R.kind === 'orders')) odMicStop(true);
     if (!(name === 'lt' && (R.kind === 'macros' || R.kind === 'recipes'))) macClose(true);
     if (!(name === 'lt' && R.kind === 'menu-add')) maMicStop(true);
     if (name !== 'punch') pmicStop();
@@ -2639,11 +2640,12 @@
     recipes: { label: 'Menu Items',            folder: '1VvrIYV15BX7Rltet2PC7kTxVheUfqMfI', sort: 'az', search: 'Search menu items', check: true },
     menus:   { label: 'Past Menus',            folder: '11tV_huL874mr4F3LdGA-2fvGQZyEWKZY', sort: 'date', search: 'Search menus' },
     macros:  { label: 'Menu Macros', sheet: 'https://docs.google.com/spreadsheets/d/1YhDpmch8pWIAFKEwrSv7AMwWHyhuVW1OyeqbSNOPk3w/edit' },
+    orders:  { label: 'Orders', orders: true },
     wish:    { label: 'Wish List', wish: true },
     'menu-gen': { label: 'Generate menu', gen: true, back: 'lt/recipes' },      // not a tile: opened from the Menu Items screen
     'menu-add': { label: 'Add menu item', add: true, back: 'lt/recipes' }       // not a tile: the + button on the Menu Items screen
   };
-  var LT_ORDER = ['ops', 'recipes', 'menus', 'macros', 'wish'];
+  var LT_ORDER = ['ops', 'recipes', 'orders', 'menus', 'macros', 'wish'];
   var LT_TTL = 60000;
 
   function loadLt(force) {
@@ -2659,6 +2661,7 @@
       return;
     }
     if (cfg.wish) { openWish(); return; }
+    if (cfg.orders) { openOrders(); return; }
     if (cfg.gen) { openMenuGen(); return; }
     if (cfg.add) { openMenuAdd(); return; }
     var key = cfg.folder || 'macros', c = state.ltCache[key];
@@ -2933,15 +2936,67 @@
     var tot = g.querySelectorAll('.ltbox').length, tk = g.querySelectorAll('.ltbox.on').length, n = g.querySelector('.ltcatn');
     if (n) n.textContent = tot + (tot === 1 ? ' item' : ' items') + (tk ? ' \u00b7 ' + tk + ' ticked' : '');
   }
+  // ---- sheet price on each Menu Items row (column "Price" of the Menu Macros sheet; tap to edit, saves with ltpriceset, optimistic) ----
+  function ltPriceTxt(p) { p = Number(p); return '$' + (p === Math.floor(p) ? String(p) : p.toFixed(2)); }
+  function ltMacIdx(x) {            // Menu Items row (file or sheet-only entry) -> index of its Menu Macros item, or -1
+    var c = state.ltCache.macros; if (!c || !c.data) return -1;
+    if (x.added) return x.idx;
+    var it = mgMatch({ id: x.id, n: x.name }, c.data.items);
+    return it ? c.data.items.indexOf(it) : -1;
+  }
+  function ltPriceChip(idx) {
+    var c = state.ltCache.macros; if (!c || !c.data || idx < 0 || !c.data.items[idx]) return '';
+    var it = c.data.items[idx], p = it.price;
+    return '<button type="button" class="ltprice' + (p == null ? ' none' : '') + '" data-ltprice="' + idx + '" aria-label="Price for ' + esc(it.item) + ': ' + (p == null ? 'not set, tap to set' : ltPriceTxt(p) + ', tap to change') + '">' + (p == null ? '+ $' : esc(ltPriceTxt(p))) + '</button>';
+  }
+  function ltPriceEdit(btn) {
+    var idx = +btn.getAttribute('data-ltprice'), it = state.ltCache.macros.data.items[idx]; if (!it) return;
+    var inp = document.createElement('input');
+    inp.type = 'text'; inp.className = 'wlin ltpin'; inp.setAttribute('inputmode', 'decimal'); inp.maxLength = 7; inp.setAttribute('data-ltpin', idx);
+    inp.setAttribute('aria-label', 'Price for ' + it.item); inp.placeholder = '$'; inp.value = it.price == null ? '' : String(it.price);
+    btn.parentNode.replaceChild(inp, btn); inp.focus(); try { inp.select(); } catch (e) {}
+    var done = false, finish = function (save) {
+      if (done) return; done = true;
+      var cur = inp.value;
+      var chip = document.createElement('div'); chip.innerHTML = ltPriceChip(idx);
+      if (inp.parentNode) inp.parentNode.replaceChild(chip.firstChild, inp);
+      if (save) ltPriceSave(idx, cur);
+    };
+    inp.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); finish(true); } else if (ev.key === 'Escape') { ev.preventDefault(); finish(false); } });
+    inp.addEventListener('blur', function () { finish(true); });
+  }
+  function ltPriceSave(idx, raw) {
+    var c = state.ltCache.macros, it = c && c.data && c.data.items[idx]; if (!it) return;
+    var s = String(raw == null ? '' : raw).replace(/[$,\s]/g, ''), n = null;
+    if (s !== '') {
+      if (!/^\d{1,4}(\.\d{1,2})?$/.test(s) || Number(s) > 500) { macFlash('Price must be a number from 0 to 500, like 12 or 12.50.'); return; }
+      n = Number(s);
+    }
+    var old = it.price == null ? null : it.price;
+    if (n === old) return;
+    it.price = n;                                   // optimistic: show it now, undo below if the server says no
+    var repaint = function () { var b = $('lt-body').querySelector('[data-ltprice="' + idx + '"]'); if (b) { var t = document.createElement('div'); t.innerHTML = ltPriceChip(idx); b.parentNode.replaceChild(t.firstChild, b); } };
+    repaint();
+    if (n != null) { var pm = lsGet(LT_PRICE_KEY, {}); pm[mgNorm(it.item)] = String(n); lsSet(LT_PRICE_KEY, pm); }
+    apiRaw('ltpriceset', { item: it.item, price: n == null ? '' : String(n), cid: vNewCid() }).then(function (j) {
+      if (!j.error) { macFlash(''); return; }
+      it.price = old; repaint();
+      macFlash(j.error === 'bad_action' ? 'Saving prices will work after the next server update.' : (j.message || ('Server error: ' + j.error)) + ' The price was not changed.');
+    }, function (err) {
+      it.price = old; repaint();
+      if (vAuth(err)) return;
+      macFlash(friendly(err) + ' The price was not changed.');
+    });
+  }
   function ltCheckRow(x, label) {
-    var on = ltSelIdx(x.id) >= 0;
+    var on = ltSelIdx(x.id) >= 0, chip = ltPriceChip(ltMacIdx(x));
     if (x.added) {
       return '<li class="ltck"><button type="button" class="ltbox' + (on ? ' on' : '') + '" data-ltsel="' + esc(x.id) + '" data-n="' + esc(x.name) + '" role="checkbox" aria-checked="' + on + '" aria-label="Select ' + esc(label) + '">' + (on ? '\u2713' : '') + '</button>' +
-        '<button type="button" class="ltname" data-ltedit="' + x.idx + '"><span class="ft">added</span>' + esc(label) + '</button></li>';
+        '<button type="button" class="ltname" data-ltedit="' + x.idx + '"><span class="ft">added</span>' + esc(label) + '</button>' + chip + '</li>';
     }
     var href = 'https://drive.google.com/file/d/' + x.id + '/view';
     return '<li class="ltck"><button type="button" class="ltbox' + (on ? ' on' : '') + '" data-ltsel="' + esc(x.id) + '" data-n="' + esc(x.name) + '" role="checkbox" aria-checked="' + on + '" aria-label="Select ' + esc(label) + '">' + (on ? '\u2713' : '') + '</button>' +
-      '<a href="' + esc(href) + '" data-title="' + esc(x.name) + '"><span class="ft">' + fileKind(x.mime) + '</span>' + esc(label) + '</a></li>';
+      '<a href="' + esc(href) + '" data-title="' + esc(x.name) + '"><span class="ft">' + fileKind(x.mime) + '</span>' + esc(label) + '</a>' + chip + '</li>';
   }
 
   // ---- name matching (menu item files <-> Menu Macros rows) ----
@@ -3031,7 +3086,7 @@
       var m = mgMatch(s, items), dn = m ? m.item : mgCleanName(s.n), o = mg.ov[s.id] || {};
       return { id: s.id, sel: s, m: m, defName: dn, key: mgNorm(dn),
         name: o.name !== undefined ? o.name : dn,
-        price: o.price !== undefined ? o.price : (prices[mgNorm(dn)] || ''),
+        price: o.price !== undefined ? o.price : (m && m.price != null ? String(m.price) : (prices[mgNorm(dn)] || '')),
         desc: o.desc !== undefined ? o.desc : (m ? m.ingredients || '' : '') };
     });
   }
@@ -3105,7 +3160,8 @@
       '<div class="noteflash show bad" id="mg-warn" hidden></div>' +
       '<h3 class="sechead">Preview</h3><div class="mpaper" id="mg-preview"></div>' +
       '<div class="draftbtns mgbtns"><button type="button" class="navbtn" data-mg="copy">Copy text</button><button type="button" class="bigsave" id="mg-save" data-mg="save">Save to Menu Designs</button></div>' +
-      '<div class="noteflash" id="mg-flash" hidden></div><div id="mg-saved"></div>' +
+      '<div class="draftbtns mgbtns"><button type="button" class="navbtn" id="mg-orders-btn" data-mg="orders">Use for orders</button></div>' +
+      '<div class="noteflash" id="mg-flash" hidden></div><div id="mg-saved"></div><div class="noteflash" id="mg-ordmsg" hidden></div>' +
       '<div id="mg-macros"></div>' +
       '<button type="button" class="navbtn wladd" data-go="lt/recipes">&lsaquo; Back to Menu Items</button></div>';
     mgRefresh();
@@ -3156,11 +3212,37 @@
       var d = j.data || {};
       mg.saved = { sig: sig, url: d.url || '', name: d.name || '' };
       mgFlash('');
+      mgWeekMenu(true);
       $('mg-saved').innerHTML = '<div class="noteflash show">Saved' + (d.name ? ' as \u201c' + esc(d.name) + '\u201d' : '') + ' in Menu Designs.' + (d.url ? ' <a class="mgopen" href="' + esc(d.url) + '" data-title="' + esc(d.name || 'Menu') + '">Open &rsaquo;</a>' : '') + '</div>';
     }, function (err) {
       mg.saving = false; mgRefresh();
       if (vAuth(err)) return;
       mgFlash(friendly(err) + ' Tap Save again to retry (same entry id, it will not double).', true);
+    });
+  }
+  // ---- the chosen menu for the week -> Orders (weekmenuset; Week Menus tab). Runs after a successful menusave, or from the "Use for orders" button. ----
+  function mgOrdMsg(text, bad) { var el = $('mg-ordmsg'); if (!el) return; el.textContent = text || ''; el.hidden = !text; el.className = 'noteflash' + (text ? ' show' : '') + (bad ? ' bad' : ''); }
+  function mgWeekMenu(auto) {
+    var r = mgRefresh(), items = [], week = odMonday(mg.week);
+    r.rows.forEach(function (x) {
+      var nm = String(x.name || '').replace(/\s+/g, ' ').trim(); if (!nm) return;
+      var pr = mgPrice(x.price);
+      if (pr === null) return;
+      items.push({ item: nm, price: pr ? Number(pr.replace('$', '')) : '' });
+    });
+    if (!week || !items.length) { if (!auto) mgOrdMsg('Pick the menu week and at least one item first.', true); return; }
+    var body = { week: week, items: items }, sig = JSON.stringify(body);
+    if (mg.wmSig !== sig || !mg.wmCid) { mg.wmSig = sig; mg.wmCid = vNewCid(); }
+    body.cid = mg.wmCid; mgOrdMsg('Saving this menu for Orders\u2026');
+    return apiPostRaw('weekmenuset', body, 60000).then(function (j) {
+      if (!mgOnScreen()) return;
+      if (j.error === 'bad_action') return mgOrdMsg('Orders will work after the next server update. (Your menu is not set for Orders yet.)', true);
+      if (j.error) return mgOrdMsg((j.message || ('Server error: ' + j.error)) + ' The menu was not set for Orders.', true);
+      delete od.byWeek[week];
+      mgOrdMsg('Menu set for Orders (week of ' + odShort(week) + ', ' + items.length + ' item' + (items.length === 1 ? '' : 's') + ').', false);
+    }, function (err) {
+      if (vAuth(err)) return;
+      if (mgOnScreen()) mgOrdMsg(friendly(err) + ' The menu was not set for Orders. Tap Use for orders to retry.', true);
     });
   }
   function mgInput(t) {
@@ -3181,6 +3263,8 @@
   }
 
   $('lt-body').addEventListener('click', function (e) {
+    var pb = e.target.closest('[data-ltprice]');
+    if (pb && state.ltPart === 'recipes') { ltPriceEdit(pb); return; }
     var b = e.target.closest('[data-ltsel]');
     if (b && state.ltPart === 'recipes') {
       var on = ltSelToggle(b.getAttribute('data-ltsel'), b.getAttribute('data-n'));
@@ -3213,7 +3297,7 @@
     var m = e.target.closest('[data-mg]');
     if (m && state.ltPart === 'menu-gen') {
       var act = m.getAttribute('data-mg');
-      if (act === 'copy') mgCopy(); else if (act === 'save') mgSave();
+      if (act === 'copy') mgCopy(); else if (act === 'save') mgSave(); else if (act === 'orders') mgWeekMenu(false);
     }
   });
   $('lt-body').addEventListener('input', function (e) {
@@ -7004,7 +7088,458 @@
     if (!e.target.value.trim()) return;
     wl.items.push(''); wlDraftSave(); wlFormRender(''); var ins = $('wl-rows').querySelectorAll('.wlin'); if (ins.length) ins[ins.length - 1].focus();
   });
-  document.addEventListener('visibilitychange', function () { if (document.hidden && wl.on) wlMicStop(true), wlUi(); if (document.hidden && mm.on) { macMicStop(true); macUi(); } if (document.hidden && ma.on) { maMicStop(true); maUi(); } });
+  /* ---------------- Lisa's Table: Orders (#lt/orders) — Current | Previous | Summary ---------------- */
+  // Orders live on the server ("Lisa's Table - Orders" sheet; actions orders / orderset / orderpaid / orderdel). Nothing about clients or orders is
+  // stored in this repo; the phone keeps only a cache of known client names (localStorage cc_clients) as a fallback for the client picker.
+  var OD_CLIENTS_KEY = 'cc_clients';
+  var OD_NA = 'Orders will work after the next server update.';
+  var od = { tab: 'current', week: '', sumWeek: '', prevWeek: '', byWeek: {}, weeks: [], clients: [], exists: false, loading: false, err: '', na: false,
+    form: null, confirmDel: '', busy: {}, inflight: {}, seq: 0, mic: { rec: null, on: false, base: '', committed: '', interim: '', msg: '' } };
+  var OD_MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function odOnScreen() { return state.ltPart === 'orders' && $('screen-lt').classList.contains('active'); }
+  function odDefaultWeek() { var d = new Date(); return mgIso(d.getDay() === 1 ? new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12) : mgNextMonday(d)); }
+  function odMonday(iso) {            // any date -> the Monday on or before it (yyyy-mm-dd)
+    var d = mgDate(iso); if (!d) return '';
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return mgIso(d);
+  }
+  function odShort(iso) { var d = mgDate(iso); return d ? OD_MON[d.getMonth()] + ' ' + d.getDate() : String(iso || ''); }
+  function odMoney(n) {
+    n = Math.round(Number(n || 0) * 100) / 100;
+    return '$' + (n === Math.floor(n) ? n.toLocaleString('en-US') : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+  }
+  function odPlus(iso, n) { return mgAddDays(iso, n); }
+  function odFlash(text, bad) { var el = $('od-flash'); if (!el) return; el.textContent = text || ''; el.hidden = !text; el.className = 'noteflash' + (text ? ' show' : '') + (bad ? ' bad' : ''); }
+  function odApiMsg(j, what) {
+    if (!j || !j.error) return 'Something went wrong.';
+    if (j.error === 'bad_action') return what + ' will work after the next server update.';
+    return j.message || ('Server error: ' + j.error);
+  }
+  function odClients() {
+    var l = (od.clients && od.clients.length) ? od.clients : lsGet(OD_CLIENTS_KEY, []).map(function (n) { return { name: String(n), orders: 0, last: '' }; });
+    return l.filter(function (c) { return c && c.name; });
+  }
+  function odClientsSave() {
+    var names = od.clients.map(function (c) { return c.name; }).filter(Boolean).slice(0, 300);
+    if (names.length) lsSet(OD_CLIENTS_KEY, names);
+  }
+  function odClientAdd(name) {          // a client just saved: show up first in the picker straight away
+    var k = norm(name), rest = od.clients.filter(function (c) { return norm(c.name) !== k; });
+    var old = od.clients.filter(function (c) { return norm(c.name) === k; })[0];
+    rest.unshift({ name: name, orders: (old ? old.orders : 0) + 1, last: od.week });
+    od.clients = rest; odClientsSave();
+  }
+  function odOrders(week) { var W = od.byWeek[week]; return W ? W.orders : null; }
+  function odAgg(orders) {
+    var t = { clients: orders.length, items: 0, total: 0, paid: 0, unpaid: 0, rows: [] }, by = {};
+    orders.forEach(function (o) {
+      t.items += o.items; t.total += o.total;
+      if (o.paid) t.paid += o.total; else t.unpaid += o.total;
+      o.lines.forEach(function (l) {
+        var k = norm(l.item), r = by[k] || (by[k] = { item: l.item, qty: 0, revenue: 0 });
+        r.qty += l.qty; r.revenue += l.lineTotal;
+      });
+    });
+    t.rows = Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return b.qty - a.qty || b.revenue - a.revenue || a.item.localeCompare(b.item); });
+    ['total', 'paid', 'unpaid'].forEach(function (k) { t[k] = Math.round(t[k] * 100) / 100; });
+    return t;
+  }
+
+  function openOrders() {
+    odMicStop(true);
+    od.form = null; od.confirmDel = ''; od.err = ''; od.na = false;
+    if (!od.week) od.week = odDefaultWeek();
+    if (!od.sumWeek) od.sumWeek = od.week;
+    $('lt-body').innerHTML = '';
+    odRender();
+  }
+  function odLoad(week, quiet) {
+    od.inflight[week] = true;
+    if (!quiet) { od.loading = true; od.err = ''; }
+    return apiRaw('orders', { week: week }).then(function (j) {
+      od.inflight[week] = false;
+      if (j.error === 'bad_action') { od.na = true; od.loading = false; return odRender(); }
+      if (j.error) throw new Error(j.message || j.error);
+      od.na = false; od.loading = false; od.err = '';
+      var d = j.data || {};
+      od.exists = !!d.exists; od.weeks = d.weeks || []; od.clients = d.clients || [];
+      od.byWeek[week] = { at: Date.now(), orders: d.orders || [], menu: d.menu || [] };
+      odClientsSave();
+      odRender();
+    }, function (err) {
+      od.inflight[week] = false; od.loading = false;
+      if (vAuth(err)) return;
+      if (!quiet || !od.byWeek[week]) od.err = friendly(err);
+      odRender();
+    });
+  }
+  function odWeekNeeded() { return od.tab === 'summary' ? od.sumWeek : od.tab === 'previous' ? od.prevWeek : od.week; }
+  function odEnsure() {
+    var wk = odWeekNeeded();
+    if (!wk || od.na || od.err || od.inflight[wk]) return;
+    var W = od.byWeek[wk];
+    if (!W || Date.now() - W.at > 45000) odLoad(wk, !!W);
+  }
+  function odRender() {
+    if (!odOnScreen()) return;
+    if (!$('od-main')) {
+      $('lt-body').innerHTML = '<div class="od"><div class="odtabs" role="tablist" aria-label="Orders">' +
+        [['current', 'Current'], ['previous', 'Previous'], ['summary', 'Summary']].map(function (t) {
+          return '<button type="button" class="odtab" role="tab" data-od="tab" data-t="' + t[0] + '">' + t[1] + '</button>';
+        }).join('') + '</div><div class="noteflash" id="od-flash" hidden></div><div id="od-main"></div></div>';
+    }
+    [].forEach.call($('lt-body').querySelectorAll('.odtab'), function (b) {
+      var on = b.getAttribute('data-t') === od.tab; b.classList.toggle('on', on); b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    if (od.form && od.tab === 'current' && $('od-form')) return;          // never wipe a form that is being filled in
+    var h = od.tab === 'previous' ? odPreviousHtml() : od.tab === 'summary' ? odSummaryHtml() : odCurrentHtml();
+    $('od-main').innerHTML = h;
+    if (od.form && od.tab === 'current') odFormInit();
+    odEnsure();
+  }
+  function odStatusHtml(week) {          // shared loading / error / not-available block, or '' when the week's data is ready
+    if (od.na) return '<div class="loading">' + OD_NA + '</div>';
+    if (od.err && !od.byWeek[week]) return '<div class="error">' + esc(od.err) + '<div class="retry"><button type="button" class="navbtn" data-od="retry">Try again</button></div></div>';
+    if (!od.byWeek[week]) return '<div class="loading">Loading\u2026</div>';
+    return '';
+  }
+  function odWeekNav(week, key) {
+    return '<div class="odwk"><button type="button" class="odarrow" data-od="wk" data-k="' + key + '" data-d="-7" aria-label="Previous week">\u2039</button>' +
+      '<div class="odwkl"><b>Week of ' + esc(odShort(week)) + '</b><small>Delivery Tuesday ' + esc(odShort(odPlus(week, 1))) + (week === odDefaultWeek() ? ' \u00b7 this week' : '') + '</small></div>' +
+      '<button type="button" class="odarrow" data-od="wk" data-k="' + key + '" data-d="7" aria-label="Next week">\u203a</button></div>';
+  }
+  function odPaidBtn(o) {
+    return '<button type="button" class="odpaid ' + (o.paid ? 'on' : 'off') + '" data-od="paid" data-oid="' + esc(o.orderId) + '" aria-pressed="' + !!o.paid + '"' + (od.busy[o.orderId] ? ' disabled' : '') + '>' +
+      (o.paid ? 'Paid' + (o.paidOn ? ' ' + esc(odShort(o.paidOn)) : '') : 'Unpaid') + '</button>';
+  }
+  function odCardHtml(o, editable) {
+    var ask = od.confirmDel === o.orderId;
+    return '<div class="card odcard" data-oid="' + esc(o.orderId) + '"><div class="odtop"><span class="odname">' + esc(o.client) + '</span><span class="odcost">' + odMoney(o.total) + '</span></div>' +
+      '<ul class="odlines">' + o.lines.map(function (l) { return '<li><span>' + l.qty + ' \u00d7 ' + esc(l.item) + '</span><span>' + odMoney(l.lineTotal) + '</span></li>'; }).join('') + '</ul>' +
+      '<div class="odrow">' + odPaidBtn(o) +
+      (editable ? '<button type="button" class="navbtn odedit" data-od="edit" data-oid="' + esc(o.orderId) + '">Edit</button><button type="button" class="navbtn odx" data-od="del" data-oid="' + esc(o.orderId) + '" aria-label="Delete order for ' + esc(o.client) + '">Delete</button>' : '') + '</div>' +
+      (ask ? '<div class="odconf">Delete the order for ' + esc(o.client) + '?<div class="draftbtns"><button type="button" class="bigsave odyes" data-od="delyes" data-oid="' + esc(o.orderId) + '">Yes, delete</button><button type="button" class="navbtn" data-od="delno">Keep it</button></div></div>' : '') + '</div>';
+  }
+  function odTotalsHtml(orders) {
+    var t = odAgg(orders);
+    return '<div class="card odtotal"><div class="odtrow big"><span>Week total</span><b>' + odMoney(t.total) + '</b></div>' +
+      '<div class="odtrow"><span>Paid</span><b>' + odMoney(t.paid) + '</b></div><div class="odtrow"><span>Unpaid</span><b>' + odMoney(t.unpaid) + '</b></div>' +
+      '<div class="foot">' + t.clients + ' client' + (t.clients === 1 ? '' : 's') + ' \u00b7 ' + t.items + ' item' + (t.items === 1 ? '' : 's') + '</div></div>';
+  }
+  function odCurrentHtml() {
+    var wk = od.week, h = odWeekNav(wk, 'current'), st = odStatusHtml(wk);
+    if (st) return h + st;
+    var W = od.byWeek[wk];
+    if (od.form) return h + odFormHtml();
+    h += '<div class="foot odmenunote">' + (W.menu.length ? 'Menu for this week: ' + W.menu.length + ' item' + (W.menu.length === 1 ? '' : 's') + ' (from Generate menu)' :
+      'No menu saved for this week yet \u2014 Add client will list every priced menu item. Use Generate menu \u203a Use for orders to set one.') + '</div>';
+    h += '<button type="button" class="navbtn wladd odadd" data-od="add">+ Add client</button>';
+    h += W.orders.length ? W.orders.map(function (o) { return odCardHtml(o, true); }).join('') : '<div class="foot empty">No orders for this week yet.</div>';
+    return h + odTotalsHtml(W.orders);
+  }
+  function odPreviousHtml() {
+    if (od.prevWeek) {
+      var wk = od.prevWeek, st = odStatusHtml(wk), h = '<button type="button" class="navbtn wladd odback" data-od="prevback">&lsaquo; All previous weeks</button><div class="odwk odwkstatic"><div class="odwkl"><b>Week of ' + esc(odShort(wk)) + '</b><small>Delivery Tuesday ' + esc(odShort(odPlus(wk, 1))) + '</small></div></div>';
+      if (st) return h + st;
+      var W = od.byWeek[wk];
+      return h + (W.orders.length ? W.orders.map(function (o) { return odCardHtml(o, false); }).join('') : '<div class="foot empty">No orders that week.</div>') + odTotalsHtml(W.orders);
+    }
+    if (od.na) return '<div class="loading">' + OD_NA + '</div>';
+    if (od.err && !od.weeks.length) return '<div class="error">' + esc(od.err) + '<div class="retry"><button type="button" class="navbtn" data-od="retry">Try again</button></div></div>';
+    var cur = odDefaultWeek(), list = od.weeks.filter(function (w) { return w.week < cur && (w.clients > 0 || w.hasMenu); }).sort(function (a, b) { return a.week < b.week ? 1 : -1; });
+    if (!list.length) return '<div class="loading">' + (od.loading || !od.byWeek[od.week] ? 'Loading\u2026' : 'No previous weeks yet.') + '</div>';
+    return '<div class="card odweeks">' + list.map(function (w) {
+      return '<button type="button" class="odweek" data-od="prevopen" data-w="' + esc(w.week) + '"><span class="odwk1"><b>Week of ' + esc(odShort(w.week)) + '</b><small>' + w.clients + ' client' + (w.clients === 1 ? '' : 's') + ' \u00b7 ' + w.items + ' item' + (w.items === 1 ? '' : 's') +
+        (w.unpaid > 0 ? ' \u00b7 ' + odMoney(w.unpaid) + ' unpaid' : (w.clients ? ' \u00b7 all paid' : '')) + '</small></span><span class="odwk2">' + odMoney(w.total) + '</span><span class="chev">&rsaquo;</span></button>';
+    }).join('') + '</div>';
+  }
+  function odSummaryHtml() {
+    var wk = od.sumWeek, h = odWeekNav(wk, 'summary'), st = odStatusHtml(wk);
+    if (st) return h + st;
+    var W = od.byWeek[wk], t = odAgg(W.orders);
+    if (!W.orders.length) return h + '<div class="foot empty">No orders for this week.</div>';
+    h += '<div class="card odsum"><div class="odsrow head"><span>Item</span><span>Qty</span><span>Revenue</span></div>' +
+      t.rows.map(function (r) { return '<div class="odsrow"><span>' + esc(r.item) + '</span><span>' + r.qty + '</span><span>' + odMoney(r.revenue) + '</span></div>'; }).join('') +
+      '<div class="odsrow tot"><span>Total</span><span>' + t.items + '</span><span>' + odMoney(t.total) + '</span></div></div>';
+    h += '<div class="card odtotal"><div class="odtrow big"><span>Total income</span><b>' + odMoney(t.total) + '</b></div><div class="odtrow"><span>Paid</span><b>' + odMoney(t.paid) + '</b></div>' +
+      '<div class="odtrow"><span>Unpaid</span><b>' + odMoney(t.unpaid) + '</b></div><div class="foot">' + t.items + ' item' + (t.items === 1 ? '' : 's') + ' \u00b7 ' + t.clients + ' client' + (t.clients === 1 ? '' : 's') + ' \u00b7 revenue = quantity \u00d7 price at order time</div></div>';
+    return h;
+  }
+
+  // ---- paid / delete ----
+  function odFind(oid) {
+    var found = null;
+    Object.keys(od.byWeek).forEach(function (w) { (od.byWeek[w].orders || []).forEach(function (o) { if (o.orderId === oid) found = { o: o, w: w }; }); });
+    return found;
+  }
+  function odPaid(oid) {
+    var f = odFind(oid); if (!f || od.busy[oid]) return;
+    var o = f.o, was = { paid: o.paid, paidOn: o.paidOn }, want = !o.paid;
+    o.paid = want; o.paidOn = want ? mgIso(new Date()) : ''; od.busy[oid] = true; odRender();
+    apiRaw('orderpaid', { orderId: oid, paid: want ? 'true' : 'false', client: o.client, cid: vNewCid() }).then(function (j) {
+      od.busy[oid] = false;
+      if (j.error) { o.paid = was.paid; o.paidOn = was.paidOn; odFlash(odApiMsg(j, 'Marking paid'), true); }
+      else if (j.data && j.data.order && j.data.order.paidOn !== undefined) o.paidOn = j.data.order.paidOn;
+      odRender(); if (!j.error) odLoad(f.w, true);
+    }, function (err) {
+      od.busy[oid] = false; o.paid = was.paid; o.paidOn = was.paidOn;
+      if (vAuth(err)) return;
+      odFlash(friendly(err) + ' Not changed.', true); odRender();
+    });
+  }
+  function odDelete(oid) {
+    var f = odFind(oid); if (!f) return;
+    var W = od.byWeek[f.w], idx = W.orders.indexOf(f.o);
+    od.confirmDel = ''; W.orders.splice(idx, 1); odRender();
+    apiRaw('orderdel', { orderId: oid, client: f.o.client, cid: vNewCid() }).then(function (j) {
+      if (j.error) { W.orders.splice(idx, 0, f.o); odFlash(odApiMsg(j, 'Deleting') + ' The order is still there.', true); odRender(); }
+      else { odFlash('Deleted the order for ' + f.o.client + '.', false); odLoad(f.w, true); }
+    }, function (err) {
+      W.orders.splice(idx, 0, f.o);
+      if (vAuth(err)) return;
+      odFlash(friendly(err) + ' The order is still there.', true); odRender();
+    });
+  }
+
+  // ---- Add client / edit order form ----
+  function odMenuItems(week, order) {          // [{item, price|null, cat}] the week's chosen menu, else every priced Menu Macros item
+    var W = od.byWeek[week], list = [], fallback = false;
+    if (W && W.menu && W.menu.length) list = W.menu.map(function (m) { return { item: m.item, price: m.price == null ? null : Number(m.price), cat: '' }; });
+    else {
+      fallback = true;
+      var c = state.ltCache.macros;
+      if (c && c.data) list = c.data.items.filter(function (x) { return x.price != null; }).map(function (x) { return { item: x.item, price: Number(x.price), cat: x.category || '' }; })
+        .sort(function (a, b) { return a.item.localeCompare(b.item, 'en', { sensitivity: 'base' }); });
+    }
+    if (order) order.lines.forEach(function (l) {          // lines of the order being edited that are not on the menu list
+      if (!list.some(function (x) { return norm(x.item) === norm(l.item); })) list.push({ item: l.item, price: l.unitPrice, cat: '' });
+    });
+    return { list: list, fallback: fallback };
+  }
+  function odOpenForm(order) {
+    var W = od.byWeek[od.week]; if (!W) return;
+    var f = { orderId: order ? order.orderId : '', mode: (!order && odClients().length) ? 'existing' : 'new', client: order ? order.client : '', q: '', search: '', q0: {}, paid: order ? !!order.paid : false,
+      cid: vNewCid(), sig: '', busy: false, items: [], fallback: false, loadingMacros: false, qty: {}, order: order || null };
+    od.form = f; odMicStop(true);
+    var mn = $('od-main'); if (mn) mn.innerHTML = '';
+    odFormItems();
+    odRender();
+    if (f.fallback && !(state.ltCache.macros && state.ltCache.macros.data)) { f.loadingMacros = true; ltEnsureMacros(function () { f.loadingMacros = false; if (od.form === f) { odFormItems(); odItemsPaint(); } }); }
+  }
+  function odFormItems() {
+    var f = od.form, m = odMenuItems(od.week, f.order), prev = {};
+    f.items.forEach(function (it, i) { if (f.qty[i]) prev[norm(it.item)] = f.qty[i]; });
+    if (f.order && !f.items.length) f.order.lines.forEach(function (l) { prev[norm(l.item)] = l.qty; });
+    f.items = m.list; f.fallback = m.fallback; f.qty = {};
+    f.items.forEach(function (it, i) { if (prev[norm(it.item)]) f.qty[i] = prev[norm(it.item)]; });
+  }
+  function odFormTotals() {
+    var f = od.form, n = 0, tot = 0;
+    f.items.forEach(function (it, i) { var q = f.qty[i] || 0; n += q; tot += q * (it.price || 0); });
+    return { n: n, total: Math.round(tot * 100) / 100 };
+  }
+  function odClientMatches(q) {
+    var k = norm(q), all = odClients(); if (!k) return all;
+    var pre = all.filter(function (c) { return norm(c.name).indexOf(k) === 0; }), word = all.filter(function (c) { var n = norm(c.name); return n.indexOf(k) !== 0 && (' ' + n).indexOf(' ' + k) >= 0; });
+    return pre.concat(word);
+  }
+  function odOrderedNames() { var W = od.byWeek[od.week], s = {}; ((W && W.orders) || []).forEach(function (o) { s[norm(o.client)] = o.orderId; }); return s; }
+  function odFormHtml() {
+    var f = od.form, edit = !!f.orderId;
+    var h = '<div class="card vform odform" id="od-form"><h3>' + (edit ? 'Edit order' : 'Add client') + ' <small>week of ' + esc(odShort(od.week)) + '</small></h3>';
+    if (edit) {
+      h += '<label class="vfield"><span>Client</span><input type="text" class="wlin" id="od-name" maxlength="60" autocomplete="off" autocapitalize="words" value="' + esc(f.client) + '"></label>';
+    } else {
+      h += '<div class="vfield"><span>Client</span><div class="vchips" role="group" aria-label="New or existing client">' +
+        '<button type="button" class="vchip' + (f.mode === 'existing' ? ' on' : '') + '" data-od="mode" data-m="existing" aria-pressed="' + (f.mode === 'existing') + '">Existing client</button>' +
+        '<button type="button" class="vchip' + (f.mode === 'new' ? ' on' : '') + '" data-od="mode" data-m="new" aria-pressed="' + (f.mode === 'new') + '">New client</button></div></div>';
+      if (f.mode === 'existing') {
+        h += '<div class="odpick"><input type="text" class="wlin" id="od-q" maxlength="60" autocomplete="off" autocapitalize="words" placeholder="Type the first letters\u2026" value="' + esc(f.q) + '" aria-label="Find a client">' +
+          '<div class="odsug" id="od-sug" hidden></div></div>' +
+          '<div class="odsel" id="od-sel"></div><div class="odclist" id="od-clist" role="listbox" aria-label="Existing clients"></div>';
+      } else {
+        h += '<div class="odnew"><input type="text" class="wlin" id="od-name" maxlength="60" autocomplete="off" autocapitalize="words" placeholder="Client name" value="' + esc(f.client) + '" aria-label="Client name">' +
+          '<button type="button" class="micbtn odmic" id="od-mic" data-od="mic" aria-pressed="false" aria-label="Dictate the client name">' + vsvg('mic', 26) + '</button></div><div class="micstate" id="od-micstate">&nbsp;</div>';
+      }
+    }
+    h += '<h4 class="sechead odsec">Items <small id="od-src"></small></h4><input type="search" class="searchbox" id="od-search" autocomplete="off" placeholder="Search items" value="' + esc(f.search) + '">' +
+      '<div id="od-items" class="oditems"></div>' +
+      '<div class="odftot"><span id="od-ftot"></span><button type="button" class="odpaid ' + (f.paid ? 'on' : 'off') + '" id="od-fpaid" data-od="fpaid" aria-pressed="' + f.paid + '">' + (f.paid ? 'Paid' : 'Unpaid') + '</button></div>' +
+      '<div class="draftbtns"><button type="button" class="bigsave" id="od-save" data-od="save">' + (edit ? 'Save changes' : 'Save order') + '</button><button type="button" class="navbtn discard" data-od="cancel">Cancel</button></div>' +
+      '<div class="noteflash" id="od-fmsg" hidden></div></div>';
+    return h;
+  }
+  function odFormInit() { odClientPaint(); odItemsPaint(); odMicUi(); }
+  function odFmsg(text, bad) { var el = $('od-fmsg'); if (!el) return; el.textContent = text || ''; el.hidden = !text; el.className = 'noteflash' + (text ? ' show' : '') + (bad ? ' bad' : ''); }
+  function odClientPaint() {
+    var f = od.form; if (!f || f.mode !== 'existing' || f.orderId) return;
+    var ordered = odOrderedNames(), list = odClientMatches(f.q), sug = $('od-sug'), cl = $('od-clist'), sel = $('od-sel');
+    if (sel) sel.innerHTML = f.client ? '<span class="odchip">Selected: <b>' + esc(f.client) + '</b> <button type="button" data-od="unpick" aria-label="Clear the selected client">\u00d7</button></span>' : '';
+    var row = function (c) {
+      var has = ordered[norm(c.name)];
+      return '<button type="button" role="option" class="odclient' + (norm(c.name) === norm(f.client) ? ' on' : '') + '" data-od="pick" data-n="' + esc(c.name) + '"><span>' + esc(c.name) + '</span>' +
+        '<small>' + (has ? 'already ordered \u00b7 tap to edit' : (c.orders ? c.orders + ' order' + (c.orders === 1 ? '' : 's') : '')) + '</small></button>';
+    };
+    if (sug) {
+      var show = !!f.q.trim() && norm(f.q) !== norm(f.client);
+      sug.hidden = !show; sug.innerHTML = show ? (list.length ? list.slice(0, 6).map(row).join('') : '<div class="foot">No existing client starts with that. Use New client.</div>') : '';
+    }
+    if (cl) cl.innerHTML = list.length ? list.map(row).join('') : '<div class="foot empty">' + (odClients().length ? 'No matches.' : 'No clients yet \u2014 use New client.') + '</div>';
+  }
+  function odItemRow(it, i) {
+    var f = od.form, q = f.qty[i] || 0;
+    return '<div class="oditem' + (q ? ' on' : '') + '" data-i="' + i + '"><button type="button" class="odiname" data-od="inc" data-i="' + i + '">' + esc(it.item) +
+      '<small>' + (it.price == null ? 'no price' : odMoney(it.price) + ' each') + (it.cat ? ' \u00b7 ' + esc(it.cat) : '') + '</small></button>' +
+      '<div class="odstep"><button type="button" data-od="dec" data-i="' + i + '" aria-label="One less ' + esc(it.item) + '"' + (q ? '' : ' disabled') + '>\u2212</button><span class="odq">' + q + '</span>' +
+      '<button type="button" data-od="inc" data-i="' + i + '" aria-label="One more ' + esc(it.item) + '">+</button></div><span class="odline">' + (q ? odMoney(q * (it.price || 0)) : '') + '</span></div>';
+  }
+  function odItemsPaint() {
+    var f = od.form, box = $('od-items'); if (!f || !box) return;
+    var term = norm(f.search), rows = [];
+    f.items.forEach(function (it, i) { if (!term || f.qty[i] || norm(it.item).indexOf(term) >= 0) rows.push(odItemRow(it, i)); });
+    box.innerHTML = rows.length ? rows.join('') : '<div class="foot empty">' + (f.loadingMacros ? 'Loading menu items\u2026' : f.items.length ? 'No matches.' : (f.fallback ? 'No priced menu items yet. Set prices on the Menu Items screen.' : 'No items.')) + '</div>';
+    var src = $('od-src'); if (src) src.textContent = f.fallback ? 'all priced items (no menu saved for this week)' : 'this week\u2019s menu';
+    odFormTot();
+  }
+  function odFormTot() { var t = odFormTotals(), el = $('od-ftot'); if (el) el.innerHTML = t.n + ' item' + (t.n === 1 ? '' : 's') + ' \u00b7 <b>' + odMoney(t.total) + '</b>'; }
+  function odStep(i, d) {
+    var f = od.form; if (!f || !f.items[i]) return;
+    var q = Math.max(0, Math.min(99, (f.qty[i] || 0) + d)); if (q) f.qty[i] = q; else delete f.qty[i];
+    var row = document.querySelector('#od-items .oditem[data-i="' + i + '"]');
+    if (row) { var tmp = document.createElement('div'); tmp.innerHTML = odItemRow(f.items[i], i); row.parentNode.replaceChild(tmp.firstChild, row); }
+    odFormTot(); odFmsg('');
+  }
+  function odPick(name) {
+    var f = od.form, has = odOrderedNames()[norm(name)];
+    if (has) {                                  // that client already has an order this week: edit it instead of making a second one
+      var W = od.byWeek[od.week], o = W.orders.filter(function (x) { return x.orderId === has; })[0];
+      if (o) { od.form = null; odOpenForm(o); return; }
+    }
+    f.client = name; f.q = ''; var q = $('od-q'); if (q) q.value = ''; odClientPaint(); odFmsg('');
+  }
+  function odFormName() {
+    var f = od.form;
+    if (f.orderId || f.mode === 'new') { var el = $('od-name'); return String(el ? el.value : f.client).replace(/\s+/g, ' ').trim(); }
+    return String(f.client || '').trim();
+  }
+  function odSave() {
+    var f = od.form; if (!f || f.busy) return;
+    var name = odFormName();
+    if (!name) return odFmsg(f.mode === 'existing' && !f.orderId ? 'Pick a client first (or choose New client).' : 'Enter the client name first.', true);
+    if (name.length > 60) return odFmsg('The client name is limited to 60 characters.', true);
+    var has = odOrderedNames()[norm(name)];
+    if (has && has !== f.orderId) return odFmsg(name + ' already has an order this week. Open their card and tap Edit.', true);
+    var lines = [];
+    f.items.forEach(function (it, i) { if (f.qty[i]) lines.push({ item: it.item, qty: f.qty[i], price: it.price || 0 }); });
+    if (!lines.length) return odFmsg('Tap at least one item.', true);
+    var week = od.week, body = { week: week, client: name, lines: lines, paid: f.paid };
+    if (f.orderId) body.orderId = f.orderId;
+    var sig = JSON.stringify(body); if (f.sig !== sig) { f.sig = sig; f.cid = vNewCid(); }
+    body.cid = f.cid; f.busy = true; var btn = $('od-save'); if (btn) { btn.disabled = true; btn.textContent = 'Saving\u2026'; } odFmsg('');
+    apiPostRaw('orderset', body, 60000).then(function (j) {
+      f.busy = false;
+      if (j.error) { var b = $('od-save'); if (b) { b.disabled = false; b.textContent = f.orderId ? 'Save changes' : 'Save order'; } return odFmsg(odApiMsg(j, 'Saving orders') + (j.error === 'bad_action' ? ' Nothing was saved.' : ''), true); }
+      var o = j.data && j.data.order; if (!o) return odFmsg('Saved, but the server sent no order back. Pull to refresh.', true);
+      var W = od.byWeek[week] || (od.byWeek[week] = { at: Date.now(), orders: [], menu: [] }), at = -1;
+      W.orders.forEach(function (x, ix) { if (x.orderId === o.orderId) at = ix; });
+      if (at >= 0) W.orders[at] = o; else W.orders.push(o);
+      odClientAdd(o.client);
+      od.form = null; odRender(); odFlash('Saved the order for ' + o.client + ' \u2014 ' + odMoney(o.total) + '.', false);
+      odLoad(week, true);
+    }, function (err) {
+      f.busy = false;
+      if (vAuth(err)) return;
+      var b = $('od-save'); if (b) { b.disabled = false; b.textContent = f.orderId ? 'Save changes' : 'Save order'; }
+      odFmsg(friendly(err) + ' Not confirmed yet: tap Save again to retry (same entry id, it will not double).', true);
+    });
+  }
+
+  // ---- dictate a new client's name ----
+  function odNameParse(text) {            // "client is jane smith." -> "Jane Smith"
+    var s = String(text || '').replace(/[.,!?;:]+/g, ' ').replace(/\s+/g, ' ').trim();
+    s = s.replace(/^(?:add|new|create)\s+(?:a\s+)?(?:new\s+)?/i, '').replace(/^(?:the\s+)?(?:client|customer|order)(?:'s)?(?:\s+name)?(?:\s+is|\s+for)?\s+/i, '').replace(/^(?:name\s+is|for|it'?s|this\s+is)\s+/i, '').trim();
+    return s.split(' ').map(function (w) { return w && w === w.toLowerCase() ? w.charAt(0).toUpperCase() + w.slice(1) : w; }).join(' ').slice(0, 60);
+  }
+  function odMicUi() {
+    var b = $('od-mic'), st = $('od-micstate'); if (!b) return;
+    b.classList.toggle('rec', od.mic.on); b.setAttribute('aria-pressed', od.mic.on ? 'true' : 'false');
+    if (st) { st.className = 'micstate' + (od.mic.on ? ' rec' : '') + (od.mic.msg && !od.mic.on ? ' warn' : ''); st.textContent = od.mic.on ? 'Listening\u2026 say the client\u2019s name' : (od.mic.msg || 'Type the name, or tap the mic and say it.'); }
+  }
+  function odMicFail(msg) { od.mic.on = false; var r = od.mic.rec; od.mic.rec = null; try { r && r.abort(); } catch (e) {} od.mic.msg = msg; odMicUi(); var el = $('od-name'); if (el) el.focus(); }
+  function odMicStart() {
+    var el = $('od-name'); if (!el) return;
+    if (!SR) { od.mic.msg = MIC_NA; odMicUi(); el.focus(); return; }
+    od.mic.msg = ''; od.mic.committed = ''; od.mic.interim = '';
+    var rec; try { rec = new SR(); } catch (e) { return odMicFail(MIC_NA); }
+    rec.continuous = false; rec.interimResults = true; rec.lang = 'en-US'; rec.maxAlternatives = 1;
+    rec.onresult = function (ev) {
+      var interim = '';
+      for (var i = ev.resultIndex; i < ev.results.length; i++) {
+        var r = ev.results[i], t = r[0] ? r[0].transcript : '';
+        if (r.isFinal) od.mic.committed = micSpace(od.mic.committed, t.trim() + ' '); else interim += t;
+      }
+      od.mic.interim = interim.replace(/^\s+/, ''); el.value = odNameParse(od.mic.committed + od.mic.interim);
+    };
+    rec.onerror = function (ev) {
+      var e = ev && ev.error;
+      if (e === 'not-allowed' || e === 'service-not-allowed' || e === 'audio-capture' || e === 'language-not-supported') return odMicFail(MIC_NA);
+      if (e === 'network') return odMicFail('The speech service couldn\u2019t be reached. Type the name instead.');
+      if (e === 'no-speech') od.mic.msg = 'Didn\u2019t catch anything. Tap the mic and try again.';
+    };
+    rec.onend = function () {
+      if (od.mic.rec !== rec) return;
+      od.mic.committed = micSpace(od.mic.committed, od.mic.interim ? od.mic.interim.trim() + ' ' : ''); od.mic.interim = '';
+      od.mic.on = false; od.mic.rec = null;
+      var nm = odNameParse(od.mic.committed); if (nm) { el.value = nm; if (od.form) od.form.client = nm; }
+      odMicUi();
+    };
+    od.mic.rec = rec; od.mic.on = true;
+    try { rec.start(); } catch (e2) { return odMicFail(MIC_NA); }
+    odMicUi();
+  }
+  function odMicStop(quiet) {
+    var r = od.mic.rec;
+    if (quiet) { od.mic.rec = null; od.mic.on = false; try { r && r.abort(); } catch (e) {} return; }
+    if (r) { try { r.stop(); } catch (e2) { od.mic.rec = null; od.mic.on = false; odMicUi(); } }
+  }
+
+  $('lt-body').addEventListener('click', function (e) {
+    if (state.ltPart !== 'orders') return;
+    var b = e.target.closest('[data-od]'); if (!b) return;
+    var a = b.getAttribute('data-od'), oid = b.getAttribute('data-oid'), i = +b.getAttribute('data-i');
+    if (a === 'tab') { var t = b.getAttribute('data-t'); if (t !== od.tab) { if (od.form) { odMicStop(true); od.form = null; } od.tab = t; od.confirmDel = ''; if (t === 'previous') od.prevWeek = ''; odFlash(''); odRender(); } }
+    else if (a === 'wk') {
+      var k = b.getAttribute('data-k'), d = +b.getAttribute('data-d');
+      if (k === 'summary') od.sumWeek = odPlus(od.sumWeek, d); else { od.form = null; od.confirmDel = ''; od.week = odPlus(od.week, d); }
+      odFlash(''); odRender();
+    }
+    else if (a === 'retry') { od.err = ''; od.na = false; odLoad(odWeekNeeded() || od.week); odRender(); }
+    else if (a === 'add') odOpenForm(null);
+    else if (a === 'edit') { var f1 = odFind(oid); if (f1) odOpenForm(f1.o); }
+    else if (a === 'cancel') { odMicStop(true); od.form = null; odRender(); }
+    else if (a === 'paid') odPaid(oid);
+    else if (a === 'del') { od.confirmDel = oid; odRender(); }
+    else if (a === 'delno') { od.confirmDel = ''; odRender(); }
+    else if (a === 'delyes') odDelete(oid);
+    else if (a === 'prevopen') { od.prevWeek = b.getAttribute('data-w'); odRender(); }
+    else if (a === 'prevback') { od.prevWeek = ''; odRender(); }
+    else if (a === 'mode') { var m = b.getAttribute('data-m'); if (od.form && od.form.mode !== m) { odMicStop(true); od.form.mode = m; od.form.client = ''; od.form.q = ''; od.form.sig = ''; $('od-main').innerHTML = odWeekNav(od.week, 'current') + odFormHtml(); odFormInit(); } }
+    else if (a === 'pick') odPick(b.getAttribute('data-n'));
+    else if (a === 'unpick') { od.form.client = ''; odClientPaint(); }
+    else if (a === 'mic') { if (od.mic.on) odMicStop(); else odMicStart(); }
+    else if (a === 'inc') odStep(i, 1);
+    else if (a === 'dec') odStep(i, -1);
+    else if (a === 'fpaid') { od.form.paid = !od.form.paid; b.className = 'odpaid ' + (od.form.paid ? 'on' : 'off'); b.textContent = od.form.paid ? 'Paid' : 'Unpaid'; b.setAttribute('aria-pressed', od.form.paid); }
+    else if (a === 'save') odSave();
+  });
+  $('lt-body').addEventListener('input', function (e) {
+    if (state.ltPart !== 'orders' || !od.form) return;
+    var t = e.target;
+    if (t.id === 'od-q') { od.form.q = t.value; if (od.form.client && norm(t.value) !== norm(od.form.client)) od.form.client = ''; odClientPaint(); }
+    else if (t.id === 'od-name') { od.form.client = t.value; }
+    else if (t.id === 'od-search') { od.form.search = t.value; odItemsPaint(); }
+  });
+
+  document.addEventListener('visibilitychange', function () { if (document.hidden && od.mic.on) { odMicStop(true); odMicUi(); } if (document.hidden && wl.on) wlMicStop(true), wlUi(); if (document.hidden && mm.on) { macMicStop(true); macUi(); } if (document.hidden && ma.on) { maMicStop(true); maUi(); } });
 
   /* ---- #vcam: receipt photo -> shrink -> optional details -> Save (POST receiptsave) ---- */
   var VCAM_TARGET = 1400000, VCAM_HARD = 2800000;      // base64 characters (~1 MB / ~2 MB of JPEG); the server accepts up to ~3 MB of JPEG
