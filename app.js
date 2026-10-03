@@ -1346,19 +1346,33 @@
     return !!m && Number(m[3]) === new Date(Number(m[1]), Number(m[2]), 0).getDate();
   }
   function acNum(v) { return v == null || v === '' || isNaN(Number(v)) ? null : Number(v); }
+  // v49: Investments-group accounts (brokerage, retirement) are not Vault bank accounts. They come from `investments[]` (API v31+); an older API still lists them in
+  // accounts[] with group Investments, so they are moved out here too. Either way they never reach the Vault tiles, group totals, total or reconciliation; the Overview uses them.
+  function isInvGroup(g) { return /^investments?$/i.test(String(g || '').trim()); }
   function acctModel(d) {
-    var accounts = (Array.isArray(d.accounts) ? d.accounts : []).map(function (a) {
+    var rawAll = Array.isArray(d.accounts) ? d.accounts : [], rawInv = Array.isArray(d.investments) ? d.investments.slice() : [], moved = 0;
+    var rawAcc = rawAll.filter(function (a) { if (isInvGroup(a.group)) { moved++; if (!rawInv.some(function (x) { return String(x.name || '').toLowerCase() === String(a.name || '').toLowerCase(); })) rawInv.push(a); return false; } return true; });
+    var mapAcct = function (a) {
+      var entries = (Array.isArray(a.entries) ? a.entries : []).map(function (e) {
+        return { date: e.date || '', balance: Number(e.balance) || 0, notes: e.notes || '' };
+      });
+      return { name: a.name || '', bank: a.bank || '', type: a.type || '', group: 'Investments', balance: acNum(a.balance), asOf: a.asOf || '',
+        notes: a.notes || '', prevBalance: acNum(a.prevBalance), prevAsOf: a.prevAsOf || '', change: acNum(a.change), entries: entries };
+    };
+    var investments = rawInv.map(mapAcct);
+    var accounts = rawAcc.map(function (a) {
       var entries = (Array.isArray(a.entries) ? a.entries : []).map(function (e) {
         return { date: e.date || '', balance: Number(e.balance) || 0, notes: e.notes || '' };
       });
       return { name: a.name || '', bank: a.bank || '', type: a.type || '', group: normAcct(a.group), balance: acNum(a.balance), asOf: a.asOf || '',
         notes: a.notes || '', prevBalance: acNum(a.prevBalance), prevAsOf: a.prevAsOf || '', change: acNum(a.change), entries: entries };
     });
-    var groups = (Array.isArray(d.groups) ? d.groups : []).map(function (g) {
+    var groups = (Array.isArray(d.groups) ? d.groups : []).filter(function (g) { return !isInvGroup(g.group); }).map(function (g) {
       return { group: normAcct(g.group), total: Number(g.total) || 0, count: g.count || 0, change: acNum(g.change) };
     });
-    return { accounts: accounts, groups: groups, total: Number(d.total) || 0, count: accounts.length, change: acNum(d.change),
-      recon: Array.isArray(d.reconciliation) ? d.reconciliation : [], gid: d.balancesGid != null ? String(d.balancesGid) : SHEET_GIDS.bal,
+    var total = moved ? r2(groups.reduce(function (t, g) { return t + g.total; }, 0)) : Number(d.total) || 0;   // older API: its total still had the investments in it
+    return { accounts: accounts, investments: investments, groups: groups, total: total, count: accounts.length, change: moved ? null : acNum(d.change),
+      recon: (Array.isArray(d.reconciliation) ? d.reconciliation : []).filter(function (r) { return !isInvGroup(r.group); }), gid: d.balancesGid != null ? String(d.balancesGid) : SHEET_GIDS.bal,
       unmatched: d.unmatched || [] };
   }
   function loadAccounts(force) {
@@ -1737,11 +1751,16 @@
     if (!A) return st.s === 'err' ? '<div class="loading">Could not load accounts.</div><button class="linkrow smallrow" data-acct-retry="1">Try again</button>' : '<div class="loading">Loading\u2026</div>';
     var isG = /^g:/.test(sr.val), gname = isG ? sr.val.slice(2) : '', all = sr.val === 'All';
     var list = A.accounts.filter(function (a) { return all || (isG ? a.group === gname : a.name === sr.val); });
+    var isInv = false;
+    if (!list.length && !all && (A.investments || []).length) {   // Investments (Overview): one account, or the whole set via g:Investments
+      list = A.investments.filter(function (a) { return isG ? isInvGroup(gname) : a.name === sr.val; });
+      isInv = list.length > 0;
+    }
     if (!list.length) return '<div class="loading">No such account.</div>' + sheetLink('Open in spend sheet (Balances tab)', 'bal', A.gid);
     var total = r2(list.reduce(function (t, a) { return t + (a.balance || 0); }, 0));
-    var label = all ? 'All accounts' : isG ? gname + ' accounts' : 'Account';
+    var label = all ? 'All accounts' : isInv ? (isG ? 'Investments' : 'Investment account') : isG ? gname + ' accounts' : 'Account';
     h += '<div class="card acdrill"><h3>' + esc(label) + '</h3><div class="big amt-bal">' + balMoney(total) + '</div>' +
-      '<div class="foot">' + list.length + ' account' + (list.length === 1 ? '' : 's') + ' \u00b7 latest balance entry for each, summed</div>' +
+      '<div class="foot">' + list.length + ' account' + (list.length === 1 ? '' : 's') + ' \u00b7 latest balance entry for each, summed' + (isInv ? ' \u00b7 shown in the Overview, not in the Vault Accounts total' : '') + '</div>' +
       '<div class="foot how">Source: the Balances tab of the spend sheet (one row per account per statement date).</div></div>';
     h += sheetLink('Open in spend sheet (Balances tab)', 'bal', A.gid);
     list.forEach(function (a) {
@@ -1756,7 +1775,7 @@
       else if (a.entries.length) h += '<div class="foot">Change: need next statement</div>';
       h += '</div>';
     });
-    if (isG) {
+    if (isG && !isInv) {
       var r = A.recon.filter(function (x) { return x.group === gname; })[0];
       if (r && (r.status === 'ok' || r.status === 'gap')) {
         h += '<div class="card acdrill"><h3>Reconciliation \u00b7 ' + esc(gname) + ' <small>' + esc(acDate(r.periodStart)) + ' \u2192 ' + esc(acDate(r.periodEnd)) + '</small></h3>' +
@@ -4134,6 +4153,14 @@
     return { html: h, assets: assets, debt: debt, nw: nw, refs: cashRefs.concat(aRefs) };
   }
 
+  // Investments (E*TRADE from the live Balances rows, American Funds from the Doc as an Estimate): the Vault Accounts no longer lists them.
+  function ovInvCard() {
+    var M = ovModel(), c = M.invC || [];
+    if (!c.length) return '<div class="foot">No investment balances yet.</div>';
+    return c.map(ovCompRow).join('') + '<div class="ovrow calc"><div class="ovl"><span>Investments total</span></div><div class="ovv"><span class="amt-bal">' + ovWhole(M.invTotal) + '</span></div></div>' +
+      '<button class="bigbtn ovlink" ' + goAttr(balRoute('g:Investments')) + '>Investment balances (Balances tab rows) &rsaquo;</button>' +
+      '<div class="ovnote">Counted in Net worth and Total assets. Not in Cash, the Vault Accounts total or reconciliation.</div>';
+  }
   function ovNeedsCard() {
     var needs = ov.d.needs || [];
     if (!needs.length) return '';
@@ -4173,12 +4200,13 @@
     return s ? s.split(' ').filter(function (w) { return !OV_STOP[w]; }) : [];
   }
   function ovIsInv(a) { return /invest|brokerage|retire/i.test(String(a.group || '') + ' ' + String(a.type || '')); }
-  function ovFindAcct(A, label, claimed) {
+  function ovFindAcct(A, label, claimed, listKey) {
     if (!A) return { a: null, n: 0 };
+    var src = A[listKey || 'accounts'] || [];
     var want = ovToks(label);
     if (!want.length) return { a: null, n: 0 };
     function pass(fn) {
-      return A.accounts.filter(function (a) {
+      return src.filter(function (a) {
         if (a.balance === null || claimed.indexOf(a) >= 0) return false;
         var have = ovToks(fn(a));
         return want.every(function (w) { return have.indexOf(w) >= 0; });
@@ -4195,6 +4223,17 @@
   }
   function ovAcctComp(a) {
     return { id: a.name, label: a.name, val: a.balance, tag: 'ver', vault: true, src: 'Vault Accounts \u00b7 ' + a.name, asOf: a.asOf, go: balRoute(a.name), vsec: 'accounts', goLabel: 'Vault Accounts' };
+  }
+  function ovInvComp(a) {
+    return { id: a.name, label: a.name, val: a.balance, tag: 'ver', vault: true, src: 'Vault Balances \u00b7 ' + a.name, asOf: a.asOf, go: balRoute(a.name), goLabel: 'Balances' };
+  }
+  function ovApplyInv(c, m) {   // live Investments row replaces the Doc value (never both); a difference is flagged
+    if (!c) return null;
+    if (!m.a) { if (m.n > 1) c.note = 'The Vault has ' + m.n + ' investment rows that could match, so the Doc figure is used.'; return c; }
+    var o = ovInvComp(m.a);
+    o.id = c.id; o.ref = c.ref; o.label = c.label; o.vaultName = m.a.name;
+    if (c.val !== null && Math.abs(c.val - m.a.balance) >= 1) o.mismatch = { doc: c.val, docTag: c.tag, ref: c.ref, vault: m.a.balance };
+    return o;
   }
   function ovApplyAcct(c, m) {
     if (!c) return null;
@@ -4281,15 +4320,25 @@
     var V = ovVault(), A = state.acct && state.acct.d ? state.acct.d : null, D = state.debt && state.debt.d ? state.debt.d : null;
     var claimed = [], M = { hasL: hasL, V: V, A: A, D: D, heads: {}, leftover: [] };
     // ---- Cash + investments (Vault Accounts first, Doc as fallback) ----
-    var cashC = [], invC = [], reC = [], eqC = [];
+    var cashC = [], invC = [], reC = [], eqC = [], invClaimed = [];
     if (hasL) {
       ovCashRefs().forEach(function (ref) { var c = ovDocComp(ref), m = ovFindAcct(A, c.label, claimed); if (m.a) claimed.push(m.a); cashC.push(ovApplyAcct(c, m)); });
-      ['inv.af', 'inv.etrade'].forEach(function (ref) { var c = ovDocComp(ref); if (!c) return; var m = ovFindAcct(A, c.label, claimed); if (m.a) claimed.push(m.a); invC.push(ovApplyAcct(c, m)); });
+      ['inv.af', 'inv.etrade'].forEach(function (ref) {
+        var c = ovDocComp(ref); if (!c) return;
+        var m = ovFindAcct(A, c.label, invClaimed, 'investments'); if (m.a) invClaimed.push(m.a);
+        c = ovApplyInv(c, m);
+        if (!c.vault) { c.tag = 'est'; if (ref === 'inv.af') c.note = c.note || 'Unverified estimate. Not in the Vault; shown here with the other investments.'; }
+        invC.push(c);
+      });
+      if (A) (A.investments || []).forEach(function (a) { if (a.balance !== null && invClaimed.indexOf(a) < 0) invC.push(ovInvComp(a)); });   // any other live Investments row counts too
       reC = [ovDocComp('re.total')]; eqC = [ovDocComp('eq.value')];
       if (A) M.leftover = A.accounts.filter(function (a) { return a.balance !== null && claimed.indexOf(a) < 0; });
     } else if (A) {
       A.accounts.forEach(function (a) { if (a.balance !== null && !ovIsInv(a)) cashC.push(ovAcctComp(a)); });
+      (A.investments || []).forEach(function (a) { if (a.balance !== null) invC.push(ovInvComp(a)); });
     }
+    invC = invC.filter(function (c) { return c && c.val !== null; });
+    M.invC = invC; M.invTotal = invC.length ? ovSumC(invC) : null;
     cashC = cashC.filter(function (c) { return c && c.val !== null; });
     var cashNotes = [];
     if (M.leftover.length) cashNotes.push('Vault accounts not in the Overview Doc list (not counted): ' + M.leftover.map(function (a) { return a.name + ' ' + ovWhole(a.balance); }).join(', ') + '.');
@@ -4365,16 +4414,20 @@
     var H = M.heads, hasDebtOrDoc = H.debt.val !== null;
     var assetsC = [];
     if (cashC.length) assetsC.push(ovAgg(H.cash, 'Cash (' + cashC.length + (cashC.length === 1 ? ' account' : ' accounts') + ')', 1));
-    invC.concat(reC, eqC).forEach(function (c) { if (c && c.val !== null) assetsC.push(c); });
-    var assets = assetsC.length ? ovSumC(assetsC) : null;
+    reC.concat(eqC).forEach(function (c) { if (c && c.val !== null) assetsC.push(c); });
+    var invTot = M.invTotal;
+    var assetsAll = assetsC.concat(invC);
+    var assets = assetsAll.length ? ovSumC(assetsAll) : null;
     var nwVal = hasL && assets !== null && hasDebtOrDoc ? assets - H.debt.val : null;
-    var nwComps = assetsC.concat(balC);
+    var nwComps = assetsAll.concat(balC);
     M.heads.nw = ovHead('nw', nwComps, { val: nwVal, cls: nwVal !== null && nwVal < 0 ? 'amt-out' : 'amt-in', sub: '',
-      groups: [{ title: 'Assets', comps: assetsC, total: assets === null ? null : { label: 'Total assets', val: assets, cls: 'amt-bal' } },
+      groups: [{ title: 'Assets', comps: assetsC },
+        { title: 'Investments', comps: invC, total: invTot === null ? null : { label: 'Investments subtotal', val: invTot, cls: 'amt-bal' } },
+        { title: '', comps: [], total: assets === null ? null : { label: 'Total assets', val: assets, cls: 'amt-bal' } },
         { title: 'Debt', comps: balC, total: H.debt.val === null ? null : { label: 'Total debt', val: H.debt.val, cls: 'ov-debt' } }],
-      notes: hasL ? ['The two unused Bank of Stockton lines (commercial line, HELOC) are not in net worth.'] : ['Net worth needs the Overview Doc figures (real estate, equipment), which are not loaded.'],
+      notes: hasL ? ['The two unused Bank of Stockton lines (commercial line, HELOC) are not in net worth.', 'Investments (E*TRADE live from the Balances tab, American Funds from the Overview Doc) count here, not in the Vault Accounts or Cash.'] : ['Net worth needs the Overview Doc figures (real estate, equipment), which are not loaded.'],
       vsecs: [{ label: 'Open Vault Accounts', route: 'spend', vsec: 'accounts' }, { label: 'Open Vault Debt', route: 'spend', vsec: 'debt' }] });
-    M.heads.nw.cov = ovCov(assetsC.concat(balC));
+    M.heads.nw.cov = ovCov(assetsAll.concat(balC));
     var runVal = H.cash.val !== null && H.burn.val ? H.cash.val / H.burn.val : null, runRange = '';
     var bl = hasL ? ovN('buffer.low') : null, bh = hasL ? ovN('buffer.high') : null;
     if (runVal !== null && bl !== null && bh !== null) runRange = ovMo(Math.max(0, H.cash.val - bh) / H.burn.val) + ' \u2013 ' + ovMo(Math.max(0, H.cash.val - bl) / H.burn.val);
@@ -4500,7 +4553,7 @@
     if (topFlags.length) h += '<div class="card ovflags"><h4 class="sechead">Doc vs Vault</h4>' + topFlags.map(ovFlagHtml).join('') + '</div>';
     H.groups.forEach(function (g) {
       if (!g.comps.length && !g.total) return;
-      h += '<div class="card ovgrp' + (g.info ? ' info' : '') + '"><h4 class="sechead">' + esc(g.title) + '</h4>' + g.comps.map(ovCompRow).join('');
+      h += '<div class="card ovgrp' + (g.info ? ' info' : '') + '">' + (g.title ? '<h4 class="sechead">' + esc(g.title) + '</h4>' : '') + g.comps.map(ovCompRow).join('');
       if (g.total) h += '<div class="ovrow calc"><div class="ovl"><span>' + esc(g.total.label) + '</span></div><div class="ovv"><span class="' + esc(g.total.cls || '') + '">' + ovWhole(g.total.val) + '</span></div></div>';
       h += '</div>';
     });
@@ -4542,6 +4595,7 @@
       h += collCard('ovliab', 'Liabilities', 3, ovLoan('Wetumka \u00b7 Rocket Mortgage', ['wet.bal', 'wet.rate', 'wet.pay', 'wet.pi', 'wet.escrow', 'wet.due', 'wet.maturity'], 'ovl-wet', false) +
         ovLoan('Mono Way \u00b7 Bank of Stockton (KiwiT)', ['mono.bal', 'mono.orig', 'mono.rate', 'mono.pay', 'mono.maturity'], 'ovl-mono', false) +
         ovLoan('Equipment \u00b7 Alliance (TiwiK)', ['all.bal', 'all.rate', 'all.pay', 'all.pay2', 'all.maturity', 'all.payoff'], 'ovl-all', false), false);
+      h += collCard('ovinv', 'Investments', null, ovInvCard(), false);
       h += collCard('ovnw', 'Assets & net worth', null, NW.html, false);
       h += collCard('ovflow', 'Property & business cash flow', null, ovFlowCard(), false);
       var ins = (d.ledger || []).filter(function (r) { return /^ins\./.test(r.ref); });
