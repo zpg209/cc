@@ -5047,7 +5047,7 @@
       $('insn-title').textContent = 'Insurance'; $('insn-title').classList.remove('sub');
       $('insn-back').setAttribute('data-go', 'fin');
       h += statusCard(d.status);
-      h += '<div class="grid2 biz-grid">' + ents.map(function (x) {
+      h += '<div class="grid2 biz-grid">' + ents.filter(function (x) { return x.slug !== 'monoway'; }).map(function (x) {
         var nr = nextRenewal(x), nt = (d.todo || []).filter(function (t) { return !t.done && t.entities && t.entities.indexOf(x.slug) >= 0; }).length;
         return '<button class="tile biz-tile" data-go="insn/' + esc(x.slug) + '">' + esc(insLabel(x)) +
           '<span class="sub cnt">' + (x.policies.length ? x.policies.length + ' polic' + (x.policies.length === 1 ? 'y' : 'ies') : 'No policy') + (nt ? ' \u00b7 ' + nt + ' to do' : '') + '</span>' +
