@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=54i">
+<link rel="stylesheet" href="app.css?v=55b">
 </head>
 <body>
   <div class="bg"></div>
@@ -24,6 +24,7 @@
   <!-- ============ PASSCODE ============ -->
   <section id="screen-lock" class="screen lock">
     <header class="home-head">
+      <img class="home-logo" src="icon-192.png?v=3" alt="" width="96" height="96">
       <h1 class="title">Command Center</h1>
       <div class="subtitle">Enter passcode</div>
     </header>
@@ -238,6 +239,37 @@
     <div id="ent-body"><div class="loading">Loading…</div></div>
   </section>
 
-  <script src="app.js?v=54i"></script>
+  <!-- ============ VAULT: DICTATE AN EXPENSE / INCOME (#vmic/<exp|inc>) ============ -->
+  <section id="screen-vmic" class="screen micscreen vscreen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="vmic-back" data-go="spend">&lsaquo; Back</button></div>
+    <h2 class="pagetitle" id="vmic-title">Vault &middot; Dictate an expense</h2>
+    <div class="micstage">
+      <div class="micstate" id="vmic-state">&nbsp;</div>
+      <button class="micbtn big" id="vmic-btn" aria-pressed="false" aria-label="Start dictation"><span class="micico" aria-hidden="true"><svg viewBox="0 0 24 24" width="72" height="72" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"/></svg></span><span class="miclbl" id="vmic-lbl">Tap to talk</span></button>
+    </div>
+    <div class="card draft" id="vmic-card">
+      <h3>What I heard <span class="rec-tag" id="vmic-rec" hidden>&#9679; Listening</span></h3>
+      <textarea id="vmic-text" class="notebox" rows="3" maxlength="600" autocapitalize="sentences" placeholder=""></textarea>
+      <div class="draftbtns"><button type="button" class="navbtn" id="vmic-fill">Fill the form</button><button type="button" class="navbtn discard" id="vmic-clear">Clear</button></div>
+    </div>
+    <div class="card vform" id="vmic-form" hidden></div>
+  </section>
+
+  <!-- ============ VAULT: RECEIPT / DOCUMENT PHOTO (#vcam/<exp|inc>) ============ -->
+  <section id="screen-vcam" class="screen micscreen vscreen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="vcam-back" data-go="spend">&lsaquo; Back</button></div>
+    <h2 class="pagetitle" id="vcam-title">Vault &middot; Expense receipt</h2>
+    <div class="micstage" id="vcam-stage">
+      <div class="micstate" id="vcam-state">&nbsp;</div>
+      <label class="micbtn big" for="vcam-cam"><span class="micico" aria-hidden="true"><svg viewBox="0 0 24 24" width="72" height="72" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/></svg></span><span class="miclbl">Take photo</span></label>
+      <label class="navbtn vlib" for="vcam-lib">Choose from library</label>
+      <input class="vfile" type="file" id="vcam-cam" accept="image/*" capture="environment">
+      <input class="vfile" type="file" id="vcam-lib" accept="image/*">
+    </div>
+    <p class="foot" id="vcam-count" hidden></p>
+    <div id="vcam-body"></div>
+  </section>
+
+  <script src="app.js?v=55b"></script>
 </body>
 </html>
