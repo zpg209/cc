@@ -1834,6 +1834,7 @@
       });
       h += vSec('inc-total', 'income', 'Total income', '<span class="amt-in">' + money(M.incomeTotal) + '</span>', incomeRoute('All'), '<div class="foot">Sum of the income sources above.</div>');
       h += '</div>';
+      h += vgEnd();
 
       h += vgHead('exp', 'Expenses', 'exp');
       M.accounts.forEach(function (a) {
@@ -1851,6 +1852,7 @@
         (cashOK ? '<div class="cashtot">' + cashBtn(cashOf(M.items), cashRoute('All')) + '</div>' : '') +
         '<button class="footbtn"' + goAttr('spend/all') + '>' + M.entryCount + ' entries' +
         (M.daysLogged != null ? ' \u00b7 ' + M.daysLogged + ' days logged' : '') + ' &rsaquo;</button>');
+      h += vgEnd();
 
       var netLine = function (key, label, inc, sp, spLbl) {
         var n = r2(inc - sp);
@@ -1867,8 +1869,9 @@
         netLine('lt-net', "Lisa's Table net", srcTot("Lisa's Table"), groc, 'Groceries') +
         sumBtn('net cmp', calcRoute('hh-spend'), 'Household spend<small>Running month total · excludes groceries (counted in Lisa\'s Table net)</small>',
           '<span class="amt neg">\u2212' + money(Math.abs(r2(hhTot - groc))) + '</span>');
-      h += '<h2 class="vgrp sum">Summary</h2>';
+      h += vgHead('sum', 'Summary', '');
       h += vSec('summary', 'summary', 'Summary', '<span class="amt ' + (monthNet >= 0 ? 'pos' : 'neg') + '">' + signedMoney(monthNet) + '</span>', calcRoute('month-net'), sumBody);
+      h += vgEnd();
 
 
       if (d.missingColumns && d.missingColumns.length) h += '<div class="foot">Columns not found: ' + esc(d.missingColumns.join(', ')) + '</div>';
@@ -5546,16 +5549,41 @@
 
   /* ---------------- Vault mic / camera (v54): #vmic/<inc|exp> dictation form, #vcam/<inc|exp> receipt photo ---------------- */
   var VSVG = {
-    mic: '<svg viewBox="0 0 24 24" width="%s" height="%s" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6"/></svg>',
-    cam: '<svg viewBox="0 0 24 24" width="%s" height="%s" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/></svg>'
+    mic: '<svg viewBox="0 0 24 24" width="%s" height="%s" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="9" y="2.5" width="6" height="11.5" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7"/></svg>',
+    cam: '<svg viewBox="0 0 24 24" width="%s" height="%s" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3.5 8.5A1.5 1.5 0 0 1 5 7h2.2l1.1-1.7a1 1 0 0 1 .8-.4h5.8a1 1 0 0 1 .8.4L16.8 7H19a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z"/><circle cx="12" cy="13" r="4"/><circle cx="12" cy="13" r="1.7"/><circle cx="17.4" cy="9.9" r=".8" fill="currentColor" stroke="none"/></svg>'
   };
   function vsvg(name, px) { return VSVG[name].replace(/%s/g, px || 20); }
-  function vgHead(cls, title, kind) {      // "Income"/"Expenses" title with a mic and a camera button right next to it
-    var nm = kind === 'inc' ? 'income' : 'expense';
-    return '<div class="vghead"><h2 class="vgrp ' + cls + '">' + title + '</h2><div class="vgbtns">' +
-      '<button type="button" class="vgbtn" data-go="vmic/' + kind + '" aria-label="Dictate ' + nm + '" title="Dictate ' + nm + '">' + vsvg('mic') + '</button>' +
-      '<button type="button" class="vgbtn" data-go="vcam/' + kind + '" aria-label="Photo of ' + nm + ' receipt" title="Receipt photo">' + vsvg('cam') + '</button></div></div>';
+  /* v61: Vault group cards (Income / Expenses / Summary): bordered, collapsible by tapping the heading; state in localStorage cc_vault_collapse. */
+  var VG_KEY = 'cc_vault_collapse', vgMem = null;
+  function vgMap() {
+    if (!vgMem) { try { vgMem = JSON.parse(localStorage.getItem(VG_KEY) || '{}') || {}; } catch (e) { vgMem = {}; } }
+    return vgMem;
   }
+  function vgToggle(card) {
+    var key = card.getAttribute('data-vg'), col = !card.classList.contains('collapsed');
+    card.classList.toggle('collapsed', col);
+    var h = card.querySelector('h2.vgrp'); if (h) h.setAttribute('aria-expanded', String(!col));
+    var m = vgMap(); if (col) m[key] = 1; else delete m[key];
+    try { localStorage.setItem(VG_KEY, JSON.stringify(m)); } catch (e) {}
+  }
+  function vgHead(cls, title, kind) {      // opens a group card: title (tap = collapse) + optional mic / camera buttons; close it with vgEnd()
+    var nm = kind === 'inc' ? 'income' : 'expense', col = !!vgMap()[cls];
+    return '<div class="vgcard ' + cls + (col ? ' collapsed' : '') + '" data-vg="' + cls + '"><div class="vghead">' +
+      '<h2 class="vgrp ' + cls + '" role="button" tabindex="0" aria-expanded="' + !col + '"><span class="vgt">' + title + '</span><i class="vgchev" aria-hidden="true">&rsaquo;</i></h2>' +
+      (kind ? '<div class="vgbtns">' +
+      '<button type="button" class="vgbtn" data-go="vmic/' + kind + '" aria-label="Dictate ' + nm + '" title="Dictate ' + nm + '">' + vsvg('mic') + '</button>' +
+      '<button type="button" class="vgbtn" data-go="vcam/' + kind + '" aria-label="Photo of ' + nm + ' receipt" title="Receipt photo">' + vsvg('cam') + '</button></div>' : '') +
+      '</div><div class="vgbody">';
+  }
+  function vgEnd() { return '</div></div>'; }
+  $('spend-body').addEventListener('click', function (e) {
+    if (e.target.closest('.vgbtns')) return;          // mic / camera buttons keep their own routes and never toggle
+    var h = e.target.closest('h2.vgrp'); if (h) vgToggle(h.closest('.vgcard'));
+  });
+  $('spend-body').addEventListener('keydown', function (e) {
+    var h = e.target.closest && e.target.closest('h2.vgrp');
+    if (h && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); vgToggle(h.closest('.vgcard')); }
+  });
   function vNewCid() { return 'v' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
   function vToday() { return VP.iso(new Date()); }
   function vAmt(s) {        // "42.5" / "$1,250.00" -> number, or null

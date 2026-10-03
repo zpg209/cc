@@ -1191,3 +1191,46 @@ button.vdelbtn:disabled { opacity: .4; pointer-events: none; }
 #ent-tabs button.enttab { background: #000; color: var(--red); border: 1px solid var(--copper); font-size: 15px; min-height: 46px; }
 #ent-tabs button.enttab.on { background: var(--copper); border-color: var(--copper); color: #1b1b1b; }
 #ent-tabs button.enttab:active { background: var(--btn-press); }
+
+/* ==== v61 ui-titles (appended block): screen titles, Vault group cards, round mic / camera buttons ==== */
+/* 1) Screen titles: same copper Playfair gradient as the Home title + thin fading copper underline. Accent per screen via --tt1/--tt2/--tt3/--tln. */
+.screen { --tt1: #FFC48A; --tt2: #F07A2A; --tt3: #B4501A; --tln: 208,138,85; }
+#screen-lt { --tt1: #FBD0DF; --tt2: #F4A6C0; --tt3: #D9769A; --tln: 244,166,192; }
+.screen .topbar h2, .screen .pagetitle {
+  font-family: 'Playfair Display', 'Spectral', Georgia, serif; font-weight: 700; font-size: 26px; line-height: 1.2; letter-spacing: .3px;
+  padding: 2px 0 7px; margin-bottom: 0;
+  color: var(--tt2);
+  background: linear-gradient(180deg, var(--tt1) 0%, var(--tt2) 55%, var(--tt3) 100%), linear-gradient(90deg, rgba(var(--tln),.95) 0%, rgba(var(--tln),.4) 55%, rgba(var(--tln),0) 100%);
+  background-size: 100% 100%, 100% 1px; background-position: 0 0, 0 100%; background-repeat: no-repeat;
+  -webkit-background-clip: text, border-box; background-clip: text, border-box; -webkit-text-fill-color: transparent; }
+.screen .topbar h2 { flex: 1 1 auto; min-width: 0; margin-top: 0; }
+.screen .topbar h2.sub { font-size: 20px; }
+.screen .pagetitle { margin: 4px 2px 14px; }
+.screen .pagetitle span { opacity: 1; }
+.screen .topbar { align-items: center; }
+@media (max-width: 380px) { .screen .topbar h2 { font-size: 23px; } .screen .topbar h2.sub { font-size: 18px; } .screen .pagetitle { font-size: 23px; } }
+
+/* 2) Vault group cards (Income / Expenses / Summary): border in the heading color, collapsible, chevron rotates */
+.vgcard { --vg: #D08A55; margin: 16px 0 12px; padding: 0 10px 2px; border: 1px solid var(--vg); border-radius: var(--radius); background: rgba(255,255,255,.015); }
+.vgcard.inc { --vg: var(--c-inc, #2E8B57); }
+.vgcard.exp { --vg: var(--c-spend, #CF4059); }
+.vgcard.sum { --vg: #4DA3FF; }
+.vgcard > .vghead { margin: 0; padding: 8px 0; min-height: 56px; gap: 8px; }
+.vgcard > .vghead h2.vgrp { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; margin: 0; padding: 6px 2px; min-height: 44px; cursor: pointer; -webkit-user-select: none; user-select: none; }
+.vgcard h2.vgrp:focus-visible { outline: 1px solid var(--vg); outline-offset: 2px; }
+.vgcard .vgchev { font-style: normal; font-size: 28px; line-height: 1; font-weight: 400; letter-spacing: 0; transform: rotate(90deg); transition: transform .15s; }
+.vgcard.collapsed .vgchev { transform: rotate(0deg); }
+.vgcard > .vgbody { padding: 0 0 6px; }
+.vgcard.collapsed > .vgbody { display: none; }
+.vgcard.collapsed { padding-bottom: 0; }
+.vgcard > .vgbody > .vsec:last-child, .vgcard > .vgbody > .incgroup > .vsec:last-child { margin-bottom: 4px; }
+
+/* 3) Round copper-ring mic / camera buttons (Vault group headers) + cleaner big icons on the dictate / photo screens */
+.vgbtns { gap: 10px; flex: none; }
+.vgbtn { width: 40px; height: 40px; border-radius: 50%; background: #000; color: var(--red);
+  border: 1px solid var(--copper); box-shadow: 0 0 10px rgba(208,138,85,.28), inset 0 0 6px rgba(208,138,85,.12);
+  transition: transform .08s, box-shadow .12s, background .12s; }
+.vgbtn svg { width: 22px; height: 22px; stroke-width: 1.5; }
+.vgbtn:active { transform: scale(.92); background: #1a120c; border-color: var(--red); box-shadow: 0 0 3px rgba(208,138,85,.25), inset 0 0 10px rgba(240,122,42,.3); }
+.vgbtn:focus-visible { outline: 1px solid var(--red); outline-offset: 2px; }
+/* ==== end v61 ui-titles ==== */
