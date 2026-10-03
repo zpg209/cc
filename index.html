@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=57">
+<link rel="stylesheet" href="app.css?v=58">
 </head>
 <body>
   <div class="bg"></div>
@@ -47,7 +47,6 @@
     </header>
     <div class="grid2 homegrid" id="home-grid">
       <button class="tile" data-go="projects">L&amp;S projects</button>
-      <button class="tile" data-go="life">Life areas</button>
       <button class="tile" data-go="log">Daily Log</button>
       <button class="tile" data-go="spend">Vault</button>
       <button class="tile" data-go="fin">Finances</button>
@@ -128,23 +127,15 @@
     <a class="pdoclink" id="punch-doc" data-title="Punchlist" href="#">Open the Doc &rsaquo;</a>
   </section>
 
-  <!-- ============ LIFE AREAS ============ -->
-  <section id="screen-life" class="screen">
-    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><h2>Life areas</h2></div>
-    <p class="hint">Second Brain folders in Drive.</p>
-    <div class="grid2" id="life-list"></div>
-    <a class="linkrow" id="sb-root" data-title="Second Brain">Open Second Brain root &rsaquo;</a>
-  </section>
-
-  <!-- ============ BUSINESS (Life areas > Business) ============ -->
+  <!-- ============ BUSINESS (#biz; no Home tile — reached from the KiwiT/TiwiK Business Documents tab or by URL) ============ -->
   <section id="screen-biz" class="screen">
-    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="biz-back" data-go="life">&lsaquo; Back</button><h2 id="biz-title">Business</h2></div>
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="biz-back" data-go="home">&lsaquo; Back</button><h2 id="biz-title">Business</h2></div>
     <div id="biz-body"><div class="loading">Loading…</div></div>
   </section>
 
   <!-- ============ REAL ESTATE (#re, #re/<slug>) + INSURANCE (#ins) — live from Drive ============ -->
   <section id="screen-re" class="screen">
-    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="re-back" data-go="life">&lsaquo; Back</button><h2 id="re-title">Real Estate</h2></div>
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="re-back" data-go="home">&lsaquo; Back</button><h2 id="re-title">Real Estate</h2></div>
     <div id="re-body"><div class="loading">Loading…</div></div>
   </section>
 
@@ -230,8 +221,8 @@
   <!-- ============ ENTITY BOOKS (KiwiT LLC / TiwiK LLC) ============ -->
   <section id="screen-ent" class="screen">
     <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="ent-back" data-go="ent/kiwit" hidden>&lsaquo; Back</button><h2 id="ent-title">KiwiT LLC</h2></div>
-    <div class="enttabs" id="ent-tabs"></div>
-    <div class="weeknav">
+    <div class="enttabs two" id="ent-tabs" hidden></div>
+    <div class="weeknav" id="ent-nav">
       <button class="navbtn" id="ent-prev">&lsaquo; Prev month</button>
       <label class="navlabel entpick"><span id="ent-month">&nbsp;</span><input type="month" id="ent-pick" min="2025-01" aria-label="Pick a month"></label>
       <button class="navbtn" id="ent-next">Next month &rsaquo;</button>
@@ -270,6 +261,6 @@
     <div id="vcam-body"></div>
   </section>
 
-  <script src="app.js?v=57"></script>
+  <script src="app.js?v=58"></script>
 </body>
 </html>

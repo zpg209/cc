@@ -196,7 +196,7 @@ body { overscroll-behavior-y: none; }
 .sumline .amt.pos { color: var(--green); }
 .sumline .amt.neg { color: var(--neg); }
 
-/* ---- Business (Life areas > Business) ---- */
+/* ---- Business documents ---- */
 .biz-tile { flex-direction: column; gap: 6px; font-size: 22px; }
 .biz-tile .cnt { color: #c9a07e; }
 .biz-grid .biz-tile:last-child:nth-child(odd) { grid-column: 1 / -1; aspect-ratio: auto; min-height: 120px; }
@@ -1185,3 +1185,9 @@ button.vdelbtn { color: #ff9a9d; background: var(--btn); border-width: var(--btn
 button.vdelbtn:active { background: #1a0c0c; }
 button.vdelbtn:disabled { opacity: .4; pointer-events: none; }
 .bigsave.vdelbtn, .vscreen .bigsave.vdelbtn, .vdone .navbtn.vdelbtn, .vsbox .navbtn.vdelbtn, .micscreen .navbtn.vdelbtn { color: #ff9a9d; border-color: rgba(229,72,77,.8); }
+
+/* ---- v58: KiwiT / TiwiK two-tab strip (Ledger | Business Documents) ---- */
+.weeknav[hidden] { display: none; }
+#ent-tabs button.enttab { background: #000; color: var(--red); border: 1px solid var(--copper); font-size: 15px; min-height: 46px; }
+#ent-tabs button.enttab.on { background: var(--copper); border-color: var(--copper); color: #1b1b1b; }
+#ent-tabs button.enttab:active { background: var(--btn-press); }

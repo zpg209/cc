@@ -14,7 +14,7 @@
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', ovKey: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
-  var SCREENS = ['lock', 'home', 'projects', 'life', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam'];
+  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -137,7 +137,7 @@
     }
     if (name === 'ent') {
       var entKey = ENTS[R.kind] ? R.kind : 'kiwit', entSub = ENT_SUBS.test(R.val) ? R.val : '';
-      state.entRoute = { key: entKey, kind: entSub, val: entSub ? R.acct : '' };
+      state.entRoute = { key: entKey, kind: entSub, val: entSub ? R.acct : '', tab: !entSub && R.val === 'docs' ? 'docs' : '' };
     }
     if (name === 'fin') { state.finKind = (R.kind === 'overview' || R.kind === 'laundromat') ? R.kind : ''; state.ovKey = state.finKind === 'overview' && OV_HEADS[R.val] ? R.val : ''; }
     if (name === 'insn') state.insSlug = R.kind || '';
@@ -166,7 +166,7 @@
         name === 're' ? (state.reRoute.ins ? '#ins' : '#re' + (state.reRoute.slug ? '/' + encodeURIComponent(state.reRoute.slug) : '')) : '#' + name;
       if (location.hash !== h) history.pushState({ screen: name }, '', h || location.pathname + location.search);
     }
-    if (name === 'projects' || name === 'life') loadLinks();
+    if (name === 'projects') loadLinks();
     if (name === 'log') loadLog();
     if (name === 'track') loadTrack();
     if (name === 'spend') loadSpend(false);
@@ -483,11 +483,11 @@
     else if (e.key === 'Escape') press('clear');
   });
 
-  /* ---------------- Links (projects / life areas) ---------------- */
+  /* ---------------- Links (L&S projects; folder URLs for the Home-level screens) ---------------- */
   function loadLinks() {
     if (state.links) return renderLinks();
-    $('projects-list').innerHTML = $('life-list').innerHTML = '<div class="loading" style="grid-column:1/-1">Loading…</div>';
-    api('links').then(function (d) { state.links = d; renderLinks(); }, onFail(['projects-list', 'life-list'], loadLinks));
+    $('projects-list').innerHTML = '<div class="loading" style="grid-column:1/-1">Loading…</div>';
+    api('links').then(function (d) { state.links = d; renderLinks(); }, onFail(['projects-list'], loadLinks));
   }
   // Google files open in the in-app viewer (no new tab); other links keep opening externally.
   function extAttr(url) { return toEmbed(url) ? '' : ' target="_blank" rel="noopener" data-external'; }
@@ -496,8 +496,8 @@
     return '<a class="tile small"' + extAttr(item.url) + ' href="' + esc(item.url) + '" data-title="' + esc(item.name) + '">' + esc(item.name) +
       (sub ? '<span class="sub">' + esc(sub) + '</span>' : '') + '</a>';
   }
-  // Folder URLs of the life areas, kept for the "Open ... folder" links on the Home-level screens (Finances, Insurance,
-  // Lisa's Table, Trust & Estate) even though those areas no longer have a tile on the Life areas tab.
+  // Folder URLs of the Second Brain areas (`links.lifeAreas` from the server), kept for the "Open ... folder" links on the
+  // Home-level screens (Finances, Insurance, Lisa's Table, Trust & Estate, Business, Real Estate). The Life areas screen itself is gone.
   function applyAreaUrls(d) {
     (d.lifeAreas || []).forEach(function (a) {
       if (/^real estate$/i.test(a.name)) state.reFolderUrl = a.url;
@@ -527,15 +527,6 @@
       return tile(p, p.kind === 'doc' ? 'Running notes' : p.kind === 'folder' ? 'Drive folder' : '');
     }).join('');
     applyAreaUrls(d);
-    // Life areas keeps only the areas with no other home. Financial / Insurance live on Home (Finances, Insurance);
-    // Lisa's Table and Trust & Estate are Home tiles too. Their folder URLs are still read from `links` (applyAreaUrls).
-    $('life-list').innerHTML = d.lifeAreas.map(function (a) {
-      if (/^(financial|insurance|lisa.s table|trust\s*(&|and|&amp;)\s*estate)$/i.test(a.name)) return '';
-      if (/^real estate$/i.test(a.name)) return '<button class="tile small" data-go="re">' + esc(a.name) + '<span class="sub">3 properties</span></button>';
-      if (/^business$/i.test(a.name)) return '<button class="tile small" data-go="biz">' + esc(a.name) + '<span class="sub">3 businesses</span></button>';
-      return tile(a, '');
-    }).join('');
-    $('sb-root').href = d.secondBrainUrl;
   }
 
   /* ---------------- Daily log ---------------- */
@@ -2029,7 +2020,7 @@
 
   /* ---------------- Entity books: KiwiT LLC + TiwiK LLC (API actions `entity`, `entitytax`) ---------------- */
   // Two SEPARATE sets of books for tax separation. The Vault above stays the combined view and is not touched.
-  // Routes: #ent/<kiwit|tiwik>, #ent/<key>/cat/<Category>, /income/<Source|All>, /exp, /net, /bal, /flags, /tax
+  // Routes: #ent/<kiwit|tiwik> (Ledger tab), #ent/<key>/docs (Business Documents tab), #ent/<key>/cat/<Category>, /income/<Source|All>, /exp, /net, /bal, /flags, /tax
   // No figures live in this file: everything is fetched at runtime (public repo). Loans / bills reuse the Vault's `vaultdebt` data
   // (filtered by entity), so they keep working even before the `entity` action is deployed.
   // Colors: income green, spend red (same as the Vault), copper accents, balances teal, loans amber.
@@ -2038,10 +2029,11 @@
   var ENT_SUBS = /^(cat|income|exp|net|bal|flags|tax)$/;
   var ENT_TTL = 60000;
   var MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  state.entRoute = { key: '', kind: '', val: '' };
+  state.entRoute = { key: '', kind: '', val: '', tab: '' };
   state.entOff = 0; state.entCache = {}; state.entTaxCache = {}; state.entYear = new Date().getFullYear();
 
   function entHash(er) {
+    if (!er.kind && er.tab === 'docs') return '#ent/' + er.key + '/docs';
     return '#ent/' + er.key + (er.kind ? '/' + er.kind + (er.val ? '/' + encodeURIComponent(er.val) : '') : '');
   }
   function entRoute(key, kind, val) { return 'ent/' + key + (kind ? '/' + kind + (val != null && val !== '' ? '/' + encodeURIComponent(val) : '') : ''); }
@@ -2087,6 +2079,7 @@
     var R = state.entRoute, E = ENTS[R.key];
     if (!E) return;
     paintEntChrome();
+    if (!R.kind && R.tab === 'docs') return loadEntDocs(force);
     loadDebt(false);
     if (R.kind === 'tax') return loadEntTax(force);
     var ck = R.key + '|' + state.entOff, c = state.entCache[ck];
@@ -2147,7 +2140,13 @@
     $('ent-back').innerHTML = sub ? '&lsaquo; Back' : '&lsaquo; Vault';
     $('ent-title').textContent = sub ? E.name + ' \u00b7 ' + entSubTitle(R) : E.title;
     $('ent-title').classList.toggle('sub', sub);
-    $('ent-tabs').hidden = true; $('ent-tabs').innerHTML = '';   // Vault / KiwiT / TiwiK tab strip removed (10/3)
+    // Two-tab strip (Ledger | Business Documents) on the top-level view only; no Vault/KiwiT/TiwiK tabs (removed 10/3).
+    var docs = !sub && R.tab === 'docs';
+    $('ent-tabs').hidden = sub;
+    $('ent-tabs').innerHTML = sub ? '' :
+      '<button type="button" class="enttab' + (docs ? '' : ' on') + '" data-go="ent/' + E.key + '" aria-pressed="' + !docs + '">Ledger</button>' +
+      '<button type="button" class="enttab' + (docs ? ' on' : '') + '" data-go="ent/' + E.key + '/docs" aria-pressed="' + docs + '">Business Documents</button>';
+    $('ent-nav').hidden = docs;
     var cur = state.entCache[E.key + '|' + state.entOff];
     var label = tax ? state.entYear + (state.entYear === new Date().getFullYear() ? ' to date' : '') : (cur && cur.d && cur.d.monthLabel) || entLocalMonth(state.entOff);
     $('ent-month').textContent = label;
@@ -2405,11 +2404,65 @@
     });
   }
 
+  /* ---- Business Documents tab (#ent/<key>/docs): same list style as #biz/<slug> (renderBiz), live from the `biz` action ---- */
+  // Related documents (KiwiT only): links to files/folders that live outside Business > KiwiT LLC. Drive ids only, no names with account numbers.
+  var ENT_RELATED = {
+    kiwit: [
+      { name: 'Insurance \u203a KiwiT (policy PDFs)', folder: true, id: '1VMta33oQqm-qwQoF0RDLMW6R1Q_wR3Tm' },
+      { name: 'Insurance \u203a Mono Way (policy PDFs)', folder: true, id: '1Icd3FslvKfP-9BuxlMVBGyAjMqZeKu0r' },
+      { name: 'Mono Way loan (signed documents)', id: '1-gDqVllz2apDP_xZzspJpdlVPGUJoyGt' },
+      { name: 'Building lease (KiwiT to TiwiK, no cash changes hands)', id: '1msUgH6s-3dEcw7pAG7GsG8Y8o1AMAGCK' }
+    ]
+  };
+  state.entDocs = { s: '', at: 0, msg: '' };
+  function loadEntDocs(force) {
+    var D = state.entDocs;
+    if (!force && state.biz && (D.s === 'load' || Date.now() - D.at < 60000)) return renderEnt();
+    var mine = state.entDocs = { s: 'load', at: state.biz ? D.at : 0, msg: '' };
+    renderEnt();
+    api('biz').then(function (d) {
+      if (state.entDocs !== mine) return;
+      state.biz = d; state.entDocs = { s: 'ok', at: Date.now(), msg: '' };
+      if (entActive()) renderEnt();
+    }, function (err) {
+      if (state.entDocs !== mine) return;
+      var m = entFail(err); if (m === null) return;
+      if (/bad_action/.test(String(err && err.message))) m = 'Business documents are not available yet (server update pending).';
+      state.entDocs = { s: 'err', at: 0, msg: m };
+      if (entActive()) renderEnt();
+    });
+  }
+  function entDocsView(E) {
+    var D = state.entDocs, d = state.biz, h = '';
+    var b = d && (d.businesses || []).filter(function (x) { return x.slug === E.key; })[0];
+    if (D.s === 'err') h += '<div class="foot warnfoot">Could not load documents: ' + esc(D.msg || '') + ' <button class="linkrow smallrow" data-ent-retry="1">Try again</button></div>';
+    else if (!b && D.s !== 'ok') h += '<div class="loading">Loading…</div>';
+    else if (!b) h += '<div class="card bizgroup"><h4 class="sechead">Business Documents</h4><div class="foot empty">No documents yet.</div></div>';
+    if (b) {
+      var groups = (b.groups || []).slice().sort(function (x, y) {
+        var a = /^business documents/i.test(x.name) ? 0 : 1, c = /^business documents/i.test(y.name) ? 0 : 1; return a - c;
+      });
+      var n = 0; groups.forEach(function (g) { n += (g.files || []).length; });
+      h += '<p class="hint">' + esc(b.name) + ' \u00b7 ' + n + ' document' + (n === 1 ? '' : 's') + ' \u00b7 tap to view</p>';
+      h += n ? bizGroupsHtml(groups) : '<div class="card bizgroup"><h4 class="sechead">Business Documents</h4><div class="foot empty">No documents yet \u2014 add files to Drive \u203a Business \u203a ' + esc(b.name) + '.</div></div>';
+    }
+    var rel = ENT_RELATED[E.key];
+    if (rel) {
+      h += '<div class="card bizgroup"><h4 class="sechead">Related documents</h4><ul class="doclist">' + rel.map(function (x) {
+        var url = x.folder ? 'https://drive.google.com/drive/folders/' + x.id : 'https://drive.google.com/file/d/' + x.id + '/view';
+        return '<li><a href="' + esc(url) + '" data-title="' + esc(x.name) + '"><span class="ft">' + (x.folder ? 'DIR' : 'PDF') + '</span>' + esc(x.name) + '</a></li>';
+      }).join('') + '</ul></div>';
+    }
+    if (b && b.folderUrl) h += '<a class="linkrow" data-title="' + esc(b.short || b.name) + '" href="' + esc(b.folderUrl) + '">Open ' + esc(b.short || b.name) + ' folder &rsaquo;</a>';
+    return h;
+  }
+
   function renderEnt() {
     var R = state.entRoute, E = ENTS[R.key];
     if (!E) return;
     paintEntChrome();
     var h = '';
+    if (!R.kind && R.tab === 'docs') { $('ent-body').innerHTML = entDocsView(E); return; }
     if (R.kind === 'tax') { $('ent-body').innerHTML = entTaxView(E); return; }
     var c = state.entCache[R.key + '|' + state.entOff] || { s: 'load' }, M = c.d;
     if (!M) {
@@ -2433,13 +2486,13 @@
     if (e.target.closest('[data-ent-csv]')) entCsv();
   });
 
-  /* ---------------- Business (Life areas > Business) ---------------- */
+  /* ---------------- Business documents (#biz; also the KiwiT / TiwiK "Business Documents" tab) ---------------- */
   // #biz = three business buttons; #biz/<slug> = grouped, linked document list.
   // Data comes from the passcode-protected API (action=biz), never from the public repo.
   function loadBiz() {
     if (state.biz) return renderBiz();
     $('biz-title').textContent = 'Business';
-    $('biz-back').setAttribute('data-go', state.bizSlug ? 'biz' : 'life');
+    $('biz-back').setAttribute('data-go', state.bizSlug ? 'biz' : 'home');
     $('biz-body').innerHTML = '<div class="loading">Loading…</div>';
     api('biz').then(function (d) { state.biz = d; renderBiz(); }, function (err) {
       if (err instanceof AuthError) return onFail(['biz-body'], loadBiz)(err);
@@ -2462,10 +2515,28 @@
     if (/word|document/.test(mime)) return 'DOC';
     return 'FILE';
   }
+  function bizGroupsHtml(groups) {
+    var h = '';
+    (groups || []).forEach(function (g) {
+      h += '<div class="card bizgroup"><h4 class="sechead">' + esc(g.name) + '</h4>';
+      if (g.decision) h += '<div class="decision"><b>Decision to make</b>' + (Array.isArray(g.decision)
+        ? '<ul>' + g.decision.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>'
+        : '<p>' + esc(g.decision) + '</p>') + '</div>';
+      h += '<ul class="doclist">' + g.files.map(function (f) {
+        var href = /officedocument|msword|ms-excel|ms-powerpoint/.test(f.mime || '') && f.id
+          ? 'https://drive.google.com/file/d/' + f.id + '/view' : f.url;   // Office files: Drive viewer
+        return '<li><a href="' + esc(href) + '" data-title="' + esc(f.name) + '"><span class="ft">' + fileIcon(f.mime) + '</span>' + esc(f.name) + '</a>' +
+          (f.synopsis ? '<p class="syn">' + esc(f.synopsis) + '</p>' : '') + '</li>';
+      }).join('') + '</ul>';
+      if (g.folderUrl) h += '<a class="foldlink" data-title="' + esc(g.name) + '" href="' + esc(g.folderUrl) + '">Open folder &rsaquo;</a>';
+      h += '</div>';
+    });
+    return h;
+  }
   function renderBiz() {
     var d = state.biz, slug = state.bizSlug;
     var b = slug && (d.businesses || []).filter(function (x) { return x.slug === slug; })[0];
-    $('biz-back').setAttribute('data-go', b ? 'biz' : 'life');
+    $('biz-back').setAttribute('data-go', b ? 'biz' : 'home');
     if (!b) {
       $('biz-title').textContent = 'Business';
       $('biz-title').classList.remove('sub');
@@ -2480,20 +2551,7 @@
     $('biz-title').textContent = b.short || b.name;
     $('biz-title').classList.add('sub');
     var h = '<p class="hint">' + esc(b.name) + ' · ' + b.count + ' documents · tap to view</p>';
-    b.groups.forEach(function (g) {
-      h += '<div class="card bizgroup"><h4 class="sechead">' + esc(g.name) + '</h4>';
-      if (g.decision) h += '<div class="decision"><b>Decision to make</b>' + (Array.isArray(g.decision)
-        ? '<ul>' + g.decision.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>'
-        : '<p>' + esc(g.decision) + '</p>') + '</div>';
-      h += '<ul class="doclist">' + g.files.map(function (f) {
-        var href = /officedocument|msword|ms-excel|ms-powerpoint/.test(f.mime || '') && f.id
-          ? 'https://drive.google.com/file/d/' + f.id + '/view' : f.url;   // Office files: Drive viewer
-        return '<li><a href="' + esc(href) + '" data-title="' + esc(f.name) + '"><span class="ft">' + fileIcon(f.mime) + '</span>' + esc(f.name) + '</a>' +
-          (f.synopsis ? '<p class="syn">' + esc(f.synopsis) + '</p>' : '') + '</li>';
-      }).join('') + '</ul>';
-      if (g.folderUrl) h += '<a class="foldlink" data-title="' + esc(g.name) + '" href="' + esc(g.folderUrl) + '">Open folder &rsaquo;</a>';
-      h += '</div>';
-    });
+    h += bizGroupsHtml(b.groups);
     if (b.folderUrl) h += '<a class="linkrow" data-title="' + esc(b.short || b.name) + '" href="' + esc(b.folderUrl) + '">Open ' + esc(b.short || b.name) + ' folder &rsaquo;</a>';
     $('biz-body').innerHTML = h;
   }
@@ -2524,7 +2582,7 @@
   }
   function paintReChrome() {
     var r = state.reRoute;
-    $('re-back').setAttribute('data-go', r.slug ? 're' : 'life');
+    $('re-back').setAttribute('data-go', r.slug ? 're' : 'home');
     $('re-title').classList.toggle('sub', !!r.slug);
     if (r.ins) $('re-title').textContent = 'Insurance';
     else if (!r.slug) $('re-title').textContent = 'Real Estate';
