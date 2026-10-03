@@ -1117,3 +1117,4 @@ h2.vgrp.sum { color: #4DA3FF; }
 .homegrid .tile.dragging { position: relative; z-index: 20; opacity: .92; box-shadow: 0 14px 30px rgba(0,0,0,.65); transition: none; }
 .homegrid.reordering .tile:not(.dragging) { animation: tilewob .25s ease-in-out infinite alternate; }
 @keyframes tilewob { from { transform: rotate(-.6deg); } to { transform: rotate(.6deg); } }
+.refreshbtn { margin: 18px auto 8px; display: block; width: auto; min-width: 180px; text-align: center; padding: 12px 22px; }

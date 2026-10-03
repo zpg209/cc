@@ -5148,6 +5148,18 @@
     grid.addEventListener('contextmenu', function (e) { e.preventDefault(); });
   })();
 
+  // Refresh: reloads the newest version of the app (like a restart). The ?r= value forces a fresh index.html.
+  (function () {
+    var b = $('cc-refresh');
+    if (b) b.addEventListener('click', function () {
+      b.textContent = 'Refreshing\u2026';
+      var u = location.pathname + '?r=' + Date.now() + '#home';
+      try { if (window.caches && caches.keys) caches.keys().then(function (ks) { ks.forEach(function (k) { caches.delete(k); }); }); } catch (e) {}
+      setTimeout(function () { location.replace(u); }, 150);
+    });
+    if (/[?&]r=\d+/.test(location.search)) { try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {} }
+  })();
+
   $('home-date').textContent = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   var standalone = window.navigator.standalone || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
   if (!standalone && /iPhone|iPad|iPod/.test(navigator.userAgent)) $('a2hs').hidden = false;
