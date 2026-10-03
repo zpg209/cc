@@ -2652,7 +2652,7 @@
     $('lt-title').textContent = cfg ? cfg.label : 'Lisa\u2019s Table';
     $('lt-title').classList.toggle('sub', !!part);
     if (!cfg) {
-      $('lt-body').innerHTML = '<div class="ltband"><img class="ltlogo" src="lt-logo.jpg?v=1" alt="Lisa\u2019s Table"></div><div class="grid2 homegrid">' + LT_ORDER.map(function (k) {
+      $('lt-body').innerHTML = '<div class="ltband"><img class="ltlogo" src="lt-logo.png?v=1" alt="Lisa\u2019s Table"></div><div class="grid2 homegrid">' + LT_ORDER.map(function (k) {
         return '<button class="tile" data-go="lt/' + k + '">' + esc(LT_PARTS[k].label) + '</button>';
       }).join('') + '</div>' + (state.ltFolderUrl ? '<a class="linkrow" data-title="Lisa\u2019s Table" href="' + esc(state.ltFolderUrl) + '">Open Lisa\u2019s Table folder &rsaquo;</a>' : '');
       if (!state.ltFolderUrl && !state.links) ensureLinks(function () { if (state.ltPart === '' && $('screen-lt').classList.contains('active') && state.ltFolderUrl) loadLt(); });
