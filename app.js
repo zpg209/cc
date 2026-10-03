@@ -5105,6 +5105,13 @@
     else { lock('Data API not configured yet.'); }
     return;
   }
+  // Share link: https://zpg209.github.io/cc/#k=<passcode> saves the passcode on this device, then removes it from the address bar.
+  // (The part after # is never sent to any server.)
+  var km = /^#k=([^&]+)/.exec(location.hash);
+  if (km) {
+    try { setPc(decodeURIComponent(km[1])); } catch (e) {}
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+  }
   if (getPc()) show(location.hash.slice(1) || 'home', true);
   else lock();
 })();
