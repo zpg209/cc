@@ -148,6 +148,7 @@
     if (name !== 'mic') micStop(true);
     var vk = (name === 'vmic' || name === 'vcam') ? (R.kind === 'exp' ? 'exp' : 'inc') : '';   // #vmic/<inc|exp>, #vcam/<inc|exp>
     if (name !== 'vmic') vmicStop(true);
+    if (!(name === 'lt' && R.kind === 'wish')) wlMicStop(true);
     if (name !== 'punch') pmicStop();
     if (name !== 'doc') { state.docPushed = false; state.docSeq++; closeDoc(); }
     activate(name);
@@ -2632,9 +2633,10 @@
     ops:     { label: 'Business & Operations', folder: '1renTWVsMfj9UYrefVh3vJlv9EOX8Xe3y', sort: 'default' },
     recipes: { label: 'Recipes',               folder: '1VvrIYV15BX7Rltet2PC7kTxVheUfqMfI', sort: 'az', search: 'Search recipes' },
     menus:   { label: 'Past Menus',            folder: '11tV_huL874mr4F3LdGA-2fvGQZyEWKZY', sort: 'date', search: 'Search menus' },
-    macros:  { label: 'Menu Macros', sheet: 'https://docs.google.com/spreadsheets/d/1YhDpmch8pWIAFKEwrSv7AMwWHyhuVW1OyeqbSNOPk3w/edit' }
+    macros:  { label: 'Menu Macros', sheet: 'https://docs.google.com/spreadsheets/d/1YhDpmch8pWIAFKEwrSv7AMwWHyhuVW1OyeqbSNOPk3w/edit' },
+    wish:    { label: 'Wish List', wish: true }
   };
-  var LT_ORDER = ['ops', 'recipes', 'menus', 'macros'];
+  var LT_ORDER = ['ops', 'recipes', 'menus', 'macros', 'wish'];
   var LT_TTL = 60000;
 
   function loadLt(force) {
@@ -2643,12 +2645,13 @@
     $('lt-title').textContent = cfg ? cfg.label : 'Lisa\u2019s Table';
     $('lt-title').classList.toggle('sub', !!part);
     if (!cfg) {
-      $('lt-body').innerHTML = '<div class="grid2">' + LT_ORDER.map(function (k) {
+      $('lt-body').innerHTML = '<div class="grid2 homegrid">' + LT_ORDER.map(function (k) {
         return '<button class="tile" data-go="lt/' + k + '">' + esc(LT_PARTS[k].label) + '</button>';
       }).join('') + '</div>' + (state.ltFolderUrl ? '<a class="linkrow" data-title="Lisa\u2019s Table" href="' + esc(state.ltFolderUrl) + '">Open Lisa\u2019s Table folder &rsaquo;</a>' : '');
       if (!state.ltFolderUrl && !state.links) ensureLinks(function () { if (state.ltPart === '' && $('screen-lt').classList.contains('active') && state.ltFolderUrl) loadLt(); });
       return;
     }
+    if (cfg.wish) { openWish(); return; }
     var key = cfg.folder || 'macros', c = state.ltCache[key];
     if (c && !force && Date.now() - c.at < LT_TTL) return renderLt();
     $('lt-body').innerHTML = '<div class="loading">Loading…</div>';
@@ -5824,6 +5827,321 @@
     if (e.target.closest('#vf-again')) { vm.done = null; vm.draft = null; $('vmic-text').value = ''; vmicUi(); vFormRender(''); }
   });
   document.addEventListener('visibilitychange', function () { if (document.hidden && vm.on) vmicStop(true); });
+
+  /* ---------------- Lisa's Table: Wish List (#lt/wish): dictate -> itemized editable list -> Save (wishadd) + saved list (wishlist / wishset / wishdel) ---------------- */
+  var WL_DRAFT_KEY = 'cc_wdraft', WL_BY_KEY = 'cc_wish_by';
+  var wl = { rec: null, on: false, base: '', committed: '', interim: '', msg: '', items: [], cid: '', sig: '', text: '', by: 'Lisa', busy: false,
+    list: null, loading: false, listErr: '', doneOpen: false, confirmId: '', pending: {}, flash: '', flashBad: false, seq: 0 };
+  var WL_PROTECT = /\b(mac and cheese|mac n cheese|fish and chips|bread and butter|peanut butter and jelly|surf and turf|rice and beans|black and white|salt and vinegar|half and half|rock and roll|sweet and sour|hot and sour|cookies and cream|pots and pans|bed bath and beyond)\b/gi;
+  var WL_VERB = /^(?:get|grab|buy|order|add|put|bring|find|try|make|fix|call|pick|cook|book|schedule|clean|send|take|check|replace|install|repair|build|wash|organi[sz]e|plan|ask|look|set|move|print|write)\b/i;
+  var WL_FILLERS = [
+    /^(?:and|but|so|also|then|next|plus|ok(?:ay)?|um+|uh+|er+|hey|oh|yeah|yes|well|alright|right)\b[\s,.:;-]*/i,
+    /^(?:please|kindly)\b[\s,.:;-]*/i,
+    /^(?:can|could|would|will|should)\s+(?:you|we|i|someone|somebody)\s+(?:please\s+|also\s+|just\s+)?/i,
+    /^(?:i|we)(?:'d|\u2019d|\s+would)\s+(?:really\s+|also\s+)?(?:like|love|want|need)(?:\s+to)?\s+/i,
+    /^(?:i|we)\s+(?:really\s+|also\s+|just\s+)?(?:want|need|wish|would\s+like|would\s+love|like)(?:\s+to)?\s+/i,
+    /^(?:(?:i|we)\s+(?:are|am)|we(?:'|\u2019)re|i(?:'|\u2019)m)\s+(?:out\s+of|low\s+on|running\s+low\s+on|running\s+out\s+of)\s+/i,
+    /^(?:i|we)\s+(?:also\s+)?(?:wish|hope)\s+(?:we\s+had|we\s+could\s+get|for)\s+/i,
+    /^(?:to\s+)?(?:please\s+)?(?:get|grab|buy|add|order|pick\s+up)\s+(?:me\s+|us\s+)?(?:some\s+more\s+|more\s+)?/i,
+    /^(?:to|that|just|maybe|also)\s+/i
+  ];
+  var WL_JUNK = /^(?:i|we|me|us|it|that|this|thanks|thank you|that'?s (?:it|all)|that is (?:it|all)|done|okay|ok|and|also|then|please|the end|nothing else|um+|uh+|yes|no)$/i;
+  function wlCap(s) { s = String(s || '').trim(); return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+  function wlClean(s) {            // strip leading fillers / trailing "to the list" and punctuation; '' when nothing is left
+    s = String(s || '').replace(/\s+/g, ' ').trim();
+    for (var n = 0; n < 8; n++) {
+      var before = s;
+      WL_FILLERS.forEach(function (re) { s = s.replace(re, ''); });
+      if (s === before) break;
+    }
+    s = s.replace(/\s+(?:to|on|onto|in|into)\s+(?:the\s+|my\s+|our\s+)?(?:wish\s*)?list\s*$/i, '').replace(/[\s,.;:!?]+$/, '').replace(/^[\s,.;:!?-]+/, '').replace(/\s+please$/i, '').trim();
+    return WL_JUNK.test(s) ? '' : s;
+  }
+  function wlAndSplit(piece) {      // "eggs and milk" -> two items, but only when both sides clearly are separate things
+    var prot = [], t = piece.replace(WL_PROTECT, function (m) { prot.push(m); return '\u0001' + (prot.length - 1) + '\u0001'; });
+    if (!/\s+and\s+/i.test(t)) return [piece];
+    var parts = t.split(/\s+and\s+/i).map(function (p) { return wlClean(p); });       // "get eggs and get milk": the leading get/buy/add is a filler, not a verb to compare
+    var verbs = 0, bad = false;
+    parts.forEach(function (p) { if (!p) bad = true; if (p.split(/\s+/).length > 8) bad = true; if (WL_VERB.test(p)) verbs++; });
+    if (bad || (verbs !== 0 && verbs !== parts.length)) return [piece];
+    return parts.map(function (p) { return p.replace(/\u0001(\d+)\u0001/g, function (m, i) { return prot[+i]; }); });
+  }
+  function wlSplit(text) {          // dictated sentence(s) -> array of capitalized item strings
+    var t = String(text || '').replace(/\b(i|we|i'd|we'd)\s+also\s+(?=want|need|like|love|would|wish)/gi, '$1 ').replace(/\r/g, '\n').replace(/\n+/g, ';').replace(/\s+/g, ' ').trim();
+    if (!t) return [];
+    var sep = /\s*(?:;+|[.!?]+(?:\s+|$)|,\s*(?:and\s+(?:also\s+)?)?|\band\s+also\b|\balso\b|\bthen\b|\bnext\b|\bplus\b|\band\s+(?=(?:i|we)\s+(?:also\s+)?(?:want|need|would|'d)\b)|\band\s+(?=(?:please|can you|could you)\b))\s*/i;
+    var out = [], seen = {};
+    t.split(sep).forEach(function (raw) {
+      var c = wlClean(raw); if (!c) return;
+      wlAndSplit(c).forEach(function (p) {
+        p = wlClean(p); if (!p) return;
+        p = wlCap(p.slice(0, 200)); var k = p.toLowerCase();
+        if (!seen[k]) { seen[k] = 1; out.push(p); }
+      });
+    });
+    return out;
+  }
+  function wlGather() {             // rows -> trimmed, capitalized, de-duplicated, non-empty
+    var out = [], seen = {};
+    wl.items.forEach(function (s) { s = wlCap(String(s || '').replace(/\s+/g, ' ').trim().slice(0, 200)); var k = s.toLowerCase(); if (s && !seen[k]) { seen[k] = 1; out.push(s); } });
+    return out;
+  }
+  function wlDraftSave() {
+    try {
+      var has = wl.items.some(function (s) { return String(s).trim(); }) || String(wl.text || '').trim();
+      if (!has) { localStorage.removeItem(WL_DRAFT_KEY); wl.cid = ''; wl.sig = ''; return; }
+      if (!wl.cid) wl.cid = vNewCid();
+      localStorage.setItem(WL_DRAFT_KEY, JSON.stringify({ cid: wl.cid, sig: wl.sig, items: wl.items, text: wl.text, at: Date.now() }));
+    } catch (e) {}
+  }
+  function wlDraftLoad() {
+    wl.items = []; wl.text = ''; wl.cid = ''; wl.sig = '';
+    try {
+      var d = JSON.parse(localStorage.getItem(WL_DRAFT_KEY) || 'null');
+      if (d && d.cid && Date.now() - (d.at || 0) < 12 * 3600 * 1000 && (Array.isArray(d.items) || d.text)) {
+        wl.cid = String(d.cid); wl.sig = String(d.sig || ''); wl.items = (d.items || []).map(String); wl.text = String(d.text || '');
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+  function wlApiMsg(j) {
+    if (!j || !j.error) return 'Something went wrong.';
+    if (j.error === 'bad_action') return 'This feature is turning on, try again in a minute.';
+    return j.message || ('Server error: ' + j.error);
+  }
+  function wlFlash(text, bad) { wl.flash = text || ''; wl.flashBad = !!bad; var el = $('wl-flash'); if (el) { el.textContent = wl.flash; el.hidden = !wl.flash; el.className = 'noteflash' + (wl.flash ? ' show' : '') + (bad ? ' bad' : ''); } }
+  function wlMsg(text, bad) { var el = $('wl-msg'); if (!el) return; el.textContent = text || ''; el.hidden = !text; el.className = 'noteflash' + (text ? ' show' : '') + (bad ? ' bad' : ''); }
+
+  function openWish() {
+    wlMicStop(true);
+    try { var b = localStorage.getItem(WL_BY_KEY); wl.by = b === 'Zac' ? 'Zac' : 'Lisa'; } catch (e) { wl.by = 'Lisa'; }
+    var restored = wlDraftLoad();
+    wl.msg = ''; wl.busy = false; wl.confirmId = ''; wl.flash = '';
+    $('lt-body').innerHTML =
+      '<div class="wl">' +
+      '<div class="micstage"><div class="micstate" id="wl-state">&nbsp;</div>' +
+      '<button type="button" class="micbtn big" id="wl-btn" data-wl="mic" aria-pressed="false" aria-label="Start dictation"><span class="micico" aria-hidden="true">' + vsvg('mic', 72) + '</span><span class="miclbl" id="wl-lbl">Tap to talk</span></button></div>' +
+      '<div class="card draft" id="wl-card"><h3>What I heard <span class="rec-tag" id="wl-rec" hidden>&#9679; Listening</span></h3>' +
+      '<textarea id="wl-text" class="notebox" rows="3" maxlength="1200" autocapitalize="sentences" placeholder="e.g. \u201cI want a new cutting board, and also a set of sharp knives, then a bigger pot\u201d. Speak it, type it, or use the keyboard\u2019s mic key."></textarea>' +
+      '<div class="draftbtns"><button type="button" class="navbtn" data-wl="make">Make the list</button><button type="button" class="navbtn discard" data-wl="clear">Clear</button></div></div>' +
+      '<div class="card vform" id="wl-form"></div>' +
+      '<div id="wl-saved"></div></div>';
+    $('wl-text').value = wl.text;
+    wlUi(); wlFormRender(restored && (wl.items.length || wl.text) ? 'Restored your unsaved wishes. Nothing is added until you tap Add to wish list.' : '');
+    wlListRender();
+    if (!wl.list || Date.now() - wl.listAt > 30000) wlLoadList(); 
+  }
+  function wlUi() {
+    var btn = $('wl-btn'); if (!btn) return;
+    var on = wl.on, has = !!$('wl-text').value.trim();
+    btn.classList.toggle('rec', on); btn.setAttribute('aria-pressed', on ? 'true' : 'false'); btn.setAttribute('aria-label', on ? 'Stop dictation' : 'Start dictation');
+    $('wl-lbl').textContent = on ? 'Listening\u2026 tap to stop' : (has ? 'Tap to add more' : 'Tap to talk');
+    var st = $('wl-state'); st.className = 'micstate' + (on ? ' rec' : '') + (wl.msg && !on ? ' warn' : '');
+    st.textContent = on ? 'Listening\u2026' : (wl.msg || 'Say what you\u2019d like, as many things as you want. You review the list before anything is saved.');
+    $('wl-rec').hidden = !on;
+    $('wl-card').classList.toggle('live', on);
+  }
+  function wlMicFail(msg) { wl.on = false; var r = wl.rec; wl.rec = null; try { r && r.abort(); } catch (e) {} wl.msg = msg; wlUi(); var ta = $('wl-text'); if (ta) ta.focus(); }
+  function wlMicStart() {
+    var ta = $('wl-text');
+    if (!SR) { wl.msg = MIC_NA; wlUi(); ta.focus(); return; }
+    wl.msg = ''; wl.base = ta.value ? ta.value.replace(/\s+$/, '') + ' ' : ''; wl.committed = ''; wl.interim = '';
+    var rec; try { rec = new SR(); } catch (e) { return wlMicFail(MIC_NA); }
+    rec.continuous = false; rec.interimResults = true; rec.lang = 'en-US'; rec.maxAlternatives = 1;
+    rec.onresult = function (ev) {
+      var interim = '';
+      for (var i = ev.resultIndex; i < ev.results.length; i++) {
+        var r = ev.results[i], t = r[0] ? r[0].transcript : '';
+        if (r.isFinal) wl.committed = micSpace(wl.committed, t.trim() + ' '); else interim += t;
+      }
+      wl.interim = interim.replace(/^\s+/, ''); ta.value = wl.base + wl.committed + wl.interim; ta.scrollTop = ta.scrollHeight;
+    };
+    rec.onerror = function (ev) {
+      var e = ev && ev.error;
+      if (e === 'not-allowed' || e === 'service-not-allowed' || e === 'audio-capture' || e === 'language-not-supported') return wlMicFail(MIC_NA);
+      if (e === 'network') return wlMicFail('The speech service couldn\u2019t be reached. Tap the text box and use your keyboard\u2019s mic key.');
+      if (e === 'no-speech') wl.msg = 'Didn\u2019t catch anything. Tap the mic and try again.';
+    };
+    rec.onend = function () {
+      if (wl.rec !== rec) return;                        // aborted / screen left
+      wl.committed = micSpace(wl.committed, wl.interim ? wl.interim.trim() + ' ' : ''); wl.interim = '';
+      wl.on = false; wl.rec = null;
+      ta.value = (wl.base + wl.committed).replace(/\s+$/, ''); wl.text = ta.value;
+      if (ta.value.trim()) wlFill(); else wlUi();
+    };
+    wl.rec = rec; wl.on = true;
+    try { rec.start(); } catch (e2) { return wlMicFail(MIC_NA); }
+    wlUi();
+  }
+  function wlMicStop(quiet) {         // quiet = abort without filling the list (leaving the screen); otherwise stop() and onend fills it
+    var r = wl.rec;
+    if (quiet) { wl.rec = null; wl.on = false; try { r && r.abort(); } catch (e) {} return; }
+    if (r) { try { r.stop(); } catch (e2) { wl.rec = null; wl.on = false; wlUi(); } }
+  }
+  function wlFill() {                // text box -> rows appended to the draft list; the box is emptied so the same words are never added twice
+    var ta = $('wl-text'), add = wlSplit(ta.value), have = {};
+    wl.items.forEach(function (s) { have[String(s).trim().toLowerCase()] = 1; });
+    var n = 0;
+    add.forEach(function (s) { if (!have[s.toLowerCase()]) { have[s.toLowerCase()] = 1; wl.items.push(s); n++; } });
+    if (add.length) { ta.value = ''; wl.text = ''; }
+    wlDraftSave(); wlUi();
+    wlFormRender(add.length ? (n < add.length ? 'Added ' + n + ' (the rest were already in your list). Edit anything, then tap Add to wish list.' : 'Here\u2019s your list. Edit anything, then tap Add to wish list.') : 'Nothing to add yet. Type or say what you\u2019d like.');
+  }
+  function wlFormRender(note) {
+    var card = $('wl-form'); if (!card) return;
+    var h = '<h3>New wishes <small>review and edit, then add</small></h3>';
+    h += '<div class="vfield"><span>Who is adding?</span><div class="vchips" role="group" aria-label="Who is adding">' +
+      ['Lisa', 'Zac'].map(function (n) { var on = wl.by === n; return '<button type="button" class="vchip' + (on ? ' on' : '') + '" data-wl="by" data-by="' + n + '" aria-pressed="' + on + '">' + n + '</button>'; }).join('') + '</div></div>';
+    h += '<div class="wlrows" id="wl-rows">';
+    if (!wl.items.length) h += '<div class="foot empty" id="wl-empty">Nothing yet. Tap the mic above, or tap Add item.</div>';
+    wl.items.forEach(function (s, i) {
+      h += '<div class="wlrow"><input class="wlin" type="text" maxlength="200" autocomplete="off" autocapitalize="sentences" data-i="' + i + '" value="' + esc(s) + '" aria-label="Wish ' + (i + 1) + '">' +
+        '<button type="button" class="wlx" data-wl="rm" data-i="' + i + '" aria-label="Remove this item" title="Remove">\u00d7</button></div>';
+    });
+    h += '</div><button type="button" class="navbtn wladd" data-wl="add">+ Add item</button>';
+    h += '<div class="draftbtns"><button type="button" class="bigsave" data-wl="save" id="wl-save"' + (wl.busy ? ' disabled' : '') + '>' + (wl.busy ? 'Saving\u2026' : 'Add to wish list') + '</button><button type="button" class="navbtn discard" data-wl="discard">Discard</button></div>';
+    h += '<div class="noteflash" id="wl-msg" hidden></div>';
+    card.innerHTML = h;
+    if (note) wlMsg(note, false);
+  }
+  function wlSave() {
+    if (wl.busy) return;
+    var items = wlGather();
+    if (!items.length) return wlMsg('Add at least one item first.', true);
+    var sig = JSON.stringify([items, wl.by]);
+    if (wl.sig && wl.sig !== sig) wl.cid = vNewCid();       // edited since a previous try: new entry id; unchanged retries keep the same id so they never double
+    if (!wl.cid) wl.cid = vNewCid();
+    wl.sig = sig; wlDraftSave();
+    var cid = wl.cid, by = wl.by;
+    wl.busy = true; var btn = $('wl-save'); btn.disabled = true; btn.textContent = 'Saving\u2026'; wlMsg('', false);
+    apiRaw('wishadd', { items: JSON.stringify(items), by: by, cid: cid }).then(function (j) {
+      wl.busy = false;
+      if (j.error) { var b = $('wl-save'); if (b) { b.disabled = false; b.textContent = 'Add to wish list'; } return wlMsg(wlApiMsg(j), true); }
+      var r = j.data || {}, added = r.added || [], skipped = r.skipped || [];
+      var nm = function (x) { return x && typeof x === 'object' ? (x.item || x.name || '') : String(x == null ? '' : x); };
+      var msg = 'Added ' + added.length + ' to the wish list.';
+      if (skipped.length) msg += ' Already on the list: ' + skipped.map(nm).filter(Boolean).join(', ') + '.';
+      wl.items = []; wl.text = ''; wl.cid = ''; wl.sig = ''; wlDraftSave();
+      var ta = $('wl-text'); if (ta) ta.value = '';
+      wlUi(); wlFormRender(''); wlMsg(msg, false);
+      wlLoadList();
+    }, function (err) {
+      wl.busy = false;
+      if (vAuth(err)) return;
+      var b = $('wl-save'); if (b) { b.disabled = false; b.textContent = 'Add to wish list'; }
+      wlMsg(friendly(err) + ' Nothing is confirmed yet: tap Add to wish list again to retry (same entry id, it will not double).', true);
+    });
+  }
+  function wlDate(s) {
+    var t = String(s || ''); if (!t) return '';
+    var d = /^\d{4}-\d{2}-\d{2}/.test(t) ? new Date(+t.slice(0, 4), +t.slice(5, 7) - 1, +t.slice(8, 10), 12) : new Date(t);
+    return isNaN(d.getTime()) ? t : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+  function wlRowHtml(x) {
+    var id = String(x.id), done = x.status === 'done', busy = !!wl.pending[id];
+    var meta = (x.by ? esc(x.by) : '') + (done ? (x.doneOn ? ' \u00b7 done ' + esc(wlDate(x.doneOn)) : '') : (x.added ? (x.by ? ' \u00b7 ' : '') + esc(wlDate(x.added)) : ''));
+    var h = '<div class="wlitem' + (done ? ' isdone' : '') + '" data-id="' + esc(id) + '"><div class="wlmain">' +
+      '<button type="button" class="wlchk' + (done ? ' on' : '') + '" data-wl="chk" data-id="' + esc(id) + '"' + (busy ? ' disabled' : '') + ' aria-label="' + (done ? 'Mark as not done' : 'Mark as done') + '" aria-pressed="' + done + '">' + (done ? '\u2713' : '') + '</button>' +
+      '<div class="wltxt"><span class="wlname">' + esc(x.item) + '</span>' + (x.notes ? '<small class="wlnotes">' + esc(x.notes) + '</small>' : '') + (meta ? '<small class="wlmeta">' + meta + '</small>' : '') + '</div>' +
+      '<button type="button" class="wlx" data-wl="del" data-id="' + esc(id) + '"' + (busy ? ' disabled' : '') + ' aria-label="Delete this wish" title="Delete">\u00d7</button></div>';
+    if (wl.confirmId === id) h += '<div class="wlconf"><div class="vdelq">Delete this wish?</div><div class="draftbtns"><button type="button" class="bigsave vdelbtn" data-wl="delyes" data-id="' + esc(id) + '"' + (busy ? ' disabled' : '') + '>' + (busy ? 'Deleting\u2026' : 'Yes, delete') + '</button><button type="button" class="navbtn" data-wl="delno"' + (busy ? ' disabled' : '') + '>Keep it</button></div></div>';
+    return h + '</div>';
+  }
+  function wlListRender() {
+    var box = $('wl-saved'); if (!box) return;
+    var items = (wl.list || []), open = items.filter(function (x) { return x.status !== 'done'; }), done = items.filter(function (x) { return x.status === 'done'; });
+    var h = '<div class="wlhead"><h3 class="sechead">Wish list' + (wl.list ? ' <small>' + open.length + ' open</small>' : '') + '</h3><button type="button" class="navbtn wlref" data-wl="refresh"' + (wl.loading ? ' disabled' : '') + '>&#8635; ' + (wl.loading ? 'Refreshing\u2026' : 'Refresh') + '</button></div>';
+    h += '<div class="noteflash' + (wl.flash ? ' show' : '') + (wl.flashBad ? ' bad' : '') + '" id="wl-flash"' + (wl.flash ? '' : ' hidden') + '>' + esc(wl.flash) + '</div>';
+    if (wl.listErr) h += '<div class="noteflash show bad">' + esc(wl.listErr) + '</div>';
+    if (!wl.list && wl.loading) h += '<div class="loading">Loading\u2026</div>';
+    else if (wl.list) {
+      h += '<div class="card wlcard">' + (open.length ? open.map(wlRowHtml).join('') : '<div class="foot empty">' + (done.length ? 'Everything is done.' : 'No wishes yet. Dictate one above.') + '</div>') + '</div>';
+      if (done.length) {
+        h += '<button type="button" class="navbtn wldonebtn" data-wl="donetoggle" aria-expanded="' + wl.doneOpen + '">Done (' + done.length + ') ' + (wl.doneOpen ? '\u25be' : '\u25b8') + '</button>';
+        if (wl.doneOpen) h += '<div class="card wlcard wldone">' + done.map(wlRowHtml).join('') + '</div>';
+      }
+    }
+    box.innerHTML = h;
+  }
+  function wlOnScreen() { return state.ltPart === 'wish' && $('screen-lt').classList.contains('active'); }
+  function wlLoadList() {
+    var seq = ++wl.seq; wl.loading = true; wl.listErr = ''; wlListRender();
+    apiRaw('wishlist', {}).then(function (j) {
+      if (seq !== wl.seq) return;
+      wl.loading = false;
+      if (j.error) { wl.listErr = wlApiMsg(j); return wlListRender(); }
+      wl.list = (j.data && j.data.items) || []; wl.listAt = Date.now(); wlListRender();
+    }, function (err) {
+      if (seq !== wl.seq) return;
+      wl.loading = false;
+      if (vAuth(err)) return;
+      wl.listErr = friendly(err); wlListRender();
+    });
+  }
+  function wlFind(id) { var l = wl.list || []; for (var i = 0; i < l.length; i++) if (String(l[i].id) === String(id)) return l[i]; return null; }
+  function wlSet(id) {               // toggle open <-> done
+    var x = wlFind(id); if (!x || wl.pending[id]) return;
+    var to = x.status === 'done' ? 'open' : 'done';
+    wl.pending[id] = true; wl.flash = ''; wlListRender();
+    apiRaw('wishset', { id: id, status: to, cid: vNewCid() }).then(function (j) {
+      delete wl.pending[id];
+      if (j.error) { wl.flash = wlApiMsg(j); wl.flashBad = true; return wlListRender(); }
+      x.status = to; x.doneOn = to === 'done' ? vToday() : '';
+      wlListRender();
+    }, function (err) {
+      delete wl.pending[id];
+      if (vAuth(err)) return;
+      wl.flash = friendly(err) + ' Not changed.'; wl.flashBad = true; wlListRender();
+    });
+  }
+  function wlDelete(id) {
+    var x = wlFind(id); if (!x || wl.pending[id]) return;
+    wl.pending[id] = true; wl.flash = ''; wlListRender();
+    apiRaw('wishdel', { id: id, item: x.item, cid: vNewCid() }).then(function (j) {
+      delete wl.pending[id];
+      if (j.error) { wl.flash = wlApiMsg(j); wl.flashBad = true; return wlListRender(); }
+      wl.list = wl.list.filter(function (y) { return String(y.id) !== String(id); }); wl.confirmId = '';
+      wl.flash = 'Deleted.'; wl.flashBad = false; wlListRender();
+    }, function (err) {
+      delete wl.pending[id];
+      if (vAuth(err)) return;
+      wl.flash = friendly(err) + ' Not deleted.'; wl.flashBad = true; wlListRender();
+    });
+  }
+  $('lt-body').addEventListener('click', function (e) {
+    if (state.ltPart !== 'wish') return;
+    var b = e.target.closest('[data-wl]'); if (!b) return;
+    var a = b.getAttribute('data-wl'), id = b.getAttribute('data-id'), i = +b.getAttribute('data-i');
+    if (a === 'mic') { if (wl.on) wlMicStop(); else wlMicStart(); }
+    else if (a === 'make') { wlMicStop(true); wl.on = false; wlFill(); }
+    else if (a === 'clear') { wlMicStop(true); $('wl-text').value = ''; wl.text = ''; wl.msg = ''; wlDraftSave(); wlUi(); }
+    else if (a === 'by') { wl.by = b.getAttribute('data-by') === 'Zac' ? 'Zac' : 'Lisa'; try { localStorage.setItem(WL_BY_KEY, wl.by); } catch (er) {}
+      [].forEach.call($('wl-form').querySelectorAll('.vchip'), function (c) { var on = c === b; c.classList.toggle('on', on); c.setAttribute('aria-pressed', on ? 'true' : 'false'); }); }
+    else if (a === 'rm') { wl.items.splice(i, 1); wlDraftSave(); var note = $('wl-msg') && !$('wl-msg').hidden ? $('wl-msg').textContent : ''; wlFormRender(note); }
+    else if (a === 'add') { wl.items.push(''); wlDraftSave(); wlFormRender(''); var ins = $('wl-rows').querySelectorAll('.wlin'); if (ins.length) ins[ins.length - 1].focus(); }
+    else if (a === 'save') wlSave();
+    else if (a === 'discard') { wlMicStop(true); wl.items = []; wl.text = ''; wl.cid = ''; wl.sig = ''; wl.msg = ''; try { localStorage.removeItem(WL_DRAFT_KEY); } catch (er) {} $('wl-text').value = ''; wlUi(); wlFormRender(''); }
+    else if (a === 'refresh') wlLoadList();
+    else if (a === 'donetoggle') { wl.doneOpen = !wl.doneOpen; wlListRender(); }
+    else if (a === 'chk') wlSet(id);
+    else if (a === 'del') { wl.confirmId = wl.confirmId === id ? '' : id; wlListRender(); }
+    else if (a === 'delno') { wl.confirmId = ''; wlListRender(); }
+    else if (a === 'delyes') wlDelete(id);
+  });
+  $('lt-body').addEventListener('input', function (e) {
+    if (state.ltPart !== 'wish') return;
+    var t = e.target;
+    if (t.classList && t.classList.contains('wlin')) { wl.items[+t.getAttribute('data-i')] = t.value; wlDraftSave(); }
+    else if (t.id === 'wl-text') { wl.text = t.value; wlDraftSave(); wlUi(); }
+  });
+  $('lt-body').addEventListener('keydown', function (e) {
+    if (state.ltPart !== 'wish' || e.key !== 'Enter' || !e.target.classList || !e.target.classList.contains('wlin')) return;
+    e.preventDefault();
+    if (!e.target.value.trim()) return;
+    wl.items.push(''); wlDraftSave(); wlFormRender(''); var ins = $('wl-rows').querySelectorAll('.wlin'); if (ins.length) ins[ins.length - 1].focus();
+  });
+  document.addEventListener('visibilitychange', function () { if (document.hidden && wl.on) wlMicStop(true), wlUi(); });
 
   /* ---- #vcam: receipt photo -> shrink -> optional details -> Save (POST receiptsave) ---- */
   var VCAM_TARGET = 1400000, VCAM_HARD = 2800000;      // base64 characters (~1 MB / ~2 MB of JPEG); the server accepts up to ~3 MB of JPEG
