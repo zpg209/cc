@@ -1377,4 +1377,4 @@ body.macopen { overflow: hidden; }
 
 /* v71: Lisa's Table main page: logo band (cream, full width; multiply drops the logo's white background) */
 #screen-lt .ltband { width: 100vw; margin: 0 0 16px calc(50% - 50vw); background: #000; padding: 4px 0; text-align: center; }
-#screen-lt .ltlogo { display: block; margin: 0 auto; width: 66%; max-width: 280px; height: auto; }
+#screen-lt .ltlogo { display: block; margin: 0 auto; width: 94%; max-width: 420px; height: 150px; object-fit: fill; }
