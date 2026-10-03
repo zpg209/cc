@@ -1287,3 +1287,8 @@ button.vdelbtn:disabled { opacity: .4; pointer-events: none; }
 .vgcard.collapsed > .vgtot { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 2px 12px; font-size: 15px; color: var(--muted, #bbb); }
 .vgcard.collapsed > .vgtot b { font-size: 22px; font-weight: 700; }
 .vgcard.collapsed > .vghead { border-bottom-color: transparent; }
+
+/* v66: Home header: wide icon is the page header, tight to the top */
+#screen-home { padding-top: calc(env(safe-area-inset-top, 0px) + 4px); }
+#screen-home .home-head { padding: 0 0 22px; }
+#screen-home .home-logo { width: 92%; max-width: 380px; height: auto; margin: 0 auto 4px; border-radius: 0; box-shadow: none; mix-blend-mode: lighten; }
