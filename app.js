@@ -1167,11 +1167,13 @@
     var items = (full ? d.items : (d.recent || [])).map(function (x) {
       return { date: x.date, label: x.label || x.date, who: x.who || '', amount: Number(x.amount) || 0,
         category: normCat(x.category), merchant: x.merchant || '', method: x.method || '',
-        notes: x.notes || '', account: normAcct(x.account), paidFrom: x.paidFrom || '' };
+        notes: x.notes || '', account: normAcct(x.account), paidFrom: x.paidFrom || '',
+        row: vRowNum(x.row), cid: x.cid || '', _v: 1 };      // row/cid: exposed by the server for Delete (v57); _v = a Vault entry (tap -> detail sheet)
     });
     var income = (Array.isArray(d.income) ? d.income : []).map(function (x) {
       return { date: x.date, label: x.label || x.date, source: normSource(x.source), amount: Number(x.amount) || 0, notes: x.notes || '',
-        client: x.client || x.description || '', method: x.method || '', gid: x.gid != null ? String(x.gid) : '' };
+        client: x.client || x.description || '', method: x.method || '', gid: x.gid != null ? String(x.gid) : '',
+        row: vRowNum(x.row), tab: x.tab || '', rawSource: x.source || '', cid: x.cid || '', _v: 1 };
     });
     var names = ACCOUNTS.slice();
     items.forEach(function (x) { if (names.indexOf(x.account) < 0) names.push(x.account); });
@@ -1253,7 +1255,7 @@
       if (e.method) meta.push(isCash(e) ? '<span class="cashtag">' + esc(e.method) + '</span>' : esc(e.method));
       if (opt.acct && e.account !== 'Household') meta.push('<span class="acct-tag">' + esc(e.account) + '</span>');
       if (opt.paid) meta.push(e.paidFrom ? '<span class="pf-tag' + (e.paidFrom === 'Household card/account' ? ' pf-hh' : '') + '">Paid from: ' + esc(e.paidFrom) + '</span>' : (opt.paid === 'need' ? '<span class="pf-tag pf-none">Paid from: not set</span>' : ''));
-      return '<div class="entry item"><div class="d">' + esc(e.label) + '<br>' + esc(e.who) + '</div>' +
+      return '<div class="entry item' + vEntCls(e) + '"' + vEntAttr('exp', e) + '><div class="d">' + esc(e.label) + '<br>' + esc(e.who) + '</div>' +
         '<div class="m"><div class="mer">' + esc(e.merchant || '—') + '</div>' +
         '<div class="meta">' + (opt.chip ? '<button class="chip"' + goAttr((opt.chipRoute || catRoute)(e.category)) + '>' + esc(e.category) + '</button>' : '') +
         (meta.length ? '<small>' + meta.join(' · ') + '</small>' : '') + '</div>' +
@@ -1267,7 +1269,7 @@
       var ds = DETAIL_SRC[e.source], pt = !!ds, meta = [];
       if (showSrc) meta.push(esc(ds ? ds.label : e.source));
       if (pt && e.method) meta.push(isCash(e) ? '<span class="cashtag">' + esc(e.method) + '</span>' : esc(e.method));
-      return '<div class="entry item inc' + (pt ? ' ptitem' : '') + '"><div class="d">' +
+      return '<div class="entry item inc' + (pt ? ' ptitem' : '') + vEntCls(e) + '"' + vEntAttr('inc', e) + '><div class="d">' +
         (pt ? esc(e.label) : 'Week ending<br><b>' + esc(e.label) + '</b>') + '</div><div class="m">' +
         (pt ? '<div class="mer">' + esc(e.client || '—') + '</div>' : '') +
         (meta.length ? '<div class="meta"><small>' + meta.join(' · ') + '</small></div>' : '') +
@@ -1282,7 +1284,7 @@
     var rows = list.map(function (e, i) { return { e: e, i: i }; }).sort(function (a, b) { return (t(b.e) - t(a.e)) || (a.i - b.i); });
     return '<div class="inccompact">' + rows.map(function (r) {
       var e = r.e, what = detail ? (e.client || '') : 'Week ending';
-      return '<div class="icrow"><span class="icd">' + (detail ? esc(e.label) : 'Wk ending ' + esc(e.label)) + '</span>' +
+      return '<div class="icrow' + vEntCls(e) + '"' + vEntAttr('inc', e) + '><span class="icd">' + (detail ? esc(e.label) : 'Wk ending ' + esc(e.label)) + '</span>' +
         '<span class="icc">' + (detail ? esc(what) : '') + '</span><span class="amt amt-in">' + money(e.amount) + '</span></div>';
     }).join('') + '</div>';
   }
@@ -1811,6 +1813,7 @@
 
   function renderSpend() {
     var d = state.spendData, M = spendModel(d), sr = state.spendRoute;
+    VENT = {}; ventN = 0;
     paintSpendChrome();
     $('spend-month').textContent = d.monthLabel;
     var h = '';
@@ -5264,7 +5267,7 @@
     var CATS = ['Groceries', 'Dining', 'Gas', 'Home goods', 'Kids/Education', 'Health', 'Entertainment', 'Travel', 'Home/Property', 'Personal', 'Other', 'Plumbing', 'Insurance', 'Property Taxes'];
     var ACCTS = ['Household', 'TiwiK', 'KiwiT'];
     var WHO = ['Zac', 'Lisa', 'Joint'];
-    var SOURCES = ["Lisa's Table", 'Mono Village Laundromat', 'KiwiT rent', 'Land & Structure', 'Other'];
+    var SOURCES = ["Lisa's Table", 'Mono Village Laundromat', 'KiwiT rent', 'Land & Structure', 'Personal Training'];   // the ONLY income sources (no 'Other', never a new one)
     // keyword -> category; the keyword heard EARLIEST in the sentence wins (ties: list order)
     var KW = [
       ['Property Taxes', 'property tax|property taxes|tax bill|county tax|tax collector|taxes'],
@@ -5422,7 +5425,7 @@
     function parse(text, kind, today) {
       var heard = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
       today = today || iso(new Date());
-      var out = { heard: heard, amount: null, merchant: '', category: 'Other', account: 'Household', date: today, who: 'Zac', notes: '', source: 'Other', sourceText: '' };
+      var out = { heard: heard, amount: null, merchant: '', category: 'Other', account: 'Household', date: today, who: 'Zac', notes: '', source: '', client: '' };
       var w = heard, i;
       // 1. date
       var d = takeDate(w, today); w = d.text; if (d.date) out.date = d.date;
@@ -5445,22 +5448,22 @@
       if (kind === 'inc') {
         var low = rest.toLowerCase(), strip = null;
         var cands = [
-          ["Lisa's Table", /lisa['’]?s?\s+table|\btable\b/i],
+          ["Lisa's Table", /lisa['\u2019]?s?\s+table|\btable\b/i],
+          ['Personal Training', /personal\s+training|\bpt\b|\btraining\b|\bclient\b|\bsession\b/i],
           ['Mono Village Laundromat', /mono\s+village|laundromat|laundry|\bmono\b/i],
           ['KiwiT rent', /\brent(?:al|s)?\b|tenant|mono\s+way|hatler/i],
           ['Land & Structure', /land\s*(?:and|&|n)\s*structure|\bl\s*(?:and|&)\s*s\b|paycheck|\bpay\b|payroll|salary|\bwages?\b/i]
         ];
-        out.source = 'Other';
-        for (i = 0; i < cands.length && out.source === 'Other'; i++) if (cands[i][1].test(low)) { out.source = cands[i][0]; strip = cands[i][1]; }
-        if (out.source === 'Other' && out.account === 'KiwiT') out.source = 'KiwiT rent';
-        if (out.source === 'Other') {
-          var sp = /^(.*?)\s+(?:for|about|regarding|re)\s+(.+)$/i.exec(rest);
-          out.sourceText = titleCase(sp ? sp[1] : rest).slice(0, 80);
-          out.notes = sp ? sp[2].charAt(0).toUpperCase() + sp[2].slice(1) : '';
-        } else {
-          var left = strip ? tidy(rest.replace(new RegExp(strip.source, 'ig'), ' ')) : rest;
-          out.notes = left ? left.charAt(0).toUpperCase() + left.slice(1) : '';
+        out.source = '';                       // none unless one clearly matches: the user taps the right one
+        for (i = 0; i < cands.length && !out.source; i++) if (cands[i][1].test(low)) { out.source = cands[i][0]; strip = cands[i][1]; }
+        if (!out.source && out.account === 'KiwiT') out.source = 'KiwiT rent';
+        var left = strip ? tidy(rest.replace(new RegExp(strip.source, 'ig'), ' ')) : rest;
+        if (out.source === 'Personal Training') {          // "... from Sarah" / "client Sarah Jones": optional client name
+          var raw = rest.replace(new RegExp(strip.source, 'ig'), ' ').replace(/\s+/g, ' ').trim();
+          var cm = /\b(?:from|client|with)\s+([A-Za-z][A-Za-z'\u2019-]*(?:\s+[A-Za-z][A-Za-z'\u2019-]*)?)\s*$/i.exec(raw);
+          if (cm) { out.client = titleCase(cm[1].toLowerCase()).slice(0, 60); left = tidy(raw.slice(0, cm.index)); }
         }
+        out.notes = left ? left.charAt(0).toUpperCase() + left.slice(1) : '';
         out.category = ''; out.who = '';
         return out;
       }
@@ -5514,8 +5517,40 @@
     if (!j || !j.error) return 'Something went wrong.';
     if (j.error === 'bad_action') return 'This needs the server update (not deployed yet). Nothing was saved.';
     if (j.error === 'busy') return 'The sheet is busy. Tap Save again in a moment (same entry, nothing doubled).';
+    if (j.error === 'unknown_source') return 'That isn\u2019t one of your income sources, so nothing was saved. Tap one of the income buttons above.';
     if (j.error === 'excluded') return 'Sierra Consultants is deliberately not kept in the Command Center.';
     return j.message || ('Server error: ' + j.error);
+  }
+  function vDoneHtml() {        // the "Saved" card after a mic save: Add another + Delete this entry (confirm step) + Back to Vault
+    var n = vm.dn; if (!n) return '';
+    var gone = n.stage === 'deleted', ask = n.stage === 'ask' || n.stage === 'busy', h = '';
+    h += '<h3>' + (gone ? 'Deleted' : n.head) + '</h3><div class="big ' + n.cls + (gone ? ' vgone' : '') + '">' + n.amt + '</div><div class="foot">' + esc(n.label) + '</div><div class="foot">' + esc(n.where) + ' \u00b7 ' + n.sub + '</div>';
+    if (gone) h += '<div class="noteflash show">Entry deleted. A backup is kept.</div>';
+    if (n.err) h += '<div class="noteflash show bad">' + esc(n.err) + '</div>';
+    if (ask) {
+      h += '<div class="foot vdelq">Delete this entry? A backup is kept.</div><div class="draftbtns"><button type="button" class="bigsave vdelbtn" id="vf-del-yes"' + (n.stage === 'busy' ? ' disabled' : '') + '>' + (n.stage === 'busy' ? 'Deleting\u2026' : 'Yes, delete') + '</button><button type="button" class="navbtn" id="vf-del-no"' + (n.stage === 'busy' ? ' disabled' : '') + '>Keep it</button></div>';
+    } else {
+      h += '<div class="draftbtns"><button type="button" class="bigsave" id="vf-again">Add another</button>' +
+        (n.ent && !gone ? '<button type="button" class="navbtn vdelbtn" id="vf-del">Delete this entry</button>' : '') + '</div>' +
+        '<div class="draftbtns vback"><button type="button" class="navbtn" data-go="spend">Back to Vault</button></div>';
+    }
+    return h;
+  }
+  function vDoneDel(act) {
+    var n = vm.dn; if (!n || !n.ent || n.stage === 'busy') return;
+    if (act === 'ask') { n.stage = 'ask'; n.err = ''; }
+    else if (act === '') { n.stage = ''; n.err = ''; }
+    else if (act === 'go') {
+      n.stage = 'busy'; n.err = '';
+      vm.done = vDoneHtml(); vFormRender('');
+      return vDelRun(n.ent).then(function (res) {
+        if (vm.dn !== n) return;
+        if (res.auth) return;
+        if (res.ok) { n.stage = 'deleted'; n.ent = null; } else { n.stage = 'ask'; n.err = res.err; }
+        vm.done = vDoneHtml(); vFormRender('');
+      });
+    }
+    vm.done = vDoneHtml(); vFormRender('');
   }
   function vAuth(err) { if (err instanceof AuthError) { setPc(''); lock('Passcode changed. Enter the new one.'); return true; } return false; }
   // POST (JSON body as text/plain so the browser sends no CORS preflight; Apps Script answers 302 and fetch follows it).
@@ -5541,17 +5576,21 @@
   function vMsg(id, text, bad) { var el = $(id); if (!el) return; el.textContent = text || ''; el.hidden = !text; el.className = 'noteflash show' + (bad ? ' bad' : ''); if (!text) el.className = 'noteflash'; }
 
   /* ---- #vmic: dictate -> parse -> editable form -> Save (spendadd / incomeadd) ---- */
-  var vm = { kind: 'exp', rec: null, on: false, base: '', committed: '', interim: '', msg: '', busy: false, draft: null, done: null };
+  var vm = { kind: 'exp', rec: null, on: false, base: '', committed: '', interim: '', msg: '', busy: false, draft: null, done: null, dn: null };
   function vdKey(k) { return 'cc_vdraft_' + k; }
   function vdLoad(k) {
-    try { var d = JSON.parse(localStorage.getItem(vdKey(k)) || 'null'); if (d && d.cid && d.f && Date.now() - (d.at || 0) < 12 * 3600 * 1000) return d; } catch (e) {}
+    try { var d = JSON.parse(localStorage.getItem(vdKey(k)) || 'null'); if (d && d.cid && d.f && Date.now() - (d.at || 0) < 12 * 3600 * 1000) {
+        if (k === 'inc') { if (VP.SOURCES.indexOf(d.f.source) < 0) d.f.source = ''; d.f.client = d.f.client || ''; delete d.f.sourceText; }   // older drafts: 'Other' / free-text source no longer exist
+        return d;
+      }
+    } catch (e) {}
     return null;
   }
   function vdSave() { try { if (vm.draft) { vm.draft.at = Date.now(); localStorage.setItem(vdKey(vm.kind), JSON.stringify(vm.draft)); } } catch (e) {} }
   function vdClear(k) { try { localStorage.removeItem(vdKey(k)); } catch (e) {} }
   function vFrom(p, kind) {        // parser output -> form values (strings)
     var amt = p.amount != null ? p.amount.toFixed(2) : '';
-    if (kind === 'inc') return { source: p.source, sourceText: p.sourceText || '', amount: amt, date: p.date, notes: p.notes || '' };
+    if (kind === 'inc') return { source: p.source || '', client: p.client || '', amount: amt, date: p.date, notes: p.notes || '' };
     return { amount: amt, merchant: p.merchant || '', category: p.category, account: p.account, date: p.date, who: p.who || 'Zac', notes: p.notes || '' };
   }
   function openVmic(kind) {
@@ -5623,8 +5662,12 @@
     var f = d.f, inc = vm.kind === 'inc', h = '';
     h += '<h3>' + (inc ? 'New income' : 'New expense') + ' <small>review and edit, then Save</small></h3>';
     if (inc) {
-      h += vField('Source', '<select id="vf-source">' + vOpts(VP.SOURCES, f.source) + '</select>');
-      h += vField('Source name', '<input id="vf-srctext" type="text" maxlength="80" autocomplete="off" value="' + esc(f.sourceText) + '" placeholder="Who paid you">', 'vsrctext' + (f.source === 'Other' ? '' : ' off'));
+      h += '<div class="vfield"><span>Which income is this?</span><div class="vchips" id="vf-chips" role="group" aria-label="Income source">' +
+        VP.SOURCES.map(function (n) {
+          var on = f.source === n;
+          return '<button type="button" class="vchip' + (on ? ' on' : '') + '" data-vsrc="' + esc(n) + '" aria-pressed="' + on + '">' + esc(n) + '</button>';
+        }).join('') + '</div></div>';
+      h += vField('Client (optional)', '<input id="vf-client" type="text" maxlength="60" autocomplete="off" value="' + esc(f.client || '') + '" placeholder="Leave blank for Personal Training">', 'vclient' + (f.source === 'Personal Training' ? '' : ' off'));
       h += '<div class="vrow2">' + vField('Amount', '<input id="vf-amount" type="text" inputmode="decimal" autocomplete="off" value="' + esc(f.amount) + '" placeholder="0.00">') +
         vField('Date', '<input id="vf-date" type="date" value="' + esc(f.date) + '">') + '</div>';
       h += vField('Notes', '<textarea id="vf-notes" rows="2" maxlength="300">' + esc(f.notes) + '</textarea>');
@@ -5648,7 +5691,7 @@
     if ((v = g('vf-amount')) != null) f.amount = v;
     if ((v = g('vf-date')) != null) f.date = v;
     if ((v = g('vf-notes')) != null) f.notes = v;
-    if (vm.kind === 'inc') { if ((v = g('vf-source')) != null) f.source = v; if ((v = g('vf-srctext')) != null) f.sourceText = v; }
+    if (vm.kind === 'inc') { if ((v = g('vf-client')) != null) f.client = v; }
     else { if ((v = g('vf-merchant')) != null) f.merchant = v; if ((v = g('vf-cat')) != null) f.category = v; if ((v = g('vf-acct')) != null) f.account = v; if ((v = g('vf-who')) != null) f.who = v; }
     vdSave();
   }
@@ -5657,11 +5700,14 @@
     if (amt === null) return { error: 'Enter an amount like 42.50.' };
     if (!vDateOk(f.date)) return { error: 'Pick a valid date.' };
     if (vm.kind === 'inc') {
-      var ls = f.source === 'Land & Structure', src = f.source === 'Other' ? String(f.sourceText || '').trim() : f.source;
-      if (!src) return { error: 'Type who the income is from.' };
-      var p = ls ? { tab: 'ls', description: 'Land & Structure pay' } : { tab: 'income', source: src };
-      p.date = f.date; p.amount = amt.toFixed(2); p.notes = String(f.notes || '').trim(); p.cid = d.cid;
-      return { action: 'incomeadd', params: p, amt: amt, label: src };
+      var src = f.source;
+      if (VP.SOURCES.indexOf(src) < 0) return { error: 'Tap which income this is.' };
+      var p, label = src, client = String(f.client || '').trim().slice(0, 60);
+      if (src === 'Land & Structure') p = { tab: 'ls', description: 'Land & Structure pay' };
+      else if (src === 'Personal Training') { label = client || 'Personal Training'; p = { tab: 'pt', source: label, client: label }; }
+      else p = { tab: 'income', source: src };
+      p.date = f.date; p.amount = amt.toFixed(2); p.notes = String(f.notes || '').trim(); p.cid = d.cid; p.strict = '1';
+      return { action: 'incomeadd', params: p, amt: amt, label: label };
     }
     var m = String(f.merchant || '').trim();
     if (!m) return { error: 'Enter the merchant or what it was for.' };
@@ -5680,8 +5726,14 @@
       var r = j.data || {}, where = (vm.kind === 'inc' ? (r.tab || 'Income') : 'Daily Spend') + (r.row ? ' \u00b7 row ' + r.row : '');
       var head = r.duplicate === 'cid' ? 'Already saved earlier' : r.duplicate === 'row' ? 'Already in the sheet' : 'Saved';
       var sub = r.duplicate ? 'Nothing was added again.' : (vm.kind === 'exp' ? esc(d.f.category) + ' \u00b7 ' + esc(d.f.account) + ' \u00b7 ' : '') + esc(d.f.date);
-      vm.done = '<h3>' + head + '</h3><div class="big ' + (vm.kind === 'inc' ? 'amt-in' : 'amt-out') + '">' + money(s.amt) + '</div><div class="foot">' + esc(s.label) + '</div><div class="foot">' + esc(where) + ' \u00b7 ' + sub + '</div>' +
-        '<div class="draftbtns"><button type="button" class="bigsave" id="vf-again">Add another</button><button type="button" class="navbtn" data-go="spend">Back to Vault</button></div>';
+      var ent = null, rowN = vRowNum(r.row);
+      if (rowN) {                // Delete needs the sheet row from the save result (data.row) and, for income, the tab (data.tab)
+        ent = vm.kind === 'inc'
+          ? { kind: 'inc', tab: vTabNorm(r.tab) || s.params.tab, row: rowN, date: d.f.date, amount: s.amt, label: s.label, cid: d.cid }
+          : { kind: 'exp', row: rowN, date: d.f.date, amount: s.amt, label: s.label, cid: d.cid };
+      }
+      vm.dn = { head: head, amt: money(s.amt), cls: vm.kind === 'inc' ? 'amt-in' : 'amt-out', label: s.label, where: where, sub: sub, ent: ent, stage: '', err: '' };
+      vm.done = vDoneHtml();
       vdClear(vm.kind); vm.draft = null; state.spendData = null; vFormRender('');
     }, function (err) {
       vm.busy = false;
@@ -5696,9 +5748,20 @@
     vmicStop(true); $('vmic-text').value = ''; vm.msg = ''; vm.draft = null; vm.done = null; vdClear(vm.kind); vmicUi(); vFormRender('');
   });
   $('vmic-text').addEventListener('input', function () { if (vm.draft) { vm.draft.text = this.value; vdSave(); } vmicUi(); });
-  $('vmic-form').addEventListener('input', function (e) { vRead(); if (e.target.id === 'vf-source') { var w = $('vmic-form').querySelector('.vsrctext'); if (w) w.classList.toggle('off', e.target.value !== 'Other'); } });
-  $('vmic-form').addEventListener('change', function (e) { vRead(); if (e.target.id === 'vf-source') { var w = $('vmic-form').querySelector('.vsrctext'); if (w) w.classList.toggle('off', e.target.value !== 'Other'); } });
+  $('vmic-form').addEventListener('input', function () { vRead(); });
+  $('vmic-form').addEventListener('change', function () { vRead(); });
   $('vmic-form').addEventListener('click', function (e) {
+    var chip = e.target.closest('.vchip');
+    if (chip && vm.draft && vm.kind === 'inc') {            // pick one of the existing income sources
+      vRead(); vm.draft.f.source = chip.getAttribute('data-vsrc'); vdSave();
+      [].forEach.call($('vmic-form').querySelectorAll('.vchip'), function (b) { var on = b === chip; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+      var cw = $('vmic-form').querySelector('.vclient'); if (cw) cw.classList.toggle('off', vm.draft.f.source !== 'Personal Training');
+      vMsg('vf-msg', '', false);
+      return;
+    }
+    if (e.target.closest('#vf-del')) return vDoneDel('ask');
+    if (e.target.closest('#vf-del-no')) return vDoneDel('');
+    if (e.target.closest('#vf-del-yes')) return vDoneDel('go');
     if (e.target.closest('#vf-save')) return vSave();
     if (e.target.closest('#vf-discard')) { vm.draft = null; vdClear(vm.kind); $('vmic-text').value = ''; vmicUi(); return vFormRender(''); }
     if (e.target.closest('#vf-again')) { vm.done = null; vm.draft = null; $('vmic-text').value = ''; vmicUi(); vFormRender(''); }
@@ -5806,6 +5869,134 @@
     if (e.target.closest('#vc-save')) return vcamSave();
     if (e.target.closest('#vc-retake')) { if (vc.busy) return; vc.b64 = ''; vc.url = ''; vc.cid = ''; vc.msg = ''; return vcamRender(); }
     if (e.target.closest('#vc-again')) { vc.done = ''; vc.msg = ''; vcamRender(); }
+  });
+
+  /* ---------------- Vault: delete an entry (v57): detail sheet + confirm; API spenddel / incomedel ---------------- */
+  // Vault entries (spend items, income entries incl. Personal Training / Land & Structure Pay) are tappable. The server exposes `row` (and
+  // `tab` on income entries); without a row there is nothing safe to delete, so the sheet shows the entry but no Delete button.
+  var VENT = {}, ventN = 0;
+  function vRowNum(v) { var n = Math.floor(Number(v)); return isFinite(n) && n >= 2 && String(v).trim() !== '' ? n : 0; }
+  function vTabNorm(t) {          // server tab (any spelling) -> 'income' | 'ls' | 'pt' | ''
+    var x = String(t || '').toLowerCase().replace(/[^a-z]/g, '');
+    if (x === 'income' || x === 'ls' || x === 'pt') return x;
+    if (/personaltraining/.test(x)) return 'pt';
+    if (/landstructure/.test(x)) return 'ls';
+    return '';
+  }
+  function vIncTab(e) { return vTabNorm(e.tab) || (e.source === PT_SOURCE ? 'pt' : e.source === LS_SOURCE ? 'ls' : 'income'); }
+  function vEntCls(e) { return e && e._v ? ' tapent' : ''; }
+  function vEntAttr(kind, e) {
+    if (!e || !e._v) return '';
+    VENT[++ventN] = { kind: kind, e: e };
+    return ' data-ent="' + ventN + '" tabindex="0" role="button"';
+  }
+  function vEntDesc(kind, e) {      // registry entry -> { lines, ent } for the sheet; ent = delete contract (null when no row)
+    var lines = [], ent = null, tab;
+    lines.push(['Date', e.label || e.date || '']);
+    if (kind === 'exp') {
+      lines.push(['Merchant', e.merchant || '\u2014'], ['Category', e.category || '']);
+      if (e.account) lines.push(['Account', e.account]);
+      if (e.who) lines.push(['Paid by', e.who]);
+      if (e.method) lines.push(['Method', e.method]);
+      if (e.paidFrom) lines.push(['Paid from', e.paidFrom]);
+      if (e.notes) lines.push(['Notes', e.notes]);
+      if (e.row) ent = { kind: 'exp', row: e.row, date: e.date, amount: e.amount, label: e.merchant || '', cid: e.cid || '' };
+    } else {
+      tab = vIncTab(e);
+      var ds = DETAIL_SRC[e.source];
+      lines.push(['Source', ds ? ds.label : e.source]);
+      if (e.client) lines.push([tab === 'ls' ? 'Description' : 'Client', e.client]);
+      if (e.method) lines.push(['Method', e.method]);
+      if (e.notes) lines.push(['Notes', e.notes]);
+      var lbl = tab === 'pt' ? (e.client || 'Personal Training') : tab === 'ls' ? (e.client || 'Land & Structure pay') : (e.rawSource || e.source);
+      if (e.row) ent = { kind: 'inc', tab: tab, row: e.row, date: e.date, amount: e.amount, label: lbl, cid: e.cid || '' };
+    }
+    return { kind: kind, lines: lines, ent: ent, amount: e.amount };
+  }
+  function vDelParams(ent) {      // -> { action, params } : the exact request the UI sends
+    var amt = (Number(ent.amount) || 0).toFixed(2);
+    if (ent.kind === 'inc') return { action: 'incomedel', params: { tab: ent.tab, row: String(ent.row), date: ent.date, amount: amt, label: ent.label, cid: ent.cid || '', prune_source: '1' } };
+    return { action: 'spenddel', params: { row: String(ent.row), date: ent.date, amount: amt, merchant: ent.label, cid: ent.cid || '' } };
+  }
+  function vDelMsg(j) {
+    var e = j && j.error;
+    if (e === 'bad_action') return 'This needs the server update (not deployed yet). Nothing was deleted.';
+    if (e === 'busy') return 'The sheet is busy. Tap Yes, delete again in a moment.';
+    if (e === 'not_found' || e === 'mismatch' || e === 'row_mismatch' || e === 'changed') return 'That entry has changed or is already gone, so nothing was deleted. Refresh the Vault and check.';
+    return (j && j.message) || ('Server error: ' + e + '. Nothing was deleted.');
+  }
+  // -> Promise<{ ok:true, data } | { err } | { auth:true }>. A successful delete clears state.spendData so the Vault reloads.
+  function vDelRun(ent) {
+    var q = vDelParams(ent);
+    return apiRaw(q.action, q.params).then(function (j) {
+      if (j && j.error) return { err: vDelMsg(j) };
+      state.spendData = null;
+      return { ok: true, data: (j && j.data) || {} };
+    }, function (err) {
+      if (vAuth(err)) return { auth: true };
+      return { err: friendly(err) + ' Not confirmed: check the Vault before trying again.' };
+    });
+  }
+  var vds = { el: null, d: null, stage: 'view', err: '', from: null };
+  function vSheetEl() {
+    if (vds.el) return vds.el;
+    var el = document.createElement('div'); el.id = 'vsheet'; el.className = 'vsheet'; el.hidden = true;
+    el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-label', 'Entry details');
+    document.body.appendChild(el); vds.el = el;
+    el.addEventListener('click', function (e) {
+      if (e.target === el || e.target.closest('#vs-close')) return vSheetClose();
+      if (e.target.closest('#vs-del')) { vds.stage = 'ask'; vds.err = ''; return vSheetPaint(); }
+      if (e.target.closest('#vs-no')) { vds.stage = 'view'; vds.err = ''; return vSheetPaint(); }
+      if (e.target.closest('#vs-yes')) return vSheetDelete();
+    });
+    return el;
+  }
+  function vSheetOpen(kind, e, from) {
+    var d = vEntDesc(kind, e);
+    vds.d = d; vds.stage = 'view'; vds.err = ''; vds.from = from || null;
+    vSheetEl().hidden = false; document.body.classList.add('vsheet-open'); vSheetPaint();
+    var b = vds.el.querySelector('button'); if (b) b.focus();
+  }
+  function vSheetClose() {
+    if (vds.stage === 'busy') return;
+    var was = vds.stage === 'done', from = vds.from;
+    if (vds.el) { vds.el.hidden = true; vds.el.innerHTML = ''; }
+    document.body.classList.remove('vsheet-open'); vds.d = null;
+    if (from && from.focus) { try { from.focus(); } catch (x) {} }
+    if (was) vVaultRefresh();
+  }
+  function vVaultRefresh() { if (!state.spendData && $('screen-spend').classList.contains('active')) loadSpend(true); }
+  function vSheetPaint() {
+    var d = vds.d, el = vds.el; if (!d || !el) return;
+    var st = vds.stage, h = '<div class="vsbox"><h3>' + (st === 'done' ? 'Deleted' : d.kind === 'inc' ? 'Income entry' : 'Expense entry') + '</h3>' +
+      '<div class="big ' + (d.kind === 'inc' ? 'amt-in' : 'amt-out') + (st === 'done' ? ' vgone' : '') + '">' + money(d.amount) + '</div><div class="vslines">' +
+      d.lines.map(function (l) { return '<div class="vsl"><span>' + esc(l[0]) + '</span><b>' + esc(l[1]) + '</b></div>'; }).join('') + '</div>';
+    if (vds.err) h += '<div class="noteflash show bad">' + esc(vds.err) + '</div>';
+    if (st === 'done') h += '<div class="noteflash show">Entry deleted. A backup is kept.</div><div class="draftbtns vback"><button type="button" class="navbtn" id="vs-close">Done</button></div>';
+    else if (st === 'ask' || st === 'busy') h += '<div class="foot vdelq">Delete this entry? A backup is kept.</div><div class="draftbtns"><button type="button" class="bigsave vdelbtn" id="vs-yes"' + (st === 'busy' ? ' disabled' : '') + '>' + (st === 'busy' ? 'Deleting\u2026' : 'Yes, delete') + '</button><button type="button" class="navbtn" id="vs-no"' + (st === 'busy' ? ' disabled' : '') + '>Keep it</button></div>';
+    else h += '<div class="draftbtns">' + (d.ent ? '<button type="button" class="navbtn vdelbtn" id="vs-del">Delete</button>' : '') + '<button type="button" class="navbtn" id="vs-close">Close</button></div>';
+    el.innerHTML = h + '</div>';
+  }
+  function vSheetDelete() {
+    var d = vds.d; if (!d || !d.ent || vds.stage === 'busy') return;
+    vds.stage = 'busy'; vds.err = ''; vSheetPaint();
+    vDelRun(d.ent).then(function (res) {
+      if (vds.d !== d) return;
+      if (res.auth) { vds.stage = 'view'; return vSheetClose(); }
+      if (res.ok) { vds.stage = 'done'; vSheetPaint(); vVaultRefresh(); setTimeout(function () { if (vds.d === d && vds.stage === 'done') vSheetClose(); }, 1600); }
+      else { vds.stage = 'ask'; vds.err = res.err; vSheetPaint(); }
+    });
+  }
+  function vEntOpenFrom(el) {
+    var r = VENT[el.getAttribute('data-ent')]; if (r) vSheetOpen(r.kind, r.e, el);
+  }
+  document.addEventListener('click', function (e) {
+    if (e.target.closest('[data-go], a[href], .chip, button')) return;
+    var el = e.target.closest('[data-ent]'); if (el) vEntOpenFrom(el);
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && vds.el && !vds.el.hidden) return vSheetClose();
+    if ((e.key === 'Enter' || e.key === ' ') && e.target && e.target.getAttribute && e.target.hasAttribute('data-ent')) { e.preventDefault(); vEntOpenFrom(e.target); }
   });
 
   /* ---------------- Init ---------------- */

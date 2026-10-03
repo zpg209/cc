@@ -1152,3 +1152,36 @@ h2.vgrp.sum { color: #4DA3FF; }
 .vcamcard .foot { margin: 0 0 10px; }
 .vscreen [hidden] { display: none !important; }
 .home-logo { display: block; width: 96px; height: 96px; margin: 0 auto 10px; border-radius: 22px; box-shadow: 0 8px 20px rgba(0,0,0,.5); }
+
+/* ---- v57: income source chips (no new sources), tappable Vault entries, delete sheet ---- */
+.vchips { display: flex; flex-wrap: wrap; gap: 8px; }
+.vchip { flex: 0 1 auto; min-height: 46px; padding: 10px 14px; cursor: pointer; background: var(--btn); color: var(--red); font: 600 15px/1.2 'Inter', sans-serif;
+  border-width: var(--btn-border); border-style: solid; border-color: var(--btn-edge); border-radius: var(--radius); text-align: center; }
+.vchip:active { background: var(--btn-press); }
+.vchip.on { background: var(--red); color: #0b0b0b; border-color: #ffb27a; font-weight: 700; }
+.vfield.vclient { margin-top: 2px; }
+.tapent { cursor: pointer; -webkit-tap-highlight-color: rgba(240,122,42,.18); }
+.tapent:active { background: rgba(240,122,42,.08); }
+.tapent:focus-visible { outline: 1px solid var(--btn-edge); outline-offset: -1px; }
+.vsheet { position: fixed; inset: 0; z-index: 900; display: flex; align-items: flex-end; justify-content: center; background: rgba(0,0,0,.62); }
+.vsheet[hidden] { display: none; }
+body.vsheet-open { overflow: hidden; }
+.vsbox { width: 100%; max-width: 560px; box-sizing: border-box; max-height: 88vh; overflow-y: auto; padding: 16px 16px calc(18px + env(safe-area-inset-bottom, 0px));
+  background: #1c1c1c; border: var(--btn-border) solid var(--btn-edge); border-bottom: 0; border-radius: 10px 10px 0 0; box-shadow: 0 -12px 30px rgba(0,0,0,.6); }
+.vsbox h3 { margin: 0 0 4px; font: 700 12px/1.2 'Inter', sans-serif; letter-spacing: .9px; text-transform: uppercase; color: var(--red); }
+.vsbox .big { font: 700 34px/1.2 'Inter', sans-serif; margin: 2px 0 10px; }
+.vgone { text-decoration: line-through; opacity: .55; }
+.vslines { margin: 0 0 12px; }
+.vsl { display: grid; grid-template-columns: 96px 1fr; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.vsl span { color: var(--muted); font-size: 11px; letter-spacing: .6px; text-transform: uppercase; padding-top: 2px; }
+.vsl b { font-weight: 500; color: var(--text); overflow-wrap: anywhere; }
+.vsbox .draftbtns { margin-top: 8px; }
+.vdelq { margin: 6px 0 4px; font-size: 15px; font-weight: 600; color: #ff9a9d; }
+.vdone .draftbtns { margin-top: 8px; }
+.vdone .draftbtns.vback { grid-template-columns: 1fr; }
+.vsbox .draftbtns.vback { grid-template-columns: 1fr; }
+.vsbox .navbtn, .vdone .navbtn { min-height: 48px; }
+button.vdelbtn { color: #ff9a9d; background: var(--btn); border-width: var(--btn-border); border-style: solid; border-color: rgba(229,72,77,.8); border-radius: var(--radius); font-weight: 700; }
+button.vdelbtn:active { background: #1a0c0c; }
+button.vdelbtn:disabled { opacity: .4; pointer-events: none; }
+.bigsave.vdelbtn, .vscreen .bigsave.vdelbtn, .vdone .navbtn.vdelbtn, .vsbox .navbtn.vdelbtn, .micscreen .navbtn.vdelbtn { color: #ff9a9d; border-color: rgba(229,72,77,.8); }
