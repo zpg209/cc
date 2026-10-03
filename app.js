@@ -7094,7 +7094,7 @@
   var OD_CLIENTS_KEY = 'cc_clients';
   var OD_NA = 'Orders will work after the next server update.';
   var od = { tab: 'current', week: '', sumWeek: '', prevWeek: '', byWeek: {}, weeks: [], clients: [], exists: false, loading: false, err: '', na: false,
-    form: null, confirmDel: '', busy: {}, inflight: {}, seq: 0, mic: { rec: null, on: false, base: '', committed: '', interim: '', msg: '' } };
+    form: null, confirmDel: '', picker: null, busy: {}, inflight: {}, seq: 0, mic: { rec: null, on: false, base: '', committed: '', interim: '', msg: '' } };
   var OD_MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   function odOnScreen() { return state.ltPart === 'orders' && $('screen-lt').classList.contains('active'); }
   function odDefaultWeek() { var d = new Date(); return mgIso(d.getDay() === 1 ? new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12) : mgNextMonday(d)); }
@@ -7129,18 +7129,36 @@
     od.clients = rest; odClientsSave();
   }
   function odOrders(week) { var W = od.byWeek[week]; return W ? W.orders : null; }
+  // ---- delivery fee + payment (server v41+). An older server sends neither: missing fee = 0, status from the paid boolean ----
+  var OD_FEES = [0, 3, 5], OD_METHODS = ['cash', 'zelle', 'venmo'];
+  function odCap(s) { s = String(s || ''); return s.charAt(0).toUpperCase() + s.slice(1); }
+  function odNormOrder(o) {
+    if (!o) return o;
+    var fee = Number(o.deliveryFee); fee = OD_FEES.indexOf(fee) >= 0 ? fee : 0;
+    var sub = o.subtotal != null ? Number(o.subtotal) : (o.lines && o.lines.length ? o.lines.reduce(function (a, l) { return a + Number(l.lineTotal || 0); }, 0) : Number(o.total || 0));
+    var ps = (o.payStatus === 'paid' || o.payStatus === 'unpaid' || o.payStatus === 'trade') ? o.payStatus : (o.paid ? 'paid' : 'unpaid');
+    o.deliveryFee = fee; o.subtotal = Math.round(sub * 100) / 100; o.total = Math.round((sub + fee) * 100) / 100;
+    o.payStatus = ps; o.payMethod = ps === 'paid' && OD_METHODS.indexOf(o.payMethod) >= 0 ? o.payMethod : ''; o.paid = ps === 'paid';
+    if (!o.paid) o.paidOn = '';
+    return o;
+  }
+  function odPayLabel(o) { return o.payStatus === 'paid' ? 'Paid' + (o.payMethod ? ' \u00b7 ' + odCap(o.payMethod) : '') : o.payStatus === 'trade' ? 'Trade' : 'Unpaid'; }
   function odAgg(orders) {
-    var t = { clients: orders.length, items: 0, total: 0, paid: 0, unpaid: 0, rows: [] }, by = {};
+    var t = { clients: orders.length, items: 0, subtotal: 0, delivery: 0, deliveries: 0, total: 0, paid: 0, unpaid: 0, trade: 0, paidCount: 0, unpaidCount: 0, tradeCount: 0,
+      byMethod: { cash: 0, zelle: 0, venmo: 0, unspecified: 0 }, rows: [] }, by = {};
     orders.forEach(function (o) {
-      t.items += o.items; t.total += o.total;
-      if (o.paid) t.paid += o.total; else t.unpaid += o.total;
+      t.items += o.items; t.subtotal += o.subtotal; t.delivery += o.deliveryFee; if (o.deliveryFee) t.deliveries++; t.total += o.total;
+      if (o.payStatus === 'paid') { t.paid += o.total; t.paidCount++; t.byMethod[o.payMethod || 'unspecified'] += o.total; }
+      else if (o.payStatus === 'trade') { t.trade += o.total; t.tradeCount++; }
+      else { t.unpaid += o.total; t.unpaidCount++; }
       o.lines.forEach(function (l) {
         var k = norm(l.item), r = by[k] || (by[k] = { item: l.item, qty: 0, revenue: 0 });
         r.qty += l.qty; r.revenue += l.lineTotal;
       });
     });
     t.rows = Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return b.qty - a.qty || b.revenue - a.revenue || a.item.localeCompare(b.item); });
-    ['total', 'paid', 'unpaid'].forEach(function (k) { t[k] = Math.round(t[k] * 100) / 100; });
+    ['subtotal', 'delivery', 'total', 'paid', 'unpaid', 'trade'].forEach(function (k) { t[k] = Math.round(t[k] * 100) / 100; });
+    Object.keys(t.byMethod).forEach(function (k) { t.byMethod[k] = Math.round(t.byMethod[k] * 100) / 100; });
     return t;
   }
 
@@ -7162,7 +7180,7 @@
       od.na = false; od.loading = false; od.err = '';
       var d = j.data || {};
       od.exists = !!d.exists; od.weeks = d.weeks || []; od.clients = d.clients || [];
-      od.byWeek[week] = { at: Date.now(), orders: d.orders || [], menu: d.menu || [] };
+      od.byWeek[week] = { at: Date.now(), orders: (d.orders || []).map(odNormOrder), menu: d.menu || [] };
       odClientsSave();
       odRender();
     }, function (err) {
@@ -7208,22 +7226,37 @@
       '<button type="button" class="odarrow" data-od="wk" data-k="' + key + '" data-d="7" aria-label="Next week">\u203a</button></div>';
   }
   function odPaidBtn(o) {
-    return '<button type="button" class="odpaid ' + (o.paid ? 'on' : 'off') + '" data-od="paid" data-oid="' + esc(o.orderId) + '" aria-pressed="' + !!o.paid + '"' + (od.busy[o.orderId] ? ' disabled' : '') + '>' +
-      (o.paid ? 'Paid' + (o.paidOn ? ' ' + esc(odShort(o.paidOn)) : '') : 'Unpaid') + '</button>';
+    var busy = !!od.busy[o.orderId], open = od.picker && od.picker.oid === o.orderId;
+    return '<button type="button" class="odpaid ' + (o.payStatus === 'paid' ? 'on' : o.payStatus === 'trade' ? 'trade' : 'off') + (open ? ' open' : '') + '" data-od="paid" data-oid="' + esc(o.orderId) + '" aria-expanded="' + !!open + '"' + (busy ? ' disabled' : '') + '>' + esc(odPayLabel(o)) + '</button>';
+  }
+  function odPickerHtml(o) {          // the small inline payment picker under a card
+    var p = od.picker; if (!p || p.oid !== o.orderId) return '';
+    var h = '<div class="odpicker" role="group" aria-label="Payment for ' + esc(o.client) + '"><div class="vchips">' +
+      [['unpaid', 'Unpaid'], ['paid', 'Paid'], ['trade', 'Trade']].map(function (x) {
+        return '<button type="button" class="vchip odchip' + (p.status === x[0] ? ' on' : '') + '" data-od="pst" data-oid="' + esc(o.orderId) + '" data-s="' + x[0] + '" aria-pressed="' + (p.status === x[0]) + '">' + x[1] + '</button>';
+      }).join('') + '</div>';
+    if (p.status === 'paid') h += '<div class="odpmh">How was it paid?</div><div class="vchips">' + OD_METHODS.map(function (m) {
+      return '<button type="button" class="vchip odchip' + (o.payStatus === 'paid' && o.payMethod === m ? ' on' : '') + '" data-od="pmt" data-oid="' + esc(o.orderId) + '" data-m="' + m + '">' + odCap(m) + '</button>';
+    }).join('') + '</div>';
+    return h + '</div>';
   }
   function odCardHtml(o, editable) {
     var ask = od.confirmDel === o.orderId;
     return '<div class="card odcard" data-oid="' + esc(o.orderId) + '"><div class="odtop"><span class="odname">' + esc(o.client) + '</span><span class="odcost">' + odMoney(o.total) + '</span></div>' +
-      '<ul class="odlines">' + o.lines.map(function (l) { return '<li><span>' + l.qty + ' \u00d7 ' + esc(l.item) + '</span><span>' + odMoney(l.lineTotal) + '</span></li>'; }).join('') + '</ul>' +
+      '<ul class="odlines">' + o.lines.map(function (l) { return '<li><span>' + l.qty + ' \u00d7 ' + esc(l.item) + '</span><span>' + odMoney(l.lineTotal) + '</span></li>'; }).join('') +
+      (o.deliveryFee ? '<li class="odfee"><span>Delivery fee</span><span>' + odMoney(o.deliveryFee) + '</span></li>' : '') + '</ul>' +
       '<div class="odrow">' + odPaidBtn(o) +
       (editable ? '<button type="button" class="navbtn odedit" data-od="edit" data-oid="' + esc(o.orderId) + '">Edit</button><button type="button" class="navbtn odx" data-od="del" data-oid="' + esc(o.orderId) + '" aria-label="Delete order for ' + esc(o.client) + '">Delete</button>' : '') + '</div>' +
+      odPickerHtml(o) +
       (ask ? '<div class="odconf">Delete the order for ' + esc(o.client) + '?<div class="draftbtns"><button type="button" class="bigsave odyes" data-od="delyes" data-oid="' + esc(o.orderId) + '">Yes, delete</button><button type="button" class="navbtn" data-od="delno">Keep it</button></div></div>' : '') + '</div>';
   }
   function odTotalsHtml(orders) {
     var t = odAgg(orders);
     return '<div class="card odtotal"><div class="odtrow big"><span>Week total</span><b>' + odMoney(t.total) + '</b></div>' +
       '<div class="odtrow"><span>Paid</span><b>' + odMoney(t.paid) + '</b></div><div class="odtrow"><span>Unpaid</span><b>' + odMoney(t.unpaid) + '</b></div>' +
-      '<div class="foot">' + t.clients + ' client' + (t.clients === 1 ? '' : 's') + ' \u00b7 ' + t.items + ' item' + (t.items === 1 ? '' : 's') + '</div></div>';
+      '<div class="odtrow"><span>Trade</span><b>' + odMoney(t.trade) + '</b></div>' +
+      '<div class="odtrow"><span>Delivery fees</span><b>' + odMoney(t.delivery) + '</b></div>' +
+      '<div class="foot">' + t.clients + ' client' + (t.clients === 1 ? '' : 's') + ' \u00b7 ' + t.items + ' item' + (t.items === 1 ? '' : 's') + (t.tradeCount ? ' \u00b7 ' + t.tradeCount + ' trade' : '') + ' \u00b7 total includes delivery fees</div></div>';
   }
   function odCurrentHtml() {
     var wk = od.week, h = odWeekNav(wk, 'current'), st = odStatusHtml(wk);
@@ -7249,7 +7282,7 @@
     if (!list.length) return '<div class="loading">' + (od.loading || !od.byWeek[od.week] ? 'Loading\u2026' : 'No previous weeks yet.') + '</div>';
     return '<div class="card odweeks">' + list.map(function (w) {
       return '<button type="button" class="odweek" data-od="prevopen" data-w="' + esc(w.week) + '"><span class="odwk1"><b>Week of ' + esc(odShort(w.week)) + '</b><small>' + w.clients + ' client' + (w.clients === 1 ? '' : 's') + ' \u00b7 ' + w.items + ' item' + (w.items === 1 ? '' : 's') +
-        (w.unpaid > 0 ? ' \u00b7 ' + odMoney(w.unpaid) + ' unpaid' : (w.clients ? ' \u00b7 all paid' : '')) + '</small></span><span class="odwk2">' + odMoney(w.total) + '</span><span class="chev">&rsaquo;</span></button>';
+        (w.unpaid > 0 ? ' \u00b7 ' + odMoney(w.unpaid) + ' unpaid' : (w.clients ? (w.tradeCount && w.tradeCount === w.clients ? ' \u00b7 all trade' : ' \u00b7 all paid') : '')) + (w.tradeCount && w.tradeCount !== w.clients ? ' \u00b7 ' + w.tradeCount + ' trade' : '') + '</small></span><span class="odwk2">' + odMoney(w.total) + '</span><span class="chev">&rsaquo;</span></button>';
     }).join('') + '</div>';
   }
   function odSummaryHtml() {
@@ -7259,9 +7292,16 @@
     if (!W.orders.length) return h + '<div class="foot empty">No orders for this week.</div>';
     h += '<div class="card odsum"><div class="odsrow head"><span>Item</span><span>Qty</span><span>Revenue</span></div>' +
       t.rows.map(function (r) { return '<div class="odsrow"><span>' + esc(r.item) + '</span><span>' + r.qty + '</span><span>' + odMoney(r.revenue) + '</span></div>'; }).join('') +
-      '<div class="odsrow tot"><span>Total</span><span>' + t.items + '</span><span>' + odMoney(t.total) + '</span></div></div>';
-    h += '<div class="card odtotal"><div class="odtrow big"><span>Total income</span><b>' + odMoney(t.total) + '</b></div><div class="odtrow"><span>Paid</span><b>' + odMoney(t.paid) + '</b></div>' +
-      '<div class="odtrow"><span>Unpaid</span><b>' + odMoney(t.unpaid) + '</b></div><div class="foot">' + t.items + ' item' + (t.items === 1 ? '' : 's') + ' \u00b7 ' + t.clients + ' client' + (t.clients === 1 ? '' : 's') + ' \u00b7 revenue = quantity \u00d7 price at order time</div></div>';
+      '<div class="odsrow tot"><span>Total</span><span>' + t.items + '</span><span>' + odMoney(t.subtotal) + '</span></div></div>';
+    h += '<div class="card odtotal"><div class="odtrow big"><span>Total income</span><b>' + odMoney(t.total) + '</b></div>' +
+      '<div class="odtrow"><span>Items</span><b>' + odMoney(t.subtotal) + '</b></div>' +
+      '<div class="odtrow"><span>Delivery fee income</span><b>' + odMoney(t.delivery) + '</b></div>' +
+      '<div class="odtrow"><span>Paid</span><b>' + odMoney(t.paid) + '</b></div>' +
+      OD_METHODS.map(function (m) { return '<div class="odtrow sub"><span>' + odCap(m) + '</span><b>' + odMoney(t.byMethod[m]) + '</b></div>'; }).join('') +
+      (t.byMethod.unspecified ? '<div class="odtrow sub"><span>Method not recorded</span><b>' + odMoney(t.byMethod.unspecified) + '</b></div>' : '') +
+      '<div class="odtrow"><span>Unpaid</span><b>' + odMoney(t.unpaid) + '</b></div>' +
+      '<div class="odtrow"><span>Trade (' + t.tradeCount + ' order' + (t.tradeCount === 1 ? '' : 's') + ')</span><b>' + odMoney(t.trade) + '</b></div>' +
+      '<div class="foot">' + t.items + ' item' + (t.items === 1 ? '' : 's') + ' \u00b7 ' + t.clients + ' client' + (t.clients === 1 ? '' : 's') + ' \u00b7 item revenue = quantity \u00d7 price at order time \u00b7 trade is in neither paid nor unpaid</div></div>';
     return h;
   }
 
@@ -7271,17 +7311,32 @@
     Object.keys(od.byWeek).forEach(function (w) { (od.byWeek[w].orders || []).forEach(function (o) { if (o.orderId === oid) found = { o: o, w: w }; }); });
     return found;
   }
-  function odPaid(oid) {
+  function odPickToggle(oid) {
     var f = odFind(oid); if (!f || od.busy[oid]) return;
-    var o = f.o, was = { paid: o.paid, paidOn: o.paidOn }, want = !o.paid;
-    o.paid = want; o.paidOn = want ? mgIso(new Date()) : ''; od.busy[oid] = true; odRender();
-    apiRaw('orderpaid', { orderId: oid, paid: want ? 'true' : 'false', client: o.client, cid: vNewCid() }).then(function (j) {
+    od.picker = (od.picker && od.picker.oid === oid) ? null : { oid: oid, status: f.o.payStatus };
+    od.confirmDel = ''; odRender();
+  }
+  function odPay(oid, status, method) {          // change one order's payment via orderpaid (optimistic; reverted on error)
+    var f = odFind(oid); if (!f || od.busy[oid]) return;
+    var o = f.o, was = { paid: o.paid, paidOn: o.paidOn, payStatus: o.payStatus, payMethod: o.payMethod };
+    od.picker = null;
+    if (was.payStatus === status && was.payMethod === (status === 'paid' ? method : '')) return odRender();
+    o.payStatus = status; o.payMethod = status === 'paid' ? method : ''; o.paid = status === 'paid'; o.paidOn = o.paid ? (was.paid && was.paidOn ? was.paidOn : mgIso(new Date())) : '';
+    od.busy[oid] = true; odRender();
+    var q = { orderId: oid, paid: status === 'paid' ? 'true' : 'false', payStatus: status, client: o.client, cid: vNewCid() };
+    if (status === 'paid' && method) q.payMethod = method;
+    var undo = function () { o.payStatus = was.payStatus; o.payMethod = was.payMethod; o.paid = was.paid; o.paidOn = was.paidOn; };
+    apiRaw('orderpaid', q).then(function (j) {
       od.busy[oid] = false;
-      if (j.error) { o.paid = was.paid; o.paidOn = was.paidOn; odFlash(odApiMsg(j, 'Marking paid'), true); }
-      else if (j.data && j.data.order && j.data.order.paidOn !== undefined) o.paidOn = j.data.order.paidOn;
-      odRender(); if (!j.error) odLoad(f.w, true);
+      if (j.error) { undo(); odFlash(odApiMsg(j, 'Changing payment'), true); odRender(); return; }
+      var so = j.data && j.data.order;
+      if (so && so.payStatus === undefined && (status === 'trade' || method)) {      // an older server only knows paid / unpaid
+        undo(); odFlash('Trade and payment methods will work after the next server update.', true); odRender(); odLoad(f.w, true); return;
+      }
+      if (so && so.paidOn !== undefined) o.paidOn = so.paidOn;
+      odRender(); odLoad(f.w, true);
     }, function (err) {
-      od.busy[oid] = false; o.paid = was.paid; o.paidOn = was.paidOn;
+      od.busy[oid] = false; undo();
       if (vAuth(err)) return;
       odFlash(friendly(err) + ' Not changed.', true); odRender();
     });
@@ -7317,9 +7372,9 @@
   }
   function odOpenForm(order) {
     var W = od.byWeek[od.week]; if (!W) return;
-    var f = { orderId: order ? order.orderId : '', mode: (!order && odClients().length) ? 'existing' : 'new', client: order ? order.client : '', q: '', search: '', q0: {}, paid: order ? !!order.paid : false,
+    var f = { orderId: order ? order.orderId : '', mode: (!order && odClients().length) ? 'existing' : 'new', client: order ? order.client : '', q: '', search: '', q0: {}, fee: order ? order.deliveryFee : 0, payStatus: order ? order.payStatus : 'unpaid', payMethod: order ? order.payMethod : '', legacyPaid: !!(order && order.payStatus === 'paid' && !order.payMethod),
       cid: vNewCid(), sig: '', busy: false, items: [], fallback: false, loadingMacros: false, qty: {}, order: order || null };
-    od.form = f; odMicStop(true);
+    od.form = f; od.picker = null; odMicStop(true);
     var mn = $('od-main'); if (mn) mn.innerHTML = '';
     odFormItems();
     odRender();
@@ -7335,7 +7390,8 @@
   function odFormTotals() {
     var f = od.form, n = 0, tot = 0;
     f.items.forEach(function (it, i) { var q = f.qty[i] || 0; n += q; tot += q * (it.price || 0); });
-    return { n: n, total: Math.round(tot * 100) / 100 };
+    tot = Math.round(tot * 100) / 100;
+    return { n: n, subtotal: tot, fee: f.fee, total: Math.round((tot + f.fee) * 100) / 100 };
   }
   function odClientMatches(q) {
     var k = norm(q), all = odClients(); if (!k) return all;
@@ -7363,12 +7419,30 @@
     }
     h += '<h4 class="sechead odsec">Items <small id="od-src"></small></h4><input type="search" class="searchbox" id="od-search" autocomplete="off" placeholder="Search items" value="' + esc(f.search) + '">' +
       '<div id="od-items" class="oditems"></div>' +
-      '<div class="odftot"><span id="od-ftot"></span><button type="button" class="odpaid ' + (f.paid ? 'on' : 'off') + '" id="od-fpaid" data-od="fpaid" aria-pressed="' + f.paid + '">' + (f.paid ? 'Paid' : 'Unpaid') + '</button></div>' +
+      '<div class="odftot"><span id="od-ftot"></span></div>' +
+      '<div class="vfield"><span>Delivery</span><div class="vchips" role="group" aria-label="Delivery fee" id="od-fee"></div></div>' +
+      '<div class="vfield"><span>Payment</span><div id="od-pay"></div></div>' +
       '<div class="draftbtns"><button type="button" class="bigsave" id="od-save" data-od="save">' + (edit ? 'Save changes' : 'Save order') + '</button><button type="button" class="navbtn discard" data-od="cancel">Cancel</button></div>' +
       '<div class="noteflash" id="od-fmsg" hidden></div></div>';
     return h;
   }
-  function odFormInit() { odClientPaint(); odItemsPaint(); odMicUi(); }
+  function odFormInit() { odClientPaint(); odItemsPaint(); odFeePaint(); odPayPaint(); odMicUi(); }
+  function odFeePaint() {
+    var f = od.form, el = $('od-fee'); if (!f || !el) return;
+    el.innerHTML = [[0, 'No delivery'], [3, '$3'], [5, '$5']].map(function (x) {
+      return '<button type="button" class="vchip odchip' + (f.fee === x[0] ? ' on' : '') + '" data-od="fee" data-v="' + x[0] + '" aria-pressed="' + (f.fee === x[0]) + '">' + x[1] + '</button>';
+    }).join('');
+  }
+  function odPayPaint() {
+    var f = od.form, el = $('od-pay'); if (!f || !el) return;
+    var h = '<div class="vchips" role="group" aria-label="Payment status">' + [['unpaid', 'Unpaid'], ['paid', 'Paid'], ['trade', 'Trade']].map(function (x) {
+      return '<button type="button" class="vchip odchip' + (f.payStatus === x[0] ? ' on' : '') + '" data-od="ps" data-s="' + x[0] + '" aria-pressed="' + (f.payStatus === x[0]) + '">' + x[1] + '</button>';
+    }).join('') + '</div>';
+    if (f.payStatus === 'paid') h += '<div class="odpmh">How was it paid?' + (f.legacyPaid ? ' <small>(optional for this older order)</small>' : '') + '</div><div class="vchips" role="group" aria-label="Payment method">' + OD_METHODS.map(function (m) {
+      return '<button type="button" class="vchip odchip' + (f.payMethod === m ? ' on' : '') + '" data-od="pm" data-m="' + m + '" aria-pressed="' + (f.payMethod === m) + '">' + odCap(m) + '</button>';
+    }).join('') + '</div>';
+    el.innerHTML = h;
+  }
   function odFmsg(text, bad) { var el = $('od-fmsg'); if (!el) return; el.textContent = text || ''; el.hidden = !text; el.className = 'noteflash' + (text ? ' show' : '') + (bad ? ' bad' : ''); }
   function odClientPaint() {
     var f = od.form; if (!f || f.mode !== 'existing' || f.orderId) return;
@@ -7400,7 +7474,10 @@
     var src = $('od-src'); if (src) src.textContent = f.fallback ? 'all priced items (no menu saved for this week)' : 'this week\u2019s menu';
     odFormTot();
   }
-  function odFormTot() { var t = odFormTotals(), el = $('od-ftot'); if (el) el.innerHTML = t.n + ' item' + (t.n === 1 ? '' : 's') + ' \u00b7 <b>' + odMoney(t.total) + '</b>'; }
+  function odFormTot() {
+    var t = odFormTotals(), el = $('od-ftot');
+    if (el) el.innerHTML = t.n + ' item' + (t.n === 1 ? '' : 's') + ' \u00b7 ' + (t.fee ? odMoney(t.subtotal) + ' items + ' + odMoney(t.fee) + ' delivery = ' : '') + '<b>' + odMoney(t.total) + '</b>';
+  }
   function odStep(i, d) {
     var f = od.form; if (!f || !f.items[i]) return;
     var q = Math.max(0, Math.min(99, (f.qty[i] || 0) + d)); if (q) f.qty[i] = q; else delete f.qty[i];
@@ -7431,7 +7508,9 @@
     var lines = [];
     f.items.forEach(function (it, i) { if (f.qty[i]) lines.push({ item: it.item, qty: f.qty[i], price: it.price || 0 }); });
     if (!lines.length) return odFmsg('Tap at least one item.', true);
-    var week = od.week, body = { week: week, client: name, lines: lines, paid: f.paid };
+    if (f.payStatus === 'paid' && !f.payMethod && !f.legacyPaid) return odFmsg('Choose how it was paid: Cash, Zelle or Venmo.', true);
+    var week = od.week, body = { week: week, client: name, lines: lines, deliveryFee: f.fee, payStatus: f.payStatus, paid: f.payStatus === 'paid' };
+    if (f.payStatus === 'paid' && f.payMethod) body.payMethod = f.payMethod;
     if (f.orderId) body.orderId = f.orderId;
     var sig = JSON.stringify(body); if (f.sig !== sig) { f.sig = sig; f.cid = vNewCid(); }
     body.cid = f.cid; f.busy = true; var btn = $('od-save'); if (btn) { btn.disabled = true; btn.textContent = 'Saving\u2026'; } odFmsg('');
@@ -7439,11 +7518,14 @@
       f.busy = false;
       if (j.error) { var b = $('od-save'); if (b) { b.disabled = false; b.textContent = f.orderId ? 'Save changes' : 'Save order'; } return odFmsg(odApiMsg(j, 'Saving orders') + (j.error === 'bad_action' ? ' Nothing was saved.' : ''), true); }
       var o = j.data && j.data.order; if (!o) return odFmsg('Saved, but the server sent no order back. Pull to refresh.', true);
+      var oldServer = o.deliveryFee === undefined && o.payStatus === undefined && (f.fee > 0 || f.payStatus === 'trade' || !!f.payMethod);
+      odNormOrder(o);
       var W = od.byWeek[week] || (od.byWeek[week] = { at: Date.now(), orders: [], menu: [] }), at = -1;
       W.orders.forEach(function (x, ix) { if (x.orderId === o.orderId) at = ix; });
       if (at >= 0) W.orders[at] = o; else W.orders.push(o);
       odClientAdd(o.client);
-      od.form = null; odRender(); odFlash('Saved the order for ' + o.client + ' \u2014 ' + odMoney(o.total) + '.', false);
+      od.form = null; odRender();
+      odFlash(oldServer ? 'Saved the order for ' + o.client + ', but delivery fees, Trade and payment methods will only be kept after the next server update.' : 'Saved the order for ' + o.client + ' \u2014 ' + odMoney(o.total) + '.', oldServer);
       odLoad(week, true);
     }, function (err) {
       f.busy = false;
@@ -7510,13 +7592,15 @@
     else if (a === 'wk') {
       var k = b.getAttribute('data-k'), d = +b.getAttribute('data-d');
       if (k === 'summary') od.sumWeek = odPlus(od.sumWeek, d); else { od.form = null; od.confirmDel = ''; od.week = odPlus(od.week, d); }
-      odFlash(''); odRender();
+      od.picker = null; odFlash(''); odRender();
     }
     else if (a === 'retry') { od.err = ''; od.na = false; odLoad(odWeekNeeded() || od.week); odRender(); }
     else if (a === 'add') odOpenForm(null);
     else if (a === 'edit') { var f1 = odFind(oid); if (f1) odOpenForm(f1.o); }
     else if (a === 'cancel') { odMicStop(true); od.form = null; odRender(); }
-    else if (a === 'paid') odPaid(oid);
+    else if (a === 'paid') odPickToggle(oid);
+    else if (a === 'pst') { var po = od.picker; if (!po || po.oid !== oid) return; var st = b.getAttribute('data-s'); if (st === 'paid') { po.status = 'paid'; odRender(); } else odPay(oid, st, ''); }
+    else if (a === 'pmt') odPay(oid, 'paid', b.getAttribute('data-m'));
     else if (a === 'del') { od.confirmDel = oid; odRender(); }
     else if (a === 'delno') { od.confirmDel = ''; odRender(); }
     else if (a === 'delyes') odDelete(oid);
@@ -7528,7 +7612,9 @@
     else if (a === 'mic') { if (od.mic.on) odMicStop(); else odMicStart(); }
     else if (a === 'inc') odStep(i, 1);
     else if (a === 'dec') odStep(i, -1);
-    else if (a === 'fpaid') { od.form.paid = !od.form.paid; b.className = 'odpaid ' + (od.form.paid ? 'on' : 'off'); b.textContent = od.form.paid ? 'Paid' : 'Unpaid'; b.setAttribute('aria-pressed', od.form.paid); }
+    else if (a === 'fee') { od.form.fee = +b.getAttribute('data-v'); odFeePaint(); odFormTot(); odFmsg(''); }
+    else if (a === 'ps') { var s2 = b.getAttribute('data-s'); od.form.payStatus = s2; if (s2 !== 'paid') od.form.payMethod = ''; odPayPaint(); odFmsg(''); }
+    else if (a === 'pm') { od.form.payMethod = b.getAttribute('data-m'); odPayPaint(); odFmsg(''); }
     else if (a === 'save') odSave();
   });
   $('lt-body').addEventListener('input', function (e) {

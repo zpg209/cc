@@ -1460,3 +1460,15 @@ body.macopen { overflow: hidden; }
 #screen-lt .odftot b { color: var(--lt-t); }
 #screen-lt .odftot .odpaid { flex: 0 0 120px; }
 #screen-lt .odadd { margin-top: 0; }
+
+/* v77: Orders delivery fee + payment (Unpaid | Paid | Trade; Cash | Zelle | Venmo) */
+#screen-lt .odpaid::after { content: ' \25BE'; font-size: 12px; opacity: .8; }
+#screen-lt .odpaid.open::after { content: ' \25B4'; }
+#screen-lt .odpaid.trade { background: #000; color: #F4A6C0; border-style: dashed; }
+#screen-lt .odlines li.odfee span:first-child { color: var(--lt-t); }
+#screen-lt .odpicker { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+#screen-lt .odpmh { margin: 10px 0 6px; font-size: 13px; color: var(--muted); }
+#screen-lt .odpmh small { font-size: 12px; }
+#screen-lt .odchip { min-height: 44px; padding: 8px 16px; font-size: 15px; }
+#screen-lt .odtrow.sub { padding-left: 14px; font-size: 14px; color: var(--muted); }
+#screen-lt .odftot { flex-wrap: wrap; }
