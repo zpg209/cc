@@ -1472,3 +1472,7 @@ body.macopen { overflow: hidden; }
 #screen-lt .odchip { min-height: 44px; padding: 8px 16px; font-size: 15px; }
 #screen-lt .odtrow.sub { padding-left: 14px; font-size: 14px; color: var(--muted); }
 #screen-lt .odftot { flex-wrap: wrap; }
+
+/* v80: Vault mic forms: optional Payment type chips (compact, wrap) */
+.vchips.vpays { gap: 6px; }
+.vchips.vpays .vchip { min-height: 40px; padding: 7px 12px; font-size: 14px; }

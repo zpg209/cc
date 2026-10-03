@@ -6271,6 +6271,18 @@
     var KIWIT = 'kiwi[\\s.-]*tea|kiwi[\\s.-]*t(?:ee)?|kiwit|kiwi|hewitt|hewit|hue[\\s.-]*it|key[\\s.-]*wit';
     var HOUSE = 'house[\\s-]*hold';
     var ACCT_SRC = [['TiwiK', TIWIK], ['KiwiT', KIWIT], ['Household', HOUSE]];
+    // payment type chips (what the form shows) and the words that pre-select one. The server value for 'Credit card' is 'Credit'.
+    var PAY = ['Cash', 'Credit card', 'Venmo', 'Debit', 'Zelle', 'Check', 'ACH/Transfer', 'Other'];
+    var PAYLEAD = '(?:(?:paid|pay|paying|payment|using|with|via|by|in|on|through|thru|from|over)\\s+)*(?:(?:my|the|our|a|an)\\s+)?';
+    var PAYRX = [
+      ['Venmo', 'venmo(?:ed|s)?'],
+      ['Zelle', 'zelle(?:d)?|zell'],
+      ['Credit card', 'credit\\s+cards?|(?:master|visa|amex)\\s*cards?|visa|master\\s?card|amex|american\\s+express|credit(?!\\s+union)|(?:on|with|using)\\s+(?:the|my|our)\\s+card|put\\s+it\\s+on\\s+(?:the|my|our)\\s+card'],
+      ['Debit', 'debit(?:\\s+cards?)?'],
+      ['ACH/Transfer', 'ach|(?:bank\\s+|wire\\s+)?transfer(?:red)?|wire(?:d)?|direct\\s+deposit'],
+      ['Check', '(?:checks?|cheques?)(?!\\s+(?:mate|point|list|out|in|up|engine|book|cashing))'],
+      ['Cash', 'cash(?!\\s+(?:app|advance|back|america))']
+    ].map(function (x) { return [x[0], new RegExp('\\b' + PAYLEAD + '(?:' + x[1] + ')\\b', 'i')]; });
     var MONTHS = { jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3, apr: 4, april: 4, may: 5, jun: 6, june: 6, jul: 7, july: 7, aug: 8, august: 8, sep: 9, sept: 9, september: 9, oct: 10, october: 10, nov: 11, november: 11, dec: 12, december: 12 };
     var DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     var UNIT = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19 };
@@ -6407,7 +6419,7 @@
     function parse(text, kind, today) {
       var heard = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
       today = today || iso(new Date());
-      var out = { heard: heard, amount: null, merchant: '', category: 'Other', account: 'Household', date: today, who: 'Zac', notes: '', source: '', client: '' };
+      var out = { heard: heard, amount: null, merchant: '', category: 'Other', account: 'Household', date: today, who: 'Zac', notes: '', source: '', client: '', method: '' };
       var w = heard, i;
       // 1. date
       var d = takeDate(w, today); w = d.text; if (d.date) out.date = d.date;
@@ -6425,6 +6437,13 @@
       if (kind !== 'inc') {
         if (whoRe.test(wl)) { out.who = 'Lisa'; w = w.replace(/\b(?:lisa\s+(?:paid|spent|bought|got|charged)|paid\s+by\s+lisa|by\s+lisa|lisa'?s\s+(?:card|money|cash))\b/ig, ' '); }
         else if (/\b(?:joint|together|both of us)\b/i.test(wl)) { out.who = 'Joint'; w = w.replace(/\b(?:joint|together|both of us)\b/ig, ' '); }
+      }
+      // 4b. payment type: the one heard EARLIEST wins; its words are dropped so the merchant / notes never end up as just "Venmo"
+      var payAt = 1e9;
+      PAYRX.forEach(function (px) { var pm = px[1].exec(w); if (pm && pm.index < payAt) { payAt = pm.index; out.method = px[0]; } });
+      if (out.method) {
+        var gone = PAYRX.filter(function (px) { return px[0] === out.method; })[0][1];
+        w = w.replace(new RegExp(gone.source, 'ig'), ' ');
       }
       var rest = tidy(w);
       if (kind === 'inc') {
@@ -6465,7 +6484,7 @@
       out.notes = desc && desc.toLowerCase() !== merchant.toLowerCase() ? (desc.charAt(0).toUpperCase() + desc.slice(1)).slice(0, 300) : '';
       return out;
     }
-    return { parse: parse, CATS: CATS, ACCTS: ACCTS, WHO: WHO, SOURCES: SOURCES, iso: iso, addDays: addDays };
+    return { parse: parse, CATS: CATS, ACCTS: ACCTS, WHO: WHO, SOURCES: SOURCES, PAY: PAY, iso: iso, addDays: addDays };
   })();
   /*VP-END*/
 
@@ -6588,6 +6607,7 @@
   function vdLoad(k) {
     try { var d = JSON.parse(localStorage.getItem(vdKey(k)) || 'null'); if (d && d.cid && d.f && Date.now() - (d.at || 0) < 12 * 3600 * 1000) {
         if (k === 'inc') { if (VP.SOURCES.indexOf(d.f.source) < 0) d.f.source = ''; d.f.client = d.f.client || ''; delete d.f.sourceText; }   // older drafts: 'Other' / free-text source no longer exist
+        if (VP.PAY.indexOf(d.f.method) < 0) d.f.method = '';          // drafts from before the payment type existed
         return d;
       }
     } catch (e) {}
@@ -6597,8 +6617,8 @@
   function vdClear(k) { try { localStorage.removeItem(vdKey(k)); } catch (e) {} }
   function vFrom(p, kind) {        // parser output -> form values (strings)
     var amt = p.amount != null ? p.amount.toFixed(2) : '';
-    if (kind === 'inc') return { source: p.source || '', client: p.client || '', amount: amt, date: p.date, notes: p.notes || '' };
-    return { amount: amt, merchant: p.merchant || '', category: p.category, account: p.account, date: p.date, who: p.who || 'Zac', notes: p.notes || '' };
+    if (kind === 'inc') return { source: p.source || '', client: p.client || '', amount: amt, date: p.date, notes: p.notes || '', method: p.method || '' };
+    return { amount: amt, merchant: p.merchant || '', category: p.category, account: p.account, date: p.date, who: p.who || 'Zac', notes: p.notes || '', method: p.method || '' };
   }
   function openVmic(kind) {
     vmicStop(true);
@@ -6662,6 +6682,11 @@
     vm.done = null; vdSave(); vmicUi();
     vFormRender(text.trim() ? '' : 'Blank form. Fill it in by hand, then Save.');
   }
+  function vPayHtml(f) {        // optional "Payment type" chips; tap the chosen one again to clear it
+    return '<div class="vfield"><span>Payment type (optional)</span><div class="vchips vpays" id="vf-pay" role="group" aria-label="Payment type">' +
+      VP.PAY.map(function (n) { var on = f.method === n; return '<button type="button" class="vchip' + (on ? ' on' : '') + '" data-vpay="' + esc(n) + '" aria-pressed="' + on + '">' + esc(n) + '</button>'; }).join('') + '</div></div>';
+  }
+  function vPayServer(n) { return n === 'Credit card' ? 'Credit' : n; }
   function vFormRender(note) {
     var card = $('vmic-form'), d = vm.draft;
     if (vm.done) { card.hidden = false; card.className = 'card vform vdone'; card.innerHTML = vm.done; return; }
@@ -6677,6 +6702,7 @@
       h += vField('Client (optional)', '<input id="vf-client" type="text" maxlength="60" autocomplete="off" value="' + esc(f.client || '') + '" placeholder="Leave blank for Personal Training">', 'vclient' + (f.source === 'Personal Training' ? '' : ' off'));
       h += '<div class="vrow2">' + vField('Amount', '<input id="vf-amount" type="text" inputmode="decimal" autocomplete="off" value="' + esc(f.amount) + '" placeholder="0.00">') +
         vField('Date', '<input id="vf-date" type="date" value="' + esc(f.date) + '">') + '</div>';
+      h += vPayHtml(f);
       h += vField('Notes', '<textarea id="vf-notes" rows="2" maxlength="300">' + esc(f.notes) + '</textarea>');
     } else {
       h += '<div class="vrow2">' + vField('Amount', '<input id="vf-amount" type="text" inputmode="decimal" autocomplete="off" value="' + esc(f.amount) + '" placeholder="0.00">') +
@@ -6685,6 +6711,7 @@
       h += '<div class="vrow2">' + vField('Category', '<select id="vf-cat">' + vOpts(VP.CATS, f.category) + '</select>') +
         vField('Account', '<select id="vf-acct">' + vOpts(VP.ACCTS, f.account) + '</select>') + '</div>';
       h += vField('Paid by', '<select id="vf-who">' + vOpts(VP.WHO, f.who) + '</select>');
+      h += vPayHtml(f);
       h += vField('Notes', '<textarea id="vf-notes" rows="2" maxlength="300">' + esc(f.notes) + '</textarea>');
     }
     h += '<div class="draftbtns"><button type="button" class="bigsave" id="vf-save">' + (inc ? 'Save income' : 'Save expense') + '</button><button type="button" class="navbtn discard" id="vf-discard">Discard</button></div>';
@@ -6714,11 +6741,14 @@
       else if (src === 'Personal Training') { label = client || 'Personal Training'; p = { tab: 'pt', source: label, client: label }; }
       else p = { tab: 'income', source: src };
       p.date = f.date; p.amount = amt.toFixed(2); p.notes = String(f.notes || '').trim(); p.cid = d.cid; p.strict = '1';
+      if (f.method) p.method = vPayServer(f.method);
       return { action: 'incomeadd', params: p, amt: amt, label: label };
     }
     var m = String(f.merchant || '').trim();
     if (!m) return { error: 'Enter the merchant or what it was for.' };
-    return { action: 'spendadd', params: { date: f.date, amount: amt.toFixed(2), merchant: m, category: f.category, account: f.account, who: f.who, notes: String(f.notes || '').trim(), cid: d.cid }, amt: amt, label: m };
+    var sp = { date: f.date, amount: amt.toFixed(2), merchant: m, category: f.category, account: f.account, who: f.who, notes: String(f.notes || '').trim(), cid: d.cid };
+    if (f.method) sp.method = vPayServer(f.method);
+    return { action: 'spendadd', params: sp, amt: amt, label: m };
   }
   function vSave() {
     var d = vm.draft; if (!d || vm.busy) return;
@@ -6729,10 +6759,18 @@
     var btn = $('vf-save'); btn.disabled = true; btn.textContent = 'Saving\u2026'; vMsg('vf-msg', '', false);
     apiRaw(s.action, s.params).then(function (j) {
       vm.busy = false;
-      if (j.error) { btn.disabled = false; btn.textContent = vm.kind === 'inc' ? 'Save income' : 'Save expense'; return vMsg('vf-msg', vApiMsg(j), true); }
+      if (j.error) {
+        btn.disabled = false; btn.textContent = vm.kind === 'inc' ? 'Save income' : 'Save expense';
+        if (j.error === 'bad_value' && d.f.method && /method/i.test(String(j.message || ''))) {      // an older server only knows Cash / Debit / Credit / ACH/Transfer / Other
+          return vMsg('vf-msg', 'The server does not accept \u201c' + d.f.method + '\u201d as a payment type yet (it needs the server update). Nothing was saved and your entry is kept: pick another payment type or tap the chosen one to clear it, then Save again.', true);
+        }
+        return vMsg('vf-msg', vApiMsg(j), true);
+      }
       var r = j.data || {}, where = (vm.kind === 'inc' ? (r.tab || 'Income') : 'Daily Spend') + (r.row ? ' \u00b7 row ' + r.row : '');
       var head = r.duplicate === 'cid' ? 'Already saved earlier' : r.duplicate === 'row' ? 'Already in the sheet' : 'Saved';
-      var sub = r.duplicate ? 'Nothing was added again.' : (vm.kind === 'exp' ? esc(d.f.category) + ' \u00b7 ' + esc(d.f.account) + ' \u00b7 ' : '') + esc(d.f.date);
+      var payTxt = '';
+      if (d.f.method && !r.duplicate) payTxt = ' \u00b7 ' + esc(d.f.method) + (r.method ? '' : ' (payment type not saved: that sheet has no Method column)');
+      var sub = r.duplicate ? 'Nothing was added again.' : (vm.kind === 'exp' ? esc(d.f.category) + ' \u00b7 ' + esc(d.f.account) + ' \u00b7 ' : '') + esc(d.f.date) + payTxt;
       var ent = null, rowN = vRowNum(r.row);
       if (rowN) {                // Delete needs the sheet row from the save result (data.row) and, for income, the tab (data.tab)
         ent = vm.kind === 'inc'
@@ -6758,10 +6796,17 @@
   $('vmic-form').addEventListener('input', function () { vRead(); });
   $('vmic-form').addEventListener('change', function () { vRead(); });
   $('vmic-form').addEventListener('click', function (e) {
-    var chip = e.target.closest('.vchip');
+    var pay = e.target.closest('[data-vpay]');
+    if (pay && vm.draft) {            // payment type: tap to choose, tap the chosen one again to clear
+      vRead(); var pn = pay.getAttribute('data-vpay'); vm.draft.f.method = vm.draft.f.method === pn ? '' : pn; vdSave();
+      [].forEach.call($('vmic-form').querySelectorAll('[data-vpay]'), function (b) { var on = b.getAttribute('data-vpay') === vm.draft.f.method; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+      vMsg('vf-msg', '', false);
+      return;
+    }
+    var chip = e.target.closest('#vf-chips .vchip');
     if (chip && vm.draft && vm.kind === 'inc') {            // pick one of the existing income sources
       vRead(); vm.draft.f.source = chip.getAttribute('data-vsrc'); vdSave();
-      [].forEach.call($('vmic-form').querySelectorAll('.vchip'), function (b) { var on = b === chip; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+      [].forEach.call($('vf-chips').querySelectorAll('.vchip'), function (b) { var on = b === chip; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
       var cw = $('vmic-form').querySelector('.vclient'); if (cw) cw.classList.toggle('off', vm.draft.f.source !== 'Personal Training');
       vMsg('vf-msg', '', false);
       return;
