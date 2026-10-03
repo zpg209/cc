@@ -149,6 +149,7 @@
     var vk = (name === 'vmic' || name === 'vcam') ? (R.kind === 'exp' ? 'exp' : 'inc') : '';   // #vmic/<inc|exp>, #vcam/<inc|exp>
     if (name !== 'vmic') vmicStop(true);
     if (!(name === 'lt' && R.kind === 'wish')) wlMicStop(true);
+    if (!(name === 'lt' && R.kind === 'macros')) macClose(true);
     if (name !== 'punch') pmicStop();
     if (name !== 'doc') { state.docPushed = false; state.docSeq++; closeDoc(); }
     activate(name);
@@ -2634,17 +2635,18 @@
   // Folder lists use the existing action=folder (live); Menu Macros uses action=ltmacros (live from the Sheet).
   var LT_PARTS = {
     ops:     { label: 'Business & Operations', folder: '1renTWVsMfj9UYrefVh3vJlv9EOX8Xe3y', sort: 'default' },
-    recipes: { label: 'Recipes',               folder: '1VvrIYV15BX7Rltet2PC7kTxVheUfqMfI', sort: 'az', search: 'Search recipes' },
+    recipes: { label: 'Menu Items',            folder: '1VvrIYV15BX7Rltet2PC7kTxVheUfqMfI', sort: 'az', search: 'Search menu items', check: true },
     menus:   { label: 'Past Menus',            folder: '11tV_huL874mr4F3LdGA-2fvGQZyEWKZY', sort: 'date', search: 'Search menus' },
     macros:  { label: 'Menu Macros', sheet: 'https://docs.google.com/spreadsheets/d/1YhDpmch8pWIAFKEwrSv7AMwWHyhuVW1OyeqbSNOPk3w/edit' },
-    wish:    { label: 'Wish List', wish: true }
+    wish:    { label: 'Wish List', wish: true },
+    'menu-gen': { label: 'Generate menu', gen: true, back: 'lt/recipes' }      // not a tile: opened from the Menu Items screen
   };
   var LT_ORDER = ['ops', 'recipes', 'menus', 'macros', 'wish'];
   var LT_TTL = 60000;
 
   function loadLt(force) {
     var part = state.ltPart, cfg = LT_PARTS[part];
-    $('lt-back').setAttribute('data-go', part ? 'lt' : 'home');
+    $('lt-back').setAttribute('data-go', part ? (cfg && cfg.back) || 'lt' : 'home');
     $('lt-title').textContent = cfg ? cfg.label : 'Lisa\u2019s Table';
     $('lt-title').classList.toggle('sub', !!part);
     if (!cfg) {
@@ -2655,6 +2657,7 @@
       return;
     }
     if (cfg.wish) { openWish(); return; }
+    if (cfg.gen) { openMenuGen(); return; }
     var key = cfg.folder || 'macros', c = state.ltCache[key];
     if (c && !force && Date.now() - c.at < LT_TTL) return renderLt();
     $('lt-body').innerHTML = '<div class="loading">Loading…</div>';
@@ -2743,6 +2746,8 @@
   function renderLt() {
     var part = state.ltPart, cfg = LT_PARTS[part], data = state.ltCache[cfg.folder || 'macros'].data;
     var h = '';
+    if (cfg.check) h += ltSelBarHtml();
+    if (part === 'macros') h += '<div class="noteflash" id="lt-flash" hidden></div>';
     if (cfg.search || part === 'macros') {
       h += '<input class="searchbox" id="lt-q" type="search" autocomplete="off" placeholder="' +
         esc(cfg.search || 'Search items, ingredients, categories') + '">';
@@ -2757,6 +2762,9 @@
       $('lt-list').innerHTML = part === 'macros' ? macrosHtml(data, term) : ltFolderHtml(data, cfg, term);
     };
     if (q) q.addEventListener('input', paint);
+    state.ltPaint = paint;
+    if (cfg.check) ltSelPrune(data.items);
+    if (cfg.check) ltSelBar();
     paint();
   }
   function ltFolderHtml(d, cfg, term) {
@@ -2768,8 +2776,9 @@
         if (!!a.folder !== !!b.folder) return a.folder ? -1 : 1;
         return a.name.localeCompare(b.name, 'en', { numeric: true, sensitivity: 'base' });
       });
-      return foot + '<div class="card"><ul class="doclist folderlist">' + items.map(function (x) {
-        return ltItemLink(x, x.name.replace(/\.(docx?|pdf)$/i, '').trim());
+      return foot + '<div class="card"><ul class="doclist folderlist' + (cfg.check ? ' ltchecklist' : '') + '">' + items.map(function (x) {
+        var label = x.name.replace(/\.(docx?|pdf)$/i, '').trim();
+        return cfg.check && !x.folder ? ltCheckRow(x, label) : ltItemLink(x, label);
       }).join('') + '</ul></div>';
     }
     if (cfg.sort === 'date') {
@@ -2800,36 +2809,572 @@
       return !term || (x.item + ' ' + x.category + ' ' + x.ingredients + ' ' + x.notes).toLowerCase().indexOf(term) >= 0;
     });
     if (!items.length) return '<div class="loading">' + (term ? 'No matches.' : 'No items in the sheet yet.') + '</div>';
-    var h = '<div class="card mac"><div class="mac-head"><span style="text-align:left">Item</span><span>Calories</span><span>Protein</span><span>Carbs</span><span>Fat</span></div>';
+    var h = '<div class="card mac"><div class="mac-head"><span></span><span style="text-align:left">Item</span><span>Calories</span><span>Protein</span><span>Carbs</span><span>Fat</span></div>';
     var cats = d.categories.filter(function (c) { return items.some(function (x) { return x.category === c; }); });
+    var done = d.items.filter(macIsMeasured).length;
     cats.forEach(function (c) {
       h += '<div class="mac-cat">' + esc(c) + '</div>';
       items.forEach(function (x, i) {
         if (x.category !== c) return;
-        var id = 'm' + d.items.indexOf(x), open = !!state.ltOpen[id];
-        h += '<div class="mac-row' + (open ? ' open' : '') + '" data-mac="' + id + '">' +
+        var idx = d.items.indexOf(x), meas = macIsMeasured(x);
+        h += '<div class="mac-row' + (meas ? ' measured' : '') + '" data-mac="' + idx + '" role="button" tabindex="0" aria-label="' + esc(x.item) + ': ' + (meas ? 'measured' : 'estimate, to be measured') + '. Tap to enter measured numbers">' +
+          '<span class="macck' + (meas ? ' on' : '') + '" aria-hidden="true">' + (meas ? '\u2713' : '') + '</span>' +
           '<div class="mac-name">' + esc(x.item) + (x.serving ? '<small>' + esc(x.serving) + '</small>' : '') + '</div>' +
           '<div class="cell">' + fmtN(x.cal) + '</div><div class="cell">' + fmtN(x.protein) + '</div><div class="cell">' + fmtN(x.carbs) + '</div><div class="cell">' + fmtN(x.fat) + '</div></div>';
-        h += '<div class="mac-detail" id="' + id + '"' + (open ? '' : ' hidden') + '>' +
-          (/estimate/i.test(x.basis) ? '<span class="badge">Estimate — to be measured</span>' : x.basis ? '<span class="badge ok">' + esc(x.basis) + '</span>' : '') +
-          (x.ingredients ? '<div><b>Key ingredients</b> ' + esc(x.ingredients) + '</div>' : '') +
-          (x.notes ? '<div><b>Notes</b> ' + esc(x.notes) + '</div>' : '') +
-          (x.listings != null ? '<div><b>Past-menu listings</b> ' + fmt(x.listings) + '</div>' : '') +
-          (x.sources && x.sources.length ? '<div><b>Source</b> ' + x.sources.map(function (s) {
-            return s.id ? '<a href="https://drive.google.com/file/d/' + esc(s.id) + '/view" data-title="' + esc(s.name) + '">' + esc(s.name.replace(/\s+\./, '.')) + '</a>' : esc(s.name);
-          }).join(' · ') + '</div>' : '') + '</div>';
       });
     });
-    h += '</div><div class="foot">' + items.length + ' of ' + d.items.length + ' items · per serving · kcal, g, g, g · tap a row for details</div>';
+    h += '</div><div class="foot">' + done + ' of ' + d.items.length + ' measured \u00b7 \u2713 = measured, empty circle = estimate \u00b7 per serving \u00b7 kcal, g, g, g \u00b7 tap a row to enter the measured numbers</div>';
     return h;
   }
-  document.addEventListener('click', function (e) {
-    var r = e.target.closest('.mac-row');
-    if (!r) return;
-    var id = r.getAttribute('data-mac'), det = $(id);
-    state.ltOpen[id] = !state.ltOpen[id];
-    r.classList.toggle('open', state.ltOpen[id]);
-    if (det) det.hidden = !state.ltOpen[id];
+  /* ---------------- Lisa's Table: Menu Items checklist (#lt/recipes) -> Generate menu (#lt/menu-gen) ---------------- */
+  // Selection = [{id (Drive file id), n (file name)}] in the order ticked; kept in localStorage so it survives navigation and reloads.
+  // Generate menu builds the weekly menu in the same layout as the Menu Designs docs; "Save to Menu Designs" calls the menusave action.
+  var LT_SEL_KEY = 'cc_ltsel', LT_PRICE_KEY = 'cc_ltprice', LT_MGD_KEY = 'cc_mgdraft';
+  function lsGet(k, d) { try { var v = JSON.parse(localStorage.getItem(k) || 'null'); return v == null ? d : v; } catch (e) { return d; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  function ltSel() {
+    if (!state.ltSel) {
+      var a = lsGet(LT_SEL_KEY, []);
+      state.ltSel = Array.isArray(a) ? a.filter(function (x) { return x && x.id; }).map(function (x) { return { id: String(x.id), n: String(x.n || '') }; }) : [];
+    }
+    return state.ltSel;
+  }
+  function ltSelSave() { lsSet(LT_SEL_KEY, ltSel()); }
+  function ltSelIdx(id) { var s = ltSel(); for (var i = 0; i < s.length; i++) if (s[i].id === id) return i; return -1; }
+  function ltSelToggle(id, name) {
+    var i = ltSelIdx(id);
+    if (i >= 0) ltSel().splice(i, 1); else ltSel().push({ id: id, n: name });
+    ltSelSave(); ltSelBar();
+    return i < 0;
+  }
+  function ltSelPrune(items) {      // drop selected files that are no longer in the folder
+    if (!items || !items.length) return;
+    var have = {}; items.forEach(function (x) { have[x.id] = 1; });
+    var s = ltSel(), keep = s.filter(function (x) { return have[x.id]; });
+    if (keep.length !== s.length) { state.ltSel = keep; ltSelSave(); }
+  }
+  function ltSelBar() {
+    var n = ltSel().length, c = $('lt-selcount'), b = $('lt-gen'), k = $('lt-selclear');
+    if (c) c.textContent = n + ' selected';
+    if (b) b.disabled = n === 0;
+    if (k) k.hidden = n === 0;
+  }
+  function ltSelBarHtml() {
+    var n = ltSel().length;
+    return '<div class="ltbar" id="lt-selbar"><span class="ltcount" id="lt-selcount">' + n + ' selected</span>' +
+      '<button type="button" class="navbtn ltgen" id="lt-gen" data-ltk="gen"' + (n ? '' : ' disabled') + '>Generate menu</button>' +
+      '<button type="button" class="ltclear" id="lt-selclear" data-ltk="clear"' + (n ? '' : ' hidden') + '>Clear</button></div>';
+  }
+  function ltCheckRow(x, label) {
+    var on = ltSelIdx(x.id) >= 0;
+    var href = 'https://drive.google.com/file/d/' + x.id + '/view';
+    return '<li class="ltck"><button type="button" class="ltbox' + (on ? ' on' : '') + '" data-ltsel="' + esc(x.id) + '" data-n="' + esc(x.name) + '" role="checkbox" aria-checked="' + on + '" aria-label="Select ' + esc(label) + '">' + (on ? '\u2713' : '') + '</button>' +
+      '<a href="' + esc(href) + '" data-title="' + esc(x.name) + '"><span class="ft">' + fileKind(x.mime) + '</span>' + esc(label) + '</a></li>';
+  }
+
+  // ---- name matching (menu item files <-> Menu Macros rows) ----
+  function mgNorm(s) {
+    return String(s || '').toLowerCase().replace(/\.(docx?|pdf|gdoc|txt|rtf)\s*$/, '').replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(Boolean).map(function (t) {
+      return t.length > 3 && /s$/.test(t) && !/ss$/.test(t) ? t.slice(0, -1) : t;
+    }).join(' ');
+  }
+  function mgNoParen(s) { return String(s || '').replace(/\([^)]*\)/g, ' '); }
+  function mgCleanName(fileName) { return String(fileName || '').replace(/\.(docx?|pdf|gdoc|txt|rtf)\s*$/i, '').replace(/\s+/g, ' ').trim(); }
+  function mgMatch(sel, items) {
+    items = items || [];
+    var a = mgNorm(sel.n), byName = function (list) {
+      var i, it, n1, n2;
+      for (i = 0; i < list.length; i++) { it = list[i]; if (mgNorm(it.item) === a || mgNorm(mgNoParen(it.item)) === a) return it; }
+      for (i = 0; i < list.length; i++) { it = list[i]; if ((it.sources || []).some(function (s) { return mgNorm(s.name) === a; })) return it; }
+      for (i = 0; i < list.length; i++) {
+        it = list[i]; n1 = mgNorm(mgNoParen(it.item)); n2 = (' ' + a + ' ');
+        if (n1.length >= 5 && (n2.indexOf(' ' + n1 + ' ') >= 0 || (a.length >= 5 && (' ' + n1 + ' ').indexOf(' ' + a + ' ') >= 0))) return it;
+      }
+      return null;
+    };
+    var byId = items.filter(function (it) { return (it.sources || []).some(function (s) { return s.id && s.id === sel.id; }); });
+    if (byId.length === 1) return byId[0];
+    if (byId.length > 1) return byName(byId) || byId[0];
+    return byName(items);
+  }
+
+  // ---- menu layout (mirrors apiMenuBlocks_ in Api.gs) ----
+  var MG_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  var MG_DAYS = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+  var MG_FOOT = [
+    '$5 delivery fee will be added to all deliveries. If multiple orders at the same location exist the fee will be $3 Thank you for your understanding',
+    'For preorders please text Lisa by Friday before delivery. Deliveries can be made Tuesday mid-morning',
+    'Large or small Charcuterie boards available for preorder, Please text or call Lisa 209-768-9222'
+  ];
+  function mgOrd(n) { var s = n % 100; return n + ((s >= 11 && s <= 13) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' })[n % 10] || 'th'); }
+  function mgDate(s) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || '')); if (!m) return null;
+    var d = new Date(+m[1], +m[2] - 1, +m[3], 12);
+    return d.getMonth() === +m[2] - 1 && d.getDate() === +m[3] ? d : null;
+  }
+  function mgIso(d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  function mgNextMonday(from) {
+    var d = new Date(from.getFullYear(), from.getMonth(), from.getDate(), 12), add = (8 - d.getDay()) % 7 || 7;
+    d.setDate(d.getDate() + add); return d;
+  }
+  function mgAddDays(iso, n) { var d = mgDate(iso); if (!d) return ''; d.setDate(d.getDate() + n); return mgIso(d); }
+  function mgPrice(v) {          // '12' -> '$12', '12.5' -> '$12.50', '' -> '', not a price -> null
+    var s = String(v == null ? '' : v).replace(/[$\s]/g, '');
+    if (s === '') return '';
+    if (!/^\d{1,4}(\.\d{1,2})?$/.test(s)) return null;
+    var n = Number(s);
+    return '$' + (n === Math.floor(n) ? String(n) : n.toFixed(2));
+  }
+  function mgBlocks(week, deliver, rows) {
+    var b = [{ t: 'title', text: 'Lisa\'s Table Menu' }];
+    b.push({ t: 'week', text: week ? 'Menu week of ' + MG_MONTHS[week.getMonth()] + ' ' + mgOrd(week.getDate()) : 'Menu week of \u2026' });
+    b.push({ t: 'deliv', text: deliver ? 'DELIVERY OR PICKUP ON ' + MG_DAYS[deliver.getDay()] + ' THE ' + mgOrd(deliver.getDate()).toUpperCase() : 'DELIVERY OR PICKUP ON \u2026' });
+    b.push({ t: 'div', text: '\u25C6' });
+    rows.forEach(function (r) {
+      var nm = String(r.name || '').replace(/\s+/g, ' ').trim(); if (!nm) return;
+      var pr = mgPrice(r.price);
+      b.push({ t: 'item', text: nm + (pr ? ' ' + pr : '') });
+      var ds = String(r.desc || '').replace(/\s+/g, ' ').trim();
+      if (ds) b.push({ t: 'desc', text: ds });
+    });
+    b.push({ t: 'div', text: '\u25C6' });
+    MG_FOOT.forEach(function (f) { b.push({ t: 'foot', text: f }); });
+    return b;
+  }
+  function mgText(blocks) {       // plain text for Copy: blank lines between the sections like the printed menu
+    var out = [], prev = '';
+    blocks.forEach(function (bl) {
+      var gap = (bl.t === 'div' || prev === 'div' || prev === 'deliv' || (bl.t === 'item' && prev) || bl.t === 'foot') && out.length;
+      if (gap) out.push('');
+      out.push(bl.text); prev = bl.t;
+    });
+    return out.join('\n');
+  }
+
+  var mg = { week: '', deliver: '', dTouched: false, ov: {}, macros: null, macState: '', cid: '', sig: '', saving: false, saved: null, seq: 0 };
+  function mgDraftSave() { lsSet(LT_MGD_KEY, { week: mg.week, deliver: mg.deliver, dTouched: mg.dTouched, ov: mg.ov, at: Date.now() }); }
+  function mgRows() {
+    var items = (mg.macros && mg.macros.items) || [], prices = lsGet(LT_PRICE_KEY, {});
+    return ltSel().map(function (s) {
+      var m = mgMatch(s, items), dn = m ? m.item : mgCleanName(s.n), o = mg.ov[s.id] || {};
+      return { id: s.id, sel: s, m: m, defName: dn, key: mgNorm(dn),
+        name: o.name !== undefined ? o.name : dn,
+        price: o.price !== undefined ? o.price : (prices[mgNorm(dn)] || ''),
+        desc: o.desc !== undefined ? o.desc : (m ? m.ingredients || '' : '') };
+    });
+  }
+  function mgPreviewHtml(blocks) {
+    return blocks.map(function (bl) { return '<div class="mp-' + bl.t + '">' + esc(bl.text) + '</div>'; }).join('');
+  }
+  function mgRefresh() {
+    var rows = mgRows(), blocks = mgBlocks(mgDate(mg.week), mgDate(mg.deliver), rows);
+    var pv = $('mg-preview'); if (pv) pv.innerHTML = mgPreviewHtml(blocks);
+    var bad = rows.filter(function (r) { return String(r.name || '').trim() && mgPrice(r.price) === null; });
+    var sv = $('mg-save'); if (sv) sv.disabled = !!mg.saving || !mgDate(mg.week) || !mgDate(mg.deliver) || !rows.some(function (r) { return String(r.name || '').trim(); }) || bad.length > 0;
+    var wn = $('mg-warn'); if (wn) { wn.hidden = !bad.length; wn.textContent = bad.length ? 'Fix the price for ' + bad[0].name + ' (like 12 or 12.50).' : ''; }
+    return { rows: rows, blocks: blocks };
+  }
+  function mgRowsHtml() {
+    var rows = mgRows();
+    return rows.map(function (r, i) {
+      return '<div class="card mgrow" data-id="' + esc(r.id) + '"><div class="mgrowtop"><span class="mgnum">' + (i + 1) + '</span>' +
+        '<input type="text" class="wlin mgin" data-mgf="name" data-id="' + esc(r.id) + '" maxlength="120" value="' + esc(r.name) + '" aria-label="Menu item name">' +
+        '<span class="mgdollar">$</span><input type="text" class="wlin mgprice' + (mgPrice(r.price) === null ? ' bad' : '') + '" data-mgf="price" data-id="' + esc(r.id) + '" inputmode="decimal" maxlength="8" placeholder="price" value="' + esc(String(r.price).replace(/^\$/, '')) + '" aria-label="Price"></div>' +
+        '<textarea class="notebox mgdesc" data-mgf="desc" data-id="' + esc(r.id) + '" rows="2" maxlength="300" placeholder="ingredients line" aria-label="Ingredients">' + esc(r.desc) + '</textarea>' +
+        (r.m ? '' : '<small class="mgnomatch">No macros match yet \u2014 type the ingredients.</small>') + '</div>';
+    }).join('');
+  }
+  function mgMacrosHtml() {
+    var rows = mgRows(), t = { cal: 0, protein: 0, carbs: 0, fat: 0 }, n = 0, cats = {}, order = [], un = [];
+    rows.forEach(function (r) {
+      if (!r.m) { un.push(r); return; }
+      n++; ['cal', 'protein', 'carbs', 'fat'].forEach(function (k) { t[k] += Number(r.m[k]) || 0; });
+      var c = r.m.category || 'Other'; if (!cats[c]) { cats[c] = []; order.push(c); } cats[c].push(r);
+    });
+    if (!rows.length) return '';
+    var h = '<div class="card mac mgmac"><h3 class="sechead">Macros <small>for you, not on the menu</small></h3>';
+    if (mg.macState === 'loading') h += '<div class="foot">Loading macros\u2026</div>';
+    else if (mg.macState === 'na') h += '<div class="foot">Macros aren\u2019t available yet (server update pending). The menu above still works.</div>';
+    else if (mg.macState === 'err') h += '<div class="foot">Couldn\u2019t load macros. The menu above still works.</div>';
+    order.forEach(function (c) {
+      h += '<div class="mac-cat">' + esc(c) + '</div>';
+      cats[c].forEach(function (r) {
+        var x = r.m;
+        h += '<div class="mgm"><div class="mgmn">' + esc(x.item) + (x.measured || /^measured/i.test(x.basis || '') ? '' : ' <span class="mgest">est.</span>') + (x.serving ? '<small>' + esc(x.serving) + '</small>' : '') + '</div>' +
+          '<div class="mgmv">' + fmtN(x.cal) + ' cal \u00b7 ' + fmtN(x.protein) + 'P \u00b7 ' + fmtN(x.carbs) + 'C \u00b7 ' + fmtN(x.fat) + 'F</div></div>';
+      });
+    });
+    if (n) h += '<div class="mgm mgtot"><div class="mgmn">Total' + (n < rows.length ? ' (' + n + ' of ' + rows.length + ' with macros)' : '') + '</div><div class="mgmv">' +
+      fmt(t.cal) + ' cal \u00b7 ' + fmt(t.protein) + 'P \u00b7 ' + fmt(t.carbs) + 'C \u00b7 ' + fmt(t.fat) + 'F</div></div>';
+    if (un.length) h += '<div class="foot">No macros found for: ' + un.map(function (r) { return esc(r.name); }).join(', ') + '</div>';
+    return h + '</div>';
+  }
+  function mgOnScreen() { return state.ltPart === 'menu-gen' && $('screen-lt').classList.contains('active'); }
+  function openMenuGen() {
+    var sel = ltSel();
+    if (!sel.length) {
+      $('lt-body').innerHTML = '<div class="loading">Nothing is selected yet. Tick some items on the Menu Items screen first.</div><button type="button" class="navbtn wladd" data-go="lt/recipes">&lsaquo; Back to Menu Items</button>';
+      return;
+    }
+    var d = lsGet(LT_MGD_KEY, null);
+    mg.ov = {}; mg.saved = null; mg.saving = false;
+    var ok = d && Date.now() - (d.at || 0) < 3 * 24 * 3600 * 1000 && mgDate(d.week);
+    var def = mgIso(mgNextMonday(new Date()));
+    mg.week = ok && mgDate(d.week) >= mgDate(mgIso(new Date())) ? d.week : def;
+    mg.dTouched = !!(ok && d.dTouched && mg.week === d.week);
+    mg.deliver = mg.dTouched ? d.deliver : mgAddDays(mg.week, 1);
+    mg.ov = ok && d.ov && typeof d.ov === 'object' ? d.ov : {};
+    $('lt-body').innerHTML =
+      '<div class="mg">' +
+      '<div class="card vform mgdates"><label class="vfield"><span>Menu week of</span><input type="date" class="wlin" id="mg-week" value="' + esc(mg.week) + '"></label>' +
+      '<label class="vfield"><span>Delivery or pickup day</span><input type="date" class="wlin" id="mg-deliv" value="' + esc(mg.deliver) + '"></label></div>' +
+      '<h3 class="sechead">Items <small>' + sel.length + ' \u00b7 in the order you ticked them</small></h3>' +
+      '<div id="mg-rows">' + mgRowsHtml() + '</div>' +
+      '<div class="noteflash show bad" id="mg-warn" hidden></div>' +
+      '<h3 class="sechead">Preview</h3><div class="mpaper" id="mg-preview"></div>' +
+      '<div class="draftbtns mgbtns"><button type="button" class="navbtn" data-mg="copy">Copy text</button><button type="button" class="bigsave" id="mg-save" data-mg="save">Save to Menu Designs</button></div>' +
+      '<div class="noteflash" id="mg-flash" hidden></div><div id="mg-saved"></div>' +
+      '<div id="mg-macros"></div>' +
+      '<button type="button" class="navbtn wladd" data-go="lt/recipes">&lsaquo; Back to Menu Items</button></div>';
+    mgRefresh();
+    var seq = ++mg.seq, c = state.ltCache.macros;
+    if (c && Date.now() - c.at < LT_TTL * 5) { mg.macros = c.data; mg.macState = 'ok'; mgMacrosPaint(true); return; }
+    mg.macros = c ? c.data : null; mg.macState = 'loading'; mgMacrosPaint(false);
+    apiRaw('ltmacros', {}).then(function (j) {
+      if (seq !== mg.seq || !mgOnScreen()) return;
+      if (j.error === 'bad_action') { mg.macState = 'na'; return mgMacrosPaint(false); }
+      if (j.error) { mg.macState = 'err'; return mgMacrosPaint(false); }
+      state.ltCache.macros = { at: Date.now(), data: j.data }; mg.macros = j.data; mg.macState = 'ok'; mgMacrosPaint(true);
+    }, function (err) { if (vAuth(err)) return; if (seq === mg.seq && mgOnScreen()) { mg.macState = 'err'; mgMacrosPaint(false); } });
+  }
+  function mgMacrosPaint(rerows) {         // macros arrived: refresh matched names / ingredients (typed values are kept) and the macros card
+    if (rerows) {
+      var box = $('mg-rows'), active = document.activeElement;
+      if (box && !(active && box.contains(active))) box.innerHTML = mgRowsHtml();
+      mgRefresh();
+    }
+    var m = $('mg-macros'); if (m) m.innerHTML = mgMacrosHtml();
+  }
+  function mgFlash(text, bad) { var el = $('mg-flash'); if (!el) return; el.textContent = text || ''; el.hidden = !text; el.className = 'noteflash' + (text ? ' show' : '') + (bad ? ' bad' : ''); }
+  function mgCopy() {
+    var txt = mgText(mgRefresh().blocks);
+    var done = function (ok) { mgFlash(ok ? 'Copied the menu text.' : 'Couldn\u2019t copy. Select the preview text and copy it by hand.', !ok); };
+    var fallback = function () {
+      var ta = document.createElement('textarea'); ta.value = txt; ta.style.cssText = 'position:fixed;left:-9999px;top:0';
+      document.body.appendChild(ta); ta.select(); var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta); done(ok);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(function () { done(true); }, fallback); else fallback();
+  }
+  function mgSave() {
+    if (mg.saving) return;
+    var r = mgRefresh(), items = r.rows.filter(function (x) { return String(x.name || '').trim(); }).map(function (x) {
+      return { name: String(x.name).replace(/\s+/g, ' ').trim(), price: String(x.price || '').replace(/[$\s]/g, ''), desc: String(x.desc || '').replace(/\s+/g, ' ').trim() };
+    });
+    var body = { week: mg.week, deliver: mg.deliver, items: items }, sig = JSON.stringify(body);
+    if (!mgDate(mg.week) || !mgDate(mg.deliver) || !items.length) return mgFlash('Pick the week and delivery dates first.', true);
+    if (mg.sig !== sig || !mg.cid) { mg.sig = sig; mg.cid = vNewCid(); }
+    body.cid = mg.cid; mg.saving = true; mgFlash('Saving\u2026'); mgRefresh();
+    apiPostRaw('menusave', body, 90000).then(function (j) {
+      mg.saving = false; mgRefresh();
+      if (!mgOnScreen()) return;
+      if (j.error === 'bad_action') return mgFlash('Saving will work after the next server update.', true);
+      if (j.error) return mgFlash((j.message || ('Server error: ' + j.error)) + ' Nothing was saved.', true);
+      var d = j.data || {};
+      mg.saved = { sig: sig, url: d.url || '', name: d.name || '' };
+      mgFlash('');
+      $('mg-saved').innerHTML = '<div class="noteflash show">Saved' + (d.name ? ' as \u201c' + esc(d.name) + '\u201d' : '') + ' in Menu Designs.' + (d.url ? ' <a class="mgopen" href="' + esc(d.url) + '" data-title="' + esc(d.name || 'Menu') + '">Open &rsaquo;</a>' : '') + '</div>';
+    }, function (err) {
+      mg.saving = false; mgRefresh();
+      if (vAuth(err)) return;
+      mgFlash(friendly(err) + ' Tap Save again to retry (same entry id, it will not double).', true);
+    });
+  }
+  function mgInput(t) {
+    var f = t.getAttribute('data-mgf'), id = t.getAttribute('data-id');
+    if (!f) return false;
+    if (!mg.ov[id]) mg.ov[id] = {};
+    mg.ov[id][f] = t.value;
+    if (f === 'price') t.classList.toggle('bad', mgPrice(t.value) === null);
+    mgDraftSave(); mgRefresh();
+    var sv = $('mg-saved'); if (sv && sv.innerHTML) sv.innerHTML = ''; mg.saved = null;
+    return true;
+  }
+  function mgPriceRemember(t) {       // remember the last valid price per menu item
+    var id = t.getAttribute('data-id'), pr = mgPrice(t.value);
+    if (!pr) return;
+    var r = mgRows().filter(function (x) { return x.id === id; })[0]; if (!r || !r.key) return;
+    var p = lsGet(LT_PRICE_KEY, {}); p[r.key] = pr.replace(/^\$/, ''); lsSet(LT_PRICE_KEY, p);
+  }
+
+  $('lt-body').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-ltsel]');
+    if (b && state.ltPart === 'recipes') {
+      var on = ltSelToggle(b.getAttribute('data-ltsel'), b.getAttribute('data-n'));
+      b.classList.toggle('on', on); b.setAttribute('aria-checked', on ? 'true' : 'false'); b.textContent = on ? '\u2713' : '';
+      return;
+    }
+    var k = e.target.closest('[data-ltk]');
+    if (k && state.ltPart === 'recipes') {
+      var a = k.getAttribute('data-ltk');
+      if (a === 'gen' && ltSel().length) show('lt/menu-gen');
+      else if (a === 'clear') {
+        state.ltSel = []; ltSelSave(); ltSelBar();
+        [].forEach.call($('lt-body').querySelectorAll('.ltbox.on'), function (x) { x.classList.remove('on'); x.setAttribute('aria-checked', 'false'); x.textContent = ''; });
+      }
+      return;
+    }
+    var m = e.target.closest('[data-mg]');
+    if (m && state.ltPart === 'menu-gen') {
+      var act = m.getAttribute('data-mg');
+      if (act === 'copy') mgCopy(); else if (act === 'save') mgSave();
+    }
+  });
+  $('lt-body').addEventListener('input', function (e) {
+    if (state.ltPart !== 'menu-gen') return;
+    var t = e.target;
+    if (t.id === 'mg-week') {
+      if (!mgDate(t.value)) return;
+      mg.week = t.value;
+      if (!mg.dTouched) { mg.deliver = mgAddDays(mg.week, 1); $('mg-deliv').value = mg.deliver; }
+      mgDraftSave(); mgRefresh();
+    } else if (t.id === 'mg-deliv') {
+      if (!mgDate(t.value)) return;
+      mg.deliver = t.value; mg.dTouched = true; mgDraftSave(); mgRefresh();
+    } else mgInput(t);
+  });
+  $('lt-body').addEventListener('change', function (e) {
+    if (state.ltPart === 'menu-gen' && e.target.getAttribute && e.target.getAttribute('data-mgf') === 'price') mgPriceRemember(e.target);
+  });
+  $('lt-body').addEventListener('focusout', function (e) {
+    if (state.ltPart === 'menu-gen' && e.target.getAttribute && e.target.getAttribute('data-mgf') === 'price') mgPriceRemember(e.target);
+  });
+
+  /* ---------------- Lisa's Table: Menu Macros edit sheet (tap a row, dictate the measured numbers, confirm, Save -> ltmacroset) ---------------- */
+  var MAC_DRAFT_KEY = 'cc_macdraft';
+  var MAC_LIM = { cal: 5000, protein: 500, carbs: 500, fat: 500 };
+  var MAC_KW = '(?:calories|calorie|cals|cal|kcal|protein|proteins|carbohydrates|carbohydrate|carbs|carb|fats|fat)';
+  var MAC_KEYS = { cal: '(?:calories|calorie|cals|cal|kcal)', protein: '(?:proteins|protein)', carbs: '(?:carbohydrates|carbohydrate|carbs|carb)', fat: '(?:fats|fat)' };
+  var NUMW = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
+    seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
+  function macWords(s) {            // "four hundred and eighty" -> "480", "twenty four" -> "24"
+    var toks = String(s).split(/(\s+)/), out = [], i = 0;
+    while (i < toks.length) {
+      var w = toks[i].toLowerCase().replace(/[^a-z-]/g, '');
+      var isNum = function (x) { x = x.toLowerCase().replace(/[^a-z-]/g, ''); return x === 'hundred' || NUMW[x] !== undefined || (x.indexOf('-') > 0 && x.split('-').every(function (p) { return NUMW[p] !== undefined; })); };
+      if (w && isNum(toks[i])) {
+        var total = 0, cur = 0, j = i, last = i;
+        while (j < toks.length) {
+          var tk = toks[j];
+          if (/^\s+$/.test(tk)) { j++; continue; }
+          var x = tk.toLowerCase().replace(/[^a-z-]/g, '');
+          if (x === 'and' && cur > 0 && /hundred/.test(toks.slice(i, j).join(' ').toLowerCase())) { j++; continue; }
+          if (!x || !isNum(tk)) break;
+          if (x === 'hundred') cur = (cur || 1) * 100;
+          else if (x.indexOf('-') > 0) cur += x.split('-').reduce(function (a, p) { return a + NUMW[p]; }, 0);
+          else cur += NUMW[x];
+          last = j; j++;
+        }
+        total += cur; out.push(String(total)); i = last + 1;
+      } else { out.push(toks[i]); i++; }
+    }
+    return out.join('');
+  }
+  // "calories 480 protein 24 carbs 30 fat 29 serving one burrito" (or "480 calories, 24 grams of protein ...") -> {cal,protein,carbs,fat,serving,notes,found}
+  function macParse(text) {
+    var src = String(text || '').replace(/\s+/g, ' ').trim(), serving = '', notes = '', m;
+    if ((m = /\b(?:notes?|comments?)\b[\s:,\-]*(.*)$/i.exec(src))) { notes = m[1].trim(); src = src.slice(0, m.index); }
+    if ((m = /\bserving(?:\s+size)?\b[\s:,\-]*(?:is|of|equals|=)?\s*(.*)$/i.exec(src))) {
+      var rest = m[1], ix = rest.search(new RegExp('\\b' + MAC_KW + '\\b', 'i')), seg = ix >= 0 ? rest.slice(0, ix) : rest, remain = ix >= 0 ? rest.slice(ix) : '';
+      var tail = /[\s,]*\d+(?:\.\d+)?(?:\s*(?:g|grams?|gram|of|and|,))*\s*$/i.exec(seg);
+      if (tail && tail.index > 0) { remain = seg.slice(tail.index) + ' ' + remain; seg = seg.slice(0, tail.index); }
+      serving = seg.replace(/^[\s,.:\-]+|[\s,.:\-]+$/g, '').slice(0, 80);
+      src = src.slice(0, m.index) + ' ' + remain;
+    }
+    var s = macWords(src.toLowerCase().replace(/(\d),(\d{3})/g, '$1$2')).replace(/[,;]+/g, ' ');
+    var res = { A: {}, B: {}, ca: 0, cb: 0 };
+    Object.keys(MAC_KEYS).forEach(function (k) {
+      var ra = new RegExp('\\b' + MAC_KEYS[k] + '\\b[\\s:=\\-]*(?:is|are|of|at|about|around|equals|total)?[\\s:=\\-]*(\\d+(?:\\.\\d+)?)').exec(s);
+      var rb = new RegExp('(\\d+(?:\\.\\d+)?)\\s*(?:g|gr|grams?|gram|kcal|calories?|cals?)?\\s*(?:of\\s+)?(?:total\\s+)?\\b' + MAC_KEYS[k] + '\\b').exec(s);
+      if (ra) { res.A[k] = ra[1]; res.ca++; }
+      if (rb) { res.B[k] = rb[1]; res.cb++; }
+    });
+    var pick = res.cb > res.ca ? res.B : res.A;
+    var out = { serving: serving, notes: notes, found: Object.keys(pick).length };
+    Object.keys(MAC_KEYS).forEach(function (k) { out[k] = pick[k] !== undefined ? pick[k] : ''; });
+    return out;
+  }
+  var mm = { idx: -1, rec: null, on: false, base: '', committed: '', interim: '', msg: '', cid: '', sig: '', busy: false, f: {}, text: '' };
+  function macItem() { var c = state.ltCache.macros; return c && c.data && c.data.items[mm.idx] || null; }
+  function macIsMeasured(x) { return x.measured !== undefined ? !!x.measured : /^measured/i.test(x.basis || ''); }
+  function macDraftSave() { if (mm.idx < 0) return; var x = macItem(); lsSet(MAC_DRAFT_KEY, { item: x ? x.item : '', f: mm.f, text: mm.text, cid: mm.cid, sig: mm.sig, at: Date.now() }); }
+  function macField(k) { return $('mac-f-' + k); }
+  function macRead() { ['cal', 'protein', 'carbs', 'fat', 'serving', 'notes'].forEach(function (k) { var el = macField(k); if (el) mm.f[k] = el.value; }); }
+  function macMsg(text, bad) { var el = $('mac-msg'); if (!el) return; el.textContent = text || ''; el.hidden = !text; el.className = 'noteflash' + (text ? ' show' : '') + (bad ? ' bad' : ''); }
+  function macUi() {
+    var btn = $('mac-mic'); if (!btn) return;
+    btn.classList.toggle('rec', mm.on); btn.setAttribute('aria-pressed', mm.on ? 'true' : 'false');
+    $('mac-lbl').textContent = mm.on ? 'Listening\u2026 tap to stop' : 'Tap to talk';
+    var st = $('mac-state'); st.className = 'micstate' + (mm.on ? ' rec' : '') + (mm.msg && !mm.on ? ' warn' : '');
+    st.textContent = mm.on ? 'Listening\u2026' : (mm.msg || 'Say the measured numbers. They fill the boxes below; nothing is saved until you tap Save.');
+  }
+  function macOpen(idx) {
+    var c = state.ltCache.macros; if (!c || !c.data.items[idx]) return;
+    macClose(true);
+    var x = c.data.items[idx], measured = macIsMeasured(x), d = lsGet(MAC_DRAFT_KEY, null);
+    mm.idx = idx; mm.msg = ''; mm.busy = false; mm.on = false; mm.rec = null; mm.text = ''; mm.cid = ''; mm.sig = '';
+    mm.f = { cal: measured && x.cal != null ? String(x.cal) : '', protein: measured && x.protein != null ? String(x.protein) : '', carbs: measured && x.carbs != null ? String(x.carbs) : '',
+      fat: measured && x.fat != null ? String(x.fat) : '', serving: x.serving || '', notes: x.notes || '' };
+    var restored = false;
+    if (d && d.item === x.item && Date.now() - (d.at || 0) < 12 * 3600 * 1000 && d.f) { mm.f = d.f; mm.text = d.text || ''; mm.cid = d.cid || ''; mm.sig = d.sig || ''; restored = true; }
+    var src = (x.sources || []).map(function (s) {
+      return s.id ? '<a href="https://drive.google.com/file/d/' + esc(s.id) + '/view" data-title="' + esc(s.name) + '">' + esc(s.name.replace(/\s+\./, '.')) + '</a>' : esc(s.name);
+    }).join(' \u00b7 ');
+    var fld = function (k, label, ph) {
+      return '<label class="vfield macf"><span>' + label + '</span><input type="text" class="wlin" id="mac-f-' + k + '" inputmode="decimal" maxlength="8" placeholder="' + esc(ph) + '" value="' + esc(mm.f[k] || '') + '" autocomplete="off"></label>';
+    };
+    var el = document.createElement('div');
+    el.className = 'macsheet'; el.id = 'mac-sheet'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true');
+    el.innerHTML = '<div class="macpanel"><div class="machead"><h3 id="mac-ttl">' + esc(x.item) + '</h3><button type="button" class="wlx" data-mac2="close" aria-label="Close">\u00d7</button></div>' +
+      '<div class="macinfo">' + (measured ? '<span class="badge ok">' + esc(x.basis || 'Measured') + '</span>' : '<span class="badge">Estimate \u2014 to be measured</span>') +
+      (x.category ? ' <span class="macsub">' + esc(x.category) + '</span>' : '') +
+      (x.ingredients ? '<div><b>Key ingredients</b> ' + esc(x.ingredients) + '</div>' : '') +
+      (src ? '<div><b>Source</b> ' + src + '</div>' : '') + '</div>' +
+      '<div class="micstage macmic"><button type="button" class="micbtn" id="mac-mic" data-mac2="mic" aria-pressed="false" aria-label="Start dictation"><span class="micico" aria-hidden="true">' + vsvg('mic', 34) + '</span><span class="miclbl" id="mac-lbl">Tap to talk</span></button>' +
+      '<div class="micstate" id="mac-state">&nbsp;</div></div>' +
+      '<textarea id="mac-text" class="notebox" rows="2" maxlength="400" autocapitalize="off" placeholder="e.g. calories 480 protein 24 carbs 30 fat 29 serving one burrito"></textarea>' +
+      '<div class="draftbtns"><button type="button" class="navbtn" data-mac2="parse">Fill the boxes</button></div>' +
+      '<div class="macgrid">' + fld('cal', 'Calories', measured ? '' : 'est. ' + fmtN(x.cal)) + fld('protein', 'Protein g', measured ? '' : 'est. ' + fmtN(x.protein)) +
+      fld('carbs', 'Carbs g', measured ? '' : 'est. ' + fmtN(x.carbs)) + fld('fat', 'Fat g', measured ? '' : 'est. ' + fmtN(x.fat)) + '</div>' +
+      '<label class="vfield"><span>Serving</span><input type="text" class="wlin" id="mac-f-serving" maxlength="80" value="' + esc(mm.f.serving || '') + '" placeholder="e.g. 1 burrito"></label>' +
+      '<label class="vfield"><span>Notes (optional)</span><textarea class="notebox" id="mac-f-notes" rows="2" maxlength="300">' + esc(mm.f.notes || '') + '</textarea></label>' +
+      '<div class="noteflash" id="mac-msg" hidden></div>' +
+      '<div class="draftbtns"><button type="button" class="bigsave" id="mac-save" data-mac2="save">Save as Measured</button><button type="button" class="navbtn" data-mac2="close">Cancel</button></div></div>';
+    $('screen-lt').appendChild(el);
+    $('mac-text').value = mm.text;
+    document.body.classList.add('macopen');
+    macUi();
+    if (restored) macMsg('Restored your unsaved numbers. Nothing is saved until you tap Save.');
+  }
+  function macClose(quiet) {
+    macMicStop(true);
+    var el = $('mac-sheet'); if (el && el.parentNode) el.parentNode.removeChild(el);
+    document.body.classList.remove('macopen');
+    if (!quiet && mm.idx >= 0) { macRead(); macDraftSave(); }
+    mm.idx = -1; mm.on = false; mm.rec = null;
+  }
+  function macMicStop(quiet) {
+    var r = mm.rec;
+    if (quiet) { mm.rec = null; mm.on = false; try { r && r.abort(); } catch (e) {} return; }
+    if (r) { try { r.stop(); } catch (e2) { mm.rec = null; mm.on = false; macUi(); } }
+  }
+  function macMicFail(msg) { mm.on = false; var r = mm.rec; mm.rec = null; try { r && r.abort(); } catch (e) {} mm.msg = msg; macUi(); var ta = $('mac-text'); if (ta) ta.focus(); }
+  function macMicStart() {
+    var ta = $('mac-text');
+    if (!SR) { mm.msg = MIC_NA; macUi(); ta.focus(); return; }
+    mm.msg = ''; mm.base = ta.value ? ta.value.replace(/\s+$/, '') + ' ' : ''; mm.committed = ''; mm.interim = '';
+    var rec; try { rec = new SR(); } catch (e) { return macMicFail(MIC_NA); }
+    rec.continuous = false; rec.interimResults = true; rec.lang = 'en-US'; rec.maxAlternatives = 1;
+    rec.onresult = function (ev) {
+      var interim = '';
+      for (var i = ev.resultIndex; i < ev.results.length; i++) {
+        var r = ev.results[i], t = r[0] ? r[0].transcript : '';
+        if (r.isFinal) mm.committed = micSpace(mm.committed, t.trim() + ' '); else interim += t;
+      }
+      mm.interim = interim.replace(/^\s+/, ''); ta.value = mm.base + mm.committed + mm.interim;
+    };
+    rec.onerror = function (ev) {
+      var e = ev && ev.error;
+      if (e === 'not-allowed' || e === 'service-not-allowed' || e === 'audio-capture' || e === 'language-not-supported') return macMicFail(MIC_NA);
+      if (e === 'network') return macMicFail('The speech service couldn\u2019t be reached. Tap the text box and use your keyboard\u2019s mic key.');
+      if (e === 'no-speech') mm.msg = 'Didn\u2019t catch anything. Tap the mic and try again.';
+    };
+    rec.onend = function () {
+      if (mm.rec !== rec) return;
+      mm.committed = micSpace(mm.committed, mm.interim ? mm.interim.trim() + ' ' : ''); mm.interim = '';
+      mm.on = false; mm.rec = null;
+      ta.value = (mm.base + mm.committed).replace(/\s+$/, ''); mm.text = ta.value;
+      if (ta.value.trim()) macFill(); else macUi();
+    };
+    mm.rec = rec; mm.on = true;
+    try { rec.start(); } catch (e2) { return macMicFail(MIC_NA); }
+    macUi();
+  }
+  function macFill() {              // transcript -> boxes (only boxes that were heard are changed); the user reviews, then taps Save
+    var ta = $('mac-text'); if (!ta) return;
+    mm.text = ta.value; var p = macParse(ta.value), got = [];
+    ['cal', 'protein', 'carbs', 'fat'].forEach(function (k) { if (p[k] !== '') { macField(k).value = p[k]; got.push(k); } });
+    if (p.serving) { macField('serving').value = p.serving; got.push('serving'); }
+    if (p.notes) { macField('notes').value = p.notes; got.push('notes'); }
+    macRead(); macDraftSave(); macUi();
+    var miss = ['cal', 'protein', 'carbs', 'fat'].filter(function (k) { return !String(mm.f[k]).trim(); });
+    macMsg(!got.length ? 'Didn\u2019t hear any numbers. Try again, or type them in the boxes.' :
+      'Check the boxes' + (miss.length ? ' \u2014 still missing: ' + miss.map(function (k) { return { cal: 'calories', protein: 'protein', carbs: 'carbs', fat: 'fat' }[k]; }).join(', ') : '') + '. Then tap Save as Measured.', !got.length);
+  }
+  function macSave() {
+    if (mm.busy) return;
+    var x = macItem(); if (!x) return;
+    macRead();
+    var body = { item: x.item }, errs = [], names = { cal: 'Calories', protein: 'Protein', carbs: 'Carbs', fat: 'Fat' };
+    if (x.row) body.row = x.row;
+    ['cal', 'protein', 'carbs', 'fat'].forEach(function (k) {
+      var v = String(mm.f[k] == null ? '' : mm.f[k]).replace(/[,\s]/g, '');
+      if (!/^\d+(\.\d+)?$/.test(v) || Number(v) > MAC_LIM[k]) errs.push(names[k] + (v === '' ? ' is empty' : ' must be a number from 0 to ' + MAC_LIM[k])); else body[k] = v;
+    });
+    if (errs.length) return macMsg(errs.join('. ') + '.', true);
+    var sv = String(mm.f.serving || '').trim(), nt = String(mm.f.notes || '').trim();
+    if (sv) body.serving = sv.slice(0, 80);
+    if (nt && nt !== (x.notes || '').trim()) body.notes = nt.slice(0, 300);
+    var sig = JSON.stringify(body);
+    if (mm.sig !== sig || !mm.cid) { mm.sig = sig; mm.cid = vNewCid(); }
+    body.cid = mm.cid; mm.busy = true; $('mac-save').disabled = true; $('mac-save').textContent = 'Saving\u2026'; macMsg(''); macDraftSave();
+    var idx = mm.idx;
+    apiRaw('ltmacroset', body).then(function (j) {
+      mm.busy = false;
+      var b = $('mac-save'); if (b) { b.disabled = false; b.textContent = 'Save as Measured'; }
+      if (j.error === 'bad_action') return macMsg('Saving will work after the next server update.', true);
+      if (j.error) return macMsg((j.message || ('Server error: ' + j.error)) + ' Nothing was changed.', true);
+      var c = state.ltCache.macros, it = c && c.data.items[idx];
+      var u = (j.data && j.data.item) || null;
+      if (it) {
+        ['cal', 'protein', 'carbs', 'fat'].forEach(function (k) { it[k] = u && u[k] != null ? u[k] : Number(body[k]); });
+        it.basis = u && u.basis ? u.basis : 'Measured ' + vToday(); it.measured = true;
+        if (u) { if (u.serving != null) it.serving = u.serving; if (u.notes != null) it.notes = u.notes; if (u.row) it.row = u.row; }
+        else { if (body.serving) it.serving = body.serving; if (body.notes) it.notes = body.notes; }
+      }
+      try { localStorage.removeItem(MAC_DRAFT_KEY); } catch (e) {}
+      var nm = x.item; macClose(true);
+      if (state.ltPaint) state.ltPaint();
+      macFlash('Saved \u2014 ' + nm + ' is now marked Measured.');
+    }, function (err) {
+      mm.busy = false;
+      var b = $('mac-save'); if (b) { b.disabled = false; b.textContent = 'Save as Measured'; }
+      if (vAuth(err)) return;
+      macMsg(friendly(err) + ' Nothing is confirmed yet: tap Save again to retry (same entry id, it will not double).', true);
+    });
+  }
+  function macFlash(text) { var el = $('lt-flash'); if (!el) return; el.textContent = text; el.hidden = !text; el.className = 'noteflash' + (text ? ' show' : ''); }
+
+  $('screen-lt').addEventListener('click', function (e) {
+    var row = e.target.closest('.mac-row');
+    if (row && state.ltPart === 'macros' && !e.target.closest('a')) { macOpen(+row.getAttribute('data-mac')); return; }
+    var b = e.target.closest('[data-mac2]'); if (!b) return;
+    var a = b.getAttribute('data-mac2');
+    if (a === 'close') macClose();
+    else if (a === 'mic') { if (mm.on) macMicStop(); else macMicStart(); }
+    else if (a === 'parse') { macMicStop(true); mm.on = false; macFill(); }
+    else if (a === 'save') macSave();
+  });
+  $('screen-lt').addEventListener('input', function (e) {
+    var t = e.target;
+    if (mm.idx < 0 || !t.id || t.id.indexOf('mac-') !== 0) return;
+    if (t.id === 'mac-text') mm.text = t.value; else macRead();
+    macDraftSave();
+  });
+  $('screen-lt').addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && mm.idx >= 0) macClose();
+    else if ((e.key === 'Enter' || e.key === ' ') && state.ltPart === 'macros' && e.target.classList && e.target.classList.contains('mac-row')) { e.preventDefault(); macOpen(+e.target.getAttribute('data-mac')); }
   });
 
   /* ---------------- L&S project pages: project home / Dictate / Running notes / Documents ---------------- */
@@ -6188,7 +6733,7 @@
     if (!e.target.value.trim()) return;
     wl.items.push(''); wlDraftSave(); wlFormRender(''); var ins = $('wl-rows').querySelectorAll('.wlin'); if (ins.length) ins[ins.length - 1].focus();
   });
-  document.addEventListener('visibilitychange', function () { if (document.hidden && wl.on) wlMicStop(true), wlUi(); });
+  document.addEventListener('visibilitychange', function () { if (document.hidden && wl.on) wlMicStop(true), wlUi(); if (document.hidden && mm.on) { macMicStop(true); macUi(); } });
 
   /* ---- #vcam: receipt photo -> shrink -> optional details -> Save (POST receiptsave) ---- */
   var VCAM_TARGET = 1400000, VCAM_HARD = 2800000;      // base64 characters (~1 MB / ~2 MB of JPEG); the server accepts up to ~3 MB of JPEG

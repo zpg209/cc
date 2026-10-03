@@ -1298,3 +1298,59 @@ button.vdelbtn:disabled { opacity: .4; pointer-events: none; }
 #screen-home .logoband { width: 100vw; margin: 0 0 18px calc(50% - 50vw); background: #000; padding: calc(env(safe-area-inset-top, 0px) + 10px) 0 12px; border-bottom: 0.75px solid #D08A55; }
 #screen-home .home-head { padding: 0 0 22px; }
 #screen-home .logoband .home-logo { margin: 0 auto; }
+/* v68: Lisa's Table: Menu Items checklist + sticky Generate bar, Generate menu screen (cream paper preview), Menu Macros status circles + edit sheet */
+#screen-lt .ltbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 10px; margin: 0 -14px 10px; padding: calc(env(safe-area-inset-top, 0px) + 8px) 14px 8px;
+  background: #1c1c1c; border-bottom: 0.75px solid var(--lt-e); }
+#screen-lt .ltcount { flex: 1 1 auto; font: 700 15px/1.2 'Inter', sans-serif; color: var(--lt-t); }
+#screen-lt .ltgen { flex: none; min-height: 44px; padding: 8px 16px; font-size: 15px; font-weight: 700; }
+#screen-lt .ltgen:disabled { opacity: .35; }
+#screen-lt .ltclear { flex: none; background: none; border: 0; padding: 10px 4px; font: 600 14px/1 'Inter', sans-serif; color: var(--lt-t); text-decoration: underline; cursor: pointer; }
+#screen-lt .ltchecklist li.ltck { display: flex; align-items: center; gap: 12px; padding: 4px 0; }
+#screen-lt .ltchecklist li.ltck::before { display: none; }
+#screen-lt .ltchecklist li.ltck a { flex: 1 1 auto; min-width: 0; padding: 8px 0; }
+#screen-lt .ltbox { flex: none; width: 44px; height: 44px; padding: 0; background: #000; color: #0b0b0b; border: 0.75px solid var(--lt-e); border-radius: var(--radius); font: 700 22px/1 'Inter', sans-serif; cursor: pointer; }
+#screen-lt .ltbox.on { background: var(--lt-t); color: #0b0b0b; }
+/* Generate menu */
+#screen-lt .mg .card { margin-bottom: 12px; }
+#screen-lt .mgrow { padding: 10px 12px; }
+#screen-lt .mgrowtop { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+#screen-lt .mgnum { flex: none; width: 22px; text-align: center; font: 700 13px/1 'Inter', sans-serif; color: var(--lt-t); }
+#screen-lt .mgin { flex: 1 1 auto; }
+#screen-lt .mgdollar { flex: none; color: var(--muted); }
+#screen-lt .mgprice { flex: 0 0 76px; width: 76px; text-align: right; }
+#screen-lt .mgprice.bad { border-color: #E5484D; }
+#screen-lt .mgdesc { min-height: 0; font-size: 15px; }
+#screen-lt .mgnomatch { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+#screen-lt .mpaper { background: #f6efe3; color: #3b2a20; font-family: 'Lora', Georgia, 'Times New Roman', serif; text-align: center; padding: 26px 18px 22px; border-radius: var(--radius); margin-bottom: 12px; border: 0.75px solid var(--lt-e); }
+#screen-lt .mp-title { font-size: 30px; line-height: 1.15; font-weight: 700; margin-bottom: 6px; }
+#screen-lt .mp-week { font-size: 18px; font-style: italic; margin-bottom: 8px; }
+#screen-lt .mp-deliv { font-size: 12px; letter-spacing: .2em; font-weight: 700; }
+#screen-lt .mp-div { font-size: 14px; margin: 14px 0; }
+#screen-lt .mp-item { font-size: 17px; font-weight: 700; margin-top: 12px; overflow-wrap: anywhere; }
+#screen-lt .mp-desc { font-size: 14px; line-height: 1.35; margin-top: 2px; overflow-wrap: anywhere; }
+#screen-lt .mp-foot { font-size: 12px; line-height: 1.4; margin-top: 10px; }
+#screen-lt .mgbtns .bigsave, #screen-lt .mgbtns .navbtn { flex: 1 1 0; }
+#screen-lt .mgopen { color: var(--lt-t); font-weight: 700; text-decoration: none; margin-left: 6px; }
+#screen-lt .mgm { display: flex; justify-content: space-between; gap: 10px; padding: 6px 2px; border-bottom: 1px solid var(--line); font-size: 13px; }
+#screen-lt .mgmn { min-width: 0; font-weight: 600; } #screen-lt .mgmn small { display: block; font-weight: 400; color: var(--muted); font-size: 11px; }
+#screen-lt .mgmv { flex: none; text-align: right; color: #ddd; }
+#screen-lt .mgtot { border-bottom: 0; font-weight: 700; color: var(--lt-t); } #screen-lt .mgtot .mgmv { color: var(--lt-t); }
+#screen-lt .mgest { font: 700 9px/1 'Inter', sans-serif; color: #ffb74d; border: 1px solid rgba(255,183,77,.45); border-radius: 3px; padding: 1px 4px; vertical-align: 1px; }
+#screen-lt .mgmac { padding: 8px 12px 10px; }
+/* Menu Macros: status circle + edit sheet */
+#screen-lt .mac-head, #screen-lt .mac-row { grid-template-columns: 26px 1fr repeat(4, 46px); }
+#screen-lt .macck { width: 22px; height: 22px; border-radius: 50%; border: 0.75px solid var(--lt-e); background: #000; color: #0b0b0b; font: 700 14px/20px 'Inter', sans-serif; text-align: center; }
+#screen-lt .macck.on { background: var(--lt-t); }
+#screen-lt .macsheet { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.72); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+#screen-lt .macpanel { max-width: 640px; margin: 0 auto; min-height: 100%; background: #1c1c1c; padding: calc(env(safe-area-inset-top, 0px) + 12px) 14px calc(env(safe-area-inset-bottom, 0px) + 24px); border-left: 0.75px solid var(--lt-e); border-right: 0.75px solid var(--lt-e); }
+#screen-lt .machead { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+#screen-lt .machead h3 { flex: 1 1 auto; margin: 0; font-family: 'Playfair Display', Georgia, serif; font-size: 20px; line-height: 1.25; color: var(--lt-t); }
+#screen-lt .macinfo { font-size: 13px; line-height: 1.5; color: #ddd; margin-bottom: 10px; }
+#screen-lt .macinfo b { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px; margin-right: 4px; }
+#screen-lt .macinfo a { color: var(--lt-t); text-decoration: none; font-weight: 600; }
+#screen-lt .macsub { color: var(--muted); font-size: 12px; margin-left: 6px; }
+#screen-lt .macmic { margin-bottom: 8px; }
+#screen-lt .macmic .micbtn { min-height: 60px; }
+#screen-lt .macgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; margin-top: 10px; }
+#screen-lt .macf .wlin { width: 100%; }
+body.macopen { overflow: hidden; }
