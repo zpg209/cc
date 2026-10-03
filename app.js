@@ -1823,9 +1823,8 @@
     if (!sr.kind || sr.kind === 'debt') loadDebt(false);
 
     if (!sr.kind) {
-      h += billsSection();
-
       // Income group: one collapsible card per source (heading + green total; heading toggles, total drills down), then Total income.
+      h += '<h2 class="vgrp inc">Income</h2>';
       h += '<div class="incgroup">';
       M.sources.forEach(function (sx) {
         var l = M.income.filter(function (x) { return x.source === sx.name; });
@@ -1836,6 +1835,9 @@
       });
       h += vSec('inc-total', 'income', 'Total income', '<span class="amt-in">' + money(M.incomeTotal) + '</span>', incomeRoute('All'), '<div class="foot">Sum of the income sources above.</div>');
       h += '</div>';
+
+      h += '<h2 class="vgrp exp">Expenses</h2>';
+      h += billsSection();
 
       M.accounts.forEach(function (a) {
         var b = '';

@@ -1104,3 +1104,7 @@ h4.dbh { margin: 16px 2px 8px; font-size: 12px; letter-spacing: .8px; text-trans
 .billsyn .bsl small { color: var(--muted, #9a9a9a); font-size: 12px; }
 .billsyn > span.amt-gold { flex: none; font-weight: 700; font-size: 16px; }
 .billsyn .chev { flex: none; color: var(--c-debt, #D9A441); font-style: normal; font-size: 20px; }
+/* Vault group titles */
+h2.vgrp { margin: 18px 4px 8px; font: 700 22px/1.2 'Inter', sans-serif; letter-spacing: 1.2px; text-transform: uppercase; }
+h2.vgrp.inc { color: var(--c-inc, #3DBE6B); }
+h2.vgrp.exp { color: var(--red, #c0392b); }
