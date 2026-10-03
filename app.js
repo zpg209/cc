@@ -5093,6 +5093,61 @@
   }
 
   /* ---------------- Init ---------------- */
+  // Home tiles: press and hold, then drag to reorder. Order is saved on this device.
+  (function homeReorder() {
+    var grid = $('home-grid'); if (!grid) return;
+    var KEY = 'cc_home_order';
+    function tiles() { return [].slice.call(grid.children).filter(function (x) { return x.getAttribute && x.getAttribute('data-go'); }); }
+    function applyOrder() {
+      var saved = []; try { saved = JSON.parse(localStorage.getItem(KEY) || '[]') || []; } catch (e) {}
+      if (!saved.length) return;
+      var map = {}; tiles().forEach(function (t) { map[t.getAttribute('data-go')] = t; });
+      saved.forEach(function (k) { if (map[k]) { grid.appendChild(map[k]); delete map[k]; } });
+      tiles().forEach(function (t) { if (map[t.getAttribute('data-go')]) grid.appendChild(t); });   // new tiles go last
+    }
+    function saveOrder() { try { localStorage.setItem(KEY, JSON.stringify(tiles().map(function (t) { return t.getAttribute('data-go'); }))); } catch (e) {} }
+    applyOrder();
+    var timer = null, drag = null, sx = 0, sy = 0, justDragged = false;
+    function cancelTimer() { if (timer) { clearTimeout(timer); timer = null; } }
+    grid.addEventListener('touchstart', function (e) {
+      var t = e.target.closest('.tile'); if (!t || e.touches.length !== 1) return;
+      var pt = e.touches[0]; sx = pt.clientX; sy = pt.clientY;
+      cancelTimer();
+      timer = setTimeout(function () {
+        timer = null; drag = { el: t, ox: 0, oy: 0 };
+        t.classList.add('dragging'); grid.classList.add('reordering');
+        if (navigator.vibrate) try { navigator.vibrate(15); } catch (er) {}
+      }, 450);
+    }, { passive: true });
+    grid.addEventListener('touchmove', function (e) {
+      var pt = e.touches[0];
+      if (!drag) { if (Math.abs(pt.clientX - sx) > 10 || Math.abs(pt.clientY - sy) > 10) cancelTimer(); return; }
+      e.preventDefault();
+      var el = drag.el;
+      el.style.transform = 'translate(' + (pt.clientX - sx) + 'px,' + (pt.clientY - sy) + 'px) scale(1.04)';
+      el.style.pointerEvents = 'none';
+      var over = document.elementFromPoint(pt.clientX, pt.clientY), tgt = over && over.closest ? over.closest('.tile') : null;
+      if (tgt && tgt !== el && tgt.parentNode === grid) {
+        var before = el.getBoundingClientRect();
+        var kids = tiles(), ei = kids.indexOf(el), ti = kids.indexOf(tgt);
+        grid.insertBefore(el, ei < ti ? tgt.nextSibling : tgt);
+        var after = el.getBoundingClientRect();   // keep the dragged tile under the finger after the DOM move
+        sx += after.left - before.left; sy += after.top - before.top;
+        el.style.transform = 'translate(' + (pt.clientX - sx) + 'px,' + (pt.clientY - sy) + 'px) scale(1.04)';
+      }
+    }, { passive: false });
+    function end() {
+      cancelTimer();
+      if (!drag) return;
+      drag.el.classList.remove('dragging'); drag.el.style.transform = ''; drag.el.style.pointerEvents = '';
+      grid.classList.remove('reordering'); drag = null; saveOrder();
+      justDragged = true; setTimeout(function () { justDragged = false; }, 350);
+    }
+    grid.addEventListener('touchend', end); grid.addEventListener('touchcancel', end);
+    grid.addEventListener('click', function (e) { if (justDragged) { e.preventDefault(); e.stopPropagation(); } }, true);
+    grid.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  })();
+
   $('home-date').textContent = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   var standalone = window.navigator.standalone || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
   if (!standalone && /iPhone|iPad|iPod/.test(navigator.userAgent)) $('a2hs').hidden = false;

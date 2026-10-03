@@ -1112,3 +1112,8 @@ h2.vgrp.sum { color: #4DA3FF; }
 .vsec.summary { --sec: #4DA3FF; }
 .vsec.summary .vtot .pos, .vsec.summary .vtot .amt.pos { color: var(--green) !important; }
 .vsec.summary .vtot .neg, .vsec.summary .vtot .amt.neg { color: var(--neg, #ff5a5a) !important; }
+/* Home tiles: form-fitting rectangles + press-and-hold reorder */
+.homegrid .tile { aspect-ratio: auto; min-height: 64px; padding: 14px 12px; font-size: 20px; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.homegrid .tile.dragging { position: relative; z-index: 20; opacity: .92; box-shadow: 0 14px 30px rgba(0,0,0,.65); transition: none; }
+.homegrid.reordering .tile:not(.dragging) { animation: tilewob .25s ease-in-out infinite alternate; }
+@keyframes tilewob { from { transform: rotate(-.6deg); } to { transform: rotate(.6deg); } }
