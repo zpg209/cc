@@ -1868,6 +1868,7 @@
         netLine('lt-net', "Lisa's Table net", srcTot("Lisa's Table"), groc, 'Groceries') +
         sumBtn('net cmp', calcRoute('hh-spend'), 'Household spend<small>Running month total · excludes groceries (counted in Lisa\'s Table net)</small>',
           '<span class="amt neg">\u2212' + money(Math.abs(r2(hhTot - groc))) + '</span>');
+      h += '<h2 class="vgrp sum">Summary</h2>';
       h += vSec('summary', 'summary', 'Summary', '<span class="amt ' + (monthNet >= 0 ? 'pos' : 'neg') + '">' + signedMoney(monthNet) + '</span>', calcRoute('month-net'), sumBody);
 
 

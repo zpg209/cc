@@ -1108,3 +1108,7 @@ h4.dbh { margin: 16px 2px 8px; font-size: 12px; letter-spacing: .8px; text-trans
 h2.vgrp { margin: 18px 4px 8px; font: 700 22px/1.2 'Inter', sans-serif; letter-spacing: 1.2px; text-transform: uppercase; }
 h2.vgrp.inc { color: var(--c-inc, #2E8B57); }
 h2.vgrp.exp { color: var(--c-spend, #CF4059); }
+h2.vgrp.sum { color: #4DA3FF; }
+.vsec.summary { --sec: #4DA3FF; }
+.vsec.summary .vtot .pos, .vsec.summary .vtot .amt.pos { color: var(--green) !important; }
+.vsec.summary .vtot .neg, .vsec.summary .vtot .amt.neg { color: var(--neg, #ff5a5a) !important; }
