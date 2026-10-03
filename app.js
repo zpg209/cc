@@ -2777,7 +2777,7 @@
       if (state.ltAddedFlash) { macFlash(state.ltAddedFlash); state.ltAddedFlash = ''; }
       ltEnsureMacros(function () {
         if (state.ltPart !== 'recipes' || !$('lt-list')) return;
-        var cc = state.ltCache.macros; ltSelPrune(data.items, cc.data.items.filter(function (x) { return !(x.sources && x.sources.length); })); ltSelBar(); paint();
+        var cc = state.ltCache.macros; if (!cc || !cc.data) return; ltSelPrune(data.items, cc.data.items.filter(function (x) { return !(x.sources && x.sources.length); })); ltSelBar(); paint();
       });
     }
   }
@@ -2890,14 +2890,14 @@
   }
   function ltEnsureMacros(cb) {
     var c = state.ltCache.macros;
-    if (c && Date.now() - c.at < LT_TTL * 5) return;
-    if (state.ltMacBusy) return;
+    if (c && Date.now() - c.at < LT_TTL * 5) { cb && cb(); return; }
+    if (state.ltMacBusy) { if (cb) setTimeout(function () { ltEnsureMacros(cb); }, 1500); return; }
     state.ltMacBusy = true;
     apiRaw('ltmacros', {}).then(function (j) {
       state.ltMacBusy = false;
-      if (j.error || !j.data) return;
+      if (j.error || !j.data) { cb && cb(); return; }
       state.ltCache.macros = { at: Date.now(), data: j.data }; cb && cb();
-    }, function (err) { state.ltMacBusy = false; vAuth(err); });
+    }, function (err) { state.ltMacBusy = false; cb && cb(); vAuth(err); });
   }
   // ---- Menu Items grouped by macros-sheet category (collapsible; state in localStorage cc_ltcat = {category: true when collapsed}) ----
   var LT_CAT_KEY = 'cc_ltcat';
