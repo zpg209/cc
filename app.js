@@ -3940,15 +3940,12 @@
     var pays = ['wet.pay', 'mono.pay', 'all.pay'], ds = ovTot(pays), ds2 = ds !== null && ovN('all.pay2') !== null ? ds - ovN('all.pay') + ovN('all.pay2') : null;
     var h = ovRow('wet.pay', 'Wetumka \u00b7 Rocket (incl. escrow)') + ovRow('mono.pay', 'Mono Way \u00b7 Bank of Stockton') + ovRow('all.pay', 'Equipment \u00b7 Alliance (now)') + ovRow('all.pay2', 'Equipment \u00b7 Alliance (after reset)');
     h += ovCalcRow('Debt service / mo', ds === null ? '\u2014' : ovWhole(ds), 'amt-out', ds2 !== null ? 'after reset: ' + ovWhole(ds2) : '', []);
-    var k1 = ovN('inc.k1'), w2 = ovN('inc.w2'), rep = k1 !== null && w2 !== null ? (k1 + w2) / 12 : null;
-    h += ovRow('inc.k1') + ovRow('inc.w2');
-    var inc = 0, parts = [], refs = ['inc.k1', 'inc.w2'];
-    if (rep !== null) { inc += rep; h += ovCalcRow('K-1 + W-2 / mo', ovWhole(rep), 'amt-in', '(K-1 + W-2) \u00f7 12', refs); }
-    if (V && V.incM !== null) {
-      inc += V.incM;
-      h += '<div class="ovrow calc"><div class="ovl"><span>Vault income / mo</span><small><span class="badge ok">Vault</span> month so far, scaled to the month</small></div><div class="ovv"><button class="ovgo amt-in" data-go="' + esc(incomeRoute('All')) + '">' + ovWhole(V.incM) + ' &rsaquo;</button></div></div>';
-    } else h += '<div class="ovnote">Vault income is not counted until 14+ days are logged this month.</div>';
-    h += ovCalcRow('Total income / mo', ovWhole(inc), 'amt-in', '', refs);
+    var inc = 0, refs = [];
+    if (V && V.M) {
+      inc = V.M.incomeTotal || 0;
+      h += '<div class="ovrow calc"><div class="ovl"><span>Vault income</span><small><span class="badge ok">Vault</span> logged this month so far</small></div><div class="ovv"><button class="ovgo amt-in" data-go="' + esc(incomeRoute('All')) + '">' + ovWhole(inc) + ' &rsaquo;</button></div></div>';
+    } else h += '<div class="ovnote">Vault income is not loaded yet.</div>';
+    h += ovCalcRow('Total income (month to date)', ovWhole(inc), 'amt-in', '', refs);
     if (ds !== null && inc > 0) h += ovCalcRow('Debt service \u00f7 income', Math.round(ds / inc * 100) + '%', '', 'lower is better', refs);
     if (ds !== null && C.burn) {
       var cf = inc - C.burn - ds;
@@ -4014,7 +4011,7 @@
     debt: { title: 'Total debt', tile: 'Total debt', how: 'Sum of the loan balances' },
     cash: { title: 'Cash', tile: 'Cash', how: 'Sum of the cash accounts' },
     ds: { title: 'Debt service / mo', tile: 'Debt service / mo', how: 'Sum of the monthly loan payments' },
-    inc: { title: 'Income / mo', tile: 'Income / mo', how: 'Logged Vault income, scaled to the month' },
+    inc: { title: 'Income (month to date)', tile: 'Income (MTD)', how: 'Income logged in the Vault this month' },
     burn: { title: 'Household burn / mo', tile: 'Burn / mo', how: 'Logged Household spend, scaled to the month' },
     runway: { title: 'Cash runway', tile: 'Cash runway', how: 'Cash \u00f7 monthly burn' },
     flow: { title: 'Cash flow / mo', tile: 'Cash flow / mo', how: 'Income \u2212 burn \u2212 debt service' }
@@ -4185,27 +4182,21 @@
     var k1 = hasL ? ovDocComp('inc.k1') : null, w2 = hasL ? ovDocComp('inc.w2') : null;
     var docInc = k1 && w2 && k1.val !== null && w2.val !== null ? (k1.val + w2.val) / 12 : null;
     var docIncTag = k1 && w2 ? ovWorstTag([k1, w2]) : 'est';
-    if (V && V.reliable) {
+    // Income is Vault-logged only (no K-1 / W-2): actual income logged so far in the month on screen.
+    if (V) {
       V.M.sources.forEach(function (s) {
         if (!s.amount) return;
-        incC.push({ id: 'inc-' + s.name, label: s.label, val: r2(s.amount * scale), tag: scale === 1 ? 'ver' : 'der', vault: true,
-          src: 'Vault Income \u00b7 ' + money(s.amount) + ' logged over ' + V.logged + ' day' + (V.logged === 1 ? '' : 's'), go: incomeRoute(s.name), goLabel: 'Vault income' });
+        incC.push({ id: 'inc-' + s.name, label: s.label, val: r2(s.amount), tag: 'ver', vault: true,
+          src: 'Vault Income \u00b7 logged ' + (V.logged ? V.logged + ' day' + (V.logged === 1 ? '' : 's') + ' into the month' : 'this month'), go: incomeRoute(s.name), goLabel: 'Vault income' });
       });
       incVal = incC.length ? ovSumC(incC) : 0;
-      if (docInc !== null) {
-        incInfo.push({ id: 'dinc', label: 'K-1 + W-2 \u00f7 12 (Overview Doc)', val: docInc, tag: docIncTag, vault: false, src: (k1.src || 'Overview Doc'), ref: docIncTag === 'est' && ovEst('inc.k1') ? 'inc.k1' : (ovEst('inc.w2') ? 'inc.w2' : '') });
-        if (incVal > 0 && Math.abs(incVal - docInc) > 0.2 * docInc) incFlags.push({ label: 'Income / mo', vault: incVal, doc: docInc, docTag: docIncTag, ref: '' });
-      }
-    } else if (docInc !== null) {
-      incC.push({ id: 'k1', label: 'K-1 \u00f7 12', val: k1.val / 12, tag: k1.tag, vault: false, src: k1.src, ref: k1.ref, docSrc: k1.docSrc });
-      incC.push({ id: 'w2', label: 'W-2 \u00f7 12', val: w2.val / 12, tag: w2.tag, vault: false, src: w2.src, ref: w2.ref, docSrc: w2.docSrc });
-      incVal = docInc;
-      incNotes.push(V ? 'The Vault has fewer than 14 days logged this month, so the Doc K-1 + W-2 \u00f7 12 is used until it fills in.' : 'The live Vault income is not loaded, so the Doc K-1 + W-2 \u00f7 12 is used.');
-      if (V && V.M.incomeTotal) incInfo.push({ id: 'vmtd', label: 'Vault income so far', val: V.M.incomeTotal, tag: 'ver', vault: true, src: 'Vault Income \u00b7 ' + V.logged + ' days logged', go: incomeRoute('All') });
+      incNotes.push('Only income logged in the Vault is counted, month to date. No K-1 or W-2.');
+    } else {
+      incNotes.push('The live Vault income is not loaded yet.');
     }
-    M.heads.inc = ovHead('inc', incC, { val: incVal, cls: 'amt-in', fmt: 'money', gtitle: V && V.reliable ? 'Income by source (logged)' : 'Overview Doc',
-      groups: [{ title: V && V.reliable ? 'Income by source (logged)' : 'Overview Doc', comps: incC }, incInfo.length ? { title: V && V.reliable ? 'Overview Doc comparison (not counted)' : 'For reference', comps: incInfo, info: true } : null].filter(function (g) { return g; }),
-      notes: incNotes, flags: incFlags, sub: V && V.reliable ? 'Vault logged' : 'Doc estimate', vsecs: [{ label: 'Open Vault income', route: incomeRoute('All') }] });
+    M.heads.inc = ovHead('inc', incC, { val: incVal, cls: 'amt-in', fmt: 'money', gtitle: 'Income by source (logged)',
+      groups: [{ title: 'Income by source (logged)', comps: incC }],
+      notes: incNotes, flags: incFlags, sub: 'Vault logged, month to date', vsecs: [{ label: 'Open Vault income', route: incomeRoute('All') }] });
     var burnC = [], burnInfo = [], burnNotes = [], burnFlags = [], burnVal = null, hhDoc = hasL ? ovDocComp('hh.burn') : null;
     var hhAcct = V ? V.M.accounts.filter(function (a) { return a.name === 'Household'; })[0] : null;
     if (V && V.reliable) {
@@ -4249,7 +4240,7 @@
       notes: runRange ? ['Above the working buffer (high \u2013 low): ' + runRange + '.'] : [], vsecs: [{ label: 'Open Vault Accounts', route: 'spend', vsec: 'accounts' }] });
     var flowVal = H.inc.val !== null && H.burn.val !== null && H.ds.val !== null ? H.inc.val - H.burn.val - H.ds.val : null;
     M.heads.flow = ovHead('flow', [ovAgg(H.inc, 'Income / mo', 1), ovAgg(H.burn, 'Household burn / mo', -1), ovAgg(H.ds, 'Debt service / mo', -1)], { val: flowVal, fmt: 'signed',
-      cls: flowVal !== null && flowVal < 0 ? 'amt-out' : 'amt-in', notes: ['Indicative. If the household burn already includes the Wetumka mortgage, or the Vault TiwiK/KiwiT accounts already include the loan payments, those are counted twice.'],
+      cls: flowVal !== null && flowVal < 0 ? 'amt-out' : 'amt-in', notes: ['Income is month to date from the Vault, so early in the month this reads low. Indicative. If the household burn already includes the Wetumka mortgage, or the Vault TiwiK/KiwiT accounts already include the loan payments, those are counted twice.'],
       vsecs: [{ label: 'Open Vault summary', route: 'spend', vsec: 'summary' }] });
     // flags shown per head are de-duplicated by label
     OV_ORDER.forEach(function (k) {
