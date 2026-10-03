@@ -2142,13 +2142,12 @@
   }
   function paintEntChrome() {
     var R = state.entRoute, E = ENTS[R.key] || ENTS.kiwit, sub = !!R.kind, tax = R.kind === 'tax';
-    $('ent-back').hidden = !sub;
-    $('ent-back').setAttribute('data-go', 'ent/' + E.key);
+    $('ent-back').hidden = false;
+    $('ent-back').setAttribute('data-go', sub ? 'ent/' + E.key : 'spend');
+    $('ent-back').innerHTML = sub ? '&lsaquo; Back' : '&lsaquo; Vault';
     $('ent-title').textContent = sub ? E.name + ' \u00b7 ' + entSubTitle(R) : E.title;
     $('ent-title').classList.toggle('sub', sub);
-    $('ent-tabs').hidden = sub;
-    $('ent-tabs').innerHTML = '<button data-go="spend">Vault</button>' + Object.keys(ENTS).map(function (k) {
-      return '<button class="' + (k === E.key ? 'on' : '') + '" data-go="ent/' + k + '">' + esc(ENTS[k].title) + '</button>'; }).join('');
+    $('ent-tabs').hidden = true; $('ent-tabs').innerHTML = '';   // Vault / KiwiT / TiwiK tab strip removed (10/3)
     var cur = state.entCache[E.key + '|' + state.entOff];
     var label = tax ? state.entYear + (state.entYear === new Date().getFullYear() ? ' to date' : '') : (cur && cur.d && cur.d.monthLabel) || entLocalMonth(state.entOff);
     $('ent-month').textContent = label;
