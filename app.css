@@ -1085,7 +1085,7 @@ h4.dbh { margin: 16px 2px 8px; font-size: 12px; letter-spacing: .8px; text-trans
 .dbcard .foot.how { padding: 6px 0 0; margin: 0; font-size: 11px; }
 
 /* Thicker copper borders on all buttons (2.5px) */
-:root { --btn-border: 0.5px; --btn-edge: rgba(240,122,42,.75); }
+:root { --btn-border: 1px; --btn-edge: rgba(240,122,42,.75); }
 .tile, .homebtn, .navbtn, .key, .acct, .allbtn, .chip, .linkrow, .bigbtn, .docbtn, .pmic, .pseg button, .seg button, .enttabs button,
 .projscreen .bigbtn, .micscreen .micbtn, .micscreen .navbtn, .sheetbtn, .smallrow, .ovgo, .vsec .vtot, .acgtot, .erow, .prow {
   border-width: var(--btn-border); border-style: solid; border-color: var(--btn-edge); }
