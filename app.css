@@ -1377,7 +1377,7 @@ body.macopen { overflow: hidden; }
 
 /* v71: Lisa's Table main page: logo band (cream, full width; multiply drops the logo's white background) */
 #screen-lt .ltband { width: 100%; margin: 4px 0 16px; text-align: center; }
-#screen-lt .ltlogo { display: block; margin: 0 auto; width: min(50vw, 200px); height: min(50vw, 200px); padding: min(10.5vw, 42px); box-sizing: border-box; border-radius: 50%; background: #000; border: 1.5px solid #F4A6C0; object-fit: contain; }
+#screen-lt .ltlogo { display: block; margin: 0 auto; width: min(50vw, 200px); height: min(50vw, 200px); padding: min(8vw, 32px); box-sizing: border-box; border-radius: 50%; background: #000; border: 1.5px solid #F4A6C0; object-fit: contain; }
 
 /* v72: Menu Items price chip; Lisa's Table Orders (Current | Previous | Summary) */
 #screen-lt .ltprice { flex: none; min-width: 56px; min-height: 36px; padding: 4px 10px; background: #000; color: var(--lt-t); border: 0.75px solid var(--lt-e); border-radius: var(--radius); font: 700 14px/1 'Inter', sans-serif; cursor: pointer; }
