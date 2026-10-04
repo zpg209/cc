@@ -128,7 +128,7 @@
     if (!getPc()) return lock();
     if (name === 'spend') {
       var curEl = document.querySelector('.screen.active'), cur = curEl ? curEl.id.replace(/^screen-/, '') : '';
-      if (cur === 'fin') { var ovk = state.finKind === 'overview' && state.ovKey ? '/' + state.ovKey : ''; state.spendFrom = state.finKind === 'laundromat' ? 'fin/laundromat' : state.finKind === 'overview' ? 'fin/overview' + ovk : ''; if (state.finKind) state.scrollMem['fin/' + state.finKind + ovk] = window.scrollY || 0; }
+      if (cur === 'fin') { var ovk = state.finKind === 'overview' && state.ovKey ? '/' + state.ovKey : ''; state.spendFrom = state.finKind === 'laundromat' ? 'fin/laundromat' : state.finKind === 'ledger' ? 'fin/ledger' : state.finKind === 'overview' ? 'fin/overview' + ovk : ''; if (state.finKind) state.scrollMem['fin/' + state.finKind + ovk] = window.scrollY || 0; }
       else if (cur === 'ent' && R.kind === 'debt') state.spendFrom = 'ent/' + state.entRoute.key;
       else if (cur !== 'spend' && cur !== 'doc') state.spendFrom = '';
       var okKind = R.kind === 'all' || (/^(cat|acct|income|cash|who|calc|bal|debt)$/.test(R.kind) && R.val);
@@ -139,7 +139,7 @@
       var entKey = ENTS[R.kind] ? R.kind : 'kiwit', entSub = ENT_SUBS.test(R.val) ? R.val : '';
       state.entRoute = { key: entKey, kind: entSub, val: entSub ? R.acct : '', tab: !entSub && R.val === 'docs' ? 'docs' : '' };
     }
-    if (name === 'fin') { state.finKind = (R.kind === 'overview' || R.kind === 'laundromat') ? R.kind : ''; state.ovKey = state.finKind === 'overview' && OV_HEADS[R.val] ? R.val : ''; }
+    if (name === 'fin') { state.finKind = (R.kind === 'ledger' || R.kind === 'overview' || R.kind === 'laundromat') ? R.kind : ''; state.ovKey = state.finKind === 'overview' && OV_HEADS[R.val] ? R.val : ''; }
     if (name === 'insn') state.insSlug = R.kind || '';
     if (name === 'punch' && !(PROJ[R.kind] && PROJ[R.kind].punchUrl)) { name = 'proj'; route = 'proj/' + (PROJ[R.kind] ? R.kind : 'terravi'); }
     var logMic = name === 'mic' && R.kind === 'dailylog';       // #mic/dailylog = Dictate page for the Daily log (Voice notes)
@@ -1395,7 +1395,7 @@
       var entries = (Array.isArray(a.entries) ? a.entries : []).map(function (e) {
         return { date: e.date || '', balance: Number(e.balance) || 0, notes: e.notes || '' };
       });
-      return { name: a.name || '', bank: a.bank || '', type: a.type || '', group: 'Investments', balance: acNum(a.balance), asOf: a.asOf || '',
+      return { name: a.name || '', bank: a.bank || '', type: a.type || '', kind: a.kind || a.accountKind || a.accountType || '', purpose: a.purpose || '', group: 'Investments', balance: acNum(a.balance), asOf: a.asOf || '',
         notes: a.notes || '', prevBalance: acNum(a.prevBalance), prevAsOf: a.prevAsOf || '', change: acNum(a.change), entries: entries };
     };
     var investments = rawInv.map(mapAcct);
@@ -1403,7 +1403,7 @@
       var entries = (Array.isArray(a.entries) ? a.entries : []).map(function (e) {
         return { date: e.date || '', balance: Number(e.balance) || 0, notes: e.notes || '' };
       });
-      return { name: a.name || '', bank: a.bank || '', type: a.type || '', group: normAcct(a.group), balance: acNum(a.balance), asOf: a.asOf || '',
+      return { name: a.name || '', bank: a.bank || '', type: a.type || '', kind: a.kind || a.accountKind || a.accountType || '', purpose: a.purpose || '', group: normAcct(a.group), balance: acNum(a.balance), asOf: a.asOf || '',
         notes: a.notes || '', prevBalance: acNum(a.prevBalance), prevAsOf: a.prevAsOf || '', change: acNum(a.change), entries: entries };
     });
     var groups = (Array.isArray(d.groups) ? d.groups : []).filter(function (g) { return !isInvGroup(g.group); }).map(function (g) {
@@ -1427,7 +1427,7 @@
       if (state.acct !== mine) return;
       var m = String((err && err.message) || '');
       state.acct = /bad_action/.test(m) ? { s: 'na', d: null, at: Date.now() } : { s: 'err', d: prev ? prev.d : null, at: Date.now(), msg: m };
-    }).then(function () { if (state.spendData && $('screen-spend').classList.contains('active')) renderSpend(); if (state.finKind === 'overview' && $('screen-fin').classList.contains('active')) renderOv(); });
+    }).then(function () { if (state.spendData && $('screen-spend').classList.contains('active')) renderSpend(); if (state.finKind === 'overview' && $('screen-fin').classList.contains('active')) renderOv(); if (ledActive()) renderLed(); });
   }
   function balRoute(v) { return 'spend/bal/' + encodeURIComponent(v || 'All'); }
   function balBtn(label, route, cls) { return '<button class="' + (cls || 'acbtn') + '"' + goAttr(route) + '>' + label + ' &rsaquo;</button>'; }
@@ -1551,7 +1551,7 @@
       if (state.debt !== mine) return;
       var m = String((err && err.message) || '');
       state.debt = /bad_action/.test(m) ? { s: 'na', d: null, at: Date.now() } : { s: 'err', d: prev ? prev.d : null, at: Date.now(), msg: m };
-    }).then(function () { if (state.spendData && $('screen-spend').classList.contains('active')) renderSpend(); if ($('screen-ent').classList.contains('active')) renderEnt(); if (state.finKind === 'overview' && $('screen-fin').classList.contains('active')) renderOv(); });
+    }).then(function () { if (state.spendData && $('screen-spend').classList.contains('active')) renderSpend(); if ($('screen-ent').classList.contains('active')) renderEnt(); if (state.finKind === 'overview' && $('screen-fin').classList.contains('active')) renderOv(); if (ledActive()) renderLed(); });
   }
   function dbBadge(status, id, needsOn) {
     status = dbStat(status);
@@ -4669,6 +4669,7 @@
   // Nothing financial is stored in this file or in the public repo.
   var FIN_TTL = 60000;
   var FIN_PAGES = {
+    ledger:     { label: 'Ledger',     sub: 'Accounts, cash flow, bills' },
     overview:   { label: 'Overview',   sub: 'Net worth · cash flow · debt' },
     laundromat: { label: 'Mono Village Laundromat \u00b7 TiwiK', sub: 'TiwiK LLC · income & expenses · loan · maintenance' }
   };
@@ -4841,7 +4842,8 @@
     if (box._fxBound) return; box._fxBound = true;
     box.addEventListener('click', function (e) {
       if (e.target.closest('a[href]')) return;   // document links open in the viewer (global handler)
-      if (boxId === 'fin-body' && state.finKind === 'overview' && ovClick(e)) return;
+      if (boxId === 'fin-body' && state.finKind === 'ledger' && ledClick(e)) return;
+      if (boxId === 'fin-body' && (state.finKind === 'overview' || state.finKind === 'ledger') && ovClick(e)) return;
       var mo = e.target.closest('[data-ld-month]');
       if (mo) { state.monthOffset += Number(mo.getAttribute('data-ld-month')) || 0; ldSpend(true); renderLd(); return; }
       if (e.target.closest('[data-ld-retry]')) { loadLd(true); return; }
@@ -4876,6 +4878,7 @@
     if (!kind) return renderFinHub();
     if (kind === 'laundromat') return loadLd(!!force);
     if (kind === 'overview') return loadOv(!!force);
+    if (kind === 'ledger') return loadLed(!!force);
     var cached = fin.cache[kind];
     if (cached) renderFin(kind, cached.data);
     else $('fin-body').innerHTML = '<div class="loading">Loading…</div>';
@@ -4890,8 +4893,8 @@
   }
   function renderFinHub() {
     var h = '<div class="projbtns">';
-    ['overview', 'laundromat'].forEach(function (k) {
-      h += '<button class="bigbtn" data-go="fin/' + k + '">' + esc(FIN_PAGES[k].label) + '<span class="sub">' + esc(FIN_PAGES[k].sub) + '</span></button>';
+    ['ledger', 'overview', 'laundromat'].forEach(function (k) {
+      h += '<button class="bigbtn' + (k === 'ledger' ? ' ledbtn' : '') + '" data-go="fin/' + k + '">' + esc(FIN_PAGES[k].label) + '<span class="sub">' + esc(FIN_PAGES[k].sub) + '</span></button>';
     });
     h += '</div>';
     var link = '';
@@ -5341,7 +5344,8 @@
       src: est && v === null ? 'No figure in the Doc or Vault yet' : (r.source || 'Overview Doc'), docSrc: est && v === null || ov.stated[ref] ? '' : (r.source || '') };
   }
   function ovAcctComp(a) {
-    return { id: a.name, label: a.name, val: a.balance, tag: 'ver', vault: true, src: 'Vault Accounts \u00b7 ' + a.name, asOf: a.asOf, go: balRoute(a.name), vsec: 'accounts', goLabel: 'Vault Accounts' };
+    var owed = ledKind(a) === 'card';   // a credit card balance is the amount owed: it lowers cash (and net worth) instead of adding to it
+    return { id: a.name, label: a.name, val: owed && a.balance !== null ? -Math.abs(a.balance) : a.balance, tag: 'ver', vault: true, src: 'Vault Accounts \u00b7 ' + a.name + (owed ? ' (credit card, amount owed)' : ''), asOf: a.asOf, go: balRoute(a.name), vsec: 'accounts', goLabel: 'Vault Accounts' };
   }
   function ovInvComp(a) {
     return { id: a.name, label: a.name, val: a.balance, tag: 'ver', vault: true, src: 'Vault Balances \u00b7 ' + a.name, asOf: a.asOf, go: balRoute(a.name), goLabel: 'Balances' };
@@ -5857,6 +5861,342 @@
     }
     return false;
   }
+  // ---- Ledger (v87): the first-tier Finances page. Live data only; nothing financial is stored in this file or in the public repo. ----
+  // Built entirely from data the app already reads: `accounts` (state.acct), `vaultdebt` (state.debt), `spend` (this month), the Overview document
+  // model (ovModel / ovNetWorth) and the Insurance notes page. Every number taps through to its source (Vault, Debts and Bills, entity screens).
+  // Sierra Consultants is kept out of the day-to-day finance tracking, so any account, loan, bill or policy that names it is dropped here.
+  // Account kind: bank (default) | card (credit card: the balance is the AMOUNT OWED, it is subtracted from the totals, paying it is a transfer, not spending)
+  // | app (payment app such as Zelle / Venmo: counted like cash). The kind comes from the accounts data (kind / accountKind / accountType) when the server
+  // sends one, otherwise it is inferred from the account type / name text, and defaults to bank.
+  var LED_KEY = 'cc_ledger_open', ledMem = null;
+  var LED_DEFAULT = { cash: true, flow: true, soon: true, debt: false, nw: false, ins: false, tax: false, goals: false };
+  var LED_ENTS = ['Household', 'TiwiK', 'KiwiT'];
+  var LED_KINDS = { bank: 'Bank', card: 'Credit card', app: 'Payment app' };
+  var led = { sp: { s: 'load', d: null, at: 0 }, ins: { s: 'load', d: null }, seq: 0, acOpen: {} };
+  function ledMap() {
+    if (!ledMem) { try { ledMem = JSON.parse(localStorage.getItem(LED_KEY) || '{}') || {}; } catch (e) { ledMem = {}; } }
+    return ledMem;
+  }
+  function ledIsOpen(key) { var m = ledMap(); return m[key] === undefined ? !!LED_DEFAULT[key] : !!m[key]; }
+  function ledActive() { return state.finKind === 'ledger' && $('screen-fin').classList.contains('active'); }
+  function ledSierra() { return Array.prototype.slice.call(arguments).some(function (s) { return /sierra/i.test(String(s || '')); }); }
+  function ledKind(a) {
+    var k = String(a.kind || '').toLowerCase();
+    if (k === 'bank' || k === 'card' || k === 'app') return k;
+    var t = k + ' ' + String(a.type || '') + ' ' + String(a.name || '') + ' ' + String(a.bank || '');
+    if (/credit\s*card|\bcard\b|\bvisa\b|master\s*card|\bamex\b|american express|\bdiscover\b/i.test(t)) return 'card';
+    if (/payment app|\bzelle\b|\bvenmo\b|paypal|cash\s*app|apple cash/i.test(t)) return 'app';
+    return 'bank';
+  }
+  function ledCard(key, title, tot, body) {
+    var col = !ledIsOpen(key);
+    return '<div class="vgcard ledc led-' + key + (col ? ' collapsed' : '') + '" data-led="' + key + '"><div class="vghead">' +
+      '<h2 class="vgrp led" role="button" tabindex="0" aria-expanded="' + !col + '"><span class="vgt">' + esc(title) + '</span><i class="vgchev" aria-hidden="true">&rsaquo;</i></h2></div>' +
+      '<div class="vgtot led">' + tot + '</div><div class="vgbody">' + body + '</div></div>';
+  }
+  function ledTot(label, valHtml, route, vsec) {
+    return '<button class="ledtot"' + (route ? goAttr(route) : '') + (vsec ? ' data-ov-vsec="' + vsec + '"' : '') + '><span>' + label + '</span><b>' + valHtml + '</b></button>';
+  }
+  function ledLine(label, valHtml, route, vsec, cls) {
+    return '<button class="ledline ' + (cls || '') + '"' + goAttr(route) + (vsec ? ' data-ov-vsec="' + vsec + '"' : '') + '><span>' + label + '</span><b>' + valHtml + '</b><i class="chev">&rsaquo;</i></button>';
+  }
+  function ledNote(t) { return '<div class="foot ledfoot">' + t + '</div>'; }
+  function ledState(msg, retry) { return '<div class="foot ledfoot">' + esc(msg) + '</div>' + (retry ? '<button class="linkrow smallrow" data-led-retry="1">Try again</button>' : ''); }
+  function ledEntChip(ent) {
+    var key = String(ent || '').toLowerCase();
+    return ENTS[key] ? '<button class="ledchip ent" data-go="ent/' + key + '">' + esc(ent) + '</button>' : '<span class="ledchip ent">' + esc(ent || 'Household') + '</span>';
+  }
+  function ledMoney(n, kind) { return kind === 'card' ? money(Math.abs(n)) : balMoney(n); }
+
+  // ---- 1. Cash position ----
+  function ledCashModel(A) {
+    var by = {}, order = [];
+    LED_ENTS.forEach(function (k) { by[k] = { name: k, rows: [], cash: 0, owed: 0, n: 0 }; order.push(k); });
+    A.accounts.forEach(function (a) {
+      if (ledSierra(a.name, a.bank, a.group, a.type, a.purpose)) return;
+      var k = a.group || 'Household';
+      if (!by[k]) { by[k] = { name: k, rows: [], cash: 0, owed: 0, n: 0 }; order.push(k); }
+      var e = by[k], kind = ledKind(a);
+      e.rows.push({ a: a, kind: kind });
+      if (a.balance != null) { if (kind === 'card') e.owed += Math.abs(a.balance); else e.cash += a.balance; e.n++; }
+    });
+    var tot = { cash: 0, owed: 0, n: 0, cards: 0 };
+    order.forEach(function (k) {
+      var e = by[k]; e.net = r2(e.cash - e.owed); e.cash = r2(e.cash); e.owed = r2(e.owed);
+      e.hasCard = e.rows.some(function (x) { return x.kind === 'card'; });
+      tot.cash += e.cash; tot.owed += e.owed; tot.n += e.n; if (e.hasCard) tot.cards++;
+    });
+    tot.cash = r2(tot.cash); tot.owed = r2(tot.owed); tot.net = r2(tot.cash - tot.owed);
+    return { by: by, order: order, tot: tot };
+  }
+  function ledAcctRow(x) {
+    var a = x.a, kind = x.kind, key = 'ac:' + a.name, open = !!led.acOpen[key], owed = kind === 'card';
+    var bal = a.balance == null ? '<span class="acnone ledbal">No balance yet</span>'
+      : '<button class="ledbal ' + (owed ? 'amt-out' : 'amt-bal') + '"' + goAttr(balRoute(a.name)) + ' data-ov-vsec="accounts">' + ledMoney(a.balance, kind) + (owed ? '<small>owed</small>' : '') + '</button>';
+    var flag = a.asOf && !acMonthEnd(a.asOf) && kind === 'bank' ? ' <span class="acflag">not month end</span>' : '';
+    var sub = [a.bank, a.type].filter(Boolean).join(' \u00b7 ');
+    var h = '<div class="ledacct' + (open ? ' open' : '') + '" data-ledac="' + esc(key) + '"><div class="ledah">' +
+      '<button class="ledat" aria-expanded="' + open + '"><span class="ledan">' + esc(a.name) + '</span>' +
+      '<span class="ledam"><span class="ledchip kind ' + kind + '">' + esc(LED_KINDS[kind]) + '</span>' + (a.asOf ? 'As of ' + esc(acDate(a.asOf)) : 'No date') + flag + '</span></button>' +
+      bal + '<button class="ledchevb" aria-label="Show or hide details"><i class="chev">&rsaquo;</i></button></div>';
+    h += '<div class="ledab"><div class="ledrowm">' + ledEntChip(a.group) + (sub ? '<span class="ledsub">' + esc(sub) + '</span>' : '') + '</div>';
+    if (a.purpose) h += '<div class="ledtxt">' + esc(a.purpose) + '</div>';
+    var ents = (a.entries || []).slice().sort(function (p, q) { return p.date < q.date ? 1 : p.date > q.date ? -1 : 0; }).slice(0, 6);
+    if (ents.length) {
+      h += '<div class="ledent"><b class="ledeh">Recent entries</b>' + ents.map(function (en) {
+        return '<div class="lede"><span class="led-d">' + esc(acDate(en.date)) + '</span><span class="led-b ' + (owed ? 'amt-out' : 'amt-bal') + '">' + ledMoney(en.balance, kind) + '</span>' +
+          (en.notes ? '<small>' + esc(en.notes) + '</small>' : '') + '</div>';
+      }).join('') + '</div>';
+    } else if (a.notes) h += '<div class="ledtxt">' + esc(a.notes) + '</div>';
+    h += '<button class="linkrow smallrow"' + goAttr(balRoute(a.name)) + ' data-ov-vsec="accounts">Balance history in the Vault &rsaquo;</button></div></div>';
+    return h;
+  }
+  function ledCashCard() {
+    var st = state.acct || { s: 'load' }, A = st.d, body, tot;
+    if (!A) {
+      var msg = st.s === 'na' ? 'Accounts are not available yet (server update pending).' : st.s === 'err' ? 'Could not load accounts' + (st.msg ? ': ' + st.msg : '') + '.' : 'Loading accounts\u2026';
+      return ledCard('cash', 'Cash position', ledTot('Total cash', '<span class="amt-bal">' + (st.s === 'load' ? '\u2026' : '\u2014') + '</span>', ''), ledState(msg, st.s === 'err'));
+    }
+    var C = ledCashModel(A), anyCard = C.tot.cards > 0;
+    tot = ledTot(anyCard ? 'Net cash (cards owed subtracted)' : 'Total cash', '<span class="amt-bal">' + balMoney(C.tot.net) + '</span>', balRoute('All'), 'accounts');
+    body = '<div class="ledgrp"><div class="ledgh">Totals by entity</div>';
+    C.order.forEach(function (k) {
+      var e = C.by[k];
+      if (!e.rows.length && LED_ENTS.indexOf(k) < 0) return;
+      body += ledLine(esc(k) + '<small>' + e.rows.length + ' account' + (e.rows.length === 1 ? '' : 's') + (e.owed ? ' \u00b7 cards owed ' + money(e.owed) : '') + '</small>',
+        e.rows.length ? '<span class="amt-bal">' + balMoney(e.net) + '</span>' : '<span class="muted">\u2014</span>', balRoute('g:' + k), 'accounts');
+    });
+    body += ledLine('<b>Grand total</b>' + (anyCard ? '<small>cards owed ' + money(C.tot.owed) + ' subtracted</small>' : ''), '<span class="amt-bal">' + balMoney(C.tot.net) + '</span>', balRoute('All'), 'accounts', 'grand') + '</div>';
+    C.order.forEach(function (k) {
+      var e = C.by[k];
+      if (!e.rows.length) return;
+      body += '<div class="ledgrp"><div class="ledgh">' + esc(k) + '<small>' + e.rows.length + ' account' + (e.rows.length === 1 ? '' : 's') + '</small></div>' + e.rows.map(ledAcctRow).join('') + '</div>';
+    });
+    if (!A.accounts.length) body += ledNote('No accounts found on the Accounts tab.');
+    if (anyCard) body += ledNote('Credit cards show the amount owed. Paying a card is a transfer between accounts, not spending.');
+    body += ledNote('Last entered balances' + (A.accounts.some(function (a) { return a.asOf && !acMonthEnd(a.asOf); }) ? ' (some are not month end; the month-end statement is pending)' : '') + '. Tap a number to open it in the Vault.');
+    body += '<button class="linkrow smallrow" data-go="spend" data-ov-vsec="accounts">Open Vault Accounts &rsaquo;</button>';
+    return ledCard('cash', 'Cash position', tot, body);
+  }
+
+  // ---- 2. Cash flow this month (same numbers as the Vault Summary: income logged, spend logged, net) ----
+  function ledFlowCard() {
+    var s = led.sp, d = s.d;
+    if (!d) return ledCard('flow', 'Cash flow this month', ledTot('Net this month', '<span class="amt-bal">' + (s.s === 'load' ? '\u2026' : '\u2014') + '</span>', ''),
+      ledState(s.s === 'err' ? 'The Vault could not load' + (s.err ? ': ' + friendly(s.err) : '') + '.' : 'Loading the Vault\u2026', s.s === 'err'));
+    var M = spendModel(d), net = r2(M.incomeTotal - M.total), cls = net >= 0 ? 'amt-in' : 'amt-out', days = d.daysLogged != null ? Number(d.daysLogged) : 0;
+    var tot = ledTot('Net this month', '<span class="' + cls + '">' + signedMoney(net) + '</span>', calcRoute('month-net'));
+    var b = '<div class="ledmonth">' + esc(d.monthLabel || 'This month') + '</div>';
+    b += ledLine('Income', '<span class="amt-in">' + money(M.incomeTotal) + '</span>', incomeRoute('All'));
+    b += ledLine('Expenses', '<span class="amt-out">' + money(M.total) + '</span>', 'spend/all');
+    b += ledLine('<b>Net</b><small>income \u2212 expenses</small>', '<span class="' + cls + '">' + signedMoney(net) + '</span>', calcRoute('month-net'), '', 'grand');
+    var src = M.sources.filter(function (x) { return x.amount && !ledSierra(x.name, x.label); });
+    if (src.length) b += '<div class="ledgrp"><div class="ledgh">Income by source</div>' + src.map(function (x) { return ledLine(esc(x.label), '<span class="amt-in">' + money(x.amount) + '</span>', incomeRoute(x.name)); }).join('') + '</div>';
+    var acc = M.accounts.filter(function (x) { return x.amount && !ledSierra(x.name); });
+    if (acc.length) b += '<div class="ledgrp"><div class="ledgh">Expenses by entity</div>' + acc.map(function (x) { return ledLine(esc(x.name), '<span class="amt-out">' + money(x.amount) + '</span>', acctRoute(x.name)); }).join('') + '</div>';
+    b += ledNote((days > 0 ? days + ' day' + (days === 1 ? '' : 's') + ' logged this month' : 'No days logged yet') + '. Same numbers as the Vault Summary. Tap a number to open it in the Vault.');
+    b += '<button class="linkrow smallrow" data-go="spend" data-ov-vsec="summary">Open the Vault &rsaquo;</button>';
+    return ledCard('flow', 'Cash flow this month', tot, b);
+  }
+
+  // ---- 3. Coming up (next 30 days): loan payments + bills from the Debts and Bills tabs. Property taxes are never shown (Mono Way is paid, Stewart Street is NNN paid
+  //         by the tenant, Wetumka is inside the mortgage impound) and TiwiK never pays rent to KiwiT. ----
+  function ledBillOk(b) {
+    var txt = [b.name, b.kindLabel, b.kind].join(' ');
+    if (b.kind === 'tax' || /property\s*tax|\btax(es)?\b/i.test(txt)) return false;
+    if (/\brent\b/i.test(txt) && /tiwik/i.test(b.entity)) return false;
+    return !ledSierra(b.name, b.entity, b.kindLabel);
+  }
+  function ledRoutes(D, view, arg) { return dbSheet(D) ? dbRoute(view, arg) : 'spend'; }
+  function ledDebtState(title, key) {
+    var st = state.debt || { s: 'load' };
+    var msg = st.s === 'na' ? 'Not available yet (server update pending). Debts and bills are in Finances \u203a Overview.' : st.s === 'err' ? 'Could not load' + (st.msg ? ': ' + st.msg : '') + '.' : 'Loading\u2026';
+    return ledCard(key, title, ledTot(key === 'soon' ? 'Total due' : 'Total debt', '<span class="amt-neutral">' + (st.s === 'load' ? '\u2026' : '\u2014') + '</span>', ''), ledState(msg, st.s === 'err'));
+  }
+  function ledSoonCard() {
+    var st = state.debt || { s: 'load' }, D = st.d, title = 'Coming up (next 30 days)';
+    if (!D) return ledDebtState(title, 'soon');
+    var list = D.bills.filter(function (b) { return ledBillOk(b) && (b.overdue || b.daysUntil == null || b.daysUntil <= D.windowDays); });
+    var total = r2(list.filter(function (b) { return !b.viaEscrow && b.amount != null; }).reduce(function (s, b) { return s + b.amount; }, 0));
+    var tot = ledTot('Total due \u00b7 ' + list.length + ' item' + (list.length === 1 ? '' : 's'), '<span class="amt-gold">' + money(total) + '</span>', ledRoutes(D, 'bills'), dbSheet(D) ? '' : 'bills');
+    var b = '';
+    if (!list.length) b += '<div class="foot empty ledfoot">Nothing due in the next ' + D.windowDays + ' days.</div>';
+    list.forEach(function (x) {
+      var amt = x.amount == null ? '<span class="muted">n/a</span>' : '<button class="ledbal ' + (x.viaEscrow ? 'amt-neutral' : 'amt-gold') + '"' + goAttr(ledRoutes(D, 'bill', x.id)) + '>' + money(x.amount) + (x.viaEscrow ? '<small>via escrow</small>' : '') + '</button>';
+      b += '<div class="ledbill' + (x.overdue ? ' overdue' : '') + '"><div class="ledbd"><b>' + esc(dbDate(x.date, true).replace(/^(\w+), /, '$1 ')) + '</b><small>' + esc(x.overdue ? 'overdue' : dbIn(x.daysUntil)) + '</small></div>' +
+        '<div class="ledbm"><span class="ledan">' + esc(x.name) + '</span><span class="ledam">' + ledEntChip(x.entity) + esc([x.kindLabel, x.repeat && x.repeat !== 'One-time' ? x.repeat : ''].filter(Boolean).join(' \u00b7 ')) + ' ' + dbStatic(x.status) + '</span></div>' + amt + '</div>';
+    });
+    if (list.length) b += ledLine('<b>Total due</b><small>' + (D.windowEnd ? 'through ' + esc(dbDate(D.windowEnd)) + ', ' : '') + 'escrow items not counted</small>', '<span class="amt-gold">' + money(total) + '</span>', ledRoutes(D, 'bills'), dbSheet(D) ? '' : 'bills', 'grand');
+    b += ledNote('Loan payments and bills from the Debts and Bills tabs. Property taxes are not listed here.');
+    b += '<button class="linkrow smallrow" data-go="spend" data-ov-vsec="bills">Open Vault Upcoming bills &rsaquo;</button>';
+    return ledCard('soon', title, tot, b);
+  }
+
+  // ---- 4. Debts ----
+  function ledDebtCard() {
+    var st = state.debt || { s: 'load' }, D = st.d, title = 'Debts';
+    if (!D) return ledDebtState(title, 'debt');
+    var loans = D.loans.filter(function (l) { return !ledSierra(l.name, l.entity, l.lender); });
+    var cut = loans.length !== D.loans.length;
+    var tDebt = cut ? r2(loans.reduce(function (s, l) { return s + (l.balance || 0); }, 0)) : D.totalDebt;
+    var tMo = cut ? r2(loans.reduce(function (s, l) { return s + (l.payment || 0); }, 0)) : D.totalMonthly;
+    var tot = ledTot('Total debt', '<span class="amt-neutral">' + balMoney(tDebt) + '</span>', ledRoutes(D, 'total'), dbSheet(D) ? '' : 'debt');
+    var b = '';
+    if (!loans.length) b += ledNote('No loans on the Debts tab yet.');
+    loans.forEach(function (l) {
+      var lr = ledRoutes(D, 'loan', l.key), vs = dbSheet(D) ? '' : ' data-ov-vsec="debt"';
+      b += '<div class="ledloan"><div class="ledlt"><div class="ledan">' + esc(l.name) + '</div><div class="ledam">' + ledEntChip(l.entity) + esc(l.lender || '') + ' ' + dbStatic(l.status) + '</div></div>' +
+        '<button class="ledline"' + goAttr(lr) + vs + '><span>Balance' + (l.asOf ? '<small>as of ' + esc(dbDate(l.asOf)) + '</small>' : '') + '</span><b class="amt-neutral">' + (l.balance == null ? '\u2014' : balMoney(l.balance)) + '</b><i class="chev">&rsaquo;</i></button>' +
+        (l.payment != null ? '<button class="ledline"' + goAttr(lr) + vs + '><span>Monthly payment' + (l.rateText ? '<small>' + esc(l.rateText) + '</small>' : '') + '</span><b class="amt-out">' + money(l.payment) + '</b><i class="chev">&rsaquo;</i></button>' : '') +
+        (l.paymentNext ? '<div class="ledtxt">From ' + esc(dbDate(l.paymentNext.from)) + ': <span class="amt-out">' + money(l.paymentNext.amount) + '</span> / mo</div>' : '') +
+        (l.nextDue ? '<div class="ledtxt">Next due ' + esc(dbDate(l.nextDue, true)) + ' (' + esc(dbIn(l.daysUntil)) + ')</div>' : '') + '</div>';
+    });
+    if (loans.length) {
+      b += '<div class="ledgrp"><div class="ledgh">Totals</div>' +
+        ledLine('<b>Total debt</b>', '<span class="amt-neutral">' + balMoney(tDebt) + '</span>', ledRoutes(D, 'total'), dbSheet(D) ? '' : 'debt', 'grand') +
+        ledLine('<b>Total debt service</b><small>per month</small>', '<span class="amt-out">' + money(tMo) + '</span>', ledRoutes(D, 'service'), dbSheet(D) ? '' : 'debt', 'grand') + '</div>';
+      if (!cut && D.monthlyAfter && D.monthlyAfter.from > D.today) b += ledNote('From ' + esc(dbDate(D.monthlyAfter.from)) + ' the monthly total becomes ' + money(D.monthlyAfter.amount) + '.');
+    }
+    b += ledNote('From the Debts tab. Tap a number to see the row behind it.');
+    b += '<button class="linkrow smallrow" data-go="spend" data-ov-vsec="debt">Open Vault Debt &rsaquo;</button>';
+    return ledCard('debt', title, tot, b);
+  }
+
+  // ---- 5. Assets & net worth (the Overview's own model: property values are Zac's estimates and carry the Incomplete tag) ----
+  function ledNwCard() {
+    var f = ov.fin, a = state.acct, d = state.debt, title = 'Assets & net worth', ok = f.s === 'ok' && f.data && Array.isArray(f.data.ledger) && f.data.ledger.length;
+    function shell(totVal, body) { return ledCard('nw', title, ledTot('Net worth', totVal, 'fin/overview/nw'), body); }
+    if (f.s === 'na') return shell('<span class="amt-neutral">\u2014</span>', ledState('Not available yet (server update pending).'));
+    if (f.s === 'err' && !f.data) return shell('<span class="amt-neutral">\u2014</span>', ledState('Could not load the Overview figures: ' + friendly(f.err), true));
+    if (!ok && f.s !== 'load') return shell('<span class="amt-neutral">\u2014</span>', ledState('The Overview figures are not available yet (server update pending).'));
+    if (!ok || (a && a.s === 'load' && !a.d) || (d && d.s === 'load' && !d.d)) return shell('<span class="amt-neutral">\u2026</span>', ledState('Loading\u2026'));
+    var M = ovModel(), H = M.heads.nw, NW = ovNetWorth(M);
+    var tot = ledTot('Net worth' + (H.val !== null && H.tag === 'est' ? ' <span class="badge est">Incomplete</span>' : ''), H.val === null ? '<span class="amt-neutral">\u2014</span>' : '<span class="' + (H.val >= 0 ? 'amt-in' : 'amt-out') + '">' + ovWhole(H.val) + '</span>', 'fin/overview/nw');
+    var b = '<div class="ledcmp">' + NW.html + '</div>' + ledNote('Same figures as Finances \u203a Overview. Property and equipment values are Zac\u2019s own estimates (no appraisals) and stay tagged Incomplete.') +
+      '<button class="linkrow smallrow" data-go="fin/overview/nw">Net worth detail &rsaquo;</button>';
+    return ledCard('nw', title, tot, b);
+  }
+
+  // ---- 6. Insurance & renewals (policy renewal dates from the Insurance notes page) ----
+  function ledShort(s, n) { return String(s || '').replace(/\s*[\(\.;].*$/, '').slice(0, n || 60); }
+  function ledInsCard() {
+    var s = led.ins, title = 'Insurance & renewals';
+    if (s.s !== 'ok') {
+      var msg = s.s === 'na' ? 'Coming soon' : s.s === 'err' ? 'Could not load the insurance notes.' : 'Loading\u2026';
+      return ledCard('ins', title, ledTot('Policies', '<span class="amt-neutral">' + (s.s === 'na' ? 'Coming soon' : s.s === 'load' ? '\u2026' : '\u2014') + '</span>', 'insn'), ledState(msg, s.s === 'err'));
+    }
+    var rows = [];
+    insEnts(s.d).forEach(function (e) {
+      if (ledSierra(e.slug, e.name, e.full)) return;
+      (e.policies || []).forEach(function (p) {
+        if (!p.renewal || ledSierra(p.carrier, p.type)) return;
+        var pt = String(p.premium || ''), pm = pt.match(/=\s*(\$[\d,]+(?:\.\d+)?)\s*total/i) || pt.match(/^(\$[\d,]+(?:\.\d+)?)/);   // "<base> + fees = <amount> total" -> the total, otherwise the leading amount
+        rows.push({ date: p.renewal, slug: e.slug, who: insLabel(e), label: ledShort(p.carrier, 50) + ' \u2014 ' + ledShort(p.type, 60), prem: pm ? pm[1] + (/estimated/i.test(pt) ? ' est.' : '') : '' });
+      });
+    });
+    var nPol = rows.length;
+    (s.d.todo || []).forEach(function (t) {   // open dated to-dos (e.g. a renewal offer to decide on) are key dates too, same as the Insurance notes page
+      var dd = daysTo(t.date);
+      if (t.done || dd === null || dd < 0 || ledSierra(t.lead, t.text, (t.entities || []).join(' '))) return;
+      if (rows.some(function (r) { return !r.todo && r.date === t.date && (t.entities || []).indexOf(r.slug) >= 0; })) return;   // the policy row already shows this date
+      rows.push({ date: t.date, slug: (t.entities || [])[0] || '', who: (t.entities || []).map(function (x) { return INS_LABEL[x] || x; }).join(' \u00b7 '), label: t.lead || todoRest(t), prem: '', todo: true });
+    });
+    rows.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+    var up = rows.filter(function (r) { var dd = daysTo(r.date); return dd !== null && dd >= 0; }), past = rows.filter(function (r) { return up.indexOf(r) < 0; });
+    var next = up[0];
+    var tot = ledTot(nPol + ' polic' + (nPol === 1 ? 'y' : 'ies') + (next ? ' \u00b7 next date' : ''), '<span class="amt-neutral">' + (next ? esc(fmtDate(next.date)) : '\u2014') + '</span>', 'insn');
+    var b = '';
+    if (!rows.length) b += ledNote('No renewal dates found in the insurance notes.');
+    up.concat(past).forEach(function (r) {
+      b += '<button class="ledins"' + goAttr(r.slug ? 'insn/' + r.slug : 'insn') + '><span class="ledim"><span class="ledan">' + esc(r.label) + '</span><span class="ledam">' + esc(r.who) + (r.todo ? ' \u00b7 to do' : '') + '</span>' + dueChip(r.date) + '</span>' +
+        (r.prem ? '<b class="amt-out">' + esc(r.prem) + '</b>' : '') + '<i class="chev">&rsaquo;</i></button>';
+    });
+    b += ledNote('Renewal dates and premiums come from the Insurance running notes. Tap a policy for its details.');
+    b += '<button class="linkrow smallrow" data-go="insn">Insurance notes &rsaquo;</button>';
+    return ledCard('ins', title, tot, b);
+  }
+
+  // ---- 7. Placeholders (nothing invented) ----
+  function ledSoonPlaceholder(key, title, text) {
+    return ledCard(key, title, ledTot('Status', '<span class="amt-neutral">Coming soon</span>', ''), '<div class="ledsoon"><b>Coming soon</b>' + esc(text) + '</div>');
+  }
+  function ledHtml() {
+    return '<div class="ledhero">Accounts, cash flow, bills and net worth in one place. Live numbers; tap any number to open its source.</div>' +
+      ledCashCard() + ledFlowCard() + ledSoonCard() + ledDebtCard() + ledNwCard() + ledInsCard() +
+      ledSoonPlaceholder('tax', 'Taxes & documents', 'Tax returns, K-1s and key finance documents will be listed here.') +
+      ledSoonPlaceholder('goals', 'Goals', 'Savings and debt-payoff goals will be tracked here.');
+  }
+  function renderLed() {
+    if (state.finKind !== 'ledger') return;
+    $('fin-body').innerHTML = ledHtml();
+  }
+  function ledFetchSpend(force) {
+    var s = led.sp;
+    if (s.s === 'ok' && !force && Date.now() - s.at < FIN_TTL) return;
+    var prev = s.s === 'ok' ? s : null, seq = ++led.seq;
+    if (!prev) led.sp = { s: 'load', d: null, at: 0 };
+    api('spend', 0).then(function (d) {
+      if (seq !== led.seq) return;
+      led.sp = { s: 'ok', d: d, at: Date.now() };
+    }, function (err) {
+      if (seq !== led.seq) return;
+      if (err instanceof AuthError) { setPc(''); return lock('Passcode changed. Enter the new one.'); }
+      if (!prev) led.sp = { s: 'err', d: null, err: err, at: Date.now() };
+    }).then(function () { if (ledActive()) renderLed(); });
+  }
+  function ledFetchIns(force) {
+    var c = fin.cache.insurance;
+    if (c) led.ins = { s: 'ok', d: c.data }; else if (led.ins.s !== 'ok') led.ins = { s: 'load', d: null };
+    if (c && !force && Date.now() - c.at < FIN_TTL) return;
+    finApi('insurance', true, function (err, data) {
+      if (!err) led.ins = { s: 'ok', d: data };
+      else if (err.na) led.ins = { s: 'na', d: null };
+      else if (err instanceof AuthError) { setPc(''); return lock('Passcode changed. Enter the new one.'); }
+      else if (led.ins.s !== 'ok') led.ins = { s: 'err', d: null };
+      if (ledActive()) renderLed();
+    });
+  }
+  function ledFetchFin(force) {
+    var c = fin.cache.overview;
+    if (c) ov.fin = { s: 'ok', data: c.data }; else if (ov.fin.s !== 'ok') ov.fin = { s: 'load' };
+    if (c && !force && Date.now() - c.at < FIN_TTL) return;
+    finApi('overview', true, function (err, data) {
+      if (!err) ov.fin = { s: 'ok', data: data };
+      else if (err.na) ov.fin = { s: 'na' };
+      else if (err instanceof AuthError) { setPc(''); return lock('Passcode changed. Enter the new one.'); }
+      else if (!ov.fin.data) ov.fin = { s: 'err', err: err };
+      if (ledActive()) renderLed();
+    });
+  }
+  function loadLed(force) {
+    loadAccounts(!!force); loadDebt(!!force); ledFetchSpend(!!force); ledFetchIns(!!force); ledFetchFin(!!force);
+    renderLed();
+  }
+  function ledToggle(card) {
+    var key = card.getAttribute('data-led'), col = !card.classList.contains('collapsed');
+    card.classList.toggle('collapsed', col);
+    var h = card.querySelector('h2.vgrp'); if (h) h.setAttribute('aria-expanded', String(!col));
+    var m = ledMap(); m[key] = !col;
+    try { localStorage.setItem(LED_KEY, JSON.stringify(m)); } catch (e) {}
+  }
+  function ledClick(e) {
+    var h = e.target.closest('h2.vgrp.led');
+    if (h) { ledToggle(h.closest('.vgcard')); return true; }
+    var at = e.target.closest('.ledat, .ledchevb');
+    if (at) {
+      var row = at.closest('.ledacct'), open = !row.classList.contains('open');
+      row.classList.toggle('open', open); led.acOpen[row.getAttribute('data-ledac')] = open;
+      var t = row.querySelector('.ledat'); if (t) t.setAttribute('aria-expanded', String(open));
+      return true;
+    }
+    if (e.target.closest('[data-led-retry]')) { loadLed(true); return true; }
+    return false;
+  }
+  $('fin-body').addEventListener('keydown', function (e) {
+    var h = state.finKind === 'ledger' && e.target.closest && e.target.closest('h2.vgrp.led');
+    if (h && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); ledToggle(h.closest('.vgcard')); }
+  });
+
   // ---- TiwiK / Mono Village Laundromat screen (v22) ----
   // Collapsible sections: Income & Expenses (live from the Vault `spend` API, same drill-downs), Loan (Payoff Options Doc via
   // fin page "loan"; falls back to the Laundromat Doc until the API update), Maintenance (Maintenance Doc via fin page

@@ -1484,3 +1484,74 @@ body.macopen { overflow: hidden; }
 .qa-banner { margin: 8px 0 0; padding: 8px 10px; border-radius: var(--radius); background: rgba(240,122,42,.14); border: 1px solid rgba(240,122,42,.5); color: #F07A2A; font: 600 13px/1.3 'Inter', sans-serif; }
 .qa-water { display: flex; align-items: center; gap: 8px; margin-top: 10px; font: 600 13px 'Inter', sans-serif; color: var(--muted); }
 .qa-water span { flex: 1; }
+
+/* ---- v87: Ledger (first-tier Finances page). Reuses the Vault's .vgcard group cards; charcoal page, black buttons, orange labels, copper 0.75px borders. ---- */
+.bigbtn.ledbtn { border: 0.75px solid #D08A55; min-height: 132px; }
+.ledhero { margin: 2px 4px 4px; font-size: 13px; line-height: 1.35; color: var(--muted); }
+.vgcard.ledc { --vg: #D08A55; border-width: 0.75px; }
+.vgcard.ledc > .vghead { border-bottom-width: 0.75px; }
+h2.vgrp.led { color: var(--red); font-size: 20px; }
+.vgcard.ledc > .vgtot { padding: 0; }
+.vgcard.collapsed.ledc > .vgtot { display: block; padding: 0; }
+.ledtot { display: flex; width: 100%; justify-content: space-between; align-items: baseline; gap: 10px; background: transparent; border: 0; color: var(--muted, #bbb);
+  font: 400 15px/1.3 'Inter', sans-serif; text-align: left; padding: 10px 2px 12px; min-height: 48px; cursor: pointer; }
+.ledtot b { font-size: 22px; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ledtot .badge { margin-left: 6px; vertical-align: 2px; }
+.vgcard.ledc:not(.collapsed) > .vgtot { display: none; }
+.ledgrp { margin: 10px 0 4px; }
+.ledgh { font: 700 12px/1.2 'Inter', sans-serif; letter-spacing: .8px; text-transform: uppercase; color: var(--red); padding: 4px 2px 6px; }
+.ledgh small { margin-left: 8px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--muted); }
+.ledline { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 8px 2px; background: transparent; border: 0; border-bottom: 0.75px solid var(--line);
+  color: var(--text); font: 400 15px/1.3 'Inter', sans-serif; text-align: left; cursor: pointer; }
+.ledline > span { flex: 1; min-width: 0; }
+.ledline > span small { display: block; font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.ledline > b { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ledline .chev { flex: none; color: var(--red); font-style: normal; font-size: 22px; line-height: 1; }
+.ledline.grand { border-bottom: 0; border-top: 0.75px solid rgba(208,138,85,.55); }
+.ledline.grand > b { font-size: 18px; }
+.ledfoot { margin: 8px 2px 2px; line-height: 1.4; }
+.ledmonth { font: 700 13px/1.2 'Inter', sans-serif; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); padding: 8px 2px 2px; }
+.ledacct { border: 0.75px solid rgba(208,138,85,.55); border-radius: var(--radius); background: var(--btn); margin: 0 0 8px; }
+.ledah { display: flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; min-height: 56px; }
+.ledat { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; text-align: left; background: transparent; border: 0;
+  color: var(--text); font: 600 15px/1.25 'Inter', sans-serif; padding: 6px 0; min-height: 44px; cursor: pointer; }
+.ledan { display: block; font-weight: 600; font-size: 15px; overflow-wrap: anywhere; color: var(--text); }
+.ledam { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font: 400 11.5px/1.3 'Inter', sans-serif; color: var(--muted); }
+.ledbal { flex: none; background: transparent; border: 0; font: 700 16px/1.2 'Inter', sans-serif; font-variant-numeric: tabular-nums; text-align: right; padding: 8px 4px; min-height: 44px; cursor: pointer; white-space: nowrap; }
+.ledbal small { display: block; font-size: 10.5px; font-weight: 400; color: var(--muted); }
+span.ledbal.acnone { font-size: 12px; font-weight: 400; color: var(--muted); cursor: default; }
+.ledchevb { flex: none; background: transparent; border: 0; min-width: 40px; min-height: 44px; color: var(--red); cursor: pointer; }
+.ledchevb .chev { font-style: normal; font-size: 24px; line-height: 1; display: inline-block; transition: transform .15s; }
+.ledacct.open .ledchevb .chev { transform: rotate(90deg); }
+.ledab { display: none; padding: 2px 10px 10px; border-top: 0.75px solid var(--line); }
+.ledacct.open .ledab { display: block; }
+.ledchip { display: inline-block; font: 700 10px/1 'Inter', sans-serif; letter-spacing: .4px; text-transform: uppercase; padding: 3px 6px; border-radius: 3px; border: 0.75px solid rgba(208,138,85,.7);
+  color: #D08A55; background: transparent; }
+button.ledchip { cursor: pointer; }
+.ledchip.kind { color: var(--muted); border-color: rgba(255,255,255,.25); }
+.ledchip.kind.card { color: #ffb74d; border-color: rgba(255,183,77,.55); }
+.ledchip.kind.app { color: #7fb4ff; border-color: rgba(127,180,255,.5); }
+.ledrowm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 0 4px; }
+.ledsub { font-size: 12px; color: var(--muted); }
+.ledtxt { font-size: 12.5px; line-height: 1.4; color: var(--muted); margin: 4px 0; }
+.ledent { margin: 6px 0 2px; }
+.ledeh { display: block; font: 700 11px/1.2 'Inter', sans-serif; letter-spacing: .6px; text-transform: uppercase; color: var(--red); padding: 4px 0; }
+.lede { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 6px 0; border-bottom: 0.75px solid var(--line); font-size: 13px; }
+.lede:last-child { border-bottom: 0; }
+.lede .led-b { font-weight: 700; font-variant-numeric: tabular-nums; }
+.lede small { grid-column: 1 / -1; color: var(--muted); font-size: 11.5px; line-height: 1.35; }
+.ledbill { display: grid; grid-template-columns: 74px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 10px 2px; border-bottom: 0.75px solid var(--line); }
+.ledbill.overdue .ledbd b { color: var(--neg); }
+.ledbd b { display: block; font-size: 13px; }
+.ledbd small { display: block; font-size: 11px; color: var(--muted); }
+.ledbm { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.ledloan { border: 0.75px solid rgba(208,138,85,.55); border-radius: var(--radius); background: var(--btn); padding: 8px 10px 4px; margin: 0 0 10px; }
+.ledlt { padding: 2px 0 6px; display: flex; flex-direction: column; gap: 4px; }
+.ledins { display: flex; align-items: center; gap: 10px; width: 100%; background: transparent; border: 0; border-bottom: 0.75px solid var(--line); min-height: 56px; padding: 8px 2px;
+  color: var(--text); text-align: left; cursor: pointer; font: 400 14px/1.3 'Inter', sans-serif; }
+.ledim { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.ledins b { font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ledins .chev { flex: none; color: var(--red); font-style: normal; font-size: 22px; line-height: 1; }
+.ledcmp .ovrow { padding-left: 0; padding-right: 0; }
+.ledsoon { padding: 14px 4px 10px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.ledsoon b { display: block; color: var(--red); font-size: 15px; margin-bottom: 4px; }
