@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lora:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=88">
+<link rel="stylesheet" href="app.css?v=89">
 </head>
 <body>
   <div class="bg"></div>
@@ -53,6 +53,7 @@
       <button class="tile" data-go="fin">Finances</button>
       <button class="tile" data-go="insn">Insurance</button>
       <button class="tile" data-go="lt">Lisa&#39;s Table</button>
+      <button class="tile" data-go="pt">Lisa&#39;s Personal Training</button>
       <button class="tile" data-go="trust">Trust &amp; Estate</button>
       <button class="tile" data-go="ent/kiwit">KiwiT LLC</button>
       <button class="tile" data-go="ent/tiwik">TiwiK LLC</button>
@@ -145,6 +146,12 @@
   <section id="screen-lt" class="screen">
     <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="lt-back" data-go="home">&lsaquo; Back</button><h2 id="lt-title">Lisa&#39;s Table</h2></div>
     <div id="lt-body"><div class="loading">Loading…</div></div>
+  </section>
+
+  <!-- ============ LISA'S PERSONAL TRAINING (#pt, #pt/new, #pt/client/<id>) ============ -->
+  <section id="screen-pt" class="screen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="pt-back" data-go="home">&lsaquo; Back</button><h2 id="pt-title">Clients</h2></div>
+    <div id="pt-body"><div class="loading">Loading…</div></div>
   </section>
 
   <!-- ============ TRUST & ESTATE (#trust) ============ -->
@@ -263,6 +270,6 @@
     <div id="vcam-body"></div>
   </section>
 
-  <script src="app.js?v=88"></script>
+  <script src="app.js?v=89"></script>
 </body>
 </html>

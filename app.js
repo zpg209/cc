@@ -14,7 +14,7 @@
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', ovKey: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
-  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam'];
+  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -141,6 +141,7 @@
     }
     if (name === 'fin') { state.finKind = (R.kind === 'ledger' || R.kind === 'overview' || R.kind === 'laundromat') ? R.kind : ''; state.ovKey = state.finKind === 'overview' && OV_HEADS[R.val] ? R.val : ''; }
     if (name === 'insn') state.insSlug = R.kind || '';
+    if (name === 'pt') state.ptRoute = R.kind === 'new' ? { kind: 'new', id: '' } : (R.kind === 'client' && R.val ? { kind: 'client', id: R.val } : { kind: '', id: '' });   // #pt, #pt/new, #pt/client/<id>
     if (name === 'punch' && !(PROJ[R.kind] && PROJ[R.kind].punchUrl)) { name = 'proj'; route = 'proj/' + (PROJ[R.kind] ? R.kind : 'terravi'); }
     var logMic = name === 'mic' && R.kind === 'dailylog';       // #mic/dailylog = Dictate page for the Daily log (Voice notes)
     if (logMic) micLogSetup();
@@ -150,6 +151,7 @@
     if (name !== 'vmic') vmicStop(true);
     if (!(name === 'lt' && R.kind === 'wish')) wlMicStop(true);
     if (!(name === 'lt' && R.kind === 'notes')) lnMicStop(true);
+    if (name !== 'pt') ptMicStop(true);
     if (!(name === 'lt' && R.kind === 'orders')) odMicStop(true);
     if (!(name === 'lt' && (R.kind === 'macros' || R.kind === 'recipes'))) macClose(true);
     if (!(name === 'lt' && R.kind === 'menu-add')) maMicStop(true);
@@ -168,6 +170,7 @@
         name === 'fin' ? '#fin' + (state.finKind ? '/' + state.finKind + (state.ovKey ? '/' + state.ovKey : '') : '') :
         name === 'insn' ? '#insn' + (state.insSlug ? '/' + encodeURIComponent(state.insSlug) : '') :
         name === 'lt' ? '#lt' + (R.kind ? '/' + encodeURIComponent(R.kind) : '') :
+        name === 'pt' ? '#pt' + (state.ptRoute.kind ? '/' + encodeURIComponent(state.ptRoute.kind) + (state.ptRoute.id ? '/' + encodeURIComponent(state.ptRoute.id) : '') : '') :
         name === 're' ? (state.reRoute.ins ? '#ins' : '#re' + (state.reRoute.slug ? '/' + encodeURIComponent(state.reRoute.slug) : '')) : '#' + name;
       if (location.hash !== h) history.pushState({ screen: name }, '', h || location.pathname + location.search);
     }
@@ -189,6 +192,7 @@
     if (name === 'insn') loadInsn(false);
     if (name === 'lt') { state.ltPart = LT_PARTS[R.kind] ? R.kind : ''; loadLt(); }
     if (name === 'trust') loadTrust(false);
+    if (name === 'pt') ptOpen();
     if (name === 'doc') { state.docKey = String(route || '').replace(/^#/, ''); openDocScreen(qparams(R.query)); }
     else restoreScroll(String(route || '').replace(/^#/, '') || 'home');
   }
@@ -7658,6 +7662,422 @@
     if (t.id === 'ln-text') { ln.text = t.value; lnUi(); }
     else if (t.id === 'ln-edit') ln.editText = t.value;
   });
+  /* ---------------- Lisa's Personal Training (#pt): clients -> profile -> workouts ---------------- */
+  // Live from the Sheet "Lisa's Personal Training" through ptclients (read) and ptclientset / ptclientdel / ptworkoutset / ptworkoutdel (writes, cid + POST).
+  // Nothing about clients is stored in this repo or in localStorage (only which cards are open). Unsaved edits live in memory until Save.
+  // Routes: #pt (client list), #pt/new (add client), #pt/client/<id> (profile + workouts).
+  var PT_OPEN_KEY = 'cc_pt_open', PT_TTL = 30000;
+  var PT_SECS = [
+    { key: 'basics',   title: 'Basics',              fields: ['name', 'age', 'phone', 'email', 'status', 'startDate', 'schedule'] },
+    { key: 'health',   title: 'Condition & health',  fields: ['condition', 'ailments', 'medications'] },
+    { key: 'goals',    title: 'Goals & history',     fields: ['goals', 'experience'] },
+    { key: 'notes',    title: 'Notes',               fields: ['notes'] }
+  ];
+  var PT_FIELDS = {
+    name:        { label: 'Name', kind: 'text', max: 80, ph: 'Full name' },
+    age:         { label: 'Age', kind: 'age', max: 3, ph: 'Years' },
+    phone:       { label: 'Phone', kind: 'tel', max: 30, ph: '' },
+    email:       { label: 'Email', kind: 'email', max: 120, ph: '' },
+    status:      { label: 'Status', kind: 'status' },
+    startDate:   { label: 'Start date', kind: 'date', max: 10 },
+    schedule:    { label: 'Schedule / frequency', kind: 'text', max: 200, ph: 'e.g. 2 times a week' },
+    condition:   { label: 'Condition', kind: 'text', max: 300, ph: 'Overall condition / fitness level' },
+    ailments:    { label: 'Ailments / injuries', kind: 'long', max: 1500, ph: 'Anything to work around. Speak it or type it.' },
+    medications: { label: 'Medications', kind: 'long', max: 1000, ph: '' },
+    goals:       { label: 'Goals', kind: 'long', max: 1500, ph: 'What the client wants to achieve' },
+    experience:  { label: 'Previous workouts / experience', kind: 'long', max: 1500, ph: 'What they have done before' },
+    notes:       { label: 'Notes', kind: 'long', max: 2000, ph: 'Anything else' }
+  };
+  var pt = { data: null, at: 0, loading: false, err: '', na: false, seq: 0, filter: 'active', q: '', form: null, formId: '', wf: null, wfOpen: '', wConfirm: '', cConfirm: false,
+    busy: false, wbusy: '', open: null, flash: '' };
+  var pm = { rec: null, on: false, id: '', base: '', committed: '', interim: '' };
+  function ptRoute() { return state.ptRoute || { kind: '', id: '' }; }
+  function ptOnScreen() { return $('screen-pt').classList.contains('active'); }
+  function ptOpenMap() { if (!pt.open) pt.open = lsGet(PT_OPEN_KEY, null) || { basics: 1, health: 1, goals: 1, workouts: 1 }; return pt.open; }
+  function ptIsOpen(k) { return !!ptOpenMap()[k]; }
+  function ptMsg(id, text, bad) { var el = $(id); if (!el) return; el.textContent = text || ''; el.hidden = !text; el.className = 'noteflash' + (text ? ' show' : '') + (bad ? ' bad' : ''); }
+  function ptApiMsg(j) {
+    if (!j || !j.error) return 'Something went wrong.';
+    if (j.error === 'bad_action') return 'Server update pending. This will work after the next server update.';
+    return j.message || ('Server error: ' + j.error);
+  }
+  function ptDate(iso) {
+    var m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); if (!m) return '';
+    return new Date(+m[1], +m[2] - 1, +m[3], 12).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+  function ptClient(id) { var l = (pt.data && pt.data.clients) || []; for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i]; return null; }
+  function ptFirstLine(s, n) { s = String(s || '').split('\n')[0].trim(); return s.length > n ? s.slice(0, n - 1) + '\u2026' : s; }
+
+  // ---- load ----
+  function ptOpen() {
+    ptMicStop(true);
+    var r = ptRoute();
+    $('pt-back').setAttribute('data-go', r.kind ? 'pt' : 'home');
+    $('pt-title').textContent = r.kind === 'new' ? 'New client' : r.kind === 'client' ? 'Client' : 'Clients';
+    $('pt-title').classList.toggle('sub', !!r.kind);
+    if (pt.data && Date.now() - pt.at < PT_TTL) return ptRender();
+    ptLoad(false);
+  }
+  function ptLoad(force) {
+    var seq = ++pt.seq; pt.loading = true; pt.err = '';
+    if (!pt.data || force) $('pt-body').innerHTML = '<div class="loading">Loading\u2026</div>';
+    apiRaw('ptclients', {}).then(function (j) {
+      if (seq !== pt.seq) return;
+      pt.loading = false;
+      if (j.error === 'bad_action') { pt.na = true; pt.data = null; return ptRender(); }
+      if (j.error) { pt.err = ptApiMsg(j); return ptRender(); }
+      pt.na = false; pt.data = j.data || { clients: [], counts: { total: 0, active: 0, paused: 0 } }; pt.at = Date.now();
+      if (force) pt.formId = '';
+      ptRender();
+    }, function (err) {
+      if (seq !== pt.seq) return;
+      pt.loading = false;
+      if (vAuth(err)) return;
+      pt.err = friendly(err); ptRender();
+    });
+  }
+  function ptRetryHtml() { return '<button type="button" class="navbtn" data-pt="reload">Try again</button>'; }
+
+  // ---- render ----
+  function ptRender() {
+    if (!ptOnScreen()) return;
+    var y = window.scrollY;
+    ptMicStop(true);
+    var r = ptRoute(), h;
+    if (pt.na) h = '<div class="card ptna"><h3>Server update pending</h3><div class="foot">Lisa\u2019s Personal Training will work after the next server update. Nothing is lost; check back soon.</div></div>' + ptRetryHtml();
+    else if (pt.err && !pt.data) h = '<div class="noteflash show bad">' + esc(pt.err) + '</div>' + ptRetryHtml();
+    else if (!pt.data) h = '<div class="loading">Loading\u2026</div>';
+    else if (r.kind === 'new') { if (pt.formId !== '(new)') ptFormInit(null); h = ptProfileHtml(null); }
+    else if (r.kind === 'client') {
+      var c = ptClient(r.id);
+      if (!c) h = '<div class="card"><div class="foot empty">That client was not found. It may have been deleted.</div></div><button type="button" class="navbtn" data-go="pt">&lsaquo; All clients</button>';
+      else { if (pt.formId !== c.id) ptFormInit(c); h = ptProfileHtml(c); }
+    } else h = ptListHtml();
+    $('pt-body').innerHTML = h;
+    if (r.kind) window.scrollTo(0, y);
+    if (pt.flash) { ptMsg('pt-msg', pt.flash, false); pt.flash = ''; }
+  }
+  function ptCounts() {
+    var l = (pt.data && pt.data.clients) || [], n = { active: 0, paused: 0, all: l.length };
+    l.forEach(function (c) { n[c.status === 'paused' ? 'paused' : 'active']++; });
+    return n;
+  }
+  function ptListHtml() {
+    var n = ptCounts(), f = pt.filter, q = String(pt.q || '').toLowerCase().trim();
+    var h = '<div class="pt"><div class="noteflash" id="pt-msg" hidden></div><button type="button" class="bigsave ptadd" data-go="pt/new">+ Add client</button>' +
+      '<input class="searchbox ptsearch" id="pt-q" type="search" placeholder="Search clients" autocomplete="off" value="' + esc(pt.q) + '" aria-label="Search clients">' +
+      '<div class="vchips ptfilter" role="group" aria-label="Filter">' + [['active', 'Active'], ['paused', 'Paused'], ['all', 'All']].map(function (x) {
+        return '<button type="button" class="vchip' + (f === x[0] ? ' on' : '') + '" data-pt="filter" data-f="' + x[0] + '" aria-pressed="' + (f === x[0]) + '">' + x[1] + ' <small>' + n[x[0]] + '</small></button>';
+      }).join('') + '</div>';
+    h += '<div id="pt-list">' + ptListRows() + '</div>';
+    h += '<button type="button" class="navbtn ptrefresh" data-pt="reload">&#8635; Refresh</button></div>';
+    return h;
+  }
+  function ptListRows() {
+    var q = String(pt.q || '').toLowerCase().trim(), f = pt.filter;
+    var rows = ((pt.data && pt.data.clients) || []).filter(function (c) {
+      if (f !== 'all' && c.status !== f) return false;
+      return !q || (c.name + ' ' + c.goals + ' ' + c.condition).toLowerCase().indexOf(q) >= 0;
+    });
+    if (!rows.length) return '<div class="card"><div class="foot empty">' + (((pt.data && pt.data.clients) || []).length ? 'No clients match.' : 'No clients yet. Tap Add client to set up the first one.') + '</div></div>';
+    return rows.map(function (c) {
+      var goal = ptFirstLine(c.goals, 70);
+      return '<button type="button" class="ptcl" data-go="pt/client/' + esc(encodeURIComponent(c.id)) + '"><span class="ptcl1"><b class="ptname">' + esc(c.name) + '</b>' +
+        '<span class="ptchip ' + (c.status === 'paused' ? 'paused' : 'active') + '">' + (c.status === 'paused' ? 'Paused' : 'Active') + '</span></span>' +
+        '<span class="ptcl2">' + (c.age !== '' && c.age != null ? esc(c.age) + ' yrs' : 'Age not set') + (goal ? ' \u00b7 ' + esc(goal) : '') + '</span>' +
+        '<span class="ptcl3">' + (c.workoutCount || 0) + ' workout' + (c.workoutCount === 1 ? '' : 's') + (c.lastWorkout ? ' \u00b7 last ' + esc(ptDate(c.lastWorkout)) : '') + '</span></button>';
+    }).join('');
+  }
+
+  // ---- profile ----
+  function ptFormInit(c) {
+    pt.formId = c ? c.id : '(new)'; pt.cConfirm = false; pt.wf = null; pt.wfOpen = ''; pt.wConfirm = '';
+    pt.form = { cid: '', sig: '' };
+    Object.keys(PT_FIELDS).forEach(function (k) { pt.form[k] = c ? (c[k] == null ? '' : String(c[k])) : (k === 'status' ? 'active' : ''); });
+  }
+  function ptSecSummary(key, c) {
+    var f = pt.form;
+    if (key === 'basics') return esc((f.name || 'New client') + (f.age ? ' \u00b7 ' + f.age + ' yrs' : '') + ' \u00b7 ' + (f.status === 'paused' ? 'Paused' : 'Active'));
+    if (key === 'health') return esc(f.condition ? ptFirstLine(f.condition, 60) : (f.ailments ? ptFirstLine(f.ailments, 60) : 'Nothing entered'));
+    if (key === 'goals') return esc(f.goals ? ptFirstLine(f.goals, 60) : 'Nothing entered');
+    if (key === 'notes') return esc(f.notes ? ptFirstLine(f.notes, 60) : 'Nothing entered');
+    if (key === 'workouts') { var w = c ? c.workouts || [] : []; return w.length + ' workout' + (w.length === 1 ? '' : 's') + ' \u00b7 ' + w.filter(function (x) { return x.done; }).length + ' done'; }
+    return '';
+  }
+  function ptCard(key, title, summary, body) {
+    var col = !ptIsOpen(key);
+    return '<div class="vgcard ptc' + (col ? ' collapsed' : '') + '" data-ptsec="' + key + '"><div class="vghead">' +
+      '<h2 class="vgrp pth" role="button" tabindex="0" aria-expanded="' + !col + '"><span class="vgt">' + esc(title) + '</span><i class="vgchev" aria-hidden="true">&rsaquo;</i></h2></div>' +
+      '<div class="vgtot ptsum"><span>' + summary + '</span></div><div class="vgbody">' + body + '</div></div>';
+  }
+  function ptFieldHtml(k, pre) {
+    var d = PT_FIELDS[k], v = pt.form[k] == null ? '' : pt.form[k], id = pre + k;
+    if (d.kind === 'status') {
+      return '<div class="vfield"><span>' + d.label + '</span><div class="vchips" role="group" aria-label="Status">' + [['active', 'Active'], ['paused', 'Paused']].map(function (s) {
+        var on = v === s[0]; return '<button type="button" class="vchip' + (on ? ' on' : '') + '" data-pt="status" data-s="' + s[0] + '" aria-pressed="' + on + '">' + s[1] + '</button>';
+      }).join('') + '</div></div>';
+    }
+    if (d.kind === 'long') {
+      return '<div class="vfield"><span>' + d.label + '</span><div class="ptlong"><textarea class="notebox" id="' + id + '" data-ptf="' + k + '" rows="3" maxlength="' + d.max + '" autocapitalize="sentences" placeholder="' + esc(d.ph || '') + '">' + esc(v) + '</textarea>' +
+        '<button type="button" class="micbtn ptmic" data-pt="mic" data-for="' + id + '" aria-pressed="false" aria-label="Dictate ' + esc(d.label) + '">' + vsvg('mic', 26) + '</button></div><div class="micstate" id="ptms-' + id + '"></div></div>';
+    }
+    var type = d.kind === 'tel' ? 'tel' : d.kind === 'email' ? 'email' : d.kind === 'date' ? 'date' : 'text';
+    return '<label class="vfield"><span>' + d.label + '</span><input class="wlin ptin" id="' + id + '" data-ptf="' + k + '" type="' + type + '"' + (d.kind === 'age' ? ' inputmode="numeric"' : '') +
+      (d.max && type !== 'date' ? ' maxlength="' + d.max + '"' : '') + ' autocomplete="off" value="' + esc(v) + '" placeholder="' + esc(d.ph || '') + '"></label>';
+  }
+  function ptProfileHtml(c) {
+    var h = '<div class="pt ptprofile">';
+    PT_SECS.forEach(function (s) {
+      h += ptCard(s.key, s.title, ptSecSummary(s.key, c), s.fields.map(function (k) { return ptFieldHtml(k, 'ptf-'); }).join(''));
+    });
+    h += '<div class="draftbtns ptsavebar"><button type="button" class="bigsave" data-pt="save" id="pt-save"' + (pt.busy ? ' disabled' : '') + '>' + (pt.busy ? 'Saving\u2026' : (c ? 'Save client' : 'Add client')) + '</button>' +
+      '<button type="button" class="navbtn discard" data-pt="cancel">' + (c ? 'Discard changes' : 'Cancel') + '</button></div>';
+    h += '<div class="noteflash" id="pt-msg" hidden></div>';
+    if (c) {
+      h += ptCard('workouts', 'Workouts', esc(ptSecSummary('workouts', c)), ptWorkoutsHtml(c));
+      h += '<div class="ptdel">' + (pt.cConfirm
+        ? '<div class="vdelq">Delete ' + esc(c.name) + ' and all ' + (c.workouts || []).length + ' of their workouts? This cannot be undone.</div><div class="draftbtns"><button type="button" class="bigsave vdelbtn" data-pt="delyes"' + (pt.busy ? ' disabled' : '') + '>Yes, delete client</button><button type="button" class="navbtn" data-pt="delno">Keep</button></div>'
+        : '<button type="button" class="navbtn vdelbtn ptdelbtn" data-pt="del">Delete client</button>') + '</div>';
+    }
+    return h + '</div>';
+  }
+
+  // ---- workouts ----
+  function ptWfInit(w, clientId) {
+    pt.wf = { id: w ? w.id : '', clientId: clientId, date: w ? w.date : vToday(), title: w ? w.title : '', exercises: w ? w.exercises : '', notes: w ? w.notes : '', cid: '', sig: '' };
+  }
+  function ptWorkoutForm() {
+    var f = pt.wf, id = f.id;
+    var h = '<div class="ptwform"><label class="vfield"><span>Date</span><input class="wlin ptin" id="ptw-date" data-ptw="date" type="date" value="' + esc(f.date) + '"></label>' +
+      '<label class="vfield"><span>Title</span><input class="wlin ptin" id="ptw-title" data-ptw="title" type="text" maxlength="120" autocomplete="off" value="' + esc(f.title) + '" placeholder="e.g. Lower body, week 3"></label>';
+    [['exercises', 'Exercises', 'One per line: exercise, sets x reps, weight', 4000, 5], ['notes', 'Notes', 'How it went, what to change', 1500, 3]].forEach(function (x) {
+      var tid = 'ptw-' + x[0];
+      h += '<div class="vfield"><span>' + x[1] + '</span><div class="ptlong"><textarea class="notebox" id="' + tid + '" data-ptw="' + x[0] + '" rows="' + x[4] + '" maxlength="' + x[3] + '" autocapitalize="sentences" placeholder="' + esc(x[2]) + '">' + esc(f[x[0]]) + '</textarea>' +
+        '<button type="button" class="micbtn ptmic" data-pt="mic" data-for="' + tid + '" aria-pressed="false" aria-label="Dictate ' + x[1] + '">' + vsvg('mic', 26) + '</button></div><div class="micstate" id="ptms-' + tid + '"></div></div>';
+    });
+    h += '<div class="draftbtns"><button type="button" class="bigsave" data-pt="wsave"' + (pt.wbusy ? ' disabled' : '') + '>' + (pt.wbusy === 'save' ? 'Saving\u2026' : (id ? 'Save workout' : 'Add workout')) + '</button><button type="button" class="navbtn discard" data-pt="wcancel">Cancel</button></div>';
+    if (id) {
+      h += pt.wConfirm === id
+        ? '<div class="wlconf ptwconf"><div class="vdelq">Delete this workout?</div><div class="draftbtns"><button type="button" class="bigsave vdelbtn" data-pt="wdelyes"' + (pt.wbusy ? ' disabled' : '') + '>Yes, delete</button><button type="button" class="navbtn" data-pt="wdelno">Keep</button></div></div>'
+        : '<button type="button" class="navbtn vdelbtn ptwdel" data-pt="wdel">Delete workout</button>';
+    }
+    return h + '<div class="noteflash" id="pt-wmsg" hidden></div></div>';
+  }
+  function ptWorkoutsHtml(c) {
+    var list = c.workouts || [];
+    var h = '<button type="button" class="navbtn wladd ptwadd" data-pt="wnew">+ Add workout</button>';
+    if (pt.wfOpen === '(new)' && pt.wf) h += '<div class="card ptwcard">' + ptWorkoutForm() + '</div>';
+    if (!list.length && pt.wfOpen !== '(new)') h += '<div class="foot empty">No workouts yet. Tap Add workout.</div>';
+    list.forEach(function (w) {
+      if (pt.wfOpen === w.id && pt.wf) { h += '<div class="card ptwcard editing">' + ptWorkoutForm() + '</div>'; return; }
+      var ex = ptFirstLine(w.exercises, 90), n = String(w.exercises || '').split('\n').filter(Boolean).length;
+      h += '<div class="wlitem ptw' + (w.done ? ' isdone' : '') + '"><div class="wlmain"><button type="button" class="wlchk' + (w.done ? ' on' : '') + '" data-pt="wdone" data-id="' + esc(w.id) + '"' + (pt.wbusy === w.id ? ' disabled' : '') +
+        ' aria-label="' + (w.done ? 'Mark as not done' : 'Mark as done') + '" aria-pressed="' + w.done + '">' + (w.done ? '\u2713' : '') + '</button>' +
+        '<button type="button" class="lntext ptwtext" data-pt="wedit" data-id="' + esc(w.id) + '" aria-label="Edit workout"><span class="wlname">' + esc(w.title) + '</span>' +
+        '<small class="wlmeta">' + esc(ptDate(w.date)) + (w.done ? ' \u00b7 done' + (w.doneOn ? ' ' + esc(ptDate(w.doneOn)) : '') : '') + (n ? ' \u00b7 ' + n + ' line' + (n === 1 ? '' : 's') : '') + '</small>' +
+        (ex ? '<small class="ptwex">' + esc(ex) + '</small>' : '') + '</button></div></div>';
+    });
+    return h + '<div class="noteflash" id="pt-wflash" hidden></div>';
+  }
+
+  // ---- mic (the Wish List dictation: tap to start / stop, appends to the box) ----
+  function ptMicUi() {
+    [].forEach.call($('pt-body').querySelectorAll('.ptmic'), function (b) {
+      var on = pm.on && b.getAttribute('data-for') === pm.id;
+      b.classList.toggle('rec', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+  function ptMicSay(id, text, warn) { var el = $('ptms-' + id); if (!el) return; el.textContent = text || ''; el.className = 'micstate' + (warn ? ' warn' : (text ? ' rec' : '')); }
+  function ptMicFail(msg) { var id = pm.id, r = pm.rec; pm.on = false; pm.rec = null; try { r && r.abort(); } catch (e) {} ptMicUi(); ptMicSay(id, msg, true); var ta = $(id); if (ta) ta.focus(); }
+  function ptMicStart(id) {
+    var ta = $(id); if (!ta) return;
+    if (pm.on) ptMicStop(true);
+    [].forEach.call($('pt-body').querySelectorAll('.micstate'), function (e) { e.textContent = ''; e.className = 'micstate'; });
+    pm.id = id;
+    if (!SR) { ptMicSay(id, MIC_NA, true); ta.focus(); return; }
+    pm.base = ta.value ? ta.value.replace(/\s+$/, '') + ' ' : ''; pm.committed = ''; pm.interim = '';
+    var rec; try { rec = new SR(); } catch (e) { return ptMicFail(MIC_NA); }
+    rec.continuous = false; rec.interimResults = true; rec.lang = 'en-US'; rec.maxAlternatives = 1;
+    rec.onresult = function (ev) {
+      var interim = '';
+      for (var i = ev.resultIndex; i < ev.results.length; i++) {
+        var r = ev.results[i], t = r[0] ? r[0].transcript : '';
+        if (r.isFinal) pm.committed = micSpace(pm.committed, t.trim() + ' '); else interim += t;
+      }
+      pm.interim = interim.replace(/^\s+/, ''); ta.value = pm.base + pm.committed + pm.interim; ta.scrollTop = ta.scrollHeight;
+    };
+    rec.onerror = function (ev) {
+      var e = ev && ev.error;
+      if (e === 'not-allowed' || e === 'service-not-allowed' || e === 'audio-capture' || e === 'language-not-supported') return ptMicFail(MIC_NA);
+      if (e === 'network') return ptMicFail('The speech service couldn\u2019t be reached. Tap the text box and use your keyboard\u2019s mic key.');
+      if (e === 'no-speech') ptMicSay(id, 'Didn\u2019t catch anything. Tap the mic and try again.', true);
+    };
+    rec.onend = function () {
+      if (pm.rec !== rec) return;                          // aborted / screen left
+      pm.committed = micSpace(pm.committed, pm.interim ? pm.interim.trim() + ' ' : ''); pm.interim = '';
+      pm.on = false; pm.rec = null;
+      ta.value = (pm.base + pm.committed).replace(/\s+$/, '');
+      ta.dispatchEvent(new Event('input', { bubbles: true }));       // sync the form model
+      ptMicUi();
+    };
+    pm.rec = rec; pm.on = true;
+    try { rec.start(); } catch (e2) { return ptMicFail(MIC_NA); }
+    ptMicUi(); ptMicSay(id, 'Listening\u2026 tap the mic to stop');
+  }
+  function ptMicStop(quiet) {       // quiet = abort (leaving / re-rendering); otherwise stop() and onend appends the words
+    var r = pm.rec;
+    if (quiet) { pm.rec = null; pm.on = false; try { r && r.abort(); } catch (e) {} return; }
+    if (r) { try { r.stop(); } catch (e2) { pm.rec = null; pm.on = false; ptMicUi(); } }
+  }
+
+  // ---- data updates ----
+  function ptApply(c) {                  // a client (with workouts) came back from the server
+    if (!c || !c.id) return;
+    c.workouts = c.workouts || [];
+    c.workoutCount = c.workouts.length; c.doneCount = c.workouts.filter(function (x) { return x.done; }).length;
+    var d = c.workouts.filter(function (x) { return x.done; })[0] || c.workouts[0]; c.lastWorkout = d ? d.date : '';
+    var l = pt.data.clients, hit = -1;
+    l.forEach(function (x, i) { if (x.id === c.id) hit = i; });
+    if (hit >= 0) l[hit] = c; else l.push(c);
+    l.sort(function (a, b) { return a.status === b.status ? a.name.toLowerCase().localeCompare(b.name.toLowerCase()) : (a.status === 'active' ? -1 : 1); });
+    pt.at = Date.now();
+  }
+  function ptFormGather() {
+    var o = {};
+    Object.keys(PT_FIELDS).forEach(function (k) { o[k] = String(pt.form[k] == null ? '' : pt.form[k]).replace(/^\s+|\s+$/g, ''); });
+    return o;
+  }
+  function ptSave() {
+    if (pt.busy) return;
+    var v = ptFormGather(), r = ptRoute(), c = r.kind === 'client' ? ptClient(r.id) : null;
+    if (!v.name) return ptMsg('pt-msg', 'Enter the client\u2019s name first.', true);
+    if (v.age !== '' && !(/^\d{1,3}$/.test(v.age) && +v.age <= 120)) return ptMsg('pt-msg', 'Age should be a whole number.', true);
+    if (v.email !== '' && !/^\S+@\S+\.\S+$/.test(v.email)) return ptMsg('pt-msg', 'That email does not look right.', true);
+    var body = {}; Object.keys(v).forEach(function (k) { body[k] = v[k]; });
+    if (c) body.id = c.id;
+    var sig = JSON.stringify(body); if (pt.form.sig !== sig) { pt.form.sig = sig; pt.form.cid = vNewCid(); }      // changed since a failed try: new entry id; an unchanged retry keeps its id so it never doubles
+    body.cid = pt.form.cid; pt.busy = true; var btn = $('pt-save'); if (btn) { btn.disabled = true; btn.textContent = 'Saving\u2026'; } ptMsg('pt-msg', '');
+    apiPostRaw('ptclientset', body, 60000).then(function (j) {
+      pt.busy = false;
+      if (j.error) { var b = $('pt-save'); if (b) { b.disabled = false; b.textContent = c ? 'Save client' : 'Add client'; } return ptMsg('pt-msg', ptApiMsg(j) + (j.error === 'bad_action' ? ' Nothing was saved.' : ''), true); }
+      var nc = j.data && j.data.client;
+      if (nc) { ptApply(nc); pt.formId = ''; }
+      if (!c && nc) { pt.flash = 'Added ' + nc.name + '.'; show('pt/client/' + encodeURIComponent(nc.id)); return; }
+      if (nc) ptFormInit(nc);
+      ptRender(); ptMsg('pt-msg', j.data && j.data.unchanged ? 'Nothing had changed.' : 'Saved.', false);
+    }, function (err) {
+      pt.busy = false;
+      if (vAuth(err)) return;
+      var b = $('pt-save'); if (b) { b.disabled = false; b.textContent = c ? 'Save client' : 'Add client'; }
+      ptMsg('pt-msg', friendly(err) + ' Not confirmed yet: tap Save again to retry (same entry id, it will not double).', true);
+    });
+  }
+  function ptDelete() {
+    var r = ptRoute(), c = ptClient(r.id); if (!c || pt.busy) return;
+    pt.busy = true;
+    apiPostRaw('ptclientdel', { id: c.id, name: c.name, cid: vNewCid() }, 60000).then(function (j) {
+      pt.busy = false;
+      if (j.error) { pt.cConfirm = false; ptRender(); return ptMsg('pt-msg', ptApiMsg(j), true); }
+      pt.data.clients = pt.data.clients.filter(function (x) { return x.id !== c.id; }); pt.formId = ''; pt.cConfirm = false;
+      pt.flash = 'Deleted ' + c.name + '.'; show('pt');
+    }, function (err) {
+      pt.busy = false;
+      if (vAuth(err)) return;
+      pt.cConfirm = false; ptRender(); ptMsg('pt-msg', friendly(err) + ' Not confirmed: check the list before trying again.', true);
+    });
+  }
+  function ptWorkoutSave() {
+    if (pt.wbusy || !pt.wf) return;
+    var f = pt.wf, r = ptRoute(), c = ptClient(r.id); if (!c) return;
+    var body = { clientId: c.id, date: String(f.date || '').trim(), title: String(f.title || '').replace(/^\s+|\s+$/g, ''), exercises: String(f.exercises || '').replace(/\s+$/, ''), notes: String(f.notes || '').replace(/\s+$/, '') };
+    if (!body.title) return ptMsg('pt-wmsg', 'Give the workout a title.', true);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(body.date)) return ptMsg('pt-wmsg', 'Pick a date.', true);
+    if (f.id) body.id = f.id;
+    var sig = JSON.stringify(body); if (f.sig !== sig) { f.sig = sig; f.cid = vNewCid(); }
+    body.cid = f.cid; pt.wbusy = 'save'; ptMsg('pt-wmsg', '');
+    var btn = document.querySelector('[data-pt="wsave"]'); if (btn) { btn.disabled = true; btn.textContent = 'Saving\u2026'; }
+    apiPostRaw('ptworkoutset', body, 60000).then(function (j) {
+      pt.wbusy = '';
+      if (j.error) { if (btn) { btn.disabled = false; btn.textContent = f.id ? 'Save workout' : 'Add workout'; } return ptMsg('pt-wmsg', ptApiMsg(j) + (j.error === 'bad_action' ? ' Nothing was saved.' : ''), true); }
+      var w = j.data && j.data.workout;
+      if (w) { var ws = (c.workouts || []).filter(function (x) { return x.id !== w.id; }); ws.push(w); ws.sort(function (a, b) { return a.date === b.date ? b.row - a.row : (a.date < b.date ? 1 : -1); }); c.workouts = ws; ptApply(c); }
+      pt.wf = null; pt.wfOpen = ''; pt.wConfirm = ''; ptRender(); ptMsg('pt-wflash', 'Workout saved.', false);
+    }, function (err) {
+      pt.wbusy = '';
+      if (vAuth(err)) return;
+      if (btn) { btn.disabled = false; btn.textContent = f.id ? 'Save workout' : 'Add workout'; }
+      ptMsg('pt-wmsg', friendly(err) + ' Not confirmed yet: tap Save again to retry (same entry id, it will not double).', true);
+    });
+  }
+  function ptWorkoutDone(id) {
+    var r = ptRoute(), c = ptClient(r.id); if (!c || pt.wbusy) return;
+    var w = (c.workouts || []).filter(function (x) { return x.id === id; })[0]; if (!w) return;
+    var to = !w.done; pt.wbusy = id; ptRender();
+    apiPostRaw('ptworkoutset', { id: id, clientId: c.id, done: to ? 1 : 0, cid: vNewCid() }, 60000).then(function (j) {
+      pt.wbusy = '';
+      if (j.error) { ptRender(); return ptMsg('pt-wflash', ptApiMsg(j), true); }
+      var nw = j.data && j.data.workout; if (nw) { c.workouts = c.workouts.map(function (x) { return x.id === id ? nw : x; }); ptApply(c); }
+      ptRender();
+    }, function (err) {
+      pt.wbusy = '';
+      if (vAuth(err)) return;
+      ptRender(); ptMsg('pt-wflash', friendly(err) + ' Not changed.', true);
+    });
+  }
+  function ptWorkoutDelete() {
+    var r = ptRoute(), c = ptClient(r.id), f = pt.wf; if (!c || !f || !f.id || pt.wbusy) return;
+    pt.wbusy = 'del';
+    apiPostRaw('ptworkoutdel', { id: f.id, title: f.title || (c.workouts.filter(function (x) { return x.id === f.id; })[0] || {}).title || '', cid: vNewCid() }, 60000).then(function (j) {
+      pt.wbusy = '';
+      if (j.error) { pt.wConfirm = ''; ptRender(); return ptMsg('pt-wmsg', ptApiMsg(j), true); }
+      c.workouts = c.workouts.filter(function (x) { return x.id !== f.id; }); ptApply(c);
+      pt.wf = null; pt.wfOpen = ''; pt.wConfirm = ''; ptRender(); ptMsg('pt-wflash', 'Workout deleted.', false);
+    }, function (err) {
+      pt.wbusy = '';
+      if (vAuth(err)) return;
+      pt.wConfirm = ''; ptRender(); ptMsg('pt-wmsg', friendly(err) + ' Not confirmed: check the list before trying again.', true);
+    });
+  }
+
+  // ---- events ----
+  $('pt-body').addEventListener('click', function (e) {
+    var hd = e.target.closest('h2.pth');
+    if (hd) {
+      var card = hd.closest('[data-ptsec]'), k = card.getAttribute('data-ptsec'), m = ptOpenMap();
+      m[k] = m[k] ? 0 : 1; lsSet(PT_OPEN_KEY, m);
+      card.classList.toggle('collapsed', !m[k]); hd.setAttribute('aria-expanded', m[k] ? 'true' : 'false');
+      return;
+    }
+    var b = e.target.closest('[data-pt]'); if (!b) return;
+    var a = b.getAttribute('data-pt'), id = b.getAttribute('data-id');
+    if (a === 'reload') { pt.na = false; ptLoad(true); }
+    else if (a === 'filter') { pt.filter = b.getAttribute('data-f'); ptRender(); }
+    else if (a === 'mic') { var tid = b.getAttribute('data-for'); if (pm.on && pm.id === tid) ptMicStop(false); else ptMicStart(tid); }
+    else if (a === 'status') { pt.form.status = b.getAttribute('data-s'); [].forEach.call(b.parentNode.querySelectorAll('.vchip'), function (c) { var on = c === b; c.classList.toggle('on', on); c.setAttribute('aria-pressed', on ? 'true' : 'false'); }); }
+    else if (a === 'save') ptSave();
+    else if (a === 'cancel') { ptMicStop(true); var cc = ptClient(ptRoute().id); if (cc) { ptFormInit(cc); ptRender(); } else { pt.formId = ''; show('pt'); } }
+    else if (a === 'del') { pt.cConfirm = true; ptRender(); }
+    else if (a === 'delno') { pt.cConfirm = false; ptRender(); }
+    else if (a === 'delyes') ptDelete();
+    else if (a === 'wnew') { ptWfInit(null, ptRoute().id); pt.wfOpen = '(new)'; pt.wConfirm = ''; ptRender(); var t = $('ptw-title'); if (t) t.focus(); }
+    else if (a === 'wedit') { var c = ptClient(ptRoute().id), w = c && (c.workouts || []).filter(function (x) { return x.id === id; })[0]; if (!w) return; ptWfInit(w, c.id); pt.wfOpen = id; pt.wConfirm = ''; ptRender(); }
+    else if (a === 'wcancel') { pt.wf = null; pt.wfOpen = ''; pt.wConfirm = ''; ptRender(); }
+    else if (a === 'wsave') ptWorkoutSave();
+    else if (a === 'wdone') ptWorkoutDone(id);
+    else if (a === 'wdel') { pt.wConfirm = pt.wf ? pt.wf.id : ''; ptRender(); }
+    else if (a === 'wdelno') { pt.wConfirm = ''; ptRender(); }
+    else if (a === 'wdelyes') ptWorkoutDelete();
+  });
+  $('pt-body').addEventListener('input', function (e) {
+    var t = e.target;
+    if (t.id === 'pt-q') { pt.q = t.value; var box = $('pt-list'); if (box) box.innerHTML = ptListRows(); return; }
+    var k = t.getAttribute && t.getAttribute('data-ptf');
+    if (k && pt.form) { pt.form[k] = t.value; var s = document.querySelector('[data-ptsec="' + (PT_SECS.filter(function (x) { return x.fields.indexOf(k) >= 0; })[0] || {}).key + '"] .ptsum span'); if (s) s.innerHTML = ptSecSummary((PT_SECS.filter(function (x) { return x.fields.indexOf(k) >= 0; })[0] || {}).key, null); return; }
+    var wk = t.getAttribute && t.getAttribute('data-ptw');
+    if (wk && pt.wf) pt.wf[wk] = t.value;
+  });
+  document.addEventListener('visibilitychange', function () { if (document.hidden && pm.on) { ptMicStop(true); ptMicUi(); } });
+
   /* ---------------- Lisa's Table: Orders (#lt/orders) — Current | Previous | Summary ---------------- */
   // Orders live on the server ("Lisa's Table - Orders" sheet; actions orders / orderset / orderpaid / orderdel). Nothing about clients or orders is
   // stored in this repo; the phone keeps only a cache of known client names (localStorage cc_clients) as a fallback for the client picker.
