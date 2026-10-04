@@ -9,7 +9,7 @@
   var PC_KEY = 'cc_passcode';
   var FALLBACK_URL = 'https://script.google.com/a/macros/landstruc.com/s/AKfycbyigotJxdJD3CeCpRyCEfhHdL7zcv2ZE_ibTm2ZyITgODqrh_NxGhONx6m8CcBlxaPD/exec';
 
-  var state = { weekOffset: 0, monthOffset: 0, links: null, logSeq: 0, logData: null, logOpen: {}, trkSeq: 0, trackData: null, trkMode: 'add', trkBusy: false, trkFormsFor: '', logTot: 'month', waterBusy: false, bodyBusy: false, spendSeq: 0,
+  var state = { weekOffset: 0, monthOffset: 0, links: null, logSeq: 0, logData: null, logOpen: {}, trkSeq: 0, trackData: null, trkMode: 'add', trkDate: '', trkBusy: false, trkFormsFor: '', logTot: 'month', waterBusy: false, bodyBusy: false, spendSeq: 0,
     spendData: null, spendDataOff: null, spendRoute: { kind: '', val: '', acct: '' },
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
@@ -922,6 +922,13 @@
     if (wb) wb.addEventListener('click', function () { addWater(((ext.write && ext.write.waterStepOz) || 8)); });
   }
 
+  /* Log for another day: state.trkDate '' = today, else YYYY-MM-DD (server logday / logset / logadd accept `date`). */
+  function trkTodayKey(d) { d = d || state.trackData; var t = d && d.ext && d.ext.today; if (t && t.date) return t.date; var n = new Date(); return n.getFullYear() + '-' + ('0' + (n.getMonth() + 1)).slice(-2) + '-' + ('0' + n.getDate()).slice(-2); }
+  function trkAddDays(key, n) { var p = key.split('-'), t = new Date(+p[0], +p[1] - 1, +p[2] + n); return t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2); }
+  function trkDayLabel(key) { var p = key.split('-'), t = new Date(+p[0], +p[1] - 1, +p[2]); return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][t.getDay()] + ' ' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][t.getMonth()] + ' ' + t.getDate(); }
+  function trkPast() { var d = state.trackData; return state.trkDate && d && state.trkDate !== trkTodayKey(d) ? state.trkDate : ''; }
+  function trkWhen() { var k = trkPast(); return k ? (k === trkAddDays(trkTodayKey(), -1) ? 'yesterday' : trkDayLabel(k)) : 'today'; }
+  function trkWithDate(p) { var k = trkPast(); if (k) p.date = k; return p; }
   var TRK_BODY = { hike: ['Hike miles', '0.1'], steps: ['Steps', '1'], weight: ['Weight (lb)', '0.1'], sleep: ['Sleep (hours)', '0.1'] };
   function renderTrackForms(d) {
     var ext = d.ext, h = '';
@@ -930,10 +937,20 @@
     var inp = function (id, label, step, cur, attrs) {
       return '<label>' + label + '<input type="number" inputmode="decimal" step="' + step + '" min="0" ' + (attrs || '') + ' value="' + (cur == null ? '' : cur) + '" autocomplete="off"></label>';
     };
+    var todayK = trkTodayKey(d), pastK = trkPast();
+    var hist = {}; (ext.history || []).forEach(function (x) { hist[x.date] = x; });
+    if (pastK) t = hist[pastK] || {};
+    h += '<div class="card fitcard qa" id="qa-date"><h3>Log for</h3><div class="seg3 seg small" id="qa-day">' +
+      '<button type="button" data-day="today" class="' + (pastK ? '' : 'on') + '">Today</button>' +
+      '<button type="button" data-day="yesterday" class="' + (pastK === trkAddDays(todayK, -1) ? 'on' : '') + '">Yesterday</button>' +
+      '<button type="button" data-day="pick" class="' + (pastK && pastK !== trkAddDays(todayK, -1) ? 'on' : '') + '">Other day</button></div>' +
+      '<label class="qdate">Date<input type="date" id="qa-datepick" max="' + todayK + '" value="' + (pastK || todayK) + '"></label>' +
+      (pastK ? '<div class="qa-banner">Saving to <b>' + esc(trkDayLabel(pastK)) + '</b>. Tap Today to go back.</div>' +
+        '<div class="qa-water"><span>Water for that day</span><button type="button" class="fitbtn" data-wd="8">+8 oz</button><button type="button" class="fitbtn" data-wd="-8">\u22128 oz</button></div><div class="fitmsg" id="qa-water-msg" role="status"></div>' : '') + '</div>';
     if (canDay) {
       h += '<div class="card fitcard qa" id="qa-meal"><h3>Add a meal</h3><div class="qgrid4">' +
         [['calories', 'kcal', '1'], ['protein', 'Protein g', '1'], ['carbs', 'Carbs g', '1'], ['fat', 'Fat g', '1']].map(function (f) { return inp('', f[1], f[2], '', 'data-m="' + f[0] + '"'); }).join('') + '</div>' +
-        '<div class="seg small" id="qa-mode"><button type="button" data-mode="add" class="' + (state.trkMode === 'set' ? '' : 'on') + '">Add to today</button><button type="button" data-mode="set" class="' + (state.trkMode === 'set' ? 'on' : '') + '">Set today\u2019s total</button></div>' +
+        '<div class="seg small" id="qa-mode"><button type="button" data-mode="add" class="' + (state.trkMode === 'set' ? '' : 'on') + '">Add to ' + (pastK ? 'that day' : 'today') + '</button><button type="button" data-mode="set" class="' + (state.trkMode === 'set' ? 'on' : '') + '">Set ' + (pastK ? 'that day\u2019s' : 'today\u2019s') + ' total</button></div>' +
         '<button type="button" class="fitbtn wide" id="qa-meal-go">Add meal</button><div class="fitmsg" id="qa-meal-msg" role="status"></div></div>';
       h += '<div class="card fitcard qa" id="qa-wo"><h3>Workout</h3><div class="qgrid2w"><label>Type<input type="text" id="qa-wo-type" maxlength="60" placeholder="Run, strength, walk\u2026" autocomplete="off"></label>' +
         inp('', 'Minutes', '1', '', 'id="qa-wo-min"') + '</div><button type="button" class="fitbtn wide" id="qa-wo-go">Save workout</button><div class="fitmsg" id="qa-wo-msg" role="status"></div></div>';
@@ -944,10 +961,10 @@
     ['hike', 'steps'].forEach(function (f) { if (canDay || set.indexOf(f) >= 0) fields.push(f); });
     ['weight', 'sleep'].forEach(function (f) { if (set.indexOf(f) >= 0) fields.push(f); });
     if (fields.length) {
-      h += '<div class="card fitcard qa" id="qa-body"><h3>Activity &amp; body \u00b7 today</h3><div class="bgrid">' + fields.map(function (f) {
+      h += '<div class="card fitcard qa" id="qa-body"><h3>Activity &amp; body \u00b7 ' + (pastK ? esc(trkDayLabel(pastK)) : 'today') + '</h3><div class="bgrid">' + fields.map(function (f) {
         var cur = t[f];
         return '<label>' + TRK_BODY[f][0] + '<input type="number" inputmode="decimal" step="' + TRK_BODY[f][1] + '" min="0" data-f="' + f + '" data-cur="' + (cur == null ? '' : cur) + '" value="' + (cur == null ? '' : cur) + '" autocomplete="off"></label>';
-      }).join('') + '</div><button type="button" class="fitbtn wide" id="qa-body-go">Save today</button><div class="fitmsg" id="qa-body-msg" role="status"></div>' +
+      }).join('') + '</div><button type="button" class="fitbtn wide" id="qa-body-go">Save ' + (pastK ? 'that day' : 'today') + '</button><div class="fitmsg" id="qa-body-msg" role="status"></div>' +
         (canDay && (!cols.steps || !cols.hike) ? '<div class="foot hint2">The ' + (!cols.steps && !cols.hike ? 'Steps and Hike miles columns are' : !cols.steps ? 'Steps column is' : 'Hike miles column is') + ' added to the Phone Log on the first save.</div>' : '') + '</div>';
     }
     $('trk-forms').innerHTML = h;
@@ -979,19 +996,19 @@
     });
     if (bad) return fitSay('qa-meal-msg', 'Use positive numbers.', true);
     if (!any) return fitSay('qa-meal-msg', 'Enter calories and/or macros.', true);
-    var mode = state.trkMode === 'set' ? 'set' : 'add', p = { mode: mode, cid: fitCid() };
+    var mode = state.trkMode === 'set' ? 'set' : 'add', p = trkWithDate({ mode: mode, cid: fitCid() }), when = trkWhen();
     Object.keys(vals).forEach(function (k) { p[k] = vals[k]; });
     trkGo(btn, 'qa-meal-msg', function () {
       return apiRaw('logday', p).then(function (j) {
         var r = trkRes(j), w = r.written || {}, now = [];
         ['calories', 'protein', 'carbs', 'fat'].forEach(function (k) { if (w[k]) now.push(fmt(w[k].after) + (k === 'calories' ? ' kcal' : ' g ' + k)); });
         Array.prototype.forEach.call(document.querySelectorAll('#qa-meal input[data-m]'), function (i) { i.value = ''; });
-        fitSay('qa-meal-msg', (mode === 'add' ? 'Added. Today now ' : 'Set. Today is ') + now.join(' \u00b7 '));
+        fitSay('qa-meal-msg', (mode === 'add' ? 'Added. ' : 'Set. ') + (when.charAt(0).toUpperCase() + when.slice(1)) + (mode === 'add' ? ' now ' : ' is ') + now.join(' \u00b7 '));
         var m = $('qa-meal-msg');
         if (m && !r.duplicate) {
           var u = document.createElement('button'); u.type = 'button'; u.className = 'fitundo'; u.textContent = 'Undo';
           u.addEventListener('click', function () {
-            var back = { mode: 'set', cid: fitCid() }; Object.keys(w).forEach(function (k) { if (['calories', 'protein', 'carbs', 'fat'].indexOf(k) >= 0) back[k] = w[k].before == null ? 0 : w[k].before; });
+            var back = trkWithDate({ mode: 'set', cid: fitCid() }); Object.keys(w).forEach(function (k) { if (['calories', 'protein', 'carbs', 'fat'].indexOf(k) >= 0) back[k] = w[k].before == null ? 0 : w[k].before; });
             u.remove(); fitSay('qa-meal-msg', 'Undoing\u2026');
             apiRaw('logday', back).then(function (j2) { trkRes(j2); fitSay('qa-meal-msg', 'Undone.'); return loadTrackQuiet(); }).catch(function (e) { trkWriteErr(e, 'qa-meal-msg'); });
           });
@@ -1004,13 +1021,13 @@
   function trkWorkout(btn) {
     var type = $('qa-wo-type').value.trim(), min = $('qa-wo-min').value;
     if (!type && min === '') return fitSay('qa-wo-msg', 'Enter a type and/or minutes.', true);
-    var p = { cid: fitCid() };
+    var p = trkWithDate({ cid: fitCid() });
     if (type) p.workout = type; else p.workout = 'Workout';
     if (min !== '') { var n = Number(min); if (!isFinite(n) || n < 0) return fitSay('qa-wo-msg', 'Minutes must be a positive number.', true); p.workout_min = n; }
     trkGo(btn, 'qa-wo-msg', function () {
       return apiRaw('logday', p).then(function (j) {
         trkRes(j); $('qa-wo-type').value = ''; $('qa-wo-min').value = '';
-        fitSay('qa-wo-msg', 'Saved: ' + p.workout + (p.workout_min != null ? ' \u00b7 ' + fmt(p.workout_min) + ' min' : ''));
+        fitSay('qa-wo-msg', 'Saved' + (trkPast() ? ' for ' + trkWhen() : '') + ': ' + p.workout + (p.workout_min != null ? ' \u00b7 ' + fmt(p.workout_min) + ' min' : ''));
         return loadTrackQuiet();
       });
     });
@@ -1029,20 +1046,40 @@
     if (!jobs.length && !Object.keys(dayP).length) return fitSay('qa-body-msg', 'Nothing changed.');
     trkGo(btn, 'qa-body-msg', function () {
       var done = 0, chain = Promise.resolve();
-      if (Object.keys(dayP).length) { dayP.cid = fitCid(); chain = chain.then(function () { return apiRaw('logday', dayP).then(function (j) { trkRes(j); done += Object.keys(dayP).length - 1; }); }); }
-      jobs.forEach(function (j) { chain = chain.then(function () { return apiRaw('logset', { field: j.f, value: j.v, cid: fitCid() }).then(function (r) { trkRes(r); done++; }); }); });
+      if (Object.keys(dayP).length) { dayP.cid = fitCid(); trkWithDate(dayP); chain = chain.then(function () { return apiRaw('logday', dayP).then(function (j) { trkRes(j); done += Object.keys(dayP).length - 1; }); }); }
+      jobs.forEach(function (j) { chain = chain.then(function () { return apiRaw('logset', trkWithDate({ field: j.f, value: j.v, cid: fitCid() })).then(function (r) { trkRes(r); done++; }); }); });
       return chain.then(function () {
         Array.prototype.forEach.call(document.querySelectorAll('#qa-body input[data-f]'), function (i) { i.setAttribute('data-cur', i.value); });
-        fitSay('qa-body-msg', 'Saved ' + done + ' value' + (done === 1 ? '' : 's') + '.');
+        fitSay('qa-body-msg', 'Saved ' + done + ' value' + (done === 1 ? '' : 's') + (trkPast() ? ' for ' + trkWhen() : '') + '.');
         return loadTrackQuiet();
       }, function (err) { return loadTrackQuiet().then(function () { throw err; }); });
     });
   }
+  $('trk-forms').addEventListener('change', function (ev) {
+    var i = ev.target; if (!i || i.id !== 'qa-datepick') return;
+    var tk = trkTodayKey();
+    if (!i.value || i.value > tk) { i.value = state.trkDate || tk; return; }
+    state.trkDate = i.value === tk ? '' : i.value;
+    renderTrackForms(state.trackData);
+  });
   $('trk-forms').addEventListener('click', function (ev) {
     var t = ev.target.closest ? ev.target.closest('button') : null; if (!t) return;
     if (t.id === 'qa-meal-go') trkMeal(t);
     else if (t.id === 'qa-wo-go') trkWorkout(t);
     else if (t.id === 'qa-body-go') trkBody(t);
+    else if (t.getAttribute('data-day')) {
+      var dk = t.getAttribute('data-day'), tk = trkTodayKey();
+      if (dk === 'today') state.trkDate = '';
+      else if (dk === 'yesterday') state.trkDate = trkAddDays(tk, -1);
+      else { var pk = $('qa-datepick'); state.trkDate = pk && pk.value && pk.value < tk ? pk.value : trkAddDays(tk, -2); }
+      renderTrackForms(state.trackData);
+    }
+    else if (t.getAttribute('data-wd')) {
+      var oz = Number(t.getAttribute('data-wd')), k = trkPast(); if (!k || state.trkBusy) return;
+      state.trkBusy = true; fitSay('qa-water-msg', 'Saving\u2026');
+      apiRaw('logadd', { value: oz, date: k, cid: fitCid() }).then(function (j) { var r = trkRes(j); fitSay('qa-water-msg', trkDayLabel(k) + ' water now ' + fmt(r.after) + ' oz'); })
+        .catch(function (e) { trkWriteErr(e, 'qa-water-msg'); }).then(function () { state.trkBusy = false; });
+    }
     else if (t.getAttribute('data-mode')) {
       state.trkMode = t.getAttribute('data-mode');
       Array.prototype.forEach.call(document.querySelectorAll('#qa-mode button'), function (b) { b.classList.toggle('on', b === t); });

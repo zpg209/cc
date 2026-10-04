@@ -1476,3 +1476,11 @@ body.macopen { overflow: hidden; }
 /* v80: Vault mic forms: optional Payment type chips (compact, wrap) */
 .vchips.vpays { gap: 6px; }
 .vchips.vpays .vchip { min-height: 40px; padding: 7px 12px; font-size: 14px; }
+
+/* Daily Tracker: log for another day */
+.seg.seg3 { grid-template-columns: 1fr 1fr 1fr; }
+.qa .qdate { display: block; margin: 8px 0 0; font: 600 12px/1.2 'Inter', sans-serif; color: var(--muted); }
+.qa .qdate input { display: block; width: 100%; box-sizing: border-box; margin-top: 4px; min-height: 40px; background: var(--btn); color: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 0 10px; font: 600 15px 'Inter', sans-serif; color-scheme: dark; }
+.qa-banner { margin: 8px 0 0; padding: 8px 10px; border-radius: var(--radius); background: rgba(240,122,42,.14); border: 1px solid rgba(240,122,42,.5); color: #F07A2A; font: 600 13px/1.3 'Inter', sans-serif; }
+.qa-water { display: flex; align-items: center; gap: 8px; margin-top: 10px; font: 600 13px 'Inter', sans-serif; color: var(--muted); }
+.qa-water span { flex: 1; }
