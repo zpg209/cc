@@ -1555,3 +1555,15 @@ button.ledchip { cursor: pointer; }
 .ledcmp .ovrow { padding-left: 0; padding-right: 0; }
 .ledsoon { padding: 14px 4px 10px; color: var(--muted); font-size: 13px; line-height: 1.45; }
 .ledsoon b { display: block; color: var(--red); font-size: 15px; margin-bottom: 4px; }
+
+/* ---- v88: Lisa's Table > Notes (#lt/notes): reuses the Wish List mic stage / cards; burgundy text + pink borders come from the #screen-lt scope ---- */
+#screen-lt .ln .card { margin-bottom: 12px; }
+#screen-lt .lnitem { padding: 10px 0; }
+#screen-lt .lntext { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; text-align: left; background: transparent; border: 0; padding: 4px 0; min-height: 44px; cursor: pointer; color: var(--text); font: 400 16px/1.35 'Inter', sans-serif; }
+#screen-lt .lntext .wlname { white-space: pre-wrap; font-size: 16px; }
+#screen-lt .lntext small { color: var(--muted); font-size: 12px; }
+#screen-lt .lnedit { min-height: 96px; margin-bottom: 8px; }
+#screen-lt .lnconf { padding-left: 0; }
+#screen-lt .lnitem.editing .draftbtns { margin-top: 4px; }
+#screen-lt .lnfoot { text-align: center; margin: 14px 0 6px; font-size: 12px; color: var(--muted); }
+#screen-lt .ln .noteflash { margin-top: 10px; }

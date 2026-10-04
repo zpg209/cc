@@ -149,6 +149,7 @@
     var vk = (name === 'vmic' || name === 'vcam') ? (R.kind === 'exp' ? 'exp' : 'inc') : '';   // #vmic/<inc|exp>, #vcam/<inc|exp>
     if (name !== 'vmic') vmicStop(true);
     if (!(name === 'lt' && R.kind === 'wish')) wlMicStop(true);
+    if (!(name === 'lt' && R.kind === 'notes')) lnMicStop(true);
     if (!(name === 'lt' && R.kind === 'orders')) odMicStop(true);
     if (!(name === 'lt' && (R.kind === 'macros' || R.kind === 'recipes'))) macClose(true);
     if (!(name === 'lt' && R.kind === 'menu-add')) maMicStop(true);
@@ -2679,10 +2680,11 @@
     macros:  { label: 'Menu Macros', sheet: 'https://docs.google.com/spreadsheets/d/1YhDpmch8pWIAFKEwrSv7AMwWHyhuVW1OyeqbSNOPk3w/edit' },
     orders:  { label: 'Orders', orders: true },
     wish:    { label: 'Wish List', wish: true },
+    notes:   { label: 'Notes', notes: true },
     'menu-gen': { label: 'Generate menu', gen: true, back: 'lt/recipes' },      // not a tile: opened from the Menu Items screen
     'menu-add': { label: 'Add menu item', add: true, back: 'lt/recipes' }       // not a tile: the + button on the Menu Items screen
   };
-  var LT_ORDER = ['ops', 'recipes', 'orders', 'menus', 'macros', 'wish'];
+  var LT_ORDER = ['ops', 'recipes', 'orders', 'menus', 'macros', 'wish', 'notes'];
   var LT_TTL = 60000;
 
   function loadLt(force) {
@@ -2698,6 +2700,7 @@
       return;
     }
     if (cfg.wish) { openWish(); return; }
+    if (cfg.notes) { openLtNotes(); return; }
     if (cfg.orders) { openOrders(); return; }
     if (cfg.gen) { openMenuGen(); return; }
     if (cfg.add) { openMenuAdd(); return; }
@@ -7510,6 +7513,151 @@
     if (!e.target.value.trim()) return;
     wl.items.push(''); wlDraftSave(); wlFormRender(''); var ins = $('wl-rows').querySelectorAll('.wlin'); if (ins.length) ins[ins.length - 1].focus();
   });
+  /* ---------------- Lisa's Table: Notes (#lt/notes): dictate (same mic as the Wish List) -> Save -> free-form note list (newest first, tap to edit, delete with confirm) ---------------- */
+  // Notes live on THIS PHONE only for now (localStorage key cc_lt_notes). ALL reads/writes go through ltNotesLoad / ltNotesSave so a shared Drive-backed store can replace them later.
+  // No server action is used or invented. Nothing is stored in the repo.
+  var LT_NOTES_KEY = 'cc_lt_notes';
+  function ltNotesLoad() {            // -> [{ id, text, at (created, ms), upd (last edited, ms) }], newest first
+    var l = lsGet(LT_NOTES_KEY, []);
+    if (!Array.isArray(l)) return [];
+    return l.filter(function (n) { return n && n.id && typeof n.text === 'string'; }).sort(function (a, b) { return (b.at || 0) - (a.at || 0); });
+  }
+  function ltNotesSave(list) {        // -> true when stored
+    try { localStorage.setItem(LT_NOTES_KEY, JSON.stringify(list)); return true; } catch (e) { return false; }
+  }
+  var ln = { rec: null, on: false, base: '', committed: '', interim: '', msg: '', text: '', editId: '', editText: '', confirmId: '', flash: '', flashBad: false };
+  function lnOnScreen() { return state.ltPart === 'notes' && $('screen-lt').classList.contains('active'); }
+  function lnWhen(ms) {
+    var d = new Date(ms); if (!ms || isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' }) + ', ' +
+      d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  }
+  function lnFlash(text, bad) { ln.flash = text || ''; ln.flashBad = !!bad; var el = $('ln-flash'); if (el) { el.textContent = ln.flash; el.hidden = !ln.flash; el.className = 'noteflash' + (ln.flash ? ' show' : '') + (bad ? ' bad' : ''); } }
+  function openLtNotes() {
+    lnMicStop(true);
+    ln.msg = ''; ln.editId = ''; ln.confirmId = ''; ln.flash = '';
+    $('lt-body').innerHTML =
+      '<div class="wl ln">' +
+      '<div class="micstage"><div class="micstate" id="ln-state">&nbsp;</div>' +
+      '<button type="button" class="micbtn big" id="ln-btn" data-ln="mic" aria-pressed="false" aria-label="Start dictation"><span class="micico" aria-hidden="true">' + vsvg('mic', 72) + '</span><span class="miclbl" id="ln-lbl">Tap to talk</span></button></div>' +
+      '<div class="card draft" id="ln-card"><h3>New note <span class="rec-tag" id="ln-rec" hidden>&#9679; Listening</span></h3>' +
+      '<textarea id="ln-text" class="notebox" rows="4" maxlength="4000" autocapitalize="sentences" placeholder="Say it, type it, or use the keyboard\u2019s mic key."></textarea>' +
+      '<div class="draftbtns"><button type="button" class="bigsave" data-ln="save" id="ln-save">Save note</button><button type="button" class="navbtn discard" data-ln="clear">Clear</button></div>' +
+      '<div class="noteflash" id="ln-flash" hidden></div></div>' +
+      '<div id="ln-list"></div>' +
+      '<div class="foot lnfoot">Notes are saved on this phone for now. More coming soon.</div></div>';
+    $('ln-text').value = ln.text;
+    lnUi(); lnListRender();
+  }
+  function lnUi() {
+    var btn = $('ln-btn'); if (!btn) return;
+    var on = ln.on, has = !!$('ln-text').value.trim();
+    btn.classList.toggle('rec', on); btn.setAttribute('aria-pressed', on ? 'true' : 'false'); btn.setAttribute('aria-label', on ? 'Stop dictation' : 'Start dictation');
+    $('ln-lbl').textContent = on ? 'Listening\u2026 tap to stop' : (has ? 'Tap to add more' : 'Tap to talk');
+    var st = $('ln-state'); st.className = 'micstate' + (on ? ' rec' : '') + (ln.msg && !on ? ' warn' : '');
+    st.textContent = on ? 'Listening\u2026' : (ln.msg || 'Tap the mic and talk. The words are added to the note below; edit, then Save.');
+    $('ln-rec').hidden = !on;
+    $('ln-card').classList.toggle('live', on);
+  }
+  function lnMicFail(msg) { ln.on = false; var r = ln.rec; ln.rec = null; try { r && r.abort(); } catch (e) {} ln.msg = msg; lnUi(); var ta = $('ln-text'); if (ta) ta.focus(); }
+  function lnMicStart() {
+    var ta = $('ln-text');
+    if (!SR) { ln.msg = MIC_NA; lnUi(); ta.focus(); return; }
+    ln.msg = ''; ln.base = ta.value ? ta.value.replace(/\s+$/, '') + ' ' : ''; ln.committed = ''; ln.interim = '';
+    var rec; try { rec = new SR(); } catch (e) { return lnMicFail(MIC_NA); }
+    rec.continuous = false; rec.interimResults = true; rec.lang = 'en-US'; rec.maxAlternatives = 1;
+    rec.onresult = function (ev) {
+      var interim = '';
+      for (var i = ev.resultIndex; i < ev.results.length; i++) {
+        var r = ev.results[i], t = r[0] ? r[0].transcript : '';
+        if (r.isFinal) ln.committed = micSpace(ln.committed, t.trim() + ' '); else interim += t;
+      }
+      ln.interim = interim.replace(/^\s+/, ''); ta.value = ln.base + ln.committed + ln.interim; ta.scrollTop = ta.scrollHeight;
+    };
+    rec.onerror = function (ev) {
+      var e = ev && ev.error;
+      if (e === 'not-allowed' || e === 'service-not-allowed' || e === 'audio-capture' || e === 'language-not-supported') return lnMicFail(MIC_NA);
+      if (e === 'network') return lnMicFail('The speech service couldn\u2019t be reached. Tap the text box and use your keyboard\u2019s mic key.');
+      if (e === 'no-speech') ln.msg = 'Didn\u2019t catch anything. Tap the mic and try again.';
+    };
+    rec.onend = function () {
+      if (ln.rec !== rec) return;                        // aborted / screen left
+      ln.committed = micSpace(ln.committed, ln.interim ? ln.interim.trim() + ' ' : ''); ln.interim = '';
+      ln.on = false; ln.rec = null;
+      ta.value = (ln.base + ln.committed).replace(/\s+$/, ''); ln.text = ta.value;   // appended to the box; nothing is saved until Save
+      lnUi();
+    };
+    ln.rec = rec; ln.on = true;
+    try { rec.start(); } catch (e2) { return lnMicFail(MIC_NA); }
+    lnUi();
+  }
+  function lnMicStop(quiet) {         // quiet = abort (leaving the screen); otherwise stop() and onend appends the words
+    var r = ln.rec;
+    if (quiet) { ln.rec = null; ln.on = false; try { r && r.abort(); } catch (e) {} return; }
+    if (r) { try { r.stop(); } catch (e2) { ln.rec = null; ln.on = false; lnUi(); } }
+  }
+  function lnListRender() {
+    var box = $('ln-list'); if (!box) return;
+    var list = ltNotesLoad();
+    var h = '<div class="wlhead"><h3 class="sechead">Saved notes <small>' + list.length + '</small></h3></div>';
+    if (!list.length) h += '<div class="card wlcard"><div class="foot empty">No notes yet. Dictate one above.</div></div>';
+    else h += '<div class="card wlcard">' + list.map(function (n) {
+      var id = esc(n.id), when = lnWhen(n.at) + (n.upd && n.upd > n.at + 1000 ? ' \u00b7 edited ' + lnWhen(n.upd) : '');
+      if (ln.editId === n.id) {
+        return '<div class="wlitem lnitem editing" data-id="' + id + '"><textarea class="notebox lnedit" id="ln-edit" rows="4" maxlength="4000" aria-label="Edit note">' + esc(ln.editText) + '</textarea>' +
+          '<div class="draftbtns"><button type="button" class="bigsave" data-ln="editsave" data-id="' + id + '">Save</button><button type="button" class="navbtn discard" data-ln="editcancel">Cancel</button></div></div>';
+      }
+      var h2 = '<div class="wlitem lnitem" data-id="' + id + '"><div class="wlmain"><button type="button" class="lntext" data-ln="edit" data-id="' + id + '" aria-label="Edit this note"><span class="wlname">' + esc(n.text) + '</span><small class="wlmeta">' + esc(when) + '</small></button>' +
+        '<button type="button" class="wlx" data-ln="del" data-id="' + id + '" aria-label="Delete this note" title="Delete">\u00d7</button></div>';
+      if (ln.confirmId === n.id) h2 += '<div class="wlconf lnconf"><div class="vdelq">Delete this note?</div><div class="draftbtns"><button type="button" class="bigsave vdelbtn" data-ln="delyes" data-id="' + id + '">Yes, delete</button><button type="button" class="navbtn" data-ln="delno">Keep</button></div></div>';
+      return h2 + '</div>';
+    }).join('') + '</div>';
+    box.innerHTML = h;
+  }
+  function lnNewId() { return 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+  function lnSave() {
+    var ta = $('ln-text'), text = ta.value.replace(/\s+$/, '').replace(/^\s+/, '');
+    if (!text) return lnFlash('Type or say something first.', true);
+    lnMicStop(true);
+    var list = ltNotesLoad(), now = Date.now();
+    list.unshift({ id: lnNewId(), text: text.slice(0, 4000), at: now, upd: now });
+    if (!ltNotesSave(list)) return lnFlash('Could not save on this phone (storage is full or blocked). Your text is still in the box.', true);
+    ta.value = ''; ln.text = ''; ln.msg = ''; lnUi(); lnListRender(); lnFlash('Saved.', false);
+  }
+  $('lt-body').addEventListener('click', function (e) {
+    if (state.ltPart !== 'notes') return;
+    var b = e.target.closest('[data-ln]'); if (!b) return;
+    var a = b.getAttribute('data-ln'), id = b.getAttribute('data-id');
+    if (a === 'mic') { if (ln.on) lnMicStop(); else lnMicStart(); }
+    else if (a === 'save') lnSave();
+    else if (a === 'clear') { lnMicStop(true); $('ln-text').value = ''; ln.text = ''; ln.msg = ''; lnUi(); lnFlash('', false); }
+    else if (a === 'edit') {
+      var n = ltNotesLoad().filter(function (x) { return x.id === id; })[0]; if (!n) return;
+      ln.editId = id; ln.editText = n.text; ln.confirmId = ''; lnListRender(); var ed = $('ln-edit'); if (ed) { ed.focus(); ed.setSelectionRange(ed.value.length, ed.value.length); }
+    }
+    else if (a === 'editcancel') { ln.editId = ''; lnListRender(); }
+    else if (a === 'editsave') {
+      var t = ($('ln-edit').value || '').replace(/^\s+|\s+$/g, '');
+      if (!t) { ln.editText = ''; return lnFlash('A note can\u2019t be empty. Use the delete button to remove it.', true); }
+      var all = ltNotesLoad(), hit = all.filter(function (x) { return x.id === id; })[0]; if (!hit) { ln.editId = ''; return lnListRender(); }
+      if (t !== hit.text) { hit.text = t.slice(0, 4000); hit.upd = Date.now(); }
+      if (!ltNotesSave(all)) return lnFlash('Could not save on this phone (storage is full or blocked).', true);
+      ln.editId = ''; lnListRender(); lnFlash('Saved.', false);
+    }
+    else if (a === 'del') { ln.confirmId = ln.confirmId === id ? '' : id; ln.editId = ''; lnListRender(); }
+    else if (a === 'delno') { ln.confirmId = ''; lnListRender(); }
+    else if (a === 'delyes') {
+      var keep = ltNotesLoad().filter(function (x) { return x.id !== id; });
+      if (!ltNotesSave(keep)) return lnFlash('Could not change the notes on this phone.', true);
+      ln.confirmId = ''; lnListRender(); lnFlash('Deleted.', false);
+    }
+  });
+  $('lt-body').addEventListener('input', function (e) {
+    if (state.ltPart !== 'notes') return;
+    var t = e.target;
+    if (t.id === 'ln-text') { ln.text = t.value; lnUi(); }
+    else if (t.id === 'ln-edit') ln.editText = t.value;
+  });
   /* ---------------- Lisa's Table: Orders (#lt/orders) — Current | Previous | Summary ---------------- */
   // Orders live on the server ("Lisa's Table - Orders" sheet; actions orders / orderset / orderpaid / orderdel). Nothing about clients or orders is
   // stored in this repo; the phone keeps only a cache of known client names (localStorage cc_clients) as a fallback for the client picker.
@@ -8047,7 +8195,7 @@
     else if (t.id === 'od-search') { od.form.search = t.value; odItemsPaint(); }
   });
 
-  document.addEventListener('visibilitychange', function () { if (document.hidden && od.mic.on) { odMicStop(true); odMicUi(); } if (document.hidden && wl.on) wlMicStop(true), wlUi(); if (document.hidden && mm.on) { macMicStop(true); macUi(); } if (document.hidden && ma.on) { maMicStop(true); maUi(); } });
+  document.addEventListener('visibilitychange', function () { if (document.hidden && od.mic.on) { odMicStop(true); odMicUi(); } if (document.hidden && wl.on) wlMicStop(true), wlUi(); if (document.hidden && ln.on) { lnMicStop(true); lnUi(); } if (document.hidden && mm.on) { macMicStop(true); macUi(); } if (document.hidden && ma.on) { maMicStop(true); maUi(); } });
 
   /* ---- #vcam: receipt photo -> shrink -> optional details -> Save (POST receiptsave) ---- */
   var VCAM_TARGET = 1400000, VCAM_HARD = 2800000;      // base64 characters (~1 MB / ~2 MB of JPEG); the server accepts up to ~3 MB of JPEG
