@@ -551,7 +551,7 @@
     Object.keys(PROJ).forEach(function (k) {       // projects set up in PROJ show even before the server's project list knows them
       if (!plist.some(function (p) { return projSlugOf(p.name) === k; })) plist.push({ name: PROJ[k].name, url: PROJ[k].docUrl, kind: 'doc' });
     });
-    var pcTile = '<button class="tile small pc-entry" data-go="pc">Plan Checks<span class="sub">Mic checklist \u00b7 PDF plan \u00b7 pins &amp; notes</span></button>';
+    var pcTile = '<button class="tile small pc-entry" data-go="pc">Plan Checks<span class="sub">Mic checklist \u00b7 fullscreen plan \u00b7 pins &amp; notes</span></button>';
     $('projects-list').innerHTML = pcTile + plist.map(function (p) {
       var slug = projSlugOf(p.name);
       if (slug) {
@@ -10630,6 +10630,7 @@
     page: 1, pdfPages: 1, pdfDoc: null, pdfToken: 0, pdfBusy: false,
     mode: 'view', // 'view' | 'pin' | 'text'
     drawBusy: false, flash: '', flashBad: false,
+    fs: false, zoom: 1, panX: 0, panY: 0, // fullscreen plan workspace
     mic: { rec: null, on: false, msg: '', interim: '', target: 'item' } // target: 'item' | 'annot'
   };
   if (!state.pcRoute) state.pcRoute = { kind: 'list', id: '' };
@@ -10779,7 +10780,7 @@
     var t = $('pc-title-in'); if (t) pc.title = t.value;
     var to = $('pc-to'); if (to) pc.to = to.value;
     var oth = $('pc-project-other'); if (oth) pc.projectOther = oth.value;
-    document.querySelectorAll('#pc-items [data-pc-item]').forEach(function (ta) {
+    document.querySelectorAll('[data-pc-item]').forEach(function (ta) {
       var n = parseInt(ta.getAttribute('data-pc-item'), 10);
       if (!n) return;
       while (pc.items.length < n) pc.items.push({ text: '', pin: null });
@@ -10890,22 +10891,24 @@
     pcPaintMicStatus();
   }
   function pcPaintItemText(n, text, interim) {
-    var ta = document.querySelector('#pc-items [data-pc-item="' + n + '"]');
-    if (!ta) return;
     var show = text || '';
     if (interim) show = (show ? micSpace(show.replace(/\s+$/, '') + ' ', interim) : interim);
-    if (document.activeElement !== ta) ta.value = show;
-    else if (!interim) ta.value = text || '';
+    document.querySelectorAll('[data-pc-item="' + n + '"]').forEach(function (ta) {
+      if (document.activeElement !== ta) ta.value = show;
+      else if (!interim) ta.value = text || '';
+    });
   }
   function pcPaintAnnotText(id, text, interim) {
-    var ta = document.querySelector('[data-pc-annot-text="' + id + '"]');
-    if (!ta) return;
     var show = text || '';
     if (interim) show = (show ? micSpace(show.replace(/\s+$/, '') + ' ', interim) : interim);
-    if (document.activeElement !== ta) ta.value = show;
-    else if (!interim) ta.value = text || '';
-    var preview = document.querySelector('.pcannot[data-id="' + id + '"] .pcannotbody');
-    if (preview && document.activeElement !== ta) preview.textContent = (text || '').trim() || 'Note\u2026';
+    document.querySelectorAll('[data-pc-annot-text="' + id + '"]').forEach(function (ta) {
+      if (document.activeElement !== ta) ta.value = show;
+      else if (!interim) ta.value = text || '';
+    });
+    document.querySelectorAll('.pcannot[data-id="' + id + '"] .pcannotbody').forEach(function (preview) {
+      if (document.activeElement && document.activeElement.getAttribute && document.activeElement.getAttribute('data-pc-annot-text') === id) return;
+      preview.textContent = (text || '').trim() || 'Note\u2026';
+    });
   }
   function pcPaintMicStatus() {
     var btn = $('pc-mic'); if (btn) {
@@ -11043,9 +11046,16 @@
       });
     });
   }
+  function pcActiveDrawIds() {
+    if (pc.fs && $('pc-fs-stage')) {
+      return { stage: 'pc-fs-stage', img: 'pc-fs-img', pins: 'pc-fs-pins', meta: 'pc-fs-page-meta' };
+    }
+    return { stage: 'pc-draw-stage', img: 'pc-draw-img', pins: 'pc-pins', meta: 'pc-page-meta' };
+  }
   function pcRenderPdfIntoStage() {
-    var stageImg = $('pc-draw-img');
-    var stage = $('pc-draw-stage');
+    var ids = pcActiveDrawIds();
+    var stageImg = $(ids.img);
+    var stage = $(ids.stage);
     if (!stageImg || !stage || pc.drawingKind !== 'pdf') return;
     var token = ++pc.pdfToken;
     pc.pdfBusy = true;
@@ -11056,7 +11066,9 @@
       return pdf.getPage(pc.page).then(function (page) {
         if (token !== pc.pdfToken) return;
         var vp1 = page.getViewport({ scale: 1 });
-        var target = Math.min(1600, Math.max(720, (stage.clientWidth || 360) * Math.min(window.devicePixelRatio || 1, 2)));
+        var viewEl = $('pc-fs-view') || stage;
+        var w = (viewEl && viewEl.clientWidth) || stage.clientWidth || 360;
+        var target = Math.min(2200, Math.max(900, w * Math.min(window.devicePixelRatio || 1, 2.5)));
         var vp = page.getViewport({ scale: target / vp1.width });
         var cv = document.createElement('canvas');
         cv.width = Math.floor(vp.width); cv.height = Math.floor(vp.height);
@@ -11064,7 +11076,7 @@
         ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
         return page.render({ canvasContext: ctx, viewport: vp }).promise.then(function () {
           if (token !== pc.pdfToken) { page.cleanup(); return; }
-          var url = cv.toDataURL('image/jpeg', 0.88);
+          var url = cv.toDataURL('image/jpeg', 0.9);
           cv.width = cv.height = 0;
           page.cleanup();
           stageImg.src = url;
@@ -11072,18 +11084,17 @@
           stage.classList.remove('pdfloading');
           pc.pdfBusy = false;
           pcPaintOverlays();
-          var meta = $('pc-page-meta');
-          if (meta) meta.textContent = 'Page ' + pc.page + ' of ' + pc.pdfPages;
-          var prev = document.querySelector('[data-pc="page-prev"]');
-          var next = document.querySelector('[data-pc="page-next"]');
-          if (prev) prev.disabled = pc.page <= 1;
-          if (next) next.disabled = pc.page >= pc.pdfPages;
-          // Ensure page nav exists once page count is known (was stubbed at 1 on open)
+          document.querySelectorAll('#pc-page-meta, #pc-fs-page-meta').forEach(function (meta) {
+            meta.textContent = 'Page ' + pc.page + ' of ' + pc.pdfPages;
+          });
+          document.querySelectorAll('[data-pc="page-prev"]').forEach(function (prev) { prev.disabled = pc.page <= 1; });
+          document.querySelectorAll('[data-pc="page-next"]').forEach(function (next) { next.disabled = pc.page >= pc.pdfPages; });
           var nav = $('pc-page-nav');
-          if (!nav && pc.pdfPages > 1) {
+          if (!nav && !pc.fs && pc.pdfPages > 1) {
             var head = document.querySelector('.pcdrawhead');
             if (head) head.insertAdjacentHTML('beforeend', pcPageNavHtml());
           }
+          if (pc.fs) pcApplyZoomPan();
         });
       });
     }).catch(function (err) {
@@ -11162,6 +11173,7 @@
         pcAutosave();
         pcRenderEditor(true);
         pcFlash(info.note || 'Plan attached.', info.kind === 'image' && /too large/.test(info.note || '') );
+        setTimeout(function () { pcEnterFs(); }, 30);
       }, function (err) {
         pc.drawBusy = false;
         pcFlash((err && err.message) || 'Could not prepare that plan file.', true);
@@ -11183,6 +11195,7 @@
       pcAutosave();
       pcRenderEditor(true);
       pcFlash('Plan image attached.', false);
+      setTimeout(function () { pcEnterFs(); }, 30);
     }, function (err) {
       pc.drawBusy = false;
       pcFlash((err && err.message) || 'Could not prepare that plan file.', true);
@@ -11191,6 +11204,7 @@
 
   function pcOpen() {
     pcMicStop(true);
+    if (pc.fs) pcExitFs({ silent: true });
     var r = state.pcRoute || { kind: 'list', id: '' };
     var back = $('pc-back'), title = $('pc-title');
     if (r.kind === 'list') {
@@ -11308,7 +11322,13 @@
     }).join('');
   }
   function pcPaintOverlays() {
-    var pins = $('pc-pins'); if (pins) pins.innerHTML = pcPinsHtml() + pcAnnotsHtml();
+    var html = pcPinsHtml() + pcAnnotsHtml();
+    var pins = $('pc-pins'); if (pins) pins.innerHTML = html;
+    var fsPins = $('pc-fs-pins'); if (fsPins) fsPins.innerHTML = html;
+    if (pc.fs) {
+      pcPaintFsChrome();
+      pcPaintFsDock();
+    }
   }
   function pcItemsHtml() {
     pcEnsureItems();
@@ -11366,26 +11386,194 @@
       '<button type="button" class="navbtn" data-pc="annot-done">Done</button>' +
       '</div></div>';
   }
+  function pcClampZoom(z) {
+    z = Number(z);
+    if (!isFinite(z)) return 1;
+    return Math.max(0.4, Math.min(8, Math.round(z * 100) / 100));
+  }
+  function pcApplyZoomPan() {
+    var world = $('pc-fs-world'); if (!world) return;
+    world.style.transform = 'translate(' + (pc.panX || 0) + 'px,' + (pc.panY || 0) + 'px) scale(' + (pc.zoom || 1) + ')';
+    var zl = $('pc-fs-zoom-lbl');
+    if (zl) zl.textContent = Math.round((pc.zoom || 1) * 100) + '%';
+  }
+  function pcZoomBy(factor, cx, cy) {
+    var view = $('pc-fs-view'); if (!view) return;
+    var rect = view.getBoundingClientRect();
+    var mx = (cx != null ? cx : rect.left + rect.width / 2) - rect.left;
+    var my = (cy != null ? cy : rect.top + rect.height / 2) - rect.top;
+    var oldZ = pc.zoom || 1;
+    var newZ = pcClampZoom(oldZ * factor);
+    if (newZ === oldZ) return;
+    // Keep the point under the cursor/fingers stable
+    var wx = (mx - (pc.panX || 0)) / oldZ;
+    var wy = (my - (pc.panY || 0)) / oldZ;
+    pc.zoom = newZ;
+    pc.panX = mx - wx * newZ;
+    pc.panY = my - wy * newZ;
+    pcApplyZoomPan();
+  }
+  function pcZoomFit() {
+    pc.zoom = 1; pc.panX = 0; pc.panY = 0;
+    pcApplyZoomPan();
+  }
+  function pcPaintFsChrome() {
+    if (!pc.fs) return;
+    var wrap = $('pc-fs'); if (!wrap) return;
+    wrap.classList.toggle('placing-pin', pc.mode === 'pin');
+    wrap.classList.toggle('placing-text', pc.mode === 'text');
+    wrap.querySelectorAll('[data-pc="mode"]').forEach(function (btn) {
+      var m = btn.getAttribute('data-mode');
+      var on = pc.mode === m;
+      btn.classList.toggle('on', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      if (m === 'pin') btn.textContent = on ? ('Pin #' + pc.cur + '\u2026') : ('Pin #' + pc.cur);
+      if (m === 'text') btn.textContent = on ? 'Text\u2026' : 'Text box';
+      if (m === 'view') btn.textContent = 'Select';
+    });
+    var meta = $('pc-fs-page-meta');
+    if (meta) meta.textContent = pc.drawingKind === 'pdf'
+      ? ('Page ' + pc.page + ' of ' + Math.max(1, pc.pdfPages || 1))
+      : 'Image';
+    document.querySelectorAll('#pc-fs [data-pc="page-prev"]').forEach(function (b) {
+      b.disabled = pc.drawingKind !== 'pdf' || pc.page <= 1;
+      b.hidden = pc.drawingKind !== 'pdf';
+    });
+    document.querySelectorAll('#pc-fs [data-pc="page-next"]').forEach(function (b) {
+      b.disabled = pc.drawingKind !== 'pdf' || pc.page >= Math.max(1, pc.pdfPages || 1);
+      b.hidden = pc.drawingKind !== 'pdf';
+    });
+    var pnav = $('pc-fs-pagenav'); if (pnav) pnav.hidden = pc.drawingKind !== 'pdf';
+    var clr = document.querySelector('#pc-fs [data-pc="pin-clear"]');
+    if (clr) clr.disabled = !(pc.items[pc.cur - 1] && pc.items[pc.cur - 1].pin);
+  }
+  function pcFsAnnotEditorHtml() {
+    var a = pc.annotCur ? pcFindAnnot(pc.annotCur) : null;
+    if (!a) return '';
+    var opts = '<option value="">\u2014 none \u2014</option>' + pc.items.map(function (it, i) {
+      var n = i + 1;
+      var lab = n + (String(it.text || '').trim() ? '. ' + String(it.text).trim().slice(0, 36) : '');
+      return '<option value="' + n + '"' + (a.refItem === n ? ' selected' : '') + '>' + esc(lab) + '</option>';
+    }).join('');
+    return '<div class="pcfs-annot">' +
+      '<div class="pcfs-docklbl">Text note' + (a.refItem >= 1 ? ' \u00b7 #' + a.refItem : '') + '</div>' +
+      '<textarea class="notebox pcfs-ta" data-pc-annot-text="' + esc(a.id) + '" rows="3" maxlength="2000" placeholder="Note on plan\u2026">' + esc(a.text || '') + '</textarea>' +
+      '<div class="pcfs-annotrow">' +
+      '<select class="wlin pcfs-sel" id="pc-annot-ref" data-pc="annot-ref">' + opts + '</select>' +
+      '<button type="button" class="navbtn pcmini" data-pc="annot-mic">Mic</button>' +
+      '<button type="button" class="navbtn pcmini discard" data-pc="annot-del">Del</button>' +
+      '<button type="button" class="navbtn pcmini" data-pc="annot-done">OK</button>' +
+      '</div></div>';
+  }
+  function pcPaintFsDock() {
+    var dock = $('pc-fs-dock'); if (!dock) return;
+    pcEnsureItems();
+    var it = pc.items[pc.cur - 1] || { text: '', pin: null };
+    var tip = pc.mode === 'pin'
+      ? 'Tap the plan to place pin #' + pc.cur
+      : (pc.mode === 'text' ? 'Tap the plan to place a text box' : 'Pinch / wheel to zoom \u00b7 drag to pan');
+    dock.innerHTML =
+      '<div class="pcfs-itemrow">' +
+      '<button type="button" class="pcnum" data-pc="fs-prev-item" aria-label="Previous item">&lsaquo;</button>' +
+      '<div class="pcfs-itemmain">' +
+      '<div class="pcfs-docklbl">Item ' + pc.cur + (it.pin ? ' \u00b7 pinned' : '') + '</div>' +
+      '<textarea class="notebox pcfs-ta" data-pc-item="' + pc.cur + '" rows="2" maxlength="2000" placeholder="Checklist note for item ' + pc.cur + '\u2026">' + esc(it.text || '') + '</textarea>' +
+      '<div class="pcfs-annotrow" style="margin-top:6px">' +
+      '<button type="button" class="navbtn pcmini" data-pc="fs-item-mic">' + (pc.mic.on && pc.mic.target === 'item' ? 'Listening\u2026' : 'Dictate item') + '</button>' +
+      '</div></div>' +
+      '<button type="button" class="pcnum" data-pc="fs-next-item" aria-label="Next item">&rsaquo;</button>' +
+      '</div>' +
+      pcFsAnnotEditorHtml() +
+      '<div class="pcfs-tip">' + tip + '</div>';
+  }
+  function pcFsHtml() {
+    var modeClass = pc.mode === 'pin' ? ' placing-pin' : (pc.mode === 'text' ? ' placing-text' : '');
+    var imgSrc = pc.drawingKind === 'pdf'
+      ? 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='
+      : (pc.drawing || '');
+    return '<div id="pc-fs" class="pcfs' + modeClass + '" role="dialog" aria-label="Plan fullscreen">' +
+      '<div class="pcfs-top">' +
+      '<button type="button" class="navbtn pcfs-done" data-pc="fs-done">Done</button>' +
+      '<div class="pcfs-pagenav" id="pc-fs-pagenav"' + (pc.drawingKind !== 'pdf' ? ' hidden' : '') + '>' +
+      '<button type="button" class="navbtn pcmini" data-pc="page-prev"' + (pc.page <= 1 ? ' disabled' : '') + '>&lsaquo;</button>' +
+      '<span class="pcpagemeta" id="pc-fs-page-meta">Page ' + pc.page + ' of ' + Math.max(1, pc.pdfPages || 1) + '</span>' +
+      '<button type="button" class="navbtn pcmini" data-pc="page-next"' + (pc.page >= Math.max(1, pc.pdfPages || 1) ? ' disabled' : '') + '>&rsaquo;</button>' +
+      '</div>' +
+      '<div class="pcfs-zoom">' +
+      '<button type="button" class="navbtn pcmini" data-pc="zoom-out" aria-label="Zoom out">\u2212</button>' +
+      '<button type="button" class="navbtn pcmini" data-pc="zoom-fit" id="pc-fs-zoom-lbl">' + Math.round((pc.zoom || 1) * 100) + '%</button>' +
+      '<button type="button" class="navbtn pcmini" data-pc="zoom-in" aria-label="Zoom in">+</button>' +
+      '</div></div>' +
+      '<div class="pcfs-tools" role="toolbar" aria-label="Plan tools">' +
+      pcModeBtn('view', 'Select') +
+      pcModeBtn('pin', 'Pin #' + pc.cur) +
+      pcModeBtn('text', 'Text box') +
+      '<button type="button" class="navbtn pcmini" data-pc="pin-clear"' + (pc.items[pc.cur - 1] && pc.items[pc.cur - 1].pin ? '' : ' disabled') + '>Clear pin</button>' +
+      '</div>' +
+      '<div class="pcfs-view" id="pc-fs-view">' +
+      '<div class="pcfs-world" id="pc-fs-world">' +
+      '<div class="pcdrawstage" id="pc-fs-stage" data-pc="draw-tap">' +
+      '<img class="pcdrawimg" id="pc-fs-img" src="' + (imgSrc ? imgSrc : '') + '" alt="Plan drawing" draggable="false">' +
+      '<div class="pcpins" id="pc-fs-pins">' + pcPinsHtml() + pcAnnotsHtml() + '</div>' +
+      '</div></div></div>' +
+      '<div class="pcfs-dock" id="pc-fs-dock"></div>' +
+      '</div>';
+  }
+  function pcEnterFs(opts) {
+    if (!pcHasPlan()) { pcFlash('Upload a plan first.', true); return; }
+    opts = opts || {};
+    pcReadDomMeta();
+    pc.fs = true;
+    if (!opts.keepZoom) { pc.zoom = 1; pc.panX = 0; pc.panY = 0; }
+    var screen = $('screen-pc'); if (!screen) return;
+    var existing = $('pc-fs'); if (existing) existing.remove();
+    screen.insertAdjacentHTML('beforeend', pcFsHtml());
+    document.documentElement.classList.add('pc-fs-open');
+    document.body.classList.add('pc-fs-open');
+    pcPaintFsDock();
+    pcPaintFsChrome();
+    pcApplyZoomPan();
+    if (pc.drawingKind === 'pdf' && pc.drawing) pcRenderPdfIntoStage();
+    else if (pc.drawingKind === 'image' && pc.drawing) {
+      var img = $('pc-fs-img'); if (img) img.src = pc.drawing;
+    }
+  }
+  function pcExitFs(opts) {
+    if (!pc.fs && !$('pc-fs')) return;
+    opts = opts || {};
+    pcReadDomMeta();
+    pc.fs = false;
+    pc.mode = 'view';
+    var el = $('pc-fs'); if (el) el.remove();
+    document.documentElement.classList.remove('pc-fs-open');
+    document.body.classList.remove('pc-fs-open');
+    pcAutosave();
+    if (!opts.silent && pcOnScreen() && state.pcRoute && state.pcRoute.kind !== 'list') pcRenderEditor(true);
+  }
   function pcDrawBlockHtml() {
     if (!pcHasPlan()) {
       return '<div class="pcdrawempty card">' +
-        '<b>Plan drawing</b><p>Upload a PDF (viewed in-app, multi-page) or a JPG/PNG of the plan. Place numbered pins and text notes on the visible page.</p>' +
+        '<b>Plan drawing</b><p>Upload a PDF (viewed in-app, multi-page) or a JPG/PNG of the plan. Open fullscreen to zoom, pan, and place pins or text notes on the drawing.</p>' +
         '<div class="draftbtns"><label class="bigsave" for="pc-draw-file">Upload plan (PDF or image)</label></div>' +
         '<div class="foot">PDFs stay as PDF when they fit on this phone; oversized PDFs fall back to a page-1 image. Images are resized (~1600px).</div></div>';
     }
+
     var modeClass = pc.mode === 'pin' ? ' placing-pin' : (pc.mode === 'text' ? ' placing-text' : '');
     var kindTag = pc.drawingKind === 'pdf' ? '<span class="pcdrawkind">PDF</span>' : '<span class="pcdrawkind">Image</span>';
     var imgSrc = pc.drawingKind === 'pdf' ? 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==' : pc.drawing;
     var tip = pc.mode === 'pin'
-      ? 'Place pin: tap the plan to drop item ' + pc.cur + '\'s numbered box on this page.'
+      ? 'Place pin: tap the plan to drop item ' + pc.cur + '\'s numbered box on this page. Prefer Open plan fullscreen for zoom/pan.'
       : (pc.mode === 'text'
-        ? 'Place text box: tap the plan to add a note on this page. Tap a note to edit or link it to an item.'
-        : 'View mode. Tap a pin or note to select it. Use Place pin / Place text box to add overlays.');
+        ? 'Place text box: tap the plan to add a note. Prefer fullscreen for review.'
+        : 'Open plan fullscreen to zoom, pan, and place pins or text while reviewing the drawing.');
     return '<div class="pcdrawwrap' + modeClass + '">' +
       '<div class="pcdrawhead">' + kindTag + pcPageNavHtml() + '</div>' +
       '<div class="pcdrawstage" id="pc-draw-stage" data-pc="draw-tap">' +
       '<img class="pcdrawimg" id="pc-draw-img" src="' + (imgSrc ? imgSrc : '') + '" alt="Plan drawing">' +
       '<div class="pcpins" id="pc-pins">' + pcPinsHtml() + pcAnnotsHtml() + '</div></div>' +
+      '<div class="draftbtns pcdrawbtns">' +
+      '<button type="button" class="bigsave" data-pc="fs-open">Open plan fullscreen</button>' +
+      '</div>' +
       '<div class="draftbtns pcdrawbtns pcmodes">' +
       pcModeBtn('view', 'View') +
       pcModeBtn('pin', pc.mode === 'pin' ? 'Placing pin\u2026' : 'Place pin') +
@@ -11447,6 +11635,7 @@
     pc.annotCur = '';
     pc.mic.target = 'item';
     pcAutosave();
+    if (pc.fs) { pcPaintOverlays(); pcPaintMicStatus(); return; }
     pcRenderEditor(true);
   }
   function pcSelectAnnot(id) {
@@ -11458,10 +11647,12 @@
     pc.mic.target = 'annot';
     if (a.refItem >= 1) pc.cur = a.refItem;
     pcAutosave();
+    if (pc.fs) { pcPaintOverlays(); pcPaintMicStatus(); return; }
     pcRenderEditor(true);
   }
   function pcStagePct(clientX, clientY) {
-    var stage = $('pc-draw-stage'); if (!stage) return null;
+    var ids = pcActiveDrawIds();
+    var stage = $(ids.stage); if (!stage) return null;
     var rect = stage.getBoundingClientRect();
     if (!rect.width || !rect.height) return null;
     return {
@@ -11475,6 +11666,11 @@
     pc.items[pc.cur - 1].pin = { x: pt.x, y: pt.y, page: pc.page || 1 };
     pc.mode = 'view';
     pcAutosave();
+    if (pc.fs) {
+      pcPaintOverlays();
+      pcFlash('Pin ' + pc.cur + ' placed on page ' + (pc.page || 1) + '.', false);
+      return;
+    }
     pcRenderEditor(true);
     pcFlash('Pin ' + pc.cur + ' placed on page ' + (pc.page || 1) + '.', false);
   }
@@ -11495,6 +11691,15 @@
     pc.mode = 'view';
     pc.mic.target = 'annot';
     pcAutosave();
+    if (pc.fs) {
+      pcPaintOverlays();
+      pcFlash('Text box placed. Type or dictate a note.', false);
+      setTimeout(function () {
+        var ta = document.querySelector('#pc-fs [data-pc-annot-text="' + a.id + '"], [data-pc-annot-text="' + a.id + '"]');
+        if (ta) try { ta.focus(); } catch (e) {}
+      }, 50);
+      return;
+    }
     pcRenderEditor(true);
     pcFlash('Text box placed. Type or dictate a note.', false);
     setTimeout(function () {
@@ -11571,6 +11776,7 @@
     if (!pc.id) return;
     if (!confirm('Delete this plan check checklist from this phone?')) return;
     pcMicStop(true);
+    if (pc.fs) { pc.fs = false; var fsel = $('pc-fs'); if (fsel) fsel.remove(); document.documentElement.classList.remove('pc-fs-open'); document.body.classList.remove('pc-fs-open'); }
     pcReleasePdf();
     var store = pcLoadStore();
     store.list = store.list.filter(function (x) { return x.id !== pc.id; });
@@ -11643,15 +11849,48 @@
       if (m !== 'view' && m !== 'pin' && m !== 'text') m = 'view';
       pc.mode = (pc.mode === m && m !== 'view') ? 'view' : m;
       if (pc.mode !== 'view') pc.annotCur = '';
+      if (pc.fs) { pcPaintOverlays(); return; }
       pcRenderEditor(true); return;
+    }
+    if (a === 'fs-open') { pcEnterFs(); return; }
+    if (a === 'fs-done') { pcExitFs(); return; }
+    if (a === 'zoom-in') { pcZoomBy(1.25); return; }
+    if (a === 'zoom-out') { pcZoomBy(1 / 1.25); return; }
+    if (a === 'zoom-fit') { pcZoomFit(); return; }
+    if (a === 'fs-prev-item') {
+      pcReadDomMeta();
+      pc.cur = Math.max(1, pc.cur - 1);
+      pc.annotCur = '';
+      pc.mic.target = 'item';
+      pcAutosave(); pcPaintOverlays(); return;
+    }
+    if (a === 'fs-next-item') {
+      pcReadDomMeta();
+      pcEnsureItems();
+      if (pc.cur >= pc.items.length) pc.items.push({ text: '', pin: null });
+      pc.cur = pc.cur + 1;
+      pcEnsureItems();
+      pc.annotCur = '';
+      pc.mic.target = 'item';
+      pcAutosave(); pcPaintOverlays(); return;
+    }
+    if (a === 'fs-item-mic') {
+      pc.annotCur = '';
+      pc.mic.target = 'item';
+      if (pc.mic.on) pcMicStop(); else pcMicStart();
+      pcPaintFsDock();
+      return;
     }
     if (a === 'pin-clear') {
       pcEnsureItems();
       if (pc.items[pc.cur - 1]) pc.items[pc.cur - 1].pin = null;
-      pcAutosave(); pcRenderEditor(true); return;
+      pcAutosave();
+      if (pc.fs) { pcPaintOverlays(); return; }
+      pcRenderEditor(true); return;
     }
     if (a === 'draw-clear') {
       if (!confirm('Remove the plan from this checklist? Pins and text notes on it will be cleared.')) return;
+      if (pc.fs) pcExitFs();
       pcReleasePdf();
       pc.drawing = ''; pc.drawingKind = '';
       pc.page = 1; pc.pdfPages = 1;
@@ -11667,15 +11906,20 @@
       pc.annots = pc.annots.filter(function (x) { return x.id !== pc.annotCur; });
       pc.annotCur = '';
       pc.mic.target = 'item';
-      pcAutosave(); pcRenderEditor(true); return;
+      pcAutosave();
+      if (pc.fs) { pcPaintOverlays(); return; }
+      pcRenderEditor(true); return;
     }
     if (a === 'annot-done') {
       pcReadDomMeta();
       pc.annotCur = '';
       pc.mic.target = 'item';
-      pcAutosave(); pcRenderEditor(true); return;
+      pcAutosave();
+      if (pc.fs) { pcPaintOverlays(); return; }
+      pcRenderEditor(true); return;
     }
     if (a === 'draw-tap') {
+      if (pc._suppressTap) { pc._suppressTap = false; return; }
       if (e.target.closest('.pcpin') || e.target.closest('.pcannot')) return;
       if (pc.mode === 'pin') { pcPlacePinAt(e.clientX, e.clientY); return; }
       if (pc.mode === 'text') { pcPlaceTextAt(e.clientX, e.clientY); return; }
@@ -11765,56 +12009,137 @@
     }
   }
 
-  // Simple drag for text boxes (pointer)
+  // Simple drag for text boxes (pointer) — also pans the fullscreen plan in Select mode
   (function pcAnnotDrag() {
     var drag = null;
+    var pan = null;
+    var pinch = null;
+    function finger(e) { return e.touches ? e.touches[0] : e; }
+    function pinchDist(t0, t1) {
+      var dx = t0.clientX - t1.clientX, dy = t0.clientY - t1.clientY;
+      return Math.sqrt(dx * dx + dy * dy) || 1;
+    }
     function onDown(e) {
-      if (!pcOnScreen() || pc.mode !== 'view') return;
-      var box = e.target.closest('.pcannot'); if (!box) return;
-      if (e.target.closest('textarea,select,button,a,input')) return;
-      var id = box.getAttribute('data-id'); if (!id) return;
-      var pt = e.touches ? e.touches[0] : e;
-      drag = { id: id, x0: pt.clientX, y0: pt.clientY, moved: false };
+      if (!pcOnScreen()) return;
+      // Pinch start (fullscreen)
+      if (pc.fs && e.touches && e.touches.length === 2) {
+        var t0 = e.touches[0], t1 = e.touches[1];
+        pinch = {
+          dist: pinchDist(t0, t1),
+          zoom: pc.zoom || 1,
+          cx: (t0.clientX + t1.clientX) / 2,
+          cy: (t0.clientY + t1.clientY) / 2
+        };
+        pan = null; drag = null;
+        return;
+      }
+      if (pc.mode !== 'view') return;
+      var box = e.target.closest('.pcannot');
+      if (box) {
+        if (e.target.closest('textarea,select,button,a,input')) return;
+        var id = box.getAttribute('data-id'); if (!id) return;
+        var pt = finger(e);
+        drag = { id: id, x0: pt.clientX, y0: pt.clientY, moved: false };
+        return;
+      }
+      // Pan fullscreen plan when Select tool is active
+      if (pc.fs && e.target.closest('#pc-fs-view') && !e.target.closest('.pcpin,.pcannot,textarea,select,button,a,input')) {
+        var p = finger(e);
+        pan = { x0: p.clientX, y0: p.clientY, panX: pc.panX || 0, panY: pc.panY || 0, moved: false };
+      }
     }
     function onMove(e) {
+      if (pinch && pc.fs && e.touches && e.touches.length >= 2) {
+        if (e.cancelable) e.preventDefault();
+        var t0 = e.touches[0], t1 = e.touches[1];
+        var d = pinchDist(t0, t1);
+        var factor = d / pinch.dist;
+        var target = pcClampZoom(pinch.zoom * factor);
+        var view = $('pc-fs-view'); if (!view) return;
+        var rect = view.getBoundingClientRect();
+        var mx = ((t0.clientX + t1.clientX) / 2) - rect.left;
+        var my = ((t0.clientY + t1.clientY) / 2) - rect.top;
+        var oldZ = pc.zoom || 1;
+        var wx = (mx - (pc.panX || 0)) / oldZ;
+        var wy = (my - (pc.panY || 0)) / oldZ;
+        pc.zoom = target;
+        pc.panX = mx - wx * target;
+        pc.panY = my - wy * target;
+        pcApplyZoomPan();
+        return;
+      }
+      if (pan && pc.fs) {
+        var p2 = finger(e);
+        var dx = p2.clientX - pan.x0, dy = p2.clientY - pan.y0;
+        if (!pan.moved && Math.abs(dx) + Math.abs(dy) < 6) return;
+        pan.moved = true;
+        if (e.cancelable) e.preventDefault();
+        pc.panX = pan.panX + dx;
+        pc.panY = pan.panY + dy;
+        pcApplyZoomPan();
+        return;
+      }
       if (!drag) return;
-      var pt = e.touches ? e.touches[0] : e;
-      var dx = pt.clientX - drag.x0, dy = pt.clientY - drag.y0;
-      if (!drag.moved && Math.abs(dx) + Math.abs(dy) < 8) return;
+      var pt = finger(e);
+      var ddx = pt.clientX - drag.x0, ddy = pt.clientY - drag.y0;
+      if (!drag.moved && Math.abs(ddx) + Math.abs(ddy) < 8) return;
       drag.moved = true;
       if (e.cancelable) e.preventDefault();
-      var stage = $('pc-draw-stage'); if (!stage) return;
+      var ids = pcActiveDrawIds();
+      var stage = $(ids.stage); if (!stage) return;
       var rect = stage.getBoundingClientRect();
       var an = pcFindAnnot(drag.id); if (!an) return;
       an.x = pcClampPct(((pt.clientX - rect.left) / rect.width) * 100);
       an.y = pcClampPct(((pt.clientY - rect.top) / rect.height) * 100);
-      var el = document.querySelector('.pcannot[data-id="' + drag.id + '"]');
-      if (el) { el.style.left = an.x + '%'; el.style.top = an.y + '%'; }
+      document.querySelectorAll('.pcannot[data-id="' + drag.id + '"]').forEach(function (el) {
+        el.style.left = an.x + '%'; el.style.top = an.y + '%';
+      });
     }
-    function onUp() {
+    function onUp(e) {
+      if (pinch && (!e.touches || e.touches.length < 2)) pinch = null;
+      if (pan) {
+        if (pan.moved) { pc._suppressTap = true; setTimeout(function () { pc._suppressTap = false; }, 450); }
+        pan = null;
+      }
       if (!drag) return;
       if (drag.moved) pcAutosave();
       drag = null;
     }
-    var body = $('pc-body'); if (!body) return;
-    body.addEventListener('mousedown', onDown);
-    body.addEventListener('touchstart', onDown, { passive: true });
+    var root = $('screen-pc'); if (!root) return;
+    root.addEventListener('mousedown', onDown);
+    root.addEventListener('touchstart', onDown, { passive: true });
     window.addEventListener('mousemove', onMove, { passive: false });
     window.addEventListener('touchmove', onMove, { passive: false });
     window.addEventListener('mouseup', onUp);
     window.addEventListener('touchend', onUp);
+    window.addEventListener('touchcancel', onUp);
   })();
 
-  // Wire once
+  // Wheel zoom over fullscreen plan
+  (function pcFsWheel() {
+    var root = $('screen-pc'); if (!root) return;
+    root.addEventListener('wheel', function (e) {
+      if (!pc.fs || !pcOnScreen()) return;
+      if (!e.target.closest || !e.target.closest('#pc-fs-view')) return;
+      e.preventDefault();
+      var factor = e.deltaY < 0 ? 1.12 : (1 / 1.12);
+      pcZoomBy(factor, e.clientX, e.clientY);
+    }, { passive: false });
+  })();
+
+  // Wire once on #screen-pc so fullscreen overlay (sibling of #pc-body) receives events
   (function () {
-    var body = $('pc-body'); if (!body) return;
-    body.addEventListener('click', pcBodyClick);
-    body.addEventListener('input', pcBodyInput);
-    body.addEventListener('focusin', pcBodyFocus);
-    body.addEventListener('change', pcBodyChange);
+    var root = $('screen-pc'); if (!root) return;
+    root.addEventListener('click', pcBodyClick);
+    root.addEventListener('input', pcBodyInput);
+    root.addEventListener('focusin', pcBodyFocus);
+    root.addEventListener('change', pcBodyChange);
   })();
   document.addEventListener('visibilitychange', function () {
     if (document.hidden && pc.mic.on) pcMicStop(true);
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && pc.fs && pcOnScreen()) { e.preventDefault(); pcExitFs(); }
   });
 
   /* ---------------- Init ---------------- */
