@@ -12198,14 +12198,51 @@
     grid.addEventListener('contextmenu', function (e) { e.preventDefault(); });
   })();
 
-  // Refresh: reloads the newest version of the app (like a restart). The ?r= value forces a fresh index.html.
+  // Refresh: hard refresh, like signing out and back in, but keeps all saved data (localStorage is untouched).
+  //  1) unregister any service workers  2) delete every Cache Storage cache  3) clear sessionStorage
+  //  4) re-download index.html, app.js, app.css (and whatever ?v= the new index.html points at) with cache:'reload',
+  //     which bypasses and overwrites the browser HTTP cache  5) navigate to a cache-busted URL.
   (function () {
     var b = $('cc-refresh');
+    function hardRefresh() {
+      var stamp = Date.now();
+      var tasks = [];
+      try {
+        if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+          tasks.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
+            return Promise.all(rs.map(function (r) { return r.unregister(); }));
+          }).catch(function () {}));
+        }
+      } catch (e) {}
+      try {
+        if (window.caches && caches.keys) {
+          tasks.push(caches.keys().then(function (ks) {
+            return Promise.all(ks.map(function (k) { return caches.delete(k); }));
+          }).catch(function () {}));
+        }
+      } catch (e) {}
+      try { sessionStorage.clear(); } catch (e) {}
+      var base = location.pathname.replace(/[^\/]*$/, '');
+      function reget(url) {
+        try { return fetch(url, { cache: 'reload', credentials: 'same-origin' }).then(function (r) { return r.text(); }).catch(function () { return ''; }); }
+        catch (e) { return Promise.resolve(''); }
+      }
+      if (window.fetch) {
+        tasks.push(reget(location.pathname).then(function (html) {
+          var urls = [base + 'app.js', base + 'app.css'];
+          var re = /(?:src|href)="((?:app\.js|app\.css)\?v=[^"]+)"/g, m;
+          while ((m = re.exec(html || ''))) urls.push(base + m[1]);
+          return Promise.all(urls.map(reget));
+        }));
+      }
+      var go = function () { location.replace(location.pathname + '?r=' + stamp + '#home'); };
+      var timer = setTimeout(go, 4000);   // never hang if the network is slow
+      Promise.all(tasks).then(function () { clearTimeout(timer); go(); }, function () { clearTimeout(timer); go(); });
+    }
     if (b) b.addEventListener('click', function () {
       b.textContent = 'Refreshing\u2026';
-      var u = location.pathname + '?r=' + Date.now() + '#home';
-      try { if (window.caches && caches.keys) caches.keys().then(function (ks) { ks.forEach(function (k) { caches.delete(k); }); }); } catch (e) {}
-      setTimeout(function () { location.replace(u); }, 150);
+      b.disabled = true;
+      hardRefresh();
     });
     if (/[?&]r=\d+/.test(location.search)) { try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {} }
   })();
