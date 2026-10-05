@@ -36,15 +36,25 @@
 
   /* ---------------- API ---------------- */
   function AuthError() { this.message = 'auth'; }
-  function api(action, offset, pcOverride) {
-    var pc = pcOverride || getPc();
-    var url = API_URL + '?api=1&action=' + encodeURIComponent(action) +
-      '&offset=' + encodeURIComponent(offset || 0) + '&pc=' + encodeURIComponent(pc) + '&_=' + Date.now();
+  // GET the API and return the body text. A network-level failure ("Failed to fetch": no connection, a blocked
+  // script.google.com / script.googleusercontent.com, or a Google hiccup with no CORS header) is retried once after a
+  // short pause before it is reported, so a transient blip does not show an error and "Try again" visibly works.
+  function isNetErr(err) { return /Failed to fetch|NetworkError|Load failed|network/i.test(String((err && err.message) || err || '')); }
+  function apiGet(url, again) {
     return fetch(url, { method: 'GET', cache: 'no-store', credentials: 'omit', redirect: 'follow' })
       .then(function (r) {
         if (!r.ok) throw new Error('Server returned ' + r.status);
         return r.text();
-      })
+      }, function (err) {
+        if (again || !isNetErr(err) || (navigator.onLine === false)) throw err;
+        return new Promise(function (res) { setTimeout(res, 1200); }).then(function () { return apiGet(url.replace(/&_=\d+/, '&_=' + Date.now()), true); });
+      });
+  }
+  function api(action, offset, pcOverride) {
+    var pc = pcOverride || getPc();
+    var url = API_URL + '?api=1&action=' + encodeURIComponent(action) +
+      '&offset=' + encodeURIComponent(offset || 0) + '&pc=' + encodeURIComponent(pc) + '&_=' + Date.now();
+    return apiGet(url)
       .then(function (t) {
         var j;
         try { j = JSON.parse(t); } catch (e) { throw new Error('Unexpected response from server.'); }
@@ -58,8 +68,7 @@
   function apiRaw(action, params) {
     var url = API_URL + '?api=1&action=' + encodeURIComponent(action) + '&pc=' + encodeURIComponent(getPc()) + '&_=' + Date.now();
     Object.keys(params || {}).forEach(function (k) { url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); });
-    return fetch(url, { method: 'GET', cache: 'no-store', credentials: 'omit', redirect: 'follow' })
-      .then(function (r) { if (!r.ok) throw new Error('Server returned ' + r.status); return r.text(); })
+    return apiGet(url)
       .then(function (t) {
         var j;
         try { j = JSON.parse(t); } catch (e) { throw new Error('Unexpected response from server.'); }
@@ -71,7 +80,9 @@
   function friendly(err) {
     if (err instanceof AuthError) return 'Passcode no longer valid.';
     var m = String((err && err.message) || err || 'Something went wrong.');
-    if (/Failed to fetch|NetworkError|Load failed/i.test(m)) m = "Couldn't reach the server. Check your connection and try again.";
+    if (/Failed to fetch|NetworkError|Load failed/i.test(m)) m = navigator.onLine === false ?
+      "This device is offline. Reconnect, then tap Try again." :
+      "Couldn't reach the server (Google Apps Script). Check your connection and try again. If other sites load fine, a VPN, network filter, or browser extension (ad/tracker blocker) may be blocking script.google.com.";
     return m;
   }
   function onFail(boxIds, retry) {
@@ -12198,6 +12209,14 @@
     grid.addEventListener('contextmenu', function (e) { e.preventDefault(); });
   })();
 
+  // Every "Try again" button: show it is working (handlers re-render the box, replacing the button; restore if nothing does).
+  document.addEventListener('click', function (e) {
+    var t = e.target && e.target.closest ? e.target.closest('button') : null;
+    if (!t || !/^\s*Try again\s*$/.test(t.textContent || '')) return;
+    t.textContent = 'Trying\u2026'; t.classList.add('trying');
+    setTimeout(function () { if (document.body.contains(t) && t.textContent === 'Trying\u2026') { t.textContent = 'Try again'; t.classList.remove('trying'); } }, 20000);
+  }, true);
+
   // Refresh: hard refresh, like signing out and back in, but keeps all saved data (localStorage is untouched).
   //  1) unregister any service workers  2) delete every Cache Storage cache  3) clear sessionStorage
   //  4) re-download index.html, app.js, app.css (and whatever ?v= the new index.html points at) with cache:'reload',
@@ -12205,7 +12224,6 @@
   (function () {
     var b = $('cc-refresh');
     function hardRefresh() {
-      var stamp = Date.now();
       var tasks = [];
       try {
         if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
@@ -12235,14 +12253,23 @@
           return Promise.all(urls.map(reget));
         }));
       }
-      var go = function () { location.replace(location.pathname + '?r=' + stamp + '#home'); };
       var timer = setTimeout(go, 4000);   // never hang if the network is slow
-      Promise.all(tasks).then(function () { clearTimeout(timer); go(); }, function () { clearTimeout(timer); go(); });
+      try { Promise.all(tasks).then(function () { clearTimeout(timer); go(); }, function () { clearTimeout(timer); go(); }); }
+      catch (e) { clearTimeout(timer); go(); }
+    }
+    // Navigate no matter what: cache-busted URL first; if that is blocked or the page is still here, plain reload.
+    var went = false;
+    function go() {
+      if (went) return; went = true;
+      try { location.replace(location.pathname + '?r=' + Date.now() + '#home'); }
+      catch (e) { try { location.reload(); } catch (e2) {} }
+      setTimeout(function () { try { location.reload(); } catch (e3) {} }, 3000);
     }
     if (b) b.addEventListener('click', function () {
       b.textContent = 'Refreshing\u2026';
       b.disabled = true;
-      hardRefresh();
+      try { hardRefresh(); } catch (e) { go(); }
+      setTimeout(go, 6000);   // absolute backstop
     });
     if (/[?&]r=\d+/.test(location.search)) { try { history.replaceState(null, '', location.pathname + location.hash); } catch (e) {} }
   })();
