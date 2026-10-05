@@ -3694,7 +3694,7 @@
     var b = e.target.closest('[data-mac2]'); if (!b) return;
     var a = b.getAttribute('data-mac2');
     if (a === 'close') macClose();
-    else if (a === 'mic') { var tid = b.getAttribute('data-for'); pt.cur = tid; if (pm.on && pm.id === tid) ptMicStop(false); else ptMicStart(tid); }
+    else if (a === 'mic') { if (mm.on) macMicStop(); else macMicStart(); }
     else if (a === 'parse') { macMicStop(true); mm.on = false; macFill(); }
     else if (a === 'save') macSave();
   });
@@ -7815,7 +7815,7 @@
   };
   var pt = { data: null, at: 0, loading: false, err: '', na: false, seq: 0, filter: 'active', q: '', form: null, formId: '', wf: null, wfOpen: '', wConfirm: '', cConfirm: false,
     busy: false, wbusy: '', open: null, flash: '', cur: '' };
-  var pm = { rec: null, on: false, id: '', base: '', committed: '', interim: '' };
+  var pm = { rec: null, on: false, wanted: false, spell: false, id: '', base: '', committed: '', interim: '', prev: '', msg: '' };
   function ptRoute() { return state.ptRoute || { kind: '', id: '' }; }
   function ptOnScreen() { return $('screen-pt').classList.contains('active'); }
   function ptOpenMap() { if (!pt.open) pt.open = lsGet(PT_OPEN_KEY, null) || { basics: 1, health: 1, goals: 1, workouts: 1 }; return pt.open; }
@@ -7881,6 +7881,7 @@
     $('pt-body').innerHTML = h;
     if (r.kind) window.scrollTo(0, y);
     if (pt.flash) { ptMsg('pt-msg', pt.flash, false); pt.flash = ''; }
+    if ((r.kind === 'new' || r.kind === 'client') && (!pt.cur || !ptInfo(pt.cur))) pt.cur = 'ptf-name';
     ptBarUpdate();
   }
   function ptCounts() {
@@ -7936,9 +7937,8 @@
       '<h2 class="vgrp pth" role="button" tabindex="0" aria-expanded="' + !col + '"><span class="vgt">' + esc(title) + '</span><i class="vgchev" aria-hidden="true">&rsaquo;</i></h2></div>' +
       '<div class="vgtot ptsum"><span>' + summary + '</span></div><div class="vgbody">' + body + '</div></div>';
   }
-  // One control (input / textarea) with its mic button and a status line. Short fields REPLACE on dictation (and parse the spoken value); text / long fields APPEND.
+  // One control (input / textarea). Short fields REPLACE on dictation (and parse the spoken value); text / long fields APPEND. One form-level mic fills the focused field.
   function ptCtl(kind, id, attr, key, v, max, ph, label, rows) {
-    var mic = '<button type="button" class="micbtn ptmic" data-pt="mic" data-for="' + id + '" aria-pressed="false" aria-label="Dictate ' + esc(label) + '">' + vsvg('mic', 26) + '</button>';
     var ctl;
     if (kind === 'long') ctl = '<textarea class="notebox" id="' + id + '" ' + attr + '="' + key + '" rows="' + (rows || 3) + '" maxlength="' + max + '" autocapitalize="sentences" placeholder="' + esc(ph || '') + '">' + esc(v) + '</textarea>';
     else {
@@ -7946,19 +7946,23 @@
       ctl = '<input class="wlin ptin" id="' + id + '" ' + attr + '="' + key + '" type="' + type + '"' + (kind === 'age' ? ' inputmode="numeric"' : '') + (kind === 'name' ? ' autocapitalize="words"' : '') +
         (max && type !== 'date' ? ' maxlength="' + max + '"' : '') + ' autocomplete="off" enterkeyhint="next" value="' + esc(v) + '" placeholder="' + esc(ph || '') + '" aria-label="' + esc(label) + '">';
     }
-    return '<div class="vfield"><span>' + esc(label) + '</span><div class="ptlong' + (kind === 'long' ? '' : ' one') + '">' + ctl + mic + '</div><div class="micstate" id="ptms-' + id + '"></div></div>';
+    return '<div class="vfield" data-ptid="' + id + '"><span>' + esc(label) + '</span><div class="ptlong' + (kind === 'long' ? '' : ' one') + '">' + ctl + '</div></div>';
   }
   function ptFieldHtml(k, pre) {
     var d = PT_FIELDS[k], v = pt.form[k] == null ? '' : pt.form[k], id = pre + k;
     if (d.kind === 'status') {
-      return '<div class="vfield"><span>' + d.label + '</span><div class="ptlong one"><div class="vchips" id="ptf-status" role="group" aria-label="Status">' + [['active', 'Active'], ['paused', 'Paused']].map(function (s) {
+      return '<div class="vfield" data-ptid="ptf-status"><span>' + d.label + '</span><div class="ptlong one"><div class="vchips" id="ptf-status" role="group" aria-label="Status">' + [['active', 'Active'], ['paused', 'Paused']].map(function (s) {
         var on = v === s[0]; return '<button type="button" class="vchip' + (on ? ' on' : '') + '" data-pt="status" data-s="' + s[0] + '" aria-pressed="' + on + '">' + s[1] + '</button>';
-      }).join('') + '</div><button type="button" class="micbtn ptmic" data-pt="mic" data-for="ptf-status" aria-pressed="false" aria-label="Dictate status">' + vsvg('mic', 26) + '</button></div><div class="micstate" id="ptms-ptf-status"></div></div>';
+      }).join('') + '</div></div></div>';
     }
     return ptCtl(d.kind, id, 'data-ptf', k, v, d.max, d.ph, d.label, 3);
   }
   function ptProfileHtml(c) {
     var h = '<div class="pt ptprofile">';
+    h += '<div class="ptformmic"><button type="button" class="micbtn ptmic ptformmicbtn" id="pt-form-mic" data-pt="formmic" aria-pressed="false" aria-label="Dictate the form">' +
+      '<span class="micico" aria-hidden="true">' + vsvg('mic', 34) + '</span><span class="miclbl" id="pt-form-mic-lbl">Tap to talk</span></button>' +
+      '<div class="micstate" id="pt-mic-state">&nbsp;</div>' +
+      '<p class="pthint">Starts on Name. Say the value, then &ldquo;tab&rdquo; for next, &ldquo;tab back&rdquo; for previous, or &ldquo;spelling&rdquo; to spell letter by letter.</p></div>';
     PT_SECS.forEach(function (s) {
       h += ptCard(s.key, s.title, ptSecSummary(s.key, c), s.fields.map(function (k) { return ptFieldHtml(k, 'ptf-'); }).join(''));
     });
@@ -8102,8 +8106,17 @@
     if (kind === 'status') return ptParseStatus(raw);
     return raw;
   }
-  var PT_NEXT = /^(next|next field|next one|go next|continue)$/, PT_BACK = /^(back|previous|go back|previous field|last field)$/;
-  function ptVoiceNav(raw) { var t = String(raw || '').toLowerCase().replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim(); return PT_NEXT.test(t) ? 1 : PT_BACK.test(t) ? -1 : 0; }
+  var PT_NEXT = /^(tab|next|next field|next one|go next|continue)$/;
+  var PT_BACK = /^(tab back|back|previous|go back|previous field|last field)$/;
+  var PT_SPELL = /^(spelling|spell|spell it|spell that|spell out)$/;
+  function ptVoiceCmd(raw) {
+    var t = String(raw || '').toLowerCase().replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim();
+    t = t.replace(/^(please|um+|uh+|okay|ok)\s+/, '').replace(/\s+(please|thanks|thank you)$/, '').trim();
+    if (PT_SPELL.test(t)) return 'spell';
+    if (PT_BACK.test(t)) return 'back';
+    if (PT_NEXT.test(t)) return 'next';
+    return '';
+  }
 
   // ---- fields in order, current field, Back / Next bar ----
   var PT_WMETA = { date: { label: 'Date', kind: 'date' }, title: { label: 'Title', kind: 'text' }, exercises: { label: 'Exercises', kind: 'long' }, notes: { label: 'Notes', kind: 'long' } };
@@ -8118,14 +8131,16 @@
   function ptOnForm() { var r = ptRoute(); return ptOnScreen() && (r.kind === 'new' || r.kind === 'client'); }
   function ptBarUpdate() {
     var bar = $('pt-bar'), inf = pt.cur && ptOnForm() ? ptInfo(pt.cur) : null;
-    if (!inf) { bar.hidden = true; $('pt-body').classList.remove('ptbarpad'); return; }
+    if (!inf) { bar.hidden = true; $('pt-body').classList.remove('ptbarpad'); ptMarkActive(); return; }
     var list = ptNavList(inf.group), i = list.indexOf(inf.el);
     bar.hidden = false; $('pt-body').classList.add('ptbarpad');
-    $('pt-barname').textContent = inf.label; $('pt-barstep').textContent = (i + 1) + ' of ' + list.length;
+    $('pt-barname').textContent = pm.spell ? ('Spell: ' + inf.label) : inf.label;
+    $('pt-barstep').textContent = (i + 1) + ' of ' + list.length;
     bar.querySelector('[data-ptbar="back"]').disabled = i <= 0;
     bar.querySelector('[data-ptbar="next"]').textContent = i >= list.length - 1 ? 'Save \u203a' : 'Next \u203a';
-    var mb = bar.querySelector('[data-ptbar="mic"]'), on = pm.on && pm.id === pt.cur; mb.classList.toggle('rec', on); mb.setAttribute('aria-pressed', on ? 'true' : 'false');
-    ptBarPos();
+    var mb = bar.querySelector('[data-ptbar="mic"]'), on = !!(pm.wanted || pm.on);
+    mb.classList.toggle('rec', on); mb.setAttribute('aria-pressed', on ? 'true' : 'false');
+    ptMarkActive(); ptBarPos();
   }
   function ptBarPos() {              // keep the bar / spell sheet above the on-screen keyboard
     var vv = window.visualViewport, off = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
@@ -8143,17 +8158,19 @@
     try { f.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e2) { f.scrollIntoView(); }
     ptBarUpdate();
   }
-  function ptMove(dir) {
+  function ptMove(dir, keepMic) {
     var inf = ptInfo(pt.cur); if (!inf) return;
     var list = ptNavList(inf.group), i = list.indexOf(inf.el), j = i + dir;
-    ptMicStop(true); ptMicUi();
+    if (!keepMic) { ptMicStop(true); ptMicUi(); }
     if (j < 0) return;
     if (j >= list.length) {          // past the last field: Save
+      if (keepMic) { pm.wanted = false; ptMicStop(true); ptMicUi(); }
       var sv = inf.group === 'f' ? $('pt-save') : document.querySelector('[data-pt="wsave"]');
       if (sv) { sv.focus({ preventScroll: true }); sv.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
       return;
     }
     ptFocusField(list[j]);
+    if (keepMic && pm.wanted) pm.id = list[j].id;
   }
   $('pt-body').addEventListener('focusin', function (e) {
     var t = e.target, fld = t.closest ? t.closest('[data-ptf], [data-ptw], #ptf-status') : null;
@@ -8165,71 +8182,155 @@
     e.preventDefault(); pt.cur = t.id; ptMove(1);
   });
 
-  // ---- mic: the Wish List dictation (tap to start / stop) on every field ----
-  function ptMicUi() {
-    [].forEach.call($('pt-body').querySelectorAll('.ptmic'), function (b) {
-      var on = pm.on && b.getAttribute('data-for') === pm.id;
-      b.classList.toggle('rec', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
-    });
-    if (!$('pt-bar').hidden) ptBarUpdate();
+  // ---- form mic: one mic for the whole client / workout form; speech fills the focused field ----
+  function ptMarkActive() {
+    [].forEach.call($('pt-body').querySelectorAll('.vfield.pton'), function (el) { el.classList.remove('pton'); });
+    if (!(pm.wanted || pm.on) || !pt.cur) return;
+    var vf = document.querySelector('.vfield[data-ptid="' + pt.cur + '"]');
+    if (!vf) { var el = $(pt.cur); if (el) vf = el.closest('.vfield'); }
+    if (vf) vf.classList.add('pton');
   }
-  function ptMicSay(id, text, warn) { var el = $('ptms-' + id); if (!el) return; el.textContent = text || ''; el.className = 'micstate' + (warn ? ' warn' : (text ? ' rec' : '')); }
-  function ptMicFail(msg) { var id = pm.id, r = pm.rec; pm.on = false; pm.rec = null; try { r && r.abort(); } catch (e) {} ptMicUi(); ptMicSay(id, msg, true); var ta = $(id); if (ta && ta.focus && ta.id !== 'ptf-status') ta.focus(); }
+  function ptMicStatus(text, warn) {
+    pm.msg = text || '';
+    var el = $('pt-mic-state');
+    if (el) { el.textContent = text || '\u00a0'; el.className = 'micstate' + (warn ? ' warn' : ((pm.wanted || pm.on) && text ? ' rec' : '')); }
+    var lbl = $('pt-form-mic-lbl');
+    if (lbl) lbl.textContent = (pm.wanted || pm.on) ? (pm.spell ? 'Spell mode \u2014 tap to stop' : 'Listening \u2014 tap to stop') : 'Tap to talk';
+  }
+  function ptMicUi() {
+    var on = !!(pm.wanted || pm.on);
+    var fb = $('pt-form-mic'); if (fb) { fb.classList.toggle('rec', on); fb.setAttribute('aria-pressed', on ? 'true' : 'false'); }
+    if (!$('pt-bar').hidden) ptBarUpdate(); else ptMarkActive();
+    if (!on && !pm.msg) ptMicStatus('');
+  }
+  function ptMicFail(msg) {
+    var r = pm.rec; pm.on = false; pm.wanted = false; pm.spell = false; pm.rec = null;
+    try { r && r.abort(); } catch (e) {}
+    ptMicStatus(msg, true); ptMicUi();
+    var ta = $(pt.cur); if (ta && ta.focus && ta.id !== 'ptf-status') ta.focus();
+  }
   function ptSetStatus(v) {
     pt.form.status = v === 'paused' ? 'paused' : 'active';
     [].forEach.call($('pt-body').querySelectorAll('#ptf-status .vchip'), function (c) { var on = c.getAttribute('data-s') === pt.form.status; c.classList.toggle('on', on); c.setAttribute('aria-pressed', on ? 'true' : 'false'); });
     var s = document.querySelector('[data-ptsec="basics"] .ptsum span'); if (s) s.innerHTML = ptSecSummary('basics', null);
   }
-  function ptMicStart(id) {
-    var inf = ptInfo(id), ta = inf && inf.el; if (!ta) return;
-    if (pm.on) ptMicStop(true);
-    [].forEach.call($('pt-body').querySelectorAll('.micstate'), function (e) { e.textContent = ''; e.className = 'micstate'; });
-    pm.id = id; pt.cur = id; pm.inf = inf;
+  function ptEnsureField() {
+    if (pt.cur && ptInfo(pt.cur)) return ptInfo(pt.cur);
+    var first = $('ptf-name') || (ptNavList('f')[0]) || (ptNavList('w')[0]);
+    if (!first) return null;
+    ptFocusField(first);
+    return ptInfo(pt.cur);
+  }
+  function ptFormMicToggle() {
+    if (pm.wanted || pm.on) { ptMicStop(true); ptMicUi(); ptMicStatus(''); return; }
+    ptMicArm();
+  }
+  function ptMicArm() {
+    if (sp.open) ptSpellClose();
+    var inf = ptEnsureField(); if (!inf) return;
+    pm.wanted = true; pm.spell = false; pm.msg = '';
+    ptMicStatus('Listening for ' + inf.label + '\u2026');
+    ptMicListen();
+  }
+  function ptMicRestart() {
+    if (!pm.wanted || !ptOnForm()) { ptMicUi(); return; }
+    setTimeout(function () { if (pm.wanted && ptOnForm() && !pm.on) ptMicListen(); }, 140);
+  }
+  function ptApplySpoken(inf, raw) {
+    var ta = inf.el, isStatus = inf.kind === 'status';
+    if (inf.mode === 'append') {
+      ta.value = ((pm.base || '') + raw).replace(/\s+$/, '');
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    }
+    var parsed = ptParse(inf.kind, raw);
+    if (parsed == null) {
+      if (!isStatus) ta.value = pm.prev;
+      ptMicStatus('Heard \u201c' + raw + '\u201d \u2014 that did not look like a valid ' + inf.label.toLowerCase() + '. Try again or say spelling.', true);
+      return false;
+    }
+    if (isStatus) ptSetStatus(parsed); else { ta.value = parsed; ta.dispatchEvent(new Event('input', { bubbles: true })); }
+    ptMicStatus('Listening for ' + inf.label + '\u2026');
+    return true;
+  }
+  function ptApplySpelled(inf, raw) {
+    var p = ptSpellParse(raw), ta = inf.el;
+    if (p.back) { ta.value = String(ta.value || '').slice(0, -1); ta.dispatchEvent(new Event('input', { bubbles: true })); pm.spell = false; ptMicStatus('Listening for ' + inf.label + '\u2026'); return; }
+    if (p.clear) { ta.value = ''; ta.dispatchEvent(new Event('input', { bubbles: true })); pm.spell = false; ptMicStatus('Listening for ' + inf.label + '\u2026'); return; }
+    var w = p.add || '';
+    if (!w) { ptMicStatus('Spell mode\u2026 say the letters (A B C, or A as in apple)', true); return; }
+    if (inf.kind === 'name' || inf.key === 'name') w = w.split(/(\s+)/).map(function (x) { return /^\s+$/.test(x) ? x : (x ? x.charAt(0).toUpperCase() + x.slice(1) : x); }).join('');
+    ta.value = w;
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    pm.spell = false;
+    ptMicStatus('Spelled \u201c' + w + '\u201d. Listening for ' + inf.label + '\u2026');
+  }
+  function ptMicListen() {
+    var inf = ptEnsureField(), ta = inf && inf.el; if (!ta || !pm.wanted) return;
+    if (pm.on) return;
+    pm.id = pt.cur; pm.inf = inf;
     var isStatus = inf.kind === 'status', append = inf.mode === 'append';
-    if (!SR) { ptMicSay(id, MIC_NA, true); if (!isStatus) ta.focus(); ptBarUpdate(); return; }
-    pm.prev = isStatus ? '' : ta.value; pm.base = append && ta.value ? ta.value.replace(/\s+$/, '') + ' ' : ''; pm.committed = ''; pm.interim = '';
+    if (!SR) { return ptMicFail(MIC_NA); }
+    pm.prev = isStatus ? '' : ta.value;
+    pm.base = append && ta.value ? ta.value.replace(/\s+$/, '') + ' ' : '';
+    pm.committed = ''; pm.interim = '';
     var rec; try { rec = new SR(); } catch (e) { return ptMicFail(MIC_NA); }
     rec.continuous = false; rec.interimResults = true; rec.lang = 'en-US'; rec.maxAlternatives = 1;
     rec.onresult = function (ev) {
+      if (!pm.wanted || pm.rec !== rec) return;
       var interim = '';
       for (var i = ev.resultIndex; i < ev.results.length; i++) {
         var r = ev.results[i], t = r[0] ? r[0].transcript : '';
         if (r.isFinal) pm.committed = micSpace(pm.committed, t.trim() + ' '); else interim += t;
       }
       pm.interim = interim.replace(/^\s+/, '');
-      if (!isStatus && inf.kind !== 'date') { ta.value = (append ? pm.base : '') + pm.committed + pm.interim; ta.scrollTop = ta.scrollHeight; }
+      if (pm.spell || isStatus || inf.kind === 'date') return;          // don't live-type into spell / status / date
+      ta.value = (append ? pm.base : '') + pm.committed + pm.interim;
+      ta.scrollTop = ta.scrollHeight;
     };
     rec.onerror = function (ev) {
       var e = ev && ev.error;
       if (e === 'not-allowed' || e === 'service-not-allowed' || e === 'audio-capture' || e === 'language-not-supported') return ptMicFail(MIC_NA);
       if (e === 'network') return ptMicFail('The speech service couldn\u2019t be reached. Tap the text box and use your keyboard\u2019s mic key.');
-      if (e === 'no-speech') ptMicSay(id, 'Didn\u2019t catch anything. Tap the mic and try again.', true);
+      if (e === 'no-speech') ptMicStatus(pm.spell ? 'Spell mode\u2026 didn\u2019t catch that. Try again.' : ('Listening for ' + (ptInfo(pt.cur) || inf).label + '\u2026 say the value, tab, or spelling'), true);
     };
     rec.onend = function () {
-      if (pm.rec !== rec) return;                          // aborted / screen left
+      if (pm.rec !== rec) return;
       var raw = micSpace(pm.committed, pm.interim ? pm.interim.trim() + ' ' : '').trim(); pm.interim = '';
       pm.on = false; pm.rec = null;
-      var nav = raw ? ptVoiceNav(raw) : 0;
-      if (nav) { if (!isStatus) ta.value = pm.prev; ptMicUi(); ptMicSay(id, ''); ptMove(nav); return; }          // "next" / "back" moves instead of typing
-      if (!raw) { if (!isStatus) ta.value = pm.prev; ptMicUi(); return; }
-      if (inf.mode === 'append') { ta.value = (pm.base + raw).replace(/\s+$/, ''); ptMicSay(id, ''); }
-      else {
-        var parsed = ptParse(inf.kind, raw);
-        if (parsed == null) { if (!isStatus) ta.value = pm.prev; ptMicSay(id, 'Heard \u201c' + raw + '\u201d \u2014 that did not look like a valid ' + inf.label.toLowerCase() + '. Try again or type it.', true); ptMicUi(); return; }
-        if (isStatus) ptSetStatus(parsed); else ta.value = parsed;
-        ptMicSay(id, 'Heard \u201c' + raw + '\u201d \u2014 check it below.');
+      // apply to the field this listen started on (interim was shown there); nav uses current focus
+      inf = ptInfo(pm.id) || ptInfo(pt.cur) || inf; ta = inf && inf.el; isStatus = !!(inf && inf.kind === 'status');
+      if (inf && inf.el && inf.el.id) pt.cur = inf.el.id === 'ptf-status' ? 'ptf-status' : inf.el.id;
+      if (!pm.wanted) { ptMicUi(); return; }
+      if (!raw) { if (inf && !isStatus && !pm.spell) ta.value = pm.prev; ptMicUi(); ptMicRestart(); return; }
+      var cmd = ptVoiceCmd(raw);
+      if (cmd === 'spell') {
+        if (!isStatus) ta.value = pm.prev;
+        if (inf && inf.kind === 'status') { ptMicStatus('Status can\u2019t be spelled. Say active or paused, or tab.', true); ptMicUi(); ptMicRestart(); return; }
+        pm.spell = true; ptMicStatus('Spell mode\u2026 say the letters'); ptBarUpdate(); ptMicUi(); ptMicRestart(); return;
       }
-      if (!isStatus) ta.dispatchEvent(new Event('input', { bubbles: true }));       // sync the form model
-      ptMicUi();
+      if (cmd === 'next' || cmd === 'back') {
+        if (!isStatus) ta.value = pm.prev;
+        pm.spell = false;
+        ptMove(cmd === 'next' ? 1 : -1, true);
+        inf = ptInfo(pt.cur);
+        if (inf && pm.wanted) ptMicStatus('Listening for ' + inf.label + '\u2026');
+        ptMicUi(); ptMicRestart(); return;
+      }
+      if (pm.spell) { ptApplySpelled(inf, raw); ptMicUi(); ptMicRestart(); return; }
+      ptApplySpoken(inf, raw); ptMicUi(); ptMicRestart();
     };
     pm.rec = rec; pm.on = true;
     try { rec.start(); } catch (e2) { return ptMicFail(MIC_NA); }
-    ptMicUi(); ptMicSay(id, 'Listening\u2026 tap the mic to stop'); ptBarUpdate();
+    if (!pm.spell) ptMicStatus('Listening for ' + inf.label + '\u2026');
+    ptMicUi();
   }
   function ptMicStop(quiet) {       // quiet = abort (leaving / re-rendering); otherwise stop() and onend fills the field
+    pm.wanted = false; pm.spell = false;
     var r = pm.rec;
     if (quiet) { pm.rec = null; pm.on = false; try { r && r.abort(); } catch (e) {} return; }
     if (r) { try { r.stop(); } catch (e2) { pm.rec = null; pm.on = false; ptMicUi(); } }
+    else { pm.on = false; ptMicUi(); }
   }
 
   // ---- Spell-out: letters (dictated or typed) -> one word -> Replace field / Replace last word ----
@@ -8321,7 +8422,7 @@
     var bar = document.createElement('div'); bar.id = 'pt-bar'; bar.className = 'ptbar'; bar.hidden = true;
     bar.innerHTML = '<div class="ptbarlbl"><b id="pt-barname"></b><span id="pt-barstep"></span></div><div class="ptbarbtns">' +
       '<button type="button" class="navbtn" data-ptbar="back">\u2039 Back</button><button type="button" class="navbtn" data-ptbar="spell">Spell</button>' +
-      '<button type="button" class="micbtn ptmic" data-ptbar="mic" aria-pressed="false" aria-label="Dictate this field">' + vsvg('mic', 24) + '</button><button type="button" class="bigsave" data-ptbar="next">Next \u203a</button></div>';
+      '<button type="button" class="micbtn ptmic" data-ptbar="mic" aria-pressed="false" aria-label="Dictate the form">' + vsvg('mic', 24) + '</button><button type="button" class="bigsave" data-ptbar="next">Next \u203a</button></div>';
     $('screen-pt').appendChild(bar);
     var sh = document.createElement('div'); sh.id = 'pt-spell'; sh.className = 'ptspell'; sh.hidden = true; sh.setAttribute('role', 'dialog'); sh.setAttribute('aria-label', 'Spell it out');
     sh.innerHTML = '<div class="pshead"><b id="ps-title">Spell</b><button type="button" class="wlx" data-ptsp="close" aria-label="Close">\u00d7</button></div>' +
@@ -8335,7 +8436,7 @@
     bar.addEventListener('click', function (e) {
       var b = e.target.closest('[data-ptbar]'); if (!b) return; var a = b.getAttribute('data-ptbar');
       if (a === 'back') ptMove(-1); else if (a === 'next') ptMove(1); else if (a === 'spell') ptSpellOpen(pt.cur);
-      else if (a === 'mic') { if (pm.on && pm.id === pt.cur) ptMicStop(false); else ptMicStart(pt.cur); }
+      else if (a === 'mic') ptFormMicToggle();
     });
     bar.addEventListener('mousedown', function (e) { if (e.target.closest('button')) e.preventDefault(); });      // keep the field focused (keyboard stays up)
     sh.addEventListener('click', function (e) {
@@ -8477,7 +8578,7 @@
     var a = b.getAttribute('data-pt'), id = b.getAttribute('data-id');
     if (a === 'reload') { pt.na = false; ptLoad(true); }
     else if (a === 'filter') { pt.filter = b.getAttribute('data-f'); ptRender(); }
-    else if (a === 'mic') { var tid = b.getAttribute('data-for'); if (pm.on && pm.id === tid) ptMicStop(false); else ptMicStart(tid); }
+    else if (a === 'formmic' || a === 'mic') ptFormMicToggle();
     else if (a === 'status') { ptSetStatus(b.getAttribute('data-s')); pt.cur = 'ptf-status'; ptBarUpdate(); }
     else if (a === 'save') ptSave();
     else if (a === 'cancel') { ptMicStop(true); var cc = ptClient(ptRoute().id); if (cc) { ptFormInit(cc); ptRender(); } else { pt.formId = ''; show('pt'); } }
