@@ -1848,3 +1848,45 @@ button.ledchip { cursor: pointer; }
   #screen-mf .mfstatcard:nth-child(4), #screen-mf .mfstatcard:nth-child(5) { grid-column: span 1; }
   #screen-mf .mfherotitle { font-size: 22px; }
 }
+
+/* ---- Plan Checks (#pc) ---- */
+#screen-pc { --pc-copper: #D08A55; --pc-copper2: #F4A15A; }
+#screen-pc .pc { padding-bottom: 28px; }
+#screen-pc .pc-entry { border-color: rgba(208,138,85,.55); }
+#screen-pc .pclbl { display: block; margin: 12px 0 6px; color: var(--muted); font-size: 13px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; }
+#screen-pc .wlin { width: 100%; margin-bottom: 4px; }
+#screen-pc .pcprojs { margin-bottom: 8px; }
+#screen-pc .pcrecentto { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0 10px; }
+#screen-pc .pcmini { min-height: 34px; padding: 6px 10px; font-size: 13px; }
+#screen-pc .pcmic { margin: 14px 0 10px; }
+#screen-pc .pcmic .micbtn.big { min-height: 140px; }
+#screen-pc .pchint, #screen-pc .stickyhint { margin: 0 0 12px; padding: 10px 12px; border-radius: var(--radius); font-size: 13px; color: var(--muted); background: rgba(0,0,0,.35); border: 1px solid rgba(208,138,85,.25); }
+#screen-pc .pchint b { color: var(--pc-copper2); font-weight: 700; }
+#screen-pc .pcitems { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+#screen-pc .pcitem { display: grid; grid-template-columns: 44px 1fr auto; gap: 8px; align-items: start; padding: 8px; border-radius: 10px; background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.06); }
+#screen-pc .pcitem.on { border-color: rgba(208,138,85,.65); background: rgba(208,138,85,.1); box-shadow: 0 0 0 1px rgba(208,138,85,.25); }
+#screen-pc .pcnum { width: 44px; height: 44px; border-radius: 10px; border: 1px solid rgba(208,138,85,.4); background: rgba(0,0,0,.5); color: var(--pc-copper2); font: 800 16px/1 'Inter', sans-serif; cursor: pointer; }
+#screen-pc .pcitem.on .pcnum { color: #0b0b0b; background: var(--pc-copper); border-color: #e0a574; }
+#screen-pc .pcitemta { margin: 0; min-height: 52px; }
+#screen-pc .pcpinmark { font-size: 16px; padding-top: 12px; opacity: .9; }
+#screen-pc .pclist { display: block; width: 100%; text-align: left; margin: 0 0 8px; padding: 14px; border-radius: 10px; border: 1px solid rgba(208,138,85,.28); background: rgba(0,0,0,.4); color: inherit; cursor: pointer; }
+#screen-pc .pclist:active { background: rgba(208,138,85,.12); }
+#screen-pc .pcl1 { font-size: 16px; }
+#screen-pc .pcl2 { margin-top: 4px; color: var(--muted); font-size: 13px; }
+#screen-pc .pcfoot { margin-top: 16px; }
+#screen-pc .pcfoot a { color: var(--pc-copper2); }
+#screen-pc .pcdrawempty { padding: 14px; margin-bottom: 12px; }
+#screen-pc .pcdrawempty b { display: block; color: var(--pc-copper2); margin-bottom: 6px; }
+#screen-pc .pcdrawempty p { margin: 0 0 12px; color: var(--muted); line-height: 1.4; }
+#screen-pc .pcdrawwrap { margin-bottom: 14px; }
+#screen-pc .pcdrawstage { position: relative; width: 100%; border-radius: 10px; overflow: hidden; border: 1px solid rgba(208,138,85,.35); background: #111; touch-action: manipulation; }
+#screen-pc .pcdrawwrap.placing .pcdrawstage { cursor: crosshair; outline: 2px solid var(--pc-copper); outline-offset: 2px; }
+#screen-pc .pcdrawimg { display: block; width: 100%; height: auto; vertical-align: top; user-select: none; -webkit-user-drag: none; pointer-events: none; }
+#screen-pc .pcpins { position: absolute; inset: 0; pointer-events: none; }
+#screen-pc .pcpin { pointer-events: auto; position: absolute; transform: translate(-50%, -50%); width: 28px; height: 28px; border-radius: 50%; border: 2px solid #0b0b0b; background: var(--pc-copper); color: #0b0b0b; font: 800 12px/1 'Inter', sans-serif; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(0,0,0,.45); z-index: 2; padding: 0; cursor: pointer; }
+#screen-pc .pcpin.on { background: #fff; color: #0b0b0b; border-color: var(--pc-copper2); box-shadow: 0 0 0 3px rgba(244,161,90,.55), 0 2px 8px rgba(0,0,0,.5); width: 32px; height: 32px; font-size: 13px; z-index: 3; }
+#screen-pc .pcdrawbtns { margin-top: 10px; flex-wrap: wrap; }
+#screen-pc .pcdrawbtns .navbtn.on { color: #0b0b0b; background: var(--pc-copper); border-color: #e0a574; }
+#screen-pc .pcactions { margin-top: 8px; }
+#screen-pc .sechead { margin: 18px 0 10px; color: var(--pc-copper2); font-size: 15px; }
+#projects-list .pc-entry { border-color: rgba(208,138,85,.55); grid-column: 1 / -1; }

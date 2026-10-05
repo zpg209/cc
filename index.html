@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lora:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=95">
+<link rel="stylesheet" href="app.css?v=96">
 </head>
 <body>
   <div class="bg"></div>
@@ -67,7 +67,9 @@
   <section id="screen-projects" class="screen">
     <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><h2>L&amp;S projects</h2></div>
     <p class="hint">Opens each project's Running Notes.</p>
-    <div class="grid2" id="projects-list"></div>
+    <div class="grid2" id="projects-list">
+      <button class="tile small pc-entry" data-go="pc">Plan Checks<span class="sub">Mic checklist · email · pin on plan</span></button>
+    </div>
   </section>
 
   <!-- ============ PROJECT PAGE (#proj/<slug>) — Terra Vi is the pilot ============ -->
@@ -159,6 +161,13 @@
   <section id="screen-mf" class="screen">
     <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><h2 id="mf-title">Mono Fold</h2></div>
     <div id="mf-body"><div class="loading">Loading…</div></div>
+  </section>
+
+
+  <!-- ============ PLAN CHECKS (#pc / #pc/list / #pc/new / #pc/<id>) ============ -->
+  <section id="screen-pc" class="screen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="pc-back" data-go="projects">&lsaquo; Back</button><h2 id="pc-title">Plan Checks</h2></div>
+    <div id="pc-body"><div class="loading">Loading…</div></div>
   </section>
 
   <!-- ============ TRUST & ESTATE (#trust) ============ -->
@@ -277,6 +286,6 @@
     <div id="vcam-body"></div>
   </section>
 
-  <script src="app.js?v=95"></script>
+  <script src="app.js?v=96"></script>
 </body>
 </html>
