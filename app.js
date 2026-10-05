@@ -551,7 +551,7 @@
     Object.keys(PROJ).forEach(function (k) {       // projects set up in PROJ show even before the server's project list knows them
       if (!plist.some(function (p) { return projSlugOf(p.name) === k; })) plist.push({ name: PROJ[k].name, url: PROJ[k].docUrl, kind: 'doc' });
     });
-    var pcTile = '<button class="tile small pc-entry" data-go="pc">Plan Checks<span class="sub">Mic checklist \u00b7 PDF plan \u00b7 pins & notes</span></button>';
+    var pcTile = '<button class="tile small pc-entry" data-go="pc">Plan Checks<span class="sub">Mic checklist \u00b7 PDF plan \u00b7 pins &amp; notes</span></button>';
     $('projects-list').innerHTML = pcTile + plist.map(function (p) {
       var slug = projSlugOf(p.name);
       if (slug) {
