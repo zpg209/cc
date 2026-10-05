@@ -151,7 +151,7 @@
     if (name !== 'vmic') vmicStop(true);
     if (!(name === 'lt' && R.kind === 'wish')) wlMicStop(true);
     if (!(name === 'lt' && R.kind === 'notes')) lnMicStop(true);
-    if (name !== 'pt') ptMicStop(true);
+    if (name !== 'pt') { ptMicStop(true); spellMicStop(true); }
     if (!(name === 'lt' && R.kind === 'orders')) odMicStop(true);
     if (!(name === 'lt' && (R.kind === 'macros' || R.kind === 'recipes'))) macClose(true);
     if (!(name === 'lt' && R.kind === 'menu-add')) maMicStop(true);
@@ -3575,7 +3575,7 @@
     var b = e.target.closest('[data-mac2]'); if (!b) return;
     var a = b.getAttribute('data-mac2');
     if (a === 'close') macClose();
-    else if (a === 'mic') { if (mm.on) macMicStop(); else macMicStart(); }
+    else if (a === 'mic') { var tid = b.getAttribute('data-for'); pt.cur = tid; if (pm.on && pm.id === tid) ptMicStop(false); else ptMicStart(tid); }
     else if (a === 'parse') { macMicStop(true); mm.on = false; macFill(); }
     else if (a === 'save') macSave();
   });
@@ -7674,7 +7674,7 @@
     { key: 'notes',    title: 'Notes',               fields: ['notes'] }
   ];
   var PT_FIELDS = {
-    name:        { label: 'Name', kind: 'text', max: 80, ph: 'Full name' },
+    name:        { label: 'Name', kind: 'name', max: 80, ph: 'Full name' },
     age:         { label: 'Age', kind: 'age', max: 3, ph: 'Years' },
     phone:       { label: 'Phone', kind: 'tel', max: 30, ph: '' },
     email:       { label: 'Email', kind: 'email', max: 120, ph: '' },
@@ -7689,7 +7689,7 @@
     notes:       { label: 'Notes', kind: 'long', max: 2000, ph: 'Anything else' }
   };
   var pt = { data: null, at: 0, loading: false, err: '', na: false, seq: 0, filter: 'active', q: '', form: null, formId: '', wf: null, wfOpen: '', wConfirm: '', cConfirm: false,
-    busy: false, wbusy: '', open: null, flash: '' };
+    busy: false, wbusy: '', open: null, flash: '', cur: '' };
   var pm = { rec: null, on: false, id: '', base: '', committed: '', interim: '' };
   function ptRoute() { return state.ptRoute || { kind: '', id: '' }; }
   function ptOnScreen() { return $('screen-pt').classList.contains('active'); }
@@ -7710,7 +7710,7 @@
 
   // ---- load ----
   function ptOpen() {
-    ptMicStop(true);
+    ptMicStop(true); if (sp.open) ptSpellClose(); pt.cur = '';
     var r = ptRoute();
     $('pt-back').setAttribute('data-go', r.kind ? 'pt' : 'home');
     $('pt-title').textContent = r.kind === 'new' ? 'New client' : r.kind === 'client' ? 'Client' : 'Clients';
@@ -7756,6 +7756,7 @@
     $('pt-body').innerHTML = h;
     if (r.kind) window.scrollTo(0, y);
     if (pt.flash) { ptMsg('pt-msg', pt.flash, false); pt.flash = ''; }
+    ptBarUpdate();
   }
   function ptCounts() {
     var l = (pt.data && pt.data.clients) || [], n = { active: 0, paused: 0, all: l.length };
@@ -7810,20 +7811,26 @@
       '<h2 class="vgrp pth" role="button" tabindex="0" aria-expanded="' + !col + '"><span class="vgt">' + esc(title) + '</span><i class="vgchev" aria-hidden="true">&rsaquo;</i></h2></div>' +
       '<div class="vgtot ptsum"><span>' + summary + '</span></div><div class="vgbody">' + body + '</div></div>';
   }
+  // One control (input / textarea) with its mic button and a status line. Short fields REPLACE on dictation (and parse the spoken value); text / long fields APPEND.
+  function ptCtl(kind, id, attr, key, v, max, ph, label, rows) {
+    var mic = '<button type="button" class="micbtn ptmic" data-pt="mic" data-for="' + id + '" aria-pressed="false" aria-label="Dictate ' + esc(label) + '">' + vsvg('mic', 26) + '</button>';
+    var ctl;
+    if (kind === 'long') ctl = '<textarea class="notebox" id="' + id + '" ' + attr + '="' + key + '" rows="' + (rows || 3) + '" maxlength="' + max + '" autocapitalize="sentences" placeholder="' + esc(ph || '') + '">' + esc(v) + '</textarea>';
+    else {
+      var type = kind === 'tel' ? 'tel' : kind === 'email' ? 'email' : kind === 'date' ? 'date' : 'text';
+      ctl = '<input class="wlin ptin" id="' + id + '" ' + attr + '="' + key + '" type="' + type + '"' + (kind === 'age' ? ' inputmode="numeric"' : '') + (kind === 'name' ? ' autocapitalize="words"' : '') +
+        (max && type !== 'date' ? ' maxlength="' + max + '"' : '') + ' autocomplete="off" enterkeyhint="next" value="' + esc(v) + '" placeholder="' + esc(ph || '') + '" aria-label="' + esc(label) + '">';
+    }
+    return '<div class="vfield"><span>' + esc(label) + '</span><div class="ptlong' + (kind === 'long' ? '' : ' one') + '">' + ctl + mic + '</div><div class="micstate" id="ptms-' + id + '"></div></div>';
+  }
   function ptFieldHtml(k, pre) {
     var d = PT_FIELDS[k], v = pt.form[k] == null ? '' : pt.form[k], id = pre + k;
     if (d.kind === 'status') {
-      return '<div class="vfield"><span>' + d.label + '</span><div class="vchips" role="group" aria-label="Status">' + [['active', 'Active'], ['paused', 'Paused']].map(function (s) {
+      return '<div class="vfield"><span>' + d.label + '</span><div class="ptlong one"><div class="vchips" id="ptf-status" role="group" aria-label="Status">' + [['active', 'Active'], ['paused', 'Paused']].map(function (s) {
         var on = v === s[0]; return '<button type="button" class="vchip' + (on ? ' on' : '') + '" data-pt="status" data-s="' + s[0] + '" aria-pressed="' + on + '">' + s[1] + '</button>';
-      }).join('') + '</div></div>';
+      }).join('') + '</div><button type="button" class="micbtn ptmic" data-pt="mic" data-for="ptf-status" aria-pressed="false" aria-label="Dictate status">' + vsvg('mic', 26) + '</button></div><div class="micstate" id="ptms-ptf-status"></div></div>';
     }
-    if (d.kind === 'long') {
-      return '<div class="vfield"><span>' + d.label + '</span><div class="ptlong"><textarea class="notebox" id="' + id + '" data-ptf="' + k + '" rows="3" maxlength="' + d.max + '" autocapitalize="sentences" placeholder="' + esc(d.ph || '') + '">' + esc(v) + '</textarea>' +
-        '<button type="button" class="micbtn ptmic" data-pt="mic" data-for="' + id + '" aria-pressed="false" aria-label="Dictate ' + esc(d.label) + '">' + vsvg('mic', 26) + '</button></div><div class="micstate" id="ptms-' + id + '"></div></div>';
-    }
-    var type = d.kind === 'tel' ? 'tel' : d.kind === 'email' ? 'email' : d.kind === 'date' ? 'date' : 'text';
-    return '<label class="vfield"><span>' + d.label + '</span><input class="wlin ptin" id="' + id + '" data-ptf="' + k + '" type="' + type + '"' + (d.kind === 'age' ? ' inputmode="numeric"' : '') +
-      (d.max && type !== 'date' ? ' maxlength="' + d.max + '"' : '') + ' autocomplete="off" value="' + esc(v) + '" placeholder="' + esc(d.ph || '') + '"></label>';
+    return ptCtl(d.kind, id, 'data-ptf', k, v, d.max, d.ph, d.label, 3);
   }
   function ptProfileHtml(c) {
     var h = '<div class="pt ptprofile">';
@@ -7848,13 +7855,10 @@
   }
   function ptWorkoutForm() {
     var f = pt.wf, id = f.id;
-    var h = '<div class="ptwform"><label class="vfield"><span>Date</span><input class="wlin ptin" id="ptw-date" data-ptw="date" type="date" value="' + esc(f.date) + '"></label>' +
-      '<label class="vfield"><span>Title</span><input class="wlin ptin" id="ptw-title" data-ptw="title" type="text" maxlength="120" autocomplete="off" value="' + esc(f.title) + '" placeholder="e.g. Lower body, week 3"></label>';
-    [['exercises', 'Exercises', 'One per line: exercise, sets x reps, weight', 4000, 5], ['notes', 'Notes', 'How it went, what to change', 1500, 3]].forEach(function (x) {
-      var tid = 'ptw-' + x[0];
-      h += '<div class="vfield"><span>' + x[1] + '</span><div class="ptlong"><textarea class="notebox" id="' + tid + '" data-ptw="' + x[0] + '" rows="' + x[4] + '" maxlength="' + x[3] + '" autocapitalize="sentences" placeholder="' + esc(x[2]) + '">' + esc(f[x[0]]) + '</textarea>' +
-        '<button type="button" class="micbtn ptmic" data-pt="mic" data-for="' + tid + '" aria-pressed="false" aria-label="Dictate ' + x[1] + '">' + vsvg('mic', 26) + '</button></div><div class="micstate" id="ptms-' + tid + '"></div></div>';
-    });
+    var h = '<div class="ptwform">' + ptCtl('date', 'ptw-date', 'data-ptw', 'date', f.date, 10, '', 'Date') +
+      ptCtl('text', 'ptw-title', 'data-ptw', 'title', f.title, 120, 'e.g. Lower body, week 3', 'Title');
+    h += ptCtl('long', 'ptw-exercises', 'data-ptw', 'exercises', f.exercises, 4000, 'One per line: exercise, sets x reps, weight', 'Exercises', 5) +
+      ptCtl('long', 'ptw-notes', 'data-ptw', 'notes', f.notes, 1500, 'How it went, what to change', 'Notes', 3);
     h += '<div class="draftbtns"><button type="button" class="bigsave" data-pt="wsave"' + (pt.wbusy ? ' disabled' : '') + '>' + (pt.wbusy === 'save' ? 'Saving\u2026' : (id ? 'Save workout' : 'Add workout')) + '</button><button type="button" class="navbtn discard" data-pt="wcancel">Cancel</button></div>';
     if (id) {
       h += pt.wConfirm === id
@@ -7880,22 +7884,185 @@
     return h + '<div class="noteflash" id="pt-wflash" hidden></div>';
   }
 
-  // ---- mic (the Wish List dictation: tap to start / stop, appends to the box) ----
+  // ---- spoken-value parsing (short fields): the result is shown in the field so it can be corrected ----
+  var PT_UNITS = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19 };
+  var PT_TENS = { twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
+  var PT_ORD = { first: 'one', second: 'two', third: 'three', fourth: 'four', fifth: 'five', sixth: 'six', seventh: 'seven', eighth: 'eight', ninth: 'nine', tenth: 'ten', eleventh: 'eleven', twelfth: 'twelve',
+    thirteenth: 'thirteen', fourteenth: 'fourteen', fifteenth: 'fifteen', sixteenth: 'sixteen', seventeenth: 'seventeen', eighteenth: 'eighteen', nineteenth: 'nineteen', twentieth: 'twenty', thirtieth: 'thirty' };
+  var PT_MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+  function ptToks(s) { return String(s || '').toLowerCase().replace(/[-\u2013\u2014]/g, ' ').replace(/[^a-z0-9\/'@. ]+/g, ' ').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean); }
+  function ptWordsNum(tokens) {          // "forty two" -> 42, "one hundred five" -> 105, "two thousand twenty six" -> 2026; NaN when it is not a clean number
+    var total = 0, cur = 0, last = '', any = false;
+    for (var i = 0; i < tokens.length; i++) {
+      var t = tokens[i]; if (t === 'and') continue;
+      if (PT_ORD[t]) t = PT_ORD[t];
+      if (/^\d+$/.test(t)) { if (tokens.length === 1) return Number(t); return NaN; }
+      if (t === 'oh' && tokens.length === 1) return 0;
+      if (PT_UNITS[t] !== undefined) {
+        var n = PT_UNITS[t];
+        if (n === 0) { if (tokens.length === 1) return 0; return NaN; }
+        if (n < 10) { if (last === 'unit' || last === 'teen') return NaN; cur += n; last = 'unit'; }
+        else { if (last === 'unit' || last === 'teen' || last === 'tens') return NaN; cur += n; last = 'teen'; }
+      } else if (PT_TENS[t]) { if (last === 'unit' || last === 'teen' || last === 'tens') return NaN; cur += PT_TENS[t]; last = 'tens'; }
+      else if (t === 'hundred') { if (!cur) return NaN; cur *= 100; last = 'mult'; }
+      else if (t === 'thousand') { if (!cur) return NaN; total += cur * 1000; cur = 0; last = 'mult'; }
+      else return NaN;
+      any = true;
+    }
+    return any ? total + cur : NaN;
+  }
+  function ptParseAge(raw) {
+    var m = String(raw).match(/\b(\d{1,3})\b/); if (m && +m[1] <= 120) return String(+m[1]);
+    var toks = ptToks(raw).filter(function (t) { return PT_UNITS[t] !== undefined || PT_TENS[t] || t === 'hundred' || t === 'and'; });
+    var n = ptWordsNum(toks); return isNaN(n) || n < 0 || n > 120 ? null : String(n);
+  }
+  function ptParsePhone(raw) {
+    var toks = ptToks(raw), d = '', i;
+    for (i = 0; i < toks.length; i++) {
+      var t = toks[i], rep = 1;
+      if (t === 'double') { rep = 2; t = toks[++i] || ''; } else if (t === 'triple') { rep = 3; t = toks[++i] || ''; }
+      var dig = /^\d+$/.test(t) ? t : (t === 'oh' || t === 'o' ? '0' : (PT_UNITS[t] !== undefined && PT_UNITS[t] < 10 ? String(PT_UNITS[t]) : ''));
+      if (dig) for (var r = 0; r < rep; r++) d += dig;
+    }
+    if (d.length === 11 && d.charAt(0) === '1') d = d.slice(1);
+    if (d.length < 7 || d.length > 15) return null;
+    return d.length === 10 ? '(' + d.slice(0, 3) + ') ' + d.slice(3, 6) + '-' + d.slice(6) : d;
+  }
+  function ptParseEmail(raw) {
+    var s = ' ' + String(raw).toLowerCase().replace(/[,;]+/g, ' ') + ' ';
+    s = s.replace(/\s+at\s+sign\s+|\s+at\s+symbol\s+|\s+at\s+the\s+rate\s+(?:of\s+)?|\s+at\s+/g, '@').replace(/\s+dot\s+|\s+period\s+/g, '.').replace(/\s+underscore\s+/g, '_').replace(/\s+(?:dash|hyphen)\s+/g, '-').replace(/\s+plus\s+/g, '+');
+    s = s.replace(/\s+/g, '');
+    var at = s.indexOf('@'); if (at > 0) s = s.slice(0, at + 1) + s.slice(at + 1).replace(/@/g, '');
+    s = s.replace(/\.+$/, '');
+    return /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/.test(s) ? s : (s.indexOf('@') > 0 ? s : null);
+  }
+  function ptIso(y, m, d) {
+    var dt = new Date(y, m - 1, d, 12); if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return null;
+    return y + '-' + (m < 10 ? '0' : '') + m + '-' + (d < 10 ? '0' : '') + d;
+  }
+  function ptParseDate(raw) {
+    var s = String(raw).toLowerCase().trim(), now = new Date(), y0 = now.getFullYear(), m;
+    if ((m = s.match(/\b(\d{4})-(\d{2})-(\d{2})\b/))) return ptIso(+m[1], +m[2], +m[3]);
+    if (/^\W*today\W*$/.test(s)) return ptIso(y0, now.getMonth() + 1, now.getDate());
+    if (/^\W*(yesterday|tomorrow)\W*$/.test(s)) { var dd = new Date(y0, now.getMonth(), now.getDate() + (/yesterday/.test(s) ? -1 : 1), 12); return ptIso(dd.getFullYear(), dd.getMonth() + 1, dd.getDate()); }
+    if ((m = s.match(/\b(\d{1,2})[\/.\-](\d{1,2})(?:[\/.\-](\d{2,4}))?\b/))) { var yy = m[3] ? (m[3].length === 2 ? 2000 + +m[3] : +m[3]) : y0; return ptIso(yy, +m[1], +m[2]); }
+    var toks = ptToks(s), mi = -1, i;
+    for (i = 0; i < toks.length; i++) { for (var q = 0; q < 12; q++) if (toks[i] === PT_MONTHS[q] || (toks[i].length >= 3 && PT_MONTHS[q].indexOf(toks[i]) === 0)) { mi = q; break; } if (mi >= 0) { toks.splice(i, 1); break; } }
+    if (mi < 0) return null;
+    toks = toks.filter(function (t) { return t !== 'the' && t !== 'of' && t !== 'st' && t !== 'nd' && t !== 'rd' && t !== 'th'; }).map(function (t) { return t.replace(/^(\d{1,2})(st|nd|rd|th)$/, '$1'); });
+    var day = NaN, used = 0;
+    for (var k = Math.min(2, toks.length); k >= 1; k--) { var v = ptWordsNum(toks.slice(0, k)); if (v >= 1 && v <= 31) { day = v; used = k; break; } }
+    if (isNaN(day)) return null;
+    var rest = toks.slice(used), year = y0;
+    if (rest.length) {
+      if (rest.length === 1 && /^\d{4}$/.test(rest[0])) year = +rest[0];
+      else if (rest.length === 1 && /^\d{2}$/.test(rest[0])) year = 2000 + +rest[0];
+      else if ((rest[0] === 'twenty' || rest[0] === 'nineteen') && rest.length > 1) { var tail = rest.slice(1); if (tail[0] === 'oh') tail = tail.slice(1); var tv = ptWordsNum(tail); if (isNaN(tv) || tv > 99) return null; year = (rest[0] === 'twenty' ? 2000 : 1900) + tv; }
+      else { var yv = ptWordsNum(rest); if (isNaN(yv) || yv < 1900 || yv > 2100) return null; year = yv; }
+    }
+    return ptIso(year, mi + 1, day);
+  }
+  function ptParseName(raw) {
+    var s = String(raw).replace(/[.,!?;:]+/g, ' ').replace(/\s+/g, ' ').trim();
+    return s ? s.split(' ').map(function (w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join(' ') : null;
+  }
+  function ptParseStatus(raw) { var s = String(raw).toLowerCase(); return /paus|hold|inactive/.test(s) ? 'paused' : /activ|resum|current/.test(s) ? 'active' : null; }
+  function ptParse(kind, raw) {
+    raw = String(raw || '').trim(); if (!raw) return null;
+    if (kind === 'age') return ptParseAge(raw);
+    if (kind === 'tel') return ptParsePhone(raw);
+    if (kind === 'email') return ptParseEmail(raw);
+    if (kind === 'date') return ptParseDate(raw);
+    if (kind === 'name') return ptParseName(raw);
+    if (kind === 'status') return ptParseStatus(raw);
+    return raw;
+  }
+  var PT_NEXT = /^(next|next field|next one|go next|continue)$/, PT_BACK = /^(back|previous|go back|previous field|last field)$/;
+  function ptVoiceNav(raw) { var t = String(raw || '').toLowerCase().replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim(); return PT_NEXT.test(t) ? 1 : PT_BACK.test(t) ? -1 : 0; }
+
+  // ---- fields in order, current field, Back / Next bar ----
+  var PT_WMETA = { date: { label: 'Date', kind: 'date' }, title: { label: 'Title', kind: 'text' }, exercises: { label: 'Exercises', kind: 'long' }, notes: { label: 'Notes', kind: 'long' } };
+  function ptInfo(id) {
+    var el = id ? $(id) : null; if (!el) return null;
+    if (id === 'ptf-status') return { el: el, kind: 'status', label: 'Status', group: 'f', mode: 'replace' };
+    var k = el.getAttribute('data-ptf'), w = el.getAttribute('data-ptw'), d = k ? PT_FIELDS[k] : (w ? PT_WMETA[w] : null);
+    if (!d) return null;
+    return { el: el, kind: d.kind, label: d.label, key: k || w, group: k ? 'f' : 'w', mode: (d.kind === 'text' || d.kind === 'long') ? 'append' : 'replace' };
+  }
+  function ptNavList(group) { return [].slice.call($('pt-body').querySelectorAll(group === 'f' ? '[data-ptf], #ptf-status' : '[data-ptw]')); }
+  function ptOnForm() { var r = ptRoute(); return ptOnScreen() && (r.kind === 'new' || r.kind === 'client'); }
+  function ptBarUpdate() {
+    var bar = $('pt-bar'), inf = pt.cur && ptOnForm() ? ptInfo(pt.cur) : null;
+    if (!inf) { bar.hidden = true; $('pt-body').classList.remove('ptbarpad'); return; }
+    var list = ptNavList(inf.group), i = list.indexOf(inf.el);
+    bar.hidden = false; $('pt-body').classList.add('ptbarpad');
+    $('pt-barname').textContent = inf.label; $('pt-barstep').textContent = (i + 1) + ' of ' + list.length;
+    bar.querySelector('[data-ptbar="back"]').disabled = i <= 0;
+    bar.querySelector('[data-ptbar="next"]').textContent = i >= list.length - 1 ? 'Save \u203a' : 'Next \u203a';
+    var mb = bar.querySelector('[data-ptbar="mic"]'), on = pm.on && pm.id === pt.cur; mb.classList.toggle('rec', on); mb.setAttribute('aria-pressed', on ? 'true' : 'false');
+    ptBarPos();
+  }
+  function ptBarPos() {              // keep the bar / spell sheet above the on-screen keyboard
+    var vv = window.visualViewport, off = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
+    $('pt-bar').style.bottom = off + 'px'; $('pt-spell').style.bottom = off + 'px';
+  }
+  if (window.visualViewport) { window.visualViewport.addEventListener('resize', ptBarPos); window.visualViewport.addEventListener('scroll', ptBarPos); }
+  function ptSetOpen(card, open) {
+    var k = card.getAttribute('data-ptsec'), m = ptOpenMap(); m[k] = open ? 1 : 0; lsSet(PT_OPEN_KEY, m);
+    card.classList.toggle('collapsed', !open); var hd = card.querySelector('h2.pth'); if (hd) hd.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  function ptFocusField(el) {
+    var card = el.closest('[data-ptsec]'); if (card && card.classList.contains('collapsed')) ptSetOpen(card, true);
+    var f = el.id === 'ptf-status' ? (el.querySelector('.vchip.on') || el.querySelector('.vchip')) : el;
+    pt.cur = el.id; try { f.focus({ preventScroll: true }); } catch (e) { f.focus(); }
+    try { f.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e2) { f.scrollIntoView(); }
+    ptBarUpdate();
+  }
+  function ptMove(dir) {
+    var inf = ptInfo(pt.cur); if (!inf) return;
+    var list = ptNavList(inf.group), i = list.indexOf(inf.el), j = i + dir;
+    ptMicStop(true); ptMicUi();
+    if (j < 0) return;
+    if (j >= list.length) {          // past the last field: Save
+      var sv = inf.group === 'f' ? $('pt-save') : document.querySelector('[data-pt="wsave"]');
+      if (sv) { sv.focus({ preventScroll: true }); sv.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+      return;
+    }
+    ptFocusField(list[j]);
+  }
+  $('pt-body').addEventListener('focusin', function (e) {
+    var t = e.target, fld = t.closest ? t.closest('[data-ptf], [data-ptw], #ptf-status') : null;
+    if (fld && fld.id) { pt.cur = fld.id; ptBarUpdate(); }
+  });
+  $('pt-body').addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' || e.isComposing) return;
+    var t = e.target; if (!t || t.tagName !== 'INPUT' || t.type === 'search' || !(t.hasAttribute('data-ptf') || t.hasAttribute('data-ptw'))) return;
+    e.preventDefault(); pt.cur = t.id; ptMove(1);
+  });
+
+  // ---- mic: the Wish List dictation (tap to start / stop) on every field ----
   function ptMicUi() {
     [].forEach.call($('pt-body').querySelectorAll('.ptmic'), function (b) {
       var on = pm.on && b.getAttribute('data-for') === pm.id;
       b.classList.toggle('rec', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
+    if (!$('pt-bar').hidden) ptBarUpdate();
   }
   function ptMicSay(id, text, warn) { var el = $('ptms-' + id); if (!el) return; el.textContent = text || ''; el.className = 'micstate' + (warn ? ' warn' : (text ? ' rec' : '')); }
-  function ptMicFail(msg) { var id = pm.id, r = pm.rec; pm.on = false; pm.rec = null; try { r && r.abort(); } catch (e) {} ptMicUi(); ptMicSay(id, msg, true); var ta = $(id); if (ta) ta.focus(); }
+  function ptMicFail(msg) { var id = pm.id, r = pm.rec; pm.on = false; pm.rec = null; try { r && r.abort(); } catch (e) {} ptMicUi(); ptMicSay(id, msg, true); var ta = $(id); if (ta && ta.focus && ta.id !== 'ptf-status') ta.focus(); }
+  function ptSetStatus(v) {
+    pt.form.status = v === 'paused' ? 'paused' : 'active';
+    [].forEach.call($('pt-body').querySelectorAll('#ptf-status .vchip'), function (c) { var on = c.getAttribute('data-s') === pt.form.status; c.classList.toggle('on', on); c.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+    var s = document.querySelector('[data-ptsec="basics"] .ptsum span'); if (s) s.innerHTML = ptSecSummary('basics', null);
+  }
   function ptMicStart(id) {
-    var ta = $(id); if (!ta) return;
+    var inf = ptInfo(id), ta = inf && inf.el; if (!ta) return;
     if (pm.on) ptMicStop(true);
     [].forEach.call($('pt-body').querySelectorAll('.micstate'), function (e) { e.textContent = ''; e.className = 'micstate'; });
-    pm.id = id;
-    if (!SR) { ptMicSay(id, MIC_NA, true); ta.focus(); return; }
-    pm.base = ta.value ? ta.value.replace(/\s+$/, '') + ' ' : ''; pm.committed = ''; pm.interim = '';
+    pm.id = id; pt.cur = id; pm.inf = inf;
+    var isStatus = inf.kind === 'status', append = inf.mode === 'append';
+    if (!SR) { ptMicSay(id, MIC_NA, true); if (!isStatus) ta.focus(); ptBarUpdate(); return; }
+    pm.prev = isStatus ? '' : ta.value; pm.base = append && ta.value ? ta.value.replace(/\s+$/, '') + ' ' : ''; pm.committed = ''; pm.interim = '';
     var rec; try { rec = new SR(); } catch (e) { return ptMicFail(MIC_NA); }
     rec.continuous = false; rec.interimResults = true; rec.lang = 'en-US'; rec.maxAlternatives = 1;
     rec.onresult = function (ev) {
@@ -7904,7 +8071,8 @@
         var r = ev.results[i], t = r[0] ? r[0].transcript : '';
         if (r.isFinal) pm.committed = micSpace(pm.committed, t.trim() + ' '); else interim += t;
       }
-      pm.interim = interim.replace(/^\s+/, ''); ta.value = pm.base + pm.committed + pm.interim; ta.scrollTop = ta.scrollHeight;
+      pm.interim = interim.replace(/^\s+/, '');
+      if (!isStatus && inf.kind !== 'date') { ta.value = (append ? pm.base : '') + pm.committed + pm.interim; ta.scrollTop = ta.scrollHeight; }
     };
     rec.onerror = function (ev) {
       var e = ev && ev.error;
@@ -7914,21 +8082,155 @@
     };
     rec.onend = function () {
       if (pm.rec !== rec) return;                          // aborted / screen left
-      pm.committed = micSpace(pm.committed, pm.interim ? pm.interim.trim() + ' ' : ''); pm.interim = '';
+      var raw = micSpace(pm.committed, pm.interim ? pm.interim.trim() + ' ' : '').trim(); pm.interim = '';
       pm.on = false; pm.rec = null;
-      ta.value = (pm.base + pm.committed).replace(/\s+$/, '');
-      ta.dispatchEvent(new Event('input', { bubbles: true }));       // sync the form model
+      var nav = raw ? ptVoiceNav(raw) : 0;
+      if (nav) { if (!isStatus) ta.value = pm.prev; ptMicUi(); ptMicSay(id, ''); ptMove(nav); return; }          // "next" / "back" moves instead of typing
+      if (!raw) { if (!isStatus) ta.value = pm.prev; ptMicUi(); return; }
+      if (inf.mode === 'append') { ta.value = (pm.base + raw).replace(/\s+$/, ''); ptMicSay(id, ''); }
+      else {
+        var parsed = ptParse(inf.kind, raw);
+        if (parsed == null) { if (!isStatus) ta.value = pm.prev; ptMicSay(id, 'Heard \u201c' + raw + '\u201d \u2014 that did not look like a valid ' + inf.label.toLowerCase() + '. Try again or type it.', true); ptMicUi(); return; }
+        if (isStatus) ptSetStatus(parsed); else ta.value = parsed;
+        ptMicSay(id, 'Heard \u201c' + raw + '\u201d \u2014 check it below.');
+      }
+      if (!isStatus) ta.dispatchEvent(new Event('input', { bubbles: true }));       // sync the form model
       ptMicUi();
     };
     pm.rec = rec; pm.on = true;
     try { rec.start(); } catch (e2) { return ptMicFail(MIC_NA); }
-    ptMicUi(); ptMicSay(id, 'Listening\u2026 tap the mic to stop');
+    ptMicUi(); ptMicSay(id, 'Listening\u2026 tap the mic to stop'); ptBarUpdate();
   }
-  function ptMicStop(quiet) {       // quiet = abort (leaving / re-rendering); otherwise stop() and onend appends the words
+  function ptMicStop(quiet) {       // quiet = abort (leaving / re-rendering); otherwise stop() and onend fills the field
     var r = pm.rec;
     if (quiet) { pm.rec = null; pm.on = false; try { r && r.abort(); } catch (e) {} return; }
     if (r) { try { r.stop(); } catch (e2) { pm.rec = null; pm.on = false; ptMicUi(); } }
   }
+
+  // ---- Spell-out: letters (dictated or typed) -> one word -> Replace field / Replace last word ----
+  var sp = { open: false, id: '', word: '', cap: false, rec: null, on: false };
+  var SP_NAMES = { ay: 'a', bee: 'b', be: 'b', cee: 'c', sea: 'c', see: 'c', dee: 'd', ee: 'e', eff: 'f', gee: 'g', aitch: 'h', eye: 'i', jay: 'j', kay: 'k', el: 'l', ell: 'l', em: 'm', en: 'n', oh: 'o', pee: 'p',
+    cue: 'q', queue: 'q', are: 'r', ess: 's', tee: 't', tea: 't', you: 'u', vee: 'v', ex: 'x', why: 'y', zee: 'z', zed: 'z' };
+  var SP_SYM = { dash: '-', hyphen: '-', apostrophe: "'", space: ' ', dot: '.', period: '.', underscore: '_' };
+  var SP_DIG = { zero: '0', one: '1', two: '2', three: '3', four: '4', five: '5', six: '6', seven: '7', eight: '8', nine: '9' };
+  // "J O H N" / "j-o-h-n" / "jay oh aitch en" / "J as in John, O as in Oscar" / "johnson" -> {add:'john'} ; "backspace" -> {back:1} ; "clear" -> {clear:1}
+  function ptSpellParse(text) {
+    var raw = String(text || '').toLowerCase().trim();
+    var one = raw.replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (/^(backspace|delete|undo|delete that|erase)$/.test(one)) return { back: 1 };
+    if (/^(clear|clear all|start over|reset)$/.test(one)) return { clear: 1 };
+    var toks = raw.replace(/[.,;:!?]+/g, ' ').replace(/(\w)-(?=\w)/g, '$1 ').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean), out = '';
+    for (var i = 0; i < toks.length; i++) {
+      var t = toks[i];
+      if ((t === 'as' && toks[i + 1] === 'in') || t === 'like') { i += (t === 'as' ? 2 : 1); continue; }                 // the code word after "as in" is skipped
+      if (t === 'for' && out && toks[i - 1] && toks[i - 1].length === 1) { i += 1; continue; }                     // "J for John"
+      if (t === 'double' && toks[i + 1] === 'you') { out += 'w'; i++; continue; }
+      if (t === 'double' && toks[i + 1] && toks[i + 1].length === 1) { out += toks[i + 1] + toks[i + 1]; i++; continue; }
+      if (t === 'at' && toks[i + 1] === 'sign') { out += '@'; i++; continue; }
+      if (SP_SYM[t] !== undefined) { out += SP_SYM[t]; continue; }
+      if (SP_NAMES[t]) { out += SP_NAMES[t]; continue; }
+      if (SP_DIG[t]) { out += SP_DIG[t]; continue; }
+      if (/^[a-z0-9@'_.\-]+$/.test(t)) { out += t; continue; }                          // single letters, digits, or a whole word typed / heard joined
+    }
+    return { add: out };
+  }
+  function ptSpellShown() {
+    var w = sp.word; if (sp.cap && w) w = w.charAt(0).toUpperCase() + w.slice(1);
+    return w;
+  }
+  function ptSpellUi() {
+    var inf = ptInfo(sp.id); if (!inf) return;
+    $('ps-title').textContent = 'Spell: ' + inf.label;
+    var w = ptSpellShown(), pend = ptSpellParse($('ps-in').value).add || '';
+    $('ps-word').innerHTML = esc(w) + (pend ? '<span class="pspend">' + esc(pend) + '</span>' : '') + (w || pend ? '' : '<span class="psph">Letters appear here</span>');
+    $('ps-cap').classList.toggle('on', sp.cap); $('ps-cap').setAttribute('aria-pressed', sp.cap ? 'true' : 'false');
+    var mb = $('ps-mic'); mb.classList.toggle('rec', sp.on); mb.setAttribute('aria-pressed', sp.on ? 'true' : 'false');
+  }
+  function ptSpellCommit() {       // typed letters -> word
+    var p = ptSpellParse($('ps-in').value); $('ps-in').value = '';
+    if (p.back) sp.word = sp.word.slice(0, -1); else if (p.clear) sp.word = ''; else if (p.add) sp.word += p.add;
+  }
+  function ptSpellOpen(id) {
+    var inf = ptInfo(id); if (!inf || inf.kind === 'status') return;
+    ptMicStop(true); ptMicUi();
+    sp.open = true; sp.id = id; sp.word = ''; sp.cap = inf.kind === 'name' || (inf.key === 'name'); $('ps-in').value = ''; $('ps-state').textContent = '';
+    $('pt-spell').hidden = false; $('pt-bar').hidden = true; ptSpellUi(); ptBarPos();
+    $('ps-in').focus({ preventScroll: true });
+  }
+  function ptSpellClose() { spellMicStop(true); sp.open = false; $('pt-spell').hidden = true; ptBarUpdate(); }
+  function spellMicStop(quiet) { var r = sp.rec; sp.rec = null; sp.on = false; try { if (r) { if (quiet) r.abort(); else r.stop(); } } catch (e) {} }
+  function ptSpellMic() {
+    if (sp.on) { var r = sp.rec; try { r && r.stop(); } catch (e) { sp.on = false; sp.rec = null; } return; }
+    ptMicStop(true);
+    if (!SR) { $('ps-state').textContent = MIC_NA; return; }
+    var rec; try { rec = new SR(); } catch (e) { $('ps-state').textContent = MIC_NA; return; }
+    rec.continuous = false; rec.interimResults = true; rec.lang = 'en-US'; rec.maxAlternatives = 1;
+    var heard = '';
+    rec.onresult = function (ev) {
+      var txt = '';
+      for (var i = ev.resultIndex; i < ev.results.length; i++) { var r = ev.results[i]; if (r[0]) { if (r.isFinal) heard = micSpace(heard, r[0].transcript.trim() + ' '); else txt += r[0].transcript; } }
+      $('ps-in').value = (heard + txt).trim(); ptSpellUi();
+    };
+    rec.onerror = function (ev) { var e = ev && ev.error; sp.on = false; sp.rec = null; $('ps-state').textContent = (e === 'no-speech') ? 'Didn\u2019t catch anything. Tap the mic and try again.' : MIC_NA; ptSpellUi(); };
+    rec.onend = function () {
+      if (sp.rec !== rec) return;
+      sp.on = false; sp.rec = null;
+      var p = ptSpellParse($('ps-in').value || heard); $('ps-in').value = '';
+      if (p.back) sp.word = sp.word.slice(0, -1); else if (p.clear) sp.word = ''; else if (p.add) sp.word += p.add;
+      $('ps-state').textContent = p.add ? 'Added \u201c' + p.add + '\u201d. Tap the mic for more letters.' : ''; ptSpellUi();
+    };
+    sp.rec = rec; sp.on = true;
+    try { rec.start(); } catch (e2) { sp.on = false; sp.rec = null; $('ps-state').textContent = MIC_NA; }
+    $('ps-state').textContent = 'Listening\u2026 say the letters'; ptSpellUi();
+  }
+  function ptSpellUse(mode) {
+    ptSpellCommit(); var inf = ptInfo(sp.id), w = ptSpellShown(); if (!inf || !w) { $('ps-state').textContent = 'Nothing spelled yet.'; return; }
+    var el = inf.el, v = el.value || '';
+    if (mode === 'last') { var m = v.match(/^([\s\S]*?)(\S+)(\s*)$/); el.value = m ? m[1] + w + m[3] : w; } else el.value = w;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    ptSpellClose();
+  }
+
+  // ---- bar + spell sheet (live outside #pt-body so re-renders keep them) ----
+  (function ptBuildBar() {
+    var bar = document.createElement('div'); bar.id = 'pt-bar'; bar.className = 'ptbar'; bar.hidden = true;
+    bar.innerHTML = '<div class="ptbarlbl"><b id="pt-barname"></b><span id="pt-barstep"></span></div><div class="ptbarbtns">' +
+      '<button type="button" class="navbtn" data-ptbar="back">\u2039 Back</button><button type="button" class="navbtn" data-ptbar="spell">Spell</button>' +
+      '<button type="button" class="micbtn ptmic" data-ptbar="mic" aria-pressed="false" aria-label="Dictate this field">' + vsvg('mic', 24) + '</button><button type="button" class="bigsave" data-ptbar="next">Next \u203a</button></div>';
+    $('screen-pt').appendChild(bar);
+    var sh = document.createElement('div'); sh.id = 'pt-spell'; sh.className = 'ptspell'; sh.hidden = true; sh.setAttribute('role', 'dialog'); sh.setAttribute('aria-label', 'Spell it out');
+    sh.innerHTML = '<div class="pshead"><b id="ps-title">Spell</b><button type="button" class="wlx" data-ptsp="close" aria-label="Close">\u00d7</button></div>' +
+      '<div class="psword" id="ps-word" aria-live="polite"></div><div class="micstate" id="ps-state"></div>' +
+      '<div class="psrow"><input class="wlin" id="ps-in" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done" placeholder="Letters, e.g. J O H N or J as in John" aria-label="Letters">' +
+      '<button type="button" class="micbtn ptmic" id="ps-mic" data-ptsp="mic" aria-pressed="false" aria-label="Say the letters">' + vsvg('mic', 24) + '</button></div>' +
+      '<div class="psbtns"><button type="button" class="navbtn" data-ptsp="add">Add</button><button type="button" class="navbtn" data-ptsp="back" aria-label="Backspace">\u232b</button>' +
+      '<button type="button" class="navbtn" data-ptsp="clear">Clear</button><button type="button" class="navbtn" id="ps-cap" data-ptsp="cap" aria-pressed="false">Aa</button></div>' +
+      '<div class="psuse"><button type="button" class="bigsave" data-ptsp="field">Replace field</button><button type="button" class="bigsave" data-ptsp="last">Replace last word</button></div>';
+    $('screen-pt').appendChild(sh);
+    bar.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-ptbar]'); if (!b) return; var a = b.getAttribute('data-ptbar');
+      if (a === 'back') ptMove(-1); else if (a === 'next') ptMove(1); else if (a === 'spell') ptSpellOpen(pt.cur);
+      else if (a === 'mic') { if (pm.on && pm.id === pt.cur) ptMicStop(false); else ptMicStart(pt.cur); }
+    });
+    bar.addEventListener('mousedown', function (e) { if (e.target.closest('button')) e.preventDefault(); });      // keep the field focused (keyboard stays up)
+    sh.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-ptsp]'); if (!b) return; var a = b.getAttribute('data-ptsp');
+      if (a === 'close') ptSpellClose();
+      else if (a === 'mic') ptSpellMic();
+      else if (a === 'add') { ptSpellCommit(); ptSpellUi(); $('ps-in').focus({ preventScroll: true }); }
+      else if (a === 'back') { ptSpellCommit(); sp.word = sp.word.slice(0, -1); ptSpellUi(); }
+      else if (a === 'clear') { $('ps-in').value = ''; sp.word = ''; ptSpellUi(); }
+      else if (a === 'cap') { sp.cap = !sp.cap; ptSpellUi(); }
+      else if (a === 'field') ptSpellUse('field');
+      else if (a === 'last') ptSpellUse('last');
+    });
+    sh.addEventListener('input', function (e) { if (e.target.id === 'ps-in') ptSpellUi(); });
+    sh.addEventListener('keydown', function (e) {
+      if (e.target.id !== 'ps-in') return;
+      if (e.key === 'Enter') { e.preventDefault(); ptSpellCommit(); ptSpellUi(); }
+      else if (e.key === 'Backspace' && !e.target.value) { e.preventDefault(); sp.word = sp.word.slice(0, -1); ptSpellUi(); }      // Backspace on an empty box removes the last assembled letter
+    });
+  })();
 
   // ---- data updates ----
   function ptApply(c) {                  // a client (with workouts) came back from the server
@@ -8043,9 +8345,7 @@
   $('pt-body').addEventListener('click', function (e) {
     var hd = e.target.closest('h2.pth');
     if (hd) {
-      var card = hd.closest('[data-ptsec]'), k = card.getAttribute('data-ptsec'), m = ptOpenMap();
-      m[k] = m[k] ? 0 : 1; lsSet(PT_OPEN_KEY, m);
-      card.classList.toggle('collapsed', !m[k]); hd.setAttribute('aria-expanded', m[k] ? 'true' : 'false');
+      var card = hd.closest('[data-ptsec]'); ptSetOpen(card, card.classList.contains('collapsed'));
       return;
     }
     var b = e.target.closest('[data-pt]'); if (!b) return;
@@ -8053,7 +8353,7 @@
     if (a === 'reload') { pt.na = false; ptLoad(true); }
     else if (a === 'filter') { pt.filter = b.getAttribute('data-f'); ptRender(); }
     else if (a === 'mic') { var tid = b.getAttribute('data-for'); if (pm.on && pm.id === tid) ptMicStop(false); else ptMicStart(tid); }
-    else if (a === 'status') { pt.form.status = b.getAttribute('data-s'); [].forEach.call(b.parentNode.querySelectorAll('.vchip'), function (c) { var on = c === b; c.classList.toggle('on', on); c.setAttribute('aria-pressed', on ? 'true' : 'false'); }); }
+    else if (a === 'status') { ptSetStatus(b.getAttribute('data-s')); pt.cur = 'ptf-status'; ptBarUpdate(); }
     else if (a === 'save') ptSave();
     else if (a === 'cancel') { ptMicStop(true); var cc = ptClient(ptRoute().id); if (cc) { ptFormInit(cc); ptRender(); } else { pt.formId = ''; show('pt'); } }
     else if (a === 'del') { pt.cConfirm = true; ptRender(); }
