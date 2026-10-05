@@ -14,7 +14,7 @@
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', ovKey: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
-  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt'];
+  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -148,6 +148,7 @@
       if (ow) { od.sumWeek = ow; if (od.tab === 'previous') od.prevWeek = ow; else if (od.tab === 'current') od.week = ow; }
     }
     if (name === 'pt') state.ptRoute = R.kind === 'new' ? { kind: 'new', id: '' } : (R.kind === 'client' && R.val ? { kind: 'client', id: R.val } : { kind: '', id: '' });   // #pt, #pt/new, #pt/client/<id>
+    if (name === 'monofold') name = 'mf';   // #monofold alias
     if (name === 'punch' && !(PROJ[R.kind] && PROJ[R.kind].punchUrl)) { name = 'proj'; route = 'proj/' + (PROJ[R.kind] ? R.kind : 'terravi'); }
     var logMic = name === 'mic' && R.kind === 'dailylog';       // #mic/dailylog = Dictate page for the Daily log (Voice notes)
     if (logMic) micLogSetup();
@@ -159,6 +160,7 @@
     if (!(name === 'lt' && R.kind === 'notes')) lnMicStop(true);
     if (!(name === 'lt' && R.kind === 'cost')) cmMicStop(true);
     if (name !== 'pt') { ptMicStop(true); spellMicStop(true); }
+    if (name !== 'mf') mfMicStop(true);
     if (!(name === 'lt' && R.kind === 'orders')) odMicStop(true);
     if (!(name === 'lt' && (R.kind === 'macros' || R.kind === 'recipes'))) macClose(true);
     if (!(name === 'lt' && R.kind === 'menu-add')) maMicStop(true);
@@ -178,6 +180,7 @@
         name === 'insn' ? '#insn' + (state.insSlug ? '/' + encodeURIComponent(state.insSlug) : '') :
         name === 'lt' ? '#lt' + (R.kind ? '/' + encodeURIComponent(R.kind) : '') :
         name === 'pt' ? '#pt' + (state.ptRoute.kind ? '/' + encodeURIComponent(state.ptRoute.kind) + (state.ptRoute.id ? '/' + encodeURIComponent(state.ptRoute.id) : '') : '') :
+        name === 'mf' ? '#mf' :
         name === 're' ? (state.reRoute.ins ? '#ins' : '#re' + (state.reRoute.slug ? '/' + encodeURIComponent(state.reRoute.slug) : '')) : '#' + name;
       if (location.hash !== h) history.pushState({ screen: name }, '', h || location.pathname + location.search);
     }
@@ -200,6 +203,7 @@
     if (name === 'lt') { state.ltPart = LT_PARTS[R.kind] ? R.kind : ''; loadLt(); }
     if (name === 'trust') loadTrust(false);
     if (name === 'pt') ptOpen();
+    if (name === 'mf') mfOpen();
     if (name === 'doc') { state.docKey = String(route || '').replace(/^#/, ''); openDocScreen(qparams(R.query)); }
     else restoreScroll(String(route || '').replace(/^#/, '') || 'home');
   }
@@ -9820,6 +9824,278 @@
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && vds.el && !vds.el.hidden) return vSheetClose();
     if ((e.key === 'Enter' || e.key === ' ') && e.target && e.target.getAttribute && e.target.hasAttribute('data-ent')) { e.preventDefault(); vEntOpenFrom(e.target); }
+  });
+
+
+  /* ---------------- Mono Fold design Q&A (#mf / #monofold) — one-at-a-time checklist, mic + localStorage ---------------- */
+  // Lives on THIS PHONE only (localStorage key cc_mf_design). ALL reads/writes go through mfLoad / mfSave. No Api.gs.
+  // Zac answers design questions one by one (mic or type) → Save → Next. Progress + answered status persist across reloads.
+  var MF_KEY = 'cc_mf_design';
+  var MF_QS = [
+    { id: 'pickup_dropoff', title: 'Pickup vs drop-off (day one)',
+      help: 'Will day-one customers drop bags off, get pickup, or both? How do they hand off bags?' },
+    { id: 'turnaround', title: 'Turnaround promise & late policy',
+      help: 'Same day, next day, or something else? What happens when a bag is late?' },
+    { id: 'lost_damaged', title: 'Lost / damaged bag policy & tags',
+      help: 'How are bags tagged or ticketed? What is the policy if a bag is lost or damaged?' },
+    { id: 'preferences', title: 'Preferences & special items',
+      help: 'Capture no-bleach, hang-dry, softener, fold style, and specials like comforters. How does the operator see them?' },
+    { id: 'pay_settle', title: 'Operator pay vs TiwiK rent / weekly settle',
+      help: 'How does the operator get paid? Machine rent to TiwiK? Weekly settle cadence and who runs it?' },
+    { id: 'tax_venmo', title: 'Sales tax & Venmo routing',
+      help: 'Sales tax approach? Customer Venmo to Mono Fold\'s own Venmo, or TiwiK Venmo?' },
+    { id: 'hours_capacity', title: 'Hours, capacity, closed / full switch',
+      help: 'Operating hours, max bags / day, and how the operator flips Closed or Full.' },
+    { id: 'ready_text', title: 'Customer ready text & whose phone',
+      help: 'When laundry is ready, who texts the customer — and from whose phone / number?' },
+    { id: 'staff_login', title: 'Staff login (Mono Fold only)',
+      help: 'Operator login should see only Mono Fold — not Vault or other CC areas. Confirm scope and passcode plan.' },
+    { id: 'supplies', title: 'Supplies cost (detergent, bags)',
+      help: 'Who buys detergent, bags, tags? How are supply costs tracked against jobs?' },
+    { id: 'payments', title: 'Payments: cash / Venmo',
+      help: 'Confirm cash and Venmo are accepted (and any others). Leave confirmed or adjust.',
+      seed: 'Cash and Venmo accepted.' },
+    { id: 'biz_name', title: 'Business name: Mono Fold',
+      help: 'Confirm the customer-facing name is Mono Fold (spelling, branding).',
+      seed: 'Confirmed — business name is Mono Fold.' },
+    { id: 'no_remote', title: 'No remote machine starts; pay for use',
+      help: 'Confirm machines are not started remotely — customers / operator pay for machine use on site.',
+      seed: 'Confirmed — no remote machine starts; pay for machine use on site.' },
+    { id: 'after_hours', title: 'After-hours pricing (later)',
+      help: 'After-hours pricing is deferred. Confirm we park it for a later pass.',
+      seed: 'Confirmed — after-hours pricing later.' }
+  ];
+  var mf = { idx: 0, draft: '', flash: '', flashBad: false,
+    mic: { rec: null, on: false, base: '', committed: '', interim: '', msg: '' } };
+
+  function mfLoad() {
+    var d = lsGet(MF_KEY, null);
+    if (!d || typeof d !== 'object') d = { answers: {}, idx: 0 };
+    if (!d.answers || typeof d.answers !== 'object') d.answers = {};
+    var answers = {}, seeded = false;
+    MF_QS.forEach(function (q) {
+      var a = d.answers[q.id];
+      if (a && typeof a === 'object') {
+        answers[q.id] = { text: String(a.text || '').slice(0, 4000), at: a.at || 0, answered: !!a.answered };
+      } else if (typeof a === 'string' && a.trim()) {
+        answers[q.id] = { text: a.slice(0, 4000), at: Date.now(), answered: true };
+      } else if (q.seed) {
+        answers[q.id] = { text: q.seed, at: 0, answered: true };
+        seeded = true;
+      } else {
+        answers[q.id] = { text: '', at: 0, answered: false };
+      }
+    });
+    var idx = parseInt(d.idx, 10);
+    if (!isFinite(idx) || idx < 0) idx = 0;
+    if (idx >= MF_QS.length) idx = MF_QS.length - 1;
+    var out = { answers: answers, idx: idx };
+    if (seeded) mfSave(out);
+    return out;
+  }
+  function mfSave(d) {
+    try {
+      localStorage.setItem(MF_KEY, JSON.stringify({ answers: d.answers, idx: d.idx }));
+      return true;
+    } catch (e) { return false; }
+  }
+  function mfOnScreen() { return $('screen-mf') && $('screen-mf').classList.contains('active'); }
+  function mfQ() { return MF_QS[mf.idx] || MF_QS[0]; }
+  function mfAnsweredCount(d) {
+    var n = 0;
+    MF_QS.forEach(function (q) { if (d.answers[q.id] && d.answers[q.id].answered && String(d.answers[q.id].text || '').trim()) n++; });
+    return n;
+  }
+  function mfFlash(text, bad) {
+    mf.flash = text || ''; mf.flashBad = !!bad;
+    var el = $('mf-flash');
+    if (el) { el.textContent = mf.flash; el.hidden = !mf.flash; el.className = 'noteflash' + (mf.flash ? ' show' : '') + (bad ? ' bad' : ''); }
+  }
+  function mfMicStop(quiet) {
+    var r = mf.mic.rec;
+    if (quiet) { mf.mic.rec = null; mf.mic.on = false; try { r && r.abort(); } catch (e) {} mfMicPaint(); return; }
+    if (r) { try { r.stop(); } catch (e2) { mf.mic.rec = null; mf.mic.on = false; } }
+    else { mf.mic.on = false; mfMicPaint(); }
+  }
+  function mfMicPaint() {
+    var btn = $('mf-mic'); if (!btn) return;
+    btn.classList.toggle('rec', !!mf.mic.on);
+    btn.setAttribute('aria-pressed', mf.mic.on ? 'true' : 'false');
+    var lbl = $('mf-mic-lbl'); if (lbl) lbl.textContent = mf.mic.on ? 'Listening\u2026 tap to stop' : 'Tap to talk';
+    var st = $('mf-mic-state');
+    if (st) {
+      st.className = 'micstate' + (mf.mic.on ? ' rec' : '') + (mf.mic.msg && !mf.mic.on ? ' warn' : '');
+      st.textContent = mf.mic.on ? 'Listening\u2026' : (mf.mic.msg || '\u00a0');
+    }
+  }
+  function mfMicStart() {
+    if (!SR) { mf.mic.msg = MIC_NA; mfMicPaint(); return; }
+    var ta = $('mf-answer'); if (!ta) return;
+    mfMicStop(true);
+    mf.mic.msg = ''; mf.mic.base = String(ta.value || ''); mf.mic.committed = ''; mf.mic.interim = '';
+    var rec; try { rec = new SR(); } catch (e) { mf.mic.msg = MIC_NA; mfMicPaint(); return; }
+    rec.continuous = true; rec.interimResults = true; rec.lang = 'en-US'; rec.maxAlternatives = 1;
+    rec.onresult = function (ev) {
+      var interim = '';
+      for (var i = ev.resultIndex; i < ev.results.length; i++) {
+        var r = ev.results[i], t = r[0] ? r[0].transcript : '';
+        if (r.isFinal) mf.mic.committed = micSpace(mf.mic.committed, t.trim() + ' '); else interim += t;
+      }
+      mf.mic.interim = interim.replace(/^\s+/, '');
+      var add = micSpace(mf.mic.committed, mf.mic.interim).trim();
+      var base = mf.mic.base;
+      ta.value = (base && add ? micSpace(base.replace(/\s+$/, '') + ' ', add) : (base || add)).slice(0, 4000);
+      mf.draft = ta.value;
+    };
+    rec.onerror = function (ev) {
+      var e = ev && ev.error;
+      if (e === 'not-allowed' || e === 'service-not-allowed' || e === 'audio-capture' || e === 'language-not-supported') {
+        mf.mic.msg = MIC_NA; mf.mic.on = false; mf.mic.rec = null; mfMicPaint(); return;
+      }
+      if (e === 'network') {
+        mf.mic.msg = 'The speech service couldn\u2019t be reached. Tap the text box and use your keyboard\u2019s mic key.';
+        mf.mic.on = false; mf.mic.rec = null; mfMicPaint(); return;
+      }
+      if (e === 'no-speech') mf.mic.msg = 'Didn\u2019t catch anything. Tap the mic and try again.';
+    };
+    rec.onend = function () {
+      if (mf.mic.rec !== rec) return;
+      mf.mic.on = false; mf.mic.rec = null;
+      if (mf.mic.interim) {
+        mf.mic.committed = micSpace(mf.mic.committed, mf.mic.interim.trim() + ' ');
+        mf.mic.interim = '';
+      }
+      mfMicPaint();
+    };
+    mf.mic.rec = rec; mf.mic.on = true;
+    try { rec.start(); } catch (e2) { mf.mic.msg = MIC_NA; mf.mic.on = false; mf.mic.rec = null; }
+    mfMicPaint();
+  }
+  function mfReadDraft() {
+    var ta = $('mf-answer');
+    if (ta) mf.draft = String(ta.value || '');
+    return mf.draft;
+  }
+  function mfPersistCurrent(markAnswered) {
+    var d = mfLoad(), q = mfQ(), text = mfReadDraft().replace(/^\s+|\s+$/g, '');
+    d.answers[q.id] = {
+      text: text.slice(0, 4000),
+      at: Date.now(),
+      answered: markAnswered ? !!text : !!(d.answers[q.id] && d.answers[q.id].answered && text)
+    };
+    if (markAnswered && !text) d.answers[q.id].answered = false;
+    d.idx = mf.idx;
+    if (!mfSave(d)) { mfFlash('Could not save on this phone (storage full or blocked).', true); return null; }
+    return d;
+  }
+  function mfGoto(i) {
+    mfMicStop(true);
+    if (i < 0) i = 0;
+    if (i >= MF_QS.length) i = MF_QS.length - 1;
+    mf.idx = i;
+    var d = mfLoad(); d.idx = i; mfSave(d);
+    mfRender();
+  }
+  function mfOpen() {
+    mfMicStop(true);
+    mf.flash = ''; mf.flashBad = false;
+    var d = mfLoad();
+    mf.idx = d.idx;
+    // Prefer first unanswered if nothing was in progress at a answered slot with empty draft intent
+    var q0 = MF_QS[mf.idx];
+    if (q0 && d.answers[q0.id] && d.answers[q0.id].answered) {
+      var first = -1;
+      for (var i = 0; i < MF_QS.length; i++) {
+        var a = d.answers[MF_QS[i].id];
+        if (!(a && a.answered && String(a.text || '').trim())) { first = i; break; }
+      }
+      // Stay on saved idx if user was mid-review; only jump when all prior unanswered exist and idx is past them
+      if (first >= 0 && first < mf.idx) { /* keep saved idx for review */ }
+    }
+    mfRender();
+  }
+  function mfRender() {
+    var box = $('mf-body'); if (!box) return;
+    var d = mfLoad(), q = mfQ(), a = d.answers[q.id] || { text: '', answered: false };
+    mf.draft = a.text || '';
+    var done = mfAnsweredCount(d), total = MF_QS.length, n = mf.idx + 1;
+    var status = (a.answered && String(a.text || '').trim()) ? 'answered' : 'unanswered';
+    var pills = MF_QS.map(function (qq, i) {
+      var aa = d.answers[qq.id], ok = aa && aa.answered && String(aa.text || '').trim();
+      return '<button type="button" class="mfdot' + (i === mf.idx ? ' on' : '') + (ok ? ' ok' : '') + '" data-mf="jump" data-i="' + i + '" aria-label="Question ' + (i + 1) + (ok ? ' answered' : '') + '"' + (i === mf.idx ? ' aria-current="true"' : '') + '>' + (i + 1) + '</button>';
+    }).join('');
+    box.innerHTML =
+      '<div class="mf">' +
+      '<div class="foot mfintro">Design checklist for Mono Fold (laundry). Answer one at a time — mic or type. Saved on this phone only.</div>' +
+      '<div class="mfprog"><span class="mfprog-lbl">Progress <b>' + done + '</b> of <b>' + total + '</b> answered</span>' +
+      '<span class="mfbadge ' + status + '">' + (status === 'answered' ? 'Answered' : 'Unanswered') + '</span></div>' +
+      '<div class="mfdots" role="tablist" aria-label="Questions">' + pills + '</div>' +
+      '<div class="card mfcard">' +
+      '<div class="mfqmeta">Question ' + n + ' of ' + total + '</div>' +
+      '<h3 class="sechead mfqtitle">' + esc(q.title) + '</h3>' +
+      '<p class="mfhelp">' + esc(q.help) + '</p>' +
+      '<label class="mflbl" for="mf-answer">Answer</label>' +
+      '<textarea id="mf-answer" class="notebox" rows="5" maxlength="4000" autocapitalize="sentences" placeholder="Speak it, type it, or use the keyboard\u2019s mic key.">' + esc(mf.draft) + '</textarea>' +
+      '<div class="micstage macmic mfmic"><button type="button" class="micbtn" id="mf-mic" data-mf="mic" aria-pressed="false" aria-label="Start dictation"><span class="micico" aria-hidden="true">' + vsvg('mic', 34) + '</span><span class="miclbl" id="mf-mic-lbl">Tap to talk</span></button>' +
+      '<div class="micstate" id="mf-mic-state">&nbsp;</div></div>' +
+      '<div class="noteflash" id="mf-flash" hidden></div>' +
+      '<div class="draftbtns mfactions">' +
+      '<button type="button" class="bigsave" data-mf="save">Save</button>' +
+      '<button type="button" class="navbtn" data-mf="next"' + (mf.idx >= total - 1 ? ' disabled' : '') + '>Next</button>' +
+      '</div>' +
+      '<div class="draftbtns mfactions2">' +
+      '<button type="button" class="navbtn" data-mf="back"' + (mf.idx <= 0 ? ' disabled' : '') + '>&lsaquo; Back</button>' +
+      '<button type="button" class="navbtn" data-mf="clear">Clear answer</button>' +
+      '</div>' +
+      '</div>' +
+      '<div class="foot mffoot">Answers stay on this phone (<code>cc_mf_design</code>). Reorder the Home tile anytime by press-and-hold.</div>' +
+      '</div>';
+    if (mf.flash) mfFlash(mf.flash, mf.flashBad);
+    mfMicPaint();
+    var ta = $('mf-answer');
+    if (ta) {
+      ta.addEventListener('input', function () { mf.draft = ta.value; });
+    }
+  }
+  $('mf-body').addEventListener('click', function (e) {
+    if (!mfOnScreen()) return;
+    var b = e.target.closest('[data-mf]'); if (!b) return;
+    var a = b.getAttribute('data-mf');
+    if (a === 'mic') { if (mf.mic.on) mfMicStop(); else mfMicStart(); }
+    else if (a === 'save') {
+      mfMicStop(true);
+      var d = mfPersistCurrent(true);
+      if (!d) return;
+      var q = mfQ(), ans = d.answers[q.id];
+      if (!(ans && ans.answered && String(ans.text || '').trim())) return mfFlash('Type or dictate an answer before saving.', true);
+      mfFlash('Saved.', false);
+      mfRender();
+    }
+    else if (a === 'next') {
+      mfMicStop(true);
+      // Keep unsaved draft only in memory for this visit; Save is required to persist the answer.
+      var dN = mfLoad(); dN.idx = mf.idx; mfSave(dN);
+      if (mf.idx < MF_QS.length - 1) mfGoto(mf.idx + 1);
+      else { mfFlash('That was the last question. ' + mfAnsweredCount(mfLoad()) + ' of ' + MF_QS.length + ' answered.', false); mfRender(); }
+    }
+    else if (a === 'back') {
+      mfMicStop(true);
+      var dB = mfLoad(); dB.idx = mf.idx; mfSave(dB);
+      if (mf.idx > 0) mfGoto(mf.idx - 1);
+    }
+    else if (a === 'jump') {
+      mfMicStop(true);
+      var dJ = mfLoad(); dJ.idx = mf.idx; mfSave(dJ);
+      mfGoto(parseInt(b.getAttribute('data-i'), 10) || 0);
+    }
+    else if (a === 'clear') {
+      mfMicStop(true);
+      var d2 = mfLoad(), q2 = mfQ();
+      d2.answers[q2.id] = { text: '', at: Date.now(), answered: false };
+      d2.idx = mf.idx;
+      if (!mfSave(d2)) return mfFlash('Could not save on this phone.', true);
+      mf.draft = ''; mfFlash('Answer cleared.', false); mfRender();
+    }
   });
 
   /* ---------------- Init ---------------- */

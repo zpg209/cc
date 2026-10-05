@@ -1738,3 +1738,29 @@ button.ledchip { cursor: pointer; }
 #screen-lt .cmphoto .draftbtns .navbtn, #screen-lt .cmphoto .draftbtns label.navbtn { margin: 0; cursor: pointer; text-align: center; }
 #screen-lt .cmfoot { margin-top: 12px; }
 #screen-lt .cm #cm-cam, #screen-lt .cm #cm-lib { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+
+/* ---- Mono Fold design Q&A (#mf) ---- */
+#screen-mf .mf { padding-bottom: 24px; }
+#screen-mf .mfintro { margin: 0 0 12px; }
+#screen-mf .mfprog { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 10px; flex-wrap: wrap; }
+#screen-mf .mfprog-lbl { color: var(--muted); font-size: 14px; font-weight: 600; }
+#screen-mf .mfprog-lbl b { color: var(--red); font-weight: 700; }
+#screen-mf .mfbadge { font-size: 12px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; padding: 5px 10px; border-radius: 999px; border: 1px solid rgba(240,122,42,.35); color: var(--muted); background: rgba(0,0,0,.35); }
+#screen-mf .mfbadge.answered { color: #3DBE6B; border-color: rgba(61,190,107,.45); background: rgba(61,190,107,.08); }
+#screen-mf .mfbadge.unanswered { color: #F4A15A; border-color: rgba(240,122,42,.4); }
+#screen-mf .mfdots { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+#screen-mf .mfdot { min-width: 32px; height: 32px; padding: 0 6px; border-radius: 999px; border: 1px solid rgba(240,122,42,.28); background: var(--btn); color: var(--muted); font: 700 12px/1 'Inter', sans-serif; cursor: pointer; }
+#screen-mf .mfdot.on { color: #0b0b0b; background: var(--red); border-color: var(--red); }
+#screen-mf .mfdot.ok:not(.on) { color: #3DBE6B; border-color: rgba(61,190,107,.5); }
+#screen-mf .mfdot:active { transform: scale(.96); }
+#screen-mf .mfcard { padding: 14px; }
+#screen-mf .mfqmeta { color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; margin: 0 0 4px; }
+#screen-mf .mfqtitle { margin: 0 0 8px; }
+#screen-mf .mfhelp { color: #c9a07e; font-size: 14px; line-height: 1.45; margin: 0 0 14px; }
+#screen-mf .mflbl { display: block; font-size: 13px; font-weight: 700; color: var(--muted); letter-spacing: .5px; text-transform: uppercase; margin: 0 0 6px; }
+#screen-mf .mfmic { margin: 12px 0 8px; }
+#screen-mf .mfactions { grid-template-columns: 1.4fr 1fr; margin-top: 8px; }
+#screen-mf .mfactions2 { grid-template-columns: 1fr 1fr; margin-top: 10px; }
+#screen-mf .mffoot { margin-top: 14px; }
+#screen-mf .mffoot code { font-size: 12px; color: #F4A15A; }
+#screen-mf .micbtn.rec { color: #fff; background: #E5484D; border-color: #E5484D; }
