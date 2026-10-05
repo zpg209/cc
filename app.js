@@ -157,6 +157,7 @@
     if (name !== 'vmic') vmicStop(true);
     if (!(name === 'lt' && R.kind === 'wish')) wlMicStop(true);
     if (!(name === 'lt' && R.kind === 'notes')) lnMicStop(true);
+    if (!(name === 'lt' && R.kind === 'cost')) cmMicStop(true);
     if (name !== 'pt') { ptMicStop(true); spellMicStop(true); }
     if (!(name === 'lt' && R.kind === 'orders')) odMicStop(true);
     if (!(name === 'lt' && (R.kind === 'macros' || R.kind === 'recipes'))) macClose(true);
@@ -2804,10 +2805,11 @@
     orders:  { label: 'Orders', orders: true },
     wish:    { label: 'Wish List', wish: true },
     notes:   { label: 'Notes', notes: true },
+    cost:    { label: 'Cost & Macros', cost: true },   // ingredient checklist: true macros + package cost (localStorage; Drive later)
     'menu-gen': { label: 'Generate menu', gen: true, back: 'lt/recipes' },      // not a tile: opened from the Menu Items screen
     'menu-add': { label: 'Add menu item', add: true, back: 'lt/recipes' }       // not a tile: the + button on the Menu Items screen
   };
-  var LT_ORDER = ['ops', 'recipes', 'orders', 'menus', 'macros', 'wish', 'notes'];
+  var LT_ORDER = ['ops', 'recipes', 'orders', 'menus', 'macros', 'wish', 'notes', 'cost'];
   var LT_TTL = 60000;
 
   function loadLt(force) {
@@ -2824,6 +2826,7 @@
     }
     if (cfg.wish) { openWish(); return; }
     if (cfg.notes) { openLtNotes(); return; }
+    if (cfg.cost) { openLtCost(); return; }
     if (cfg.orders) { openOrders(); return; }
     if (cfg.gen) { openMenuGen(); return; }
     if (cfg.add) { openMenuAdd(); return; }
@@ -7787,6 +7790,451 @@
     if (t.id === 'ln-text') { ln.text = t.value; lnUi(); }
     else if (t.id === 'ln-edit') ln.editText = t.value;
   });
+
+  /* ---------------- Lisa's Table: Cost & Macros (#lt/cost) — ingredient checklist for true macros + package cost ---------------- */
+  // Lives on THIS PHONE only for now (localStorage key cc_lt_cost_macros). ALL reads/writes go through ltCostLoad / ltCostSave so Drive can replace later.
+  // Seeded from Notes (cc_lt_notes) + unique ingredient-ish names from Menu Macros when available. Photos are compressed JPEGs stored as data URLs (no OCR claimed).
+  // No server action is used. Empty seed only — no real financials in the repo.
+  var LT_COST_KEY = 'cc_lt_cost_macros';
+  var CM_PHOTO_MAX = 480000;      // ~360 KB JPEG budget per photo (localStorage-safe)
+  var CM_FIELDS = ['name', 'brand', 'servingSize', 'calories', 'protein', 'carbs', 'fat', 'fiber', 'sugar', 'packageSize', 'packagePrice', 'notes'];
+  var cm = { filter: 'need', q: '', editId: '', confirmId: '', flash: '', flashBad: false, photoBusy: false,
+    mic: { rec: null, on: false, field: '', base: '', committed: '', interim: '', msg: '' } };
+  function ltCostLoad() {
+    var d = lsGet(LT_COST_KEY, null);
+    if (!d || typeof d !== 'object') d = { items: [], seeded: false };
+    if (!Array.isArray(d.items)) d.items = [];
+    d.items = d.items.filter(function (x) { return x && x.id && typeof x.name === 'string'; }).map(function (x) {
+      return {
+        id: String(x.id), name: String(x.name || '').slice(0, 120), brand: String(x.brand || '').slice(0, 80),
+        servingSize: String(x.servingSize || '').slice(0, 40), calories: String(x.calories || '').slice(0, 12),
+        protein: String(x.protein || '').slice(0, 12), carbs: String(x.carbs || '').slice(0, 12), fat: String(x.fat || '').slice(0, 12),
+        fiber: String(x.fiber || '').slice(0, 12), sugar: String(x.sugar || '').slice(0, 12),
+        packageSize: String(x.packageSize || '').slice(0, 40), packagePrice: String(x.packagePrice || '').slice(0, 16),
+        notes: String(x.notes || '').slice(0, 500), photo: typeof x.photo === 'string' && x.photo.indexOf('data:image/') === 0 ? x.photo : '',
+        done: !!x.done, source: x.source || 'manual', at: x.at || 0, upd: x.upd || x.at || 0
+      };
+    });
+    return d;
+  }
+  function ltCostSave(d) {
+    try { localStorage.setItem(LT_COST_KEY, JSON.stringify({ items: d.items, seeded: !!d.seeded })); return true; } catch (e) { return false; }
+  }
+  function cmOnScreen() { return state.ltPart === 'cost' && $('screen-lt').classList.contains('active'); }
+  function cmFlash(text, bad) {
+    cm.flash = text || ''; cm.flashBad = !!bad;
+    var el = $('cm-flash'); if (el) { el.textContent = cm.flash; el.hidden = !cm.flash; el.className = 'noteflash' + (cm.flash ? ' show' : '') + (bad ? ' bad' : ''); }
+  }
+  function cmNewId() { return 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+  function cmNormName(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/^\s+|\s+$/g, ''); }
+  function cmHasMacros(it) {
+    return ['calories', 'protein', 'carbs', 'fat'].every(function (k) { return String(it[k] || '').trim() !== ''; });
+  }
+  function cmAutoDone(it) {
+    return !!(String(it.brand || '').trim() && cmHasMacros(it) && String(it.packagePrice || '').trim());
+  }
+  function cmIsDone(it) { return !!it.done; }
+  function cmParseQty(s) {
+    var m = String(s || '').trim().match(/^([\d]+(?:\.\d+)?)\s*([a-zA-Z]+)?/);
+    if (!m) return null;
+    return { n: +m[1], u: (m[2] || '').toLowerCase() };
+  }
+  function cmToBase(q) {
+    var u = q.u;
+    if (!u || u === 'g' || u === 'gram' || u === 'grams') return { n: q.n, k: 'g' };
+    if (u === 'kg') return { n: q.n * 1000, k: 'g' };
+    if (u === 'oz' || u === 'ounce' || u === 'ounces') return { n: q.n * 28.3495, k: 'g' };
+    if (u === 'lb' || u === 'lbs' || u === 'pound' || u === 'pounds') return { n: q.n * 453.592, k: 'g' };
+    if (u === 'ml' || u === 'milliliter' || u === 'milliliters') return { n: q.n, k: 'ml' };
+    if (u === 'l' || u === 'liter' || u === 'liters') return { n: q.n * 1000, k: 'ml' };
+    if (u === 'floz' || u === 'fl') return { n: q.n * 29.5735, k: 'ml' };
+    if (u === 'serving' || u === 'servings' || u === 'serv' || u === 'ea' || u === 'each' || u === 'ct' || u === 'count' || u === 'pcs' || u === 'pc') return { n: q.n, k: 'ea' };
+    return { n: q.n, k: u || 'ea' };
+  }
+  function cmUnitCost(it) {
+    var s = cmParseQty(it.servingSize), p = cmParseQty(it.packageSize);
+    var pr = parseFloat(String(it.packagePrice || '').replace(/[$,\s]/g, ''));
+    if (!s || !p || !isFinite(pr) || s.n <= 0 || p.n <= 0 || pr < 0) return null;
+    var a = cmToBase(s), b = cmToBase(p);
+    if (a.k !== b.k || a.n <= 0) return null;
+    var servings = b.n / a.n;
+    if (!isFinite(servings) || servings <= 0) return null;
+    return pr / servings;
+  }
+  function cmParseNamesFromText(text) {
+    var out = [], seen = {};
+    String(text || '').split(/\n+/).forEach(function (line) {
+      line = line.replace(/^[\s\-\*\u2022\u00b7\d\.\)\(]+/, '').replace(/\s+/g, ' ').trim();
+      if (!line || line.length < 2 || line.length > 80) return;
+      if (/^(prep|overview|notes?|todo|shopping|menu|week|day)\b/i.test(line) && line.length < 20) return;
+      // comma lists on short lines
+      var parts = line.indexOf(',') >= 0 && line.length < 120 ? line.split(/,|\/|&/) : [line];
+      parts.forEach(function (p) {
+        p = p.replace(/^\s+|\s+$/g, '').replace(/\s{2,}/g, ' ');
+        if (p.length < 2 || p.length > 60) return;
+        if (/\d{2,}/.test(p) && /kcal|calorie|protein|carb|fat|\$/i.test(p)) return;
+        var k = cmNormName(p); if (!k || seen[k]) return;
+        seen[k] = 1; out.push(p);
+      });
+    });
+    return out;
+  }
+  function cmSeedCandidates() {
+    var names = [], seen = {};
+    function add(n, src) {
+      n = String(n || '').replace(/\s+/g, ' ').trim();
+      if (!n || n.length < 2 || n.length > 80) return;
+      var k = cmNormName(n); if (!k || seen[k]) return;
+      seen[k] = 1; names.push({ name: n.slice(0, 120), source: src });
+    }
+    try {
+      ltNotesLoad().forEach(function (note) {
+        cmParseNamesFromText(note.text).forEach(function (n) { add(n, 'notes'); });
+      });
+    } catch (e1) {}
+    try {
+      var c = state.ltCache.macros;
+      if (c && c.data && Array.isArray(c.data.items)) {
+        c.data.items.forEach(function (x) {
+          if (x.ingredients) String(x.ingredients).split(/,|;|\n|\||\u2022/).forEach(function (p) { add(p, 'macros'); });
+          // also offer menu item names as checklist options (often useful for cost tracking)
+          if (x.item) add(x.item, 'macros');
+        });
+      }
+    } catch (e2) {}
+    return names;
+  }
+  function cmMergeSeed(d) {
+    var have = {};
+    d.items.forEach(function (x) { have[cmNormName(x.name)] = 1; });
+    var added = 0, now = Date.now();
+    cmSeedCandidates().forEach(function (c) {
+      var k = cmNormName(c.name); if (have[k]) return;
+      have[k] = 1; added++;
+      d.items.push({
+        id: cmNewId(), name: c.name, brand: '', servingSize: '', calories: '', protein: '', carbs: '', fat: '', fiber: '', sugar: '',
+        packageSize: '', packagePrice: '', notes: '', photo: '', done: false, source: c.source, at: now, upd: now
+      });
+    });
+    d.seeded = true;
+    return added;
+  }
+  function cmEnsureSeed(d, cb) {
+    function finish() {
+      var n = cmMergeSeed(d);
+      if (n || !d.seeded) ltCostSave(d);
+      cb && cb(n);
+    }
+    if (state.ltCache.macros && state.ltCache.macros.data) return finish();
+    ltEnsureMacros(function () { if (cmOnScreen()) finish(); else finish(); });
+  }
+  function openLtCost() {
+    cmMicStop(true);
+    cm.editId = ''; cm.confirmId = ''; cm.flash = ''; cm.photoBusy = false;
+    // Drop blank drafts left behind if the screen was left mid-add
+    (function () {
+      var d = ltCostLoad(), n = d.items.length;
+      d.items = d.items.filter(function (x) {
+        return String(x.name || '').trim() || cmHasMacros(x) || x.photo || String(x.packagePrice || '').trim() || String(x.brand || '').trim();
+      });
+      if (d.items.length !== n) ltCostSave(d);
+    })();
+    $('lt-body').innerHTML =
+      '<div class="cm">' +
+      '<div class="foot cmintro">Collect true ingredient macros and package costs. Photos of labels are saved on this phone (enter numbers from the label). Drive sync later.</div>' +
+      '<div class="cmbar">' +
+      '<div class="vchips cmfilt" role="tablist" aria-label="Filter">' +
+      '<button type="button" class="vchip" data-cm="filt" data-f="need">Need data</button>' +
+      '<button type="button" class="vchip" data-cm="filt" data-f="done">Done</button>' +
+      '<button type="button" class="vchip" data-cm="filt" data-f="all">All</button></div>' +
+      '<button type="button" class="navbtn wladd cmadd" data-cm="add">+ Add item</button></div>' +
+      '<input class="searchbox" id="cm-q" type="search" autocomplete="off" placeholder="Search ingredients">' +
+      '<div class="noteflash" id="cm-flash" hidden></div>' +
+      '<div id="cm-list"></div>' +
+      '<div class="foot cmfoot">Saved on this phone only for now. Mark complete when brand, macros, and package price are filled — or toggle Done. Grocery list generation later.</div>' +
+      '<input class="vfile" type="file" id="cm-cam" accept="image/*" capture="environment">' +
+      '<input class="vfile" type="file" id="cm-lib" accept="image/*">' +
+      '</div>';
+    $('cm-q').value = cm.q;
+    var d = ltCostLoad();
+    cmEnsureSeed(d, function (n) {
+      if (!cmOnScreen()) return;
+      if (n) cmFlash('Seeded ' + n + ' item' + (n === 1 ? '' : 's') + ' from Notes / Menu Macros.', false);
+      cmListRender();
+    });
+    cmListRender();
+  }
+  function cmFiltBtn() {
+    document.querySelectorAll('.cmfilt .vchip').forEach(function (b) {
+      b.classList.toggle('on', b.getAttribute('data-f') === cm.filter);
+    });
+  }
+  function cmListRender() {
+    var box = $('cm-list'); if (!box) return;
+    cmFiltBtn();
+    var d = ltCostLoad(), term = (cm.q || '').trim().toLowerCase();
+    var items = d.items.filter(function (it) {
+      if (cm.filter === 'need' && cmIsDone(it)) return false;
+      if (cm.filter === 'done' && !cmIsDone(it)) return false;
+      if (!term) return true;
+      return (it.name + ' ' + it.brand + ' ' + it.notes).toLowerCase().indexOf(term) >= 0;
+    }).slice().sort(function (a, b) {
+      var ad = cmIsDone(a) ? 1 : 0, bd = cmIsDone(b) ? 1 : 0;
+      if (ad !== bd) return ad - bd;
+      return a.name.localeCompare(b.name, 'en', { sensitivity: 'base' });
+    });
+    var need = d.items.filter(function (x) { return !cmIsDone(x); }).length;
+    var h = '<div class="wlhead"><h3 class="sechead">Ingredients <small>' + need + ' need data \u00b7 ' + d.items.length + ' total</small></h3></div>';
+    if (!d.items.length) {
+      h += '<div class="card wlcard"><div class="foot empty">No items yet. Tap <b>+ Add item</b> to type or dictate an ingredient, or save prep Notes and reopen this tab to seed from them.</div></div>';
+      box.innerHTML = h; return;
+    }
+    if (!items.length) {
+      h += '<div class="card wlcard"><div class="foot empty">' + (term ? 'No matches.' : (cm.filter === 'done' ? 'Nothing marked complete yet.' : 'Everything looks complete. Switch to All to review.')) + '</div></div>';
+      box.innerHTML = h; return;
+    }
+    h += '<div class="card wlcard">' + items.map(function (it) {
+      var id = esc(it.id), done = cmIsDone(it), uc = cmUnitCost(it);
+      var meta = [];
+      if (it.brand) meta.push(it.brand);
+      if (it.packagePrice) meta.push('$' + String(it.packagePrice).replace(/^\$/, ''));
+      if (uc != null) meta.push(money(uc) + '/serving');
+      meta.push(done ? 'complete' : 'incomplete');
+      if (cm.editId === it.id) return cmEditHtml(it);
+      var thumb = it.photo ? '<img class="cmthumb" src="' + it.photo + '" alt="">' : '<span class="cmthumb empty" aria-hidden="true"></span>';
+      var row = '<div class="wlitem cmitem' + (done ? ' isdone' : '') + '" data-id="' + id + '">' +
+        '<div class="wlmain">' +
+        '<button type="button" class="wlchk' + (done ? ' on' : '') + '" data-cm="toggle" data-id="' + id + '" aria-label="' + (done ? 'Mark incomplete' : 'Mark complete') + '" aria-pressed="' + (done ? 'true' : 'false') + '">' + (done ? '\u2713' : '') + '</button>' +
+        thumb +
+        '<button type="button" class="cmmain" data-cm="edit" data-id="' + id + '" aria-label="Edit ' + esc(it.name) + '"><span class="wlname">' + esc(it.name) + '</span><small class="wlmeta">' + esc(meta.join(' \u00b7 ')) + '</small></button>' +
+        '<button type="button" class="wlx" data-cm="del" data-id="' + id + '" aria-label="Delete" title="Delete">\u00d7</button></div>';
+      if (cm.confirmId === it.id) row += '<div class="wlconf"><div class="vdelq">Delete this ingredient?</div><div class="draftbtns"><button type="button" class="bigsave vdelbtn" data-cm="delyes" data-id="' + id + '">Yes, delete</button><button type="button" class="navbtn" data-cm="delno">Keep</button></div></div>';
+      return row + '</div>';
+    }).join('') + '</div>';
+    box.innerHTML = h;
+  }
+  function cmMicBtn(field) {
+    return '<button type="button" class="navbtn cmmic" data-cm="mic" data-field="' + field + '" aria-label="Dictate ' + field + '">' + vsvg('mic', 18) + '</button>';
+  }
+  function cmFld(key, label, it, extra) {
+    var val = esc(it[key] || '');
+    var num = /^(calories|protein|carbs|fat|fiber|sugar|packagePrice)$/.test(key);
+    var speak = num || key === 'name' || key === 'brand' || key === 'servingSize' || key === 'packageSize';
+    var attrs = (num ? ' inputmode="decimal"' : '') + (extra || '') + ' maxlength="' + (key === 'notes' ? '500' : (key === 'name' ? '120' : '80')) + '"';
+    if (key === 'notes') {
+      return '<label class="vfield"><span>' + label + '</span><textarea class="notebox" data-cmf="' + key + '" rows="2"' + attrs + '>' + val + '</textarea></label>';
+    }
+    return '<label class="vfield"><span>' + label + (speak ? ' ' + cmMicBtn(key) : '') + '</span>' +
+      '<input class="wlin" data-cmf="' + key + '" type="text" value="' + val + '"' + attrs + '></label>';
+  }
+  function cmEditHtml(it) {
+    var id = esc(it.id), uc = cmUnitCost(it);
+    var photoNote = it.photo
+      ? '<div class="cmphoto"><img class="cmprev" src="' + it.photo + '" alt="Label photo"><div class="draftbtns"><label class="navbtn" for="cm-cam">Retake</label><label class="navbtn" for="cm-lib">Library</label><button type="button" class="navbtn discard" data-cm="photodel" data-id="' + id + '">Remove photo</button></div><div class="foot">Photo saved — enter macros from label.</div></div>'
+      : '<div class="cmphoto empty"><div class="draftbtns"><label class="navbtn" for="cm-cam">Take label photo</label><label class="navbtn" for="cm-lib">Choose from library</label></div><div class="foot">Photo is optional. No automatic OCR — type or dictate the numbers from the label.</div></div>';
+    return '<div class="wlitem cmitem editing" data-id="' + id + '">' +
+      '<div class="card vform cmform">' +
+      '<h3>Edit ingredient</h3>' +
+      cmFld('name', 'Item name', it) + cmFld('brand', 'Brand (optional)', it) +
+      '<div class="vrow2">' + cmFld('servingSize', 'Serving size', it, ' placeholder="e.g. 30 g"') + cmFld('packageSize', 'Package size', it, ' placeholder="e.g. 16 oz"') + '</div>' +
+      '<div class="macgrid">' +
+      cmFld('calories', 'Calories', it) + cmFld('protein', 'Protein g', it) + cmFld('carbs', 'Carbs g', it) + cmFld('fat', 'Fat g', it) +
+      cmFld('fiber', 'Fiber g', it) + cmFld('sugar', 'Sugar g', it) +
+      '</div>' +
+      '<div class="vrow2">' + cmFld('packagePrice', 'Package price $', it, ' placeholder="4.99"') +
+      '<label class="vfield"><span>$ / serving</span><div class="cmunit">' + (uc != null ? esc(money(uc)) : '—') + '</div><div class="foot">Computed when serving + package sizes share units.</div></label></div>' +
+      cmFld('notes', 'Notes', it) +
+      photoNote +
+      '<div class="micstate" id="cm-micstate"' + (cm.mic.msg ? '' : ' hidden') + '>' + esc(cm.mic.msg || '') + '</div>' +
+      '<div class="draftbtns"><button type="button" class="bigsave" data-cm="save" data-id="' + id + '">Save</button>' +
+      '<button type="button" class="navbtn" data-cm="toggle" data-id="' + id + '">' + (cmIsDone(it) ? 'Mark incomplete' : 'Mark complete') + '</button>' +
+      '<button type="button" class="navbtn discard" data-cm="cancel">Cancel</button></div></div></div>';
+  }
+  function cmReadForm(it) {
+    document.querySelectorAll('[data-cmf]').forEach(function (el) {
+      var k = el.getAttribute('data-cmf');
+      if (CM_FIELDS.indexOf(k) >= 0) it[k] = el.value;
+    });
+    it.name = String(it.name || '').trim().slice(0, 120);
+    it.brand = String(it.brand || '').trim().slice(0, 80);
+    it.notes = String(it.notes || '').trim().slice(0, 500);
+    ['servingSize', 'packageSize', 'calories', 'protein', 'carbs', 'fat', 'fiber', 'sugar', 'packagePrice'].forEach(function (k) {
+      it[k] = String(it[k] || '').trim().slice(0, 40);
+    });
+  }
+  function cmFind(d, id) {
+    for (var i = 0; i < d.items.length; i++) if (d.items[i].id === id) return d.items[i];
+    return null;
+  }
+  function cmAdd() {
+    var d = ltCostLoad(), now = Date.now();
+    var it = {
+      id: cmNewId(), name: '', brand: '', servingSize: '', calories: '', protein: '', carbs: '', fat: '', fiber: '', sugar: '',
+      packageSize: '', packagePrice: '', notes: '', photo: '', done: false, source: 'manual', at: now, upd: now
+    };
+    d.items.unshift(it);
+    if (!ltCostSave(d)) return cmFlash('Could not save on this phone (storage is full or blocked).', true);
+    cm.editId = it.id; cm.confirmId = ''; cm.filter = 'all'; cm.q = ''; 
+    var q = $('cm-q'); if (q) q.value = '';
+    cmListRender();
+    var nameEl = document.querySelector('[data-cmf="name"]'); if (nameEl) nameEl.focus();
+    cmFlash('Type or dictate the ingredient name, then fill macros and price.', false);
+  }
+  function cmSave(id) {
+    var d = ltCostLoad(), it = cmFind(d, id); if (!it) return;
+    cmReadForm(it);
+    if (!it.name) return cmFlash('Name is required.', true);
+    it.upd = Date.now();
+    if (cmAutoDone(it)) it.done = true;
+    if (!ltCostSave(d)) return cmFlash('Could not save on this phone (storage is full or blocked).', true);
+    cm.editId = ''; cmListRender(); cmFlash('Saved.', false);
+  }
+  function cmShrinkPhoto(file) {
+    return new Promise(function (res, rej) {
+      var url = URL.createObjectURL(file), im = new Image();
+      im.onload = function () {
+        URL.revokeObjectURL(url);
+        var W = im.naturalWidth || im.width, H = im.naturalHeight || im.height;
+        if (!W || !H) return rej(new Error('That photo could not be read.'));
+        var tries = [[1200, 0.72], [1000, 0.65], [800, 0.55], [640, 0.5], [480, 0.45]];
+        var out = null;
+        for (var i = 0; i < tries.length; i++) {
+          var sc = Math.min(1, tries[i][0] / Math.max(W, H)), cw = Math.max(1, Math.round(W * sc)), ch = Math.max(1, Math.round(H * sc));
+          var cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+          var cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, cw, ch); cx.drawImage(im, 0, 0, cw, ch);
+          var data = cv.toDataURL('image/jpeg', tries[i][1]); cv.width = cv.height = 0;
+          if (data.indexOf('data:image/jpeg') !== 0) return rej(new Error('This browser could not compress the photo.'));
+          out = data;
+          if (data.length <= CM_PHOTO_MAX) break;
+        }
+        if (!out || out.length > CM_PHOTO_MAX * 1.4) return rej(new Error('Photo is still too large after shrinking. Try a closer shot of the label.'));
+        res(out);
+      };
+      im.onerror = function () { URL.revokeObjectURL(url); rej(new Error('That photo could not be read. Try a JPEG.')); };
+      im.src = url;
+    });
+  }
+  function cmAttachPhoto(file) {
+    if (!file || !cm.editId || cm.photoBusy) return;
+    cm.photoBusy = true; cmFlash('Preparing photo\u2026', false);
+    cmShrinkPhoto(file).then(function (dataUrl) {
+      cm.photoBusy = false;
+      var d = ltCostLoad(), it = cmFind(d, cm.editId); if (!it) return;
+      // keep in-form values
+      cmReadForm(it);
+      it.photo = dataUrl; it.upd = Date.now();
+      if (!ltCostSave(d)) { it.photo = ''; return cmFlash('Photo too large for phone storage. Macros fields are untouched — try a closer crop.', true); }
+      cmListRender(); cmFlash('Photo saved — enter macros from label.', false);
+    }, function (err) {
+      cm.photoBusy = false;
+      cmFlash((err && err.message) || 'Could not prepare that photo.', true);
+    });
+  }
+  function cmMicStop(quiet) {
+    var r = cm.mic.rec;
+    if (quiet) { cm.mic.rec = null; cm.mic.on = false; try { r && r.abort(); } catch (e) {} return; }
+    if (r) { try { r.stop(); } catch (e2) { cm.mic.rec = null; cm.mic.on = false; } }
+  }
+  function cmMicStart(field) {
+    if (!SR) { cm.mic.msg = MIC_NA; cmListRender(); return; }
+    var el = document.querySelector('[data-cmf="' + field + '"]'); if (!el) return;
+    cmMicStop(true);
+    cm.mic.msg = ''; cm.mic.field = field; cm.mic.base = ''; cm.mic.committed = ''; cm.mic.interim = '';
+    var rec; try { rec = new SR(); } catch (e) { cm.mic.msg = MIC_NA; cmListRender(); return; }
+    rec.continuous = false; rec.interimResults = true; rec.lang = 'en-US'; rec.maxAlternatives = 1;
+    rec.onresult = function (ev) {
+      var interim = '';
+      for (var i = ev.resultIndex; i < ev.results.length; i++) {
+        var r = ev.results[i], t = r[0] ? r[0].transcript : '';
+        if (r.isFinal) cm.mic.committed = micSpace(cm.mic.committed, t.trim() + ' '); else interim += t;
+      }
+      cm.mic.interim = interim.replace(/^\s+/, '');
+      var raw = (cm.mic.committed + cm.mic.interim).trim();
+      var numOnly = /^(calories|protein|carbs|fat|fiber|sugar|packagePrice)$/.test(field);
+      if (numOnly) {
+        var num = macWords(raw.toLowerCase()).match(/(\d+(?:\.\d+)?)/);
+        if (num) el.value = num[1];
+      } else {
+        el.value = raw.slice(0, field === 'name' ? 120 : 80);
+      }
+    };
+    rec.onerror = function (ev) {
+      var e = ev && ev.error;
+      if (e === 'not-allowed' || e === 'service-not-allowed' || e === 'audio-capture' || e === 'language-not-supported') { cm.mic.msg = MIC_NA; cm.mic.on = false; cm.mic.rec = null; cmListRender(); return; }
+      if (e === 'network') { cm.mic.msg = 'Speech service unreachable — type the number or use the keyboard mic.'; cm.mic.on = false; cm.mic.rec = null; cmListRender(); return; }
+      if (e === 'no-speech') cm.mic.msg = 'Didn\u2019t catch anything. Tap the mic and try again.';
+    };
+    rec.onend = function () {
+      if (cm.mic.rec !== rec) return;
+      cm.mic.on = false; cm.mic.rec = null;
+      var st = $('cm-micstate'); if (st) { st.textContent = cm.mic.msg || ''; st.hidden = !cm.mic.msg; }
+    };
+    cm.mic.rec = rec; cm.mic.on = true;
+    try { rec.start(); } catch (e2) { cm.mic.msg = MIC_NA; cm.mic.on = false; cm.mic.rec = null; }
+    var st2 = $('cm-micstate'); if (st2) { st2.hidden = false; st2.textContent = 'Listening\u2026 say the number'; st2.className = 'micstate rec'; }
+  }
+  $('lt-body').addEventListener('click', function (e) {
+    if (state.ltPart !== 'cost') return;
+    var b = e.target.closest('[data-cm]'); if (!b) return;
+    var a = b.getAttribute('data-cm'), id = b.getAttribute('data-id');
+    if (a === 'filt') { cm.filter = b.getAttribute('data-f') || 'need'; cm.editId = ''; cmListRender(); }
+    else if (a === 'add') cmAdd();
+    else if (a === 'edit') { cm.editId = id; cm.confirmId = ''; cmMicStop(true); cmListRender(); }
+    else if (a === 'cancel') {
+      cmMicStop(true);
+      var dC = ltCostLoad(), itC = cmFind(dC, cm.editId);
+      if (itC && !String(itC.name || '').trim() && !cmHasMacros(itC) && !itC.photo && !String(itC.packagePrice || '').trim()) {
+        dC.items = dC.items.filter(function (x) { return x.id !== cm.editId; }); ltCostSave(dC);
+      }
+      cm.editId = ''; cmListRender();
+    }
+    else if (a === 'save') { cmMicStop(true); cmSave(id); }
+    else if (a === 'toggle') {
+      var d = ltCostLoad(), it = cmFind(d, id); if (!it) return;
+      if (cm.editId === id) cmReadForm(it);
+      // Explicit user toggle: done flag only (auto-complete sets done=true on Save when fields filled)
+      it.done = !it.done;
+      it.upd = Date.now();
+      if (!ltCostSave(d)) return cmFlash('Could not save on this phone.', true);
+      cmListRender();
+    }
+    else if (a === 'del') { cm.confirmId = cm.confirmId === id ? '' : id; if (cm.editId === id) cm.editId = ''; cmListRender(); }
+    else if (a === 'delno') { cm.confirmId = ''; cmListRender(); }
+    else if (a === 'delyes') {
+      var d2 = ltCostLoad(); d2.items = d2.items.filter(function (x) { return x.id !== id; });
+      if (!ltCostSave(d2)) return cmFlash('Could not change the list on this phone.', true);
+      if (cm.editId === id) cm.editId = ''; cm.confirmId = ''; cmListRender(); cmFlash('Deleted.', false);
+    }
+    else if (a === 'photodel') {
+      var d3 = ltCostLoad(), it3 = cmFind(d3, id); if (!it3) return;
+      cmReadForm(it3); it3.photo = ''; it3.upd = Date.now();
+      if (!ltCostSave(d3)) return cmFlash('Could not save on this phone.', true);
+      cmListRender(); cmFlash('Photo removed.', false);
+    }
+    else if (a === 'mic') {
+      var field = b.getAttribute('data-field');
+      if (cm.mic.on && cm.mic.field === field) cmMicStop(); else cmMicStart(field);
+    }
+  });
+  $('lt-body').addEventListener('input', function (e) {
+    if (state.ltPart !== 'cost') return;
+    if (e.target.id === 'cm-q') { cm.q = e.target.value; cmListRender(); return; }
+    if (e.target.getAttribute && e.target.getAttribute('data-cmf') && cm.editId) {
+      // live unit-cost preview
+      var ucEl = document.querySelector('.cmunit'); if (!ucEl) return;
+      var tmp = { servingSize: '', packageSize: '', packagePrice: '' };
+      document.querySelectorAll('[data-cmf]').forEach(function (el) {
+        var k = el.getAttribute('data-cmf'); if (tmp[k] !== undefined) tmp[k] = el.value;
+      });
+      var uc = cmUnitCost(tmp); ucEl.textContent = uc != null ? money(uc) : '—';
+    }
+  });
+  $('lt-body').addEventListener('change', function (e) {
+    if (state.ltPart !== 'cost') return;
+    if (e.target.id === 'cm-cam' || e.target.id === 'cm-lib') {
+      var f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) cmAttachPhoto(f);
+    }
+  });
   /* ---------------- Lisa's Personal Training (#pt): clients -> profile -> workouts ---------------- */
   // Live from the Sheet "Lisa's Personal Training" through ptclients (read) and ptclientset / ptclientdel / ptworkoutset / ptworkoutdel (writes, cid + POST).
   // Nothing about clients is stored in this repo or in localStorage (only which cards are open). Unsaved edits live in memory until Save.
@@ -9141,7 +9589,7 @@
     else if (t.id === 'od-search') { od.form.search = t.value; odItemsPaint(); }
   });
 
-  document.addEventListener('visibilitychange', function () { if (document.hidden && od.mic.on) { odMicStop(true); odMicUi(); } if (document.hidden && wl.on) wlMicStop(true), wlUi(); if (document.hidden && ln.on) { lnMicStop(true); lnUi(); } if (document.hidden && mm.on) { macMicStop(true); macUi(); } if (document.hidden && ma.on) { maMicStop(true); maUi(); } });
+  document.addEventListener('visibilitychange', function () { if (document.hidden && od.mic.on) { odMicStop(true); odMicUi(); } if (document.hidden && wl.on) wlMicStop(true), wlUi(); if (document.hidden && ln.on) { lnMicStop(true); lnUi(); } if (document.hidden && mm.on) { macMicStop(true); macUi(); } if (document.hidden && ma.on) { maMicStop(true); maUi(); } if (document.hidden && cm.mic.on) { cmMicStop(true); } });
 
   /* ---- #vcam: receipt photo -> shrink -> optional details -> Save (POST receiptsave) ---- */
   var VCAM_TARGET = 1400000, VCAM_HARD = 2800000;      // base64 characters (~1 MB / ~2 MB of JPEG); the server accepts up to ~3 MB of JPEG

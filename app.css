@@ -1712,3 +1712,29 @@ button.ledchip { cursor: pointer; }
 .icrow.sup { opacity: .6; border-top: 0; padding: 4px 0; font-size: 13px; }
 .icrow.sup .amt { text-decoration: line-through; color: var(--muted, #9a9a9a); }
 .icrow.sup .icc { color: var(--muted, #9a9a9a); font-size: 12px; }
+
+/* ---- Lisa's Table: Cost & Macros checklist (#lt/cost) ---- */
+#screen-lt .cm { padding-bottom: 24px; }
+#screen-lt .cmintro { margin: 0 0 10px; }
+#screen-lt .cmbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; }
+#screen-lt .cmfilt { flex: 1 1 auto; }
+#screen-lt .cmadd { flex: none; width: auto; min-width: 120px; margin: 0; padding: 10px 14px; }
+#screen-lt .cmitem .wlmain { align-items: center; }
+#screen-lt .cmthumb { flex: none; width: 44px; height: 44px; border-radius: 8px; object-fit: cover; border: 0.75px solid var(--lt-e); background: #1a0f12; }
+#screen-lt .cmthumb.empty { display: inline-block; }
+#screen-lt .cmmain { flex: 1 1 auto; min-width: 0; text-align: left; background: none; border: 0; padding: 4px 0; cursor: pointer; color: inherit; }
+#screen-lt .cmmain .wlname { display: block; }
+#screen-lt .cmmain .wlmeta { display: block; color: var(--muted); font-size: 12px; }
+#screen-lt .cmform { margin: 4px 0 8px; }
+#screen-lt .cmform .macgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+#screen-lt .cmform .vrow2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+#screen-lt .cmform .vfield > span { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+#screen-lt .cmmic { flex: none; min-height: 32px; width: 36px; padding: 4px; margin: 0; display: inline-flex; align-items: center; justify-content: center; }
+#screen-lt .cmmic svg { width: 18px; height: 18px; display: block; }
+#screen-lt .cmunit { min-height: 46px; display: flex; align-items: center; padding: 10px 12px; border: 0.75px solid var(--lt-e); border-radius: var(--radius); background: #000; color: var(--lt-t); font: 700 17px/1.2 'Inter', sans-serif; }
+#screen-lt .cmphoto { margin: 8px 0 12px; padding: 10px; border: 0.75px dashed var(--lt-e); border-radius: var(--radius); }
+#screen-lt .cmphoto .cmprev { display: block; width: 100%; max-height: 220px; object-fit: contain; border-radius: 8px; margin-bottom: 8px; background: #0b0b0b; }
+#screen-lt .cmphoto .draftbtns { display: flex; flex-wrap: wrap; gap: 8px; }
+#screen-lt .cmphoto .draftbtns .navbtn, #screen-lt .cmphoto .draftbtns label.navbtn { margin: 0; cursor: pointer; text-align: center; }
+#screen-lt .cmfoot { margin-top: 12px; }
+#screen-lt .cm #cm-cam, #screen-lt .cm #cm-lib { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
