@@ -122,6 +122,7 @@
   }
   function show(route, fromHistory) {
     var R = parseRoute(route), name = R.base === 'vault' ? 'spend' : R.base;
+    var odCur = document.querySelector('.screen.active'); if (odCur && odCur.id === 'screen-lt' && state.ltPart === 'orders') ordLive.at = 0;   // leaving Orders: the live Vault income refetches next time
     if (name === 'ins') { name = 're'; state.reRoute = { ins: true, slug: '' }; }
     else if (name === 're') state.reRoute = { ins: false, slug: R.kind };
     if (SCREENS.indexOf(name) < 0 || name === 'lock') name = 'home';
@@ -141,6 +142,11 @@
     }
     if (name === 'fin') { state.finKind = (R.kind === 'ledger' || R.kind === 'overview' || R.kind === 'laundromat') ? R.kind : ''; state.ovKey = state.finKind === 'overview' && OV_HEADS[R.val] ? R.val : ''; }
     if (name === 'insn') state.insSlug = R.kind || '';
+    if (name === 'lt' && R.kind === 'orders' && R.query) {      // #lt/orders?tab=summary&week=yyyy-mm-dd (tap-through from the Vault's live Lisa's Table income)
+      var oq = qparams(R.query), ow = OL_ISO.test(oq.week || '') ? olMonday(oq.week) : '';
+      if (/^(current|previous|summary)$/.test(oq.tab || '')) od.tab = oq.tab;
+      if (ow) { od.sumWeek = ow; if (od.tab === 'previous') od.prevWeek = ow; else if (od.tab === 'current') od.week = ow; }
+    }
     if (name === 'pt') state.ptRoute = R.kind === 'new' ? { kind: 'new', id: '' } : (R.kind === 'client' && R.val ? { kind: 'client', id: R.val } : { kind: '', id: '' });   // #pt, #pt/new, #pt/client/<id>
     if (name === 'punch' && !(PROJ[R.kind] && PROJ[R.kind].punchUrl)) { name = 'proj'; route = 'proj/' + (PROJ[R.kind] ? R.kind : 'terravi'); }
     var logMic = name === 'mic' && R.kind === 'dailylog';       // #mic/dailylog = Dictate page for the Daily log (Voice notes)
@@ -1144,6 +1150,7 @@
   DETAIL_SRC[LS_SOURCE] = { label: LS_SOURCE, title: LS_SOURCE, unit: 'payment', tab: 'ls', tabName: LS_SOURCE, what: 'pay' };
 
   function loadSpend(force) {
+    ordLiveFetch(!!force);
     if (!force && state.spendData && state.spendDataOff === state.monthOffset) return renderSpend();
     var seq = ++state.spendSeq, off = state.monthOffset;
     paintSpendChrome();
@@ -1198,6 +1205,108 @@
       .sort(function (a, b) { return b.amount - a.amount; });
   }
 
+  /* ---- Lisa's Table income, LIVE from the Orders summary ----
+     The Vault's Lisa's Table income for a week = the PAID total of that Orders week (cash / Zelle / Venmo actually received, delivery fees on
+     paid orders included; unpaid and trade orders are NOT income). It comes from the `orders` read (weeks[] aggregates), never typed in.
+     Rules:  (1) a week belongs to the month of its Monday (week-start) date;  (2) a manual Income-tab row for Lisa's Table whose date falls in an
+     Orders week (Monday..Sunday) that has orders is SUPERSEDED by the live value and left out of every total (shown as ignored, never deleted);
+     (3) while the orders read is loading / failed / not deployed, only the manual rows count and a small note says so.
+     Everything that sums Vault income goes through spendModel(), so the live rows are counted exactly once everywhere. */
+  var ordLive = { s: 'idle', weeks: [], at: 0, seq: 0, busy: false };
+  var OL_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  var OL_ISO = /^\d{4}-\d{2}-\d{2}$/;
+  function olParse(iso) { var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || '')); return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])) : null; }
+  function olIso(d) { return d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + d.getUTCDate()).slice(-2); }
+  function olAdd(iso, n) { var d = olParse(iso); if (!d) return ''; d.setUTCDate(d.getUTCDate() + n); return olIso(d); }
+  function olMonday(iso) { var d = olParse(iso); if (!d) return ''; d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); return olIso(d); }
+  function olShort(iso) { var d = olParse(iso); return d ? OL_MONTHS[d.getUTCMonth()].slice(0, 3) + ' ' + d.getUTCDate() : String(iso || ''); }
+  function olMonthName(iso) { var d = olParse(iso); return d ? OL_MONTHS[d.getUTCMonth()] : ''; }
+  function olWeekNorm(w) {          // one weeks[] aggregate from the orders read -> clean row, or null (menu-only weeks, junk)
+    if (!w || !OL_ISO.test(String(w.week || ''))) return null;
+    var n = function (v) { v = Number(v); return isFinite(v) && v > 0 ? r2(v) : 0; };
+    var cnt = function (v) { v = Math.floor(Number(v)); return isFinite(v) && v > 0 ? v : 0; };
+    var o = { week: olMonday(w.week), clients: cnt(w.clients), paid: n(w.paid), unpaid: n(w.unpaid), trade: n(w.trade),
+      paidCount: cnt(w.paidCount), unpaidCount: cnt(w.unpaidCount), tradeCount: cnt(w.tradeCount) };
+    return o.clients > 0 ? o : null;
+  }
+  function ordLiveFetch(force) {      // cached for the session; refetched on every Vault / Ledger / Overview open (throttled to once per 10 s) and on Refresh app
+    if (ordLive.busy) return;
+    if (!force && ordLive.s === 'ok' && Date.now() - ordLive.at < 10000) return;
+    var seq = ++ordLive.seq; ordLive.busy = true;
+    if (ordLive.s !== 'ok') ordLive.s = 'load';
+    apiRaw('orders', {}).then(function (j) {
+      if (seq !== ordLive.seq) return;
+      if (j.error === 'bad_action') { ordLive.s = 'na'; ordLive.weeks = []; return; }
+      if (j.error) throw new Error(j.message || j.error);
+      var by = {};
+      ((j.data || {}).weeks || []).forEach(function (w) {
+        var r = olWeekNorm(w); if (!r) return;
+        var k = by[r.week];
+        if (!k) by[r.week] = r;
+        else ['clients', 'paid', 'unpaid', 'trade', 'paidCount', 'unpaidCount', 'tradeCount'].forEach(function (f) { k[f] = r2(k[f] + r[f]); });
+      });
+      ordLive.weeks = Object.keys(by).sort().map(function (k) { return by[k]; });
+      ordLive.s = 'ok'; ordLive.at = Date.now();
+    }).catch(function (err) {
+      if (seq !== ordLive.seq) return;
+      if (err instanceof AuthError) { setPc(''); lock('Passcode changed. Enter the new one.'); return; }
+      if (ordLive.s !== 'ok') ordLive.s = 'err';        // keep the last good weeks when a refresh fails
+    }).then(function () {
+      if (seq !== ordLive.seq) return;
+      ordLive.busy = false;
+      olRerender();
+    });
+  }
+  function olRerender() {
+    try {
+      var on = function (id) { var el = $(id); return !!(el && el.classList.contains('active')); };
+      if (on('screen-spend') && state.spendData) renderSpend();
+      else if (on('screen-fin') && state.finKind === 'ledger') renderLed();
+      else if (on('screen-fin') && state.finKind === 'overview') renderOv();
+    } catch (e) {}
+  }
+  function olMonthKey(d) {          // 'yyyy-mm' of the month a spend response covers
+    var m = /^([A-Za-z]+)\s+(\d{4})$/.exec(String((d && d.monthLabel) || '').trim());
+    if (m) { var i = -1; OL_MONTHS.forEach(function (n, k) { if (n.toLowerCase() === m[1].toLowerCase()) i = k; }); if (i >= 0) return m[2] + '-' + ('0' + (i + 1)).slice(-2); }
+    var off = d && d.monthOffset != null ? Number(d.monthOffset) : Number(state.monthOffset) || 0, t = new Date(), x = new Date(t.getFullYear(), t.getMonth() + (isFinite(off) ? off : 0), 1);
+    return x.getFullYear() + '-' + ('0' + (x.getMonth() + 1)).slice(-2);
+  }
+  function olSub(e) {               // the muted sub-line of a live row
+    var t = 'Live from Orders: ' + money(e.amount) + ' paid, ' + money(e.unpaid) + ' unpaid' + (e.trade ? ', ' + money(e.trade) + ' trade' : '') + ' \u00b7 week of ' + olShort(e.week) +
+      '. Unpaid and trade orders are not counted.';
+    if (olMonthName(olAdd(e.week, 6)) !== olMonthName(e.week)) t += ' This week runs into ' + olMonthName(olAdd(e.week, 6)) + '; it is counted in ' + olMonthName(e.week) + ', the month it starts.';
+    return t;
+  }
+  // manual: the model's income rows. Returns { income: counted rows (manual kept + live), superseded: manual rows ignored, note }
+  function ordLiveApply(manual, monthKey) {
+    var LT = INCOME_SOURCES[0], out = { income: [], superseded: [], note: '', live: 0 };
+    if (ordLive.s !== 'ok') {
+      out.income = manual.slice();
+      out.note = ordLive.s === 'load' || ordLive.s === 'idle' ? 'Orders loading\u2026 Lisa\u2019s Table income shows the manual entries until they load.'
+        : 'Orders not loaded \u2014 Lisa\u2019s Table income shows the manual entries only.';
+      return out;
+    }
+    manual.forEach(function (m) {
+      var wk = null;
+      if (m.source === LT && OL_ISO.test(String(m.date || ''))) ordLive.weeks.forEach(function (w) { if (m.date >= w.week && m.date <= olAdd(w.week, 6)) wk = w; });
+      if (wk) { m.supersededBy = wk.week; out.superseded.push(m); } else out.income.push(m);
+    });
+    ordLive.weeks.forEach(function (w) {
+      if (w.week.slice(0, 7) !== monthKey) return;
+      out.live++;
+      out.income.push({ date: w.week, label: olShort(w.week), source: LT, amount: w.paid, notes: '', client: '', method: '', gid: '', row: 0, tab: '', rawSource: LT, cid: '',
+        _v: 0, live: true, week: w.week, unpaid: w.unpaid, trade: w.trade, clients: w.clients, go: 'lt/orders?tab=summary&week=' + w.week });
+    });
+    return out;
+  }
+  function olSupRows(list) {        // ignored manual rows (muted, struck through): live Orders value used instead
+    if (!list || !list.length) return '';
+    return '<div class="olsup"><div class="olsuph">Ignored manual entries (replaced by live Orders)</div>' + list.map(function (e) {
+      return '<div class="icrow sup"><span class="icd">Wk ending ' + esc(e.label) + '</span><span class="icc">Replaced by live week of ' + esc(olShort(e.supersededBy)) + '</span><span class="amt">' + money(e.amount) + '</span></div>';
+    }).join('') + '</div>';
+  }
+  function olNoteHtml(M) { return M && M.liveNote ? '<div class="foot olnote">' + esc(M.liveNote) + '</div>' : ''; }
+
   // Works with the new API (items[] with account, income[]) and older shapes (recent[] only / no income).
   function spendModel(d) {
     var full = Array.isArray(d.items);
@@ -1212,6 +1321,8 @@
         client: x.client || x.description || '', method: x.method || '', gid: x.gid != null ? String(x.gid) : '',
         row: vRowNum(x.row), tab: x.tab || '', rawSource: x.source || '', cid: x.cid || '', _v: 1 };
     });
+    var olA = ordLiveApply(income, olMonthKey(d));      // Lisa's Table income is live from Orders; superseded manual rows leave the totals
+    income = olA.income;
     var names = ACCOUNTS.slice();
     items.forEach(function (x) { if (names.indexOf(x.account) < 0) names.push(x.account); });
     var accounts = names.map(function (a) {
@@ -1239,7 +1350,7 @@
         var l = income.filter(function (x) { return x.source === sname; });
         return { name: sname, label: DETAIL_SRC[sname] ? DETAIL_SRC[sname].label : sname, amount: sum(l), count: l.length };
       }),
-      lsGid: lsGid,
+      lsGid: lsGid, superseded: olA.superseded, liveNote: olA.note, liveCount: olA.live,
       incomeTotal: sum(income),   // all income sources, incl. Personal Training (Income total + Summary math)
       total: full ? sum(items) : Number(d.total) || 0,
       daysLogged: d.daysLogged
@@ -1303,6 +1414,9 @@
   function incomeRows(list, showSrc) {
     if (!list.length) return '<div class="foot">No income entries this month.</div>';
     return list.map(function (e) {
+      if (e.live) return '<div class="entry item inc liveent" role="button" tabindex="0" data-go="' + esc(e.go) + '"><div class="d">Week of<br><b>' + esc(e.label) + '</b></div><div class="m">' +
+        '<div class="meta"><small><span class="livetag">Live</span> ' + esc(showSrc ? e.source : 'from Orders') + '</small></div><div class="notes">' + esc(olSub(e)) + '</div></div>' +
+        '<div class="a amt-in">' + money(e.amount) + '</div></div>';
       var ds = DETAIL_SRC[e.source], pt = !!ds, meta = [];
       if (showSrc) meta.push(esc(ds ? ds.label : e.source));
       if (pt && e.method) meta.push(isCash(e) ? '<span class="cashtag">' + esc(e.method) + '</span>' : esc(e.method));
@@ -1315,15 +1429,17 @@
     }).join('');
   }
   // Compact per-source entry list for the expanded Income cards: most recent first, date + (client) + amount.
-  function incCompact(list, detail) {
-    if (!list.length) return '<div class="foot empty">No entries this month</div>';
+  function incCompact(list, detail, sup) {
+    if (!list.length) return '<div class="foot empty">No entries this month</div>' + olSupRows(sup);
     var t = function (x) { var v = Date.parse(x.date); return isNaN(v) ? 0 : v; };
     var rows = list.map(function (e, i) { return { e: e, i: i }; }).sort(function (a, b) { return (t(b.e) - t(a.e)) || (a.i - b.i); });
     return '<div class="inccompact">' + rows.map(function (r) {
       var e = r.e, what = detail ? (e.client || '') : 'Week ending';
+      if (e.live) return '<div class="icrow live liverow" role="button" tabindex="0" data-go="' + esc(e.go) + '"><span class="icd">Wk of ' + esc(e.label) + '</span>' +
+        '<span class="icc"><span class="livetag">Live</span></span><span class="amt amt-in">' + money(e.amount) + '</span></div><div class="livesub">' + esc(olSub(e)) + '</div>';
       return '<div class="icrow' + vEntCls(e) + '"' + vEntAttr('inc', e) + '><span class="icd">' + (detail ? esc(e.label) : 'Wk ending ' + esc(e.label)) + '</span>' +
         '<span class="icc">' + (detail ? esc(what) : '') + '</span><span class="amt amt-in">' + money(e.amount) + '</span></div>';
-    }).join('') + '</div>';
+    }).join('') + '</div>' + olSupRows(sup);
   }
   function truncNote(M) {
     return M.truncated ? '<div class="foot">Showing the latest ' + M.items.length + ' of ' + M.entryCount +
@@ -1874,7 +1990,8 @@
       M.sources.forEach(function (sx) {
         var l = M.income.filter(function (x) { return x.source === sx.name; });
         var ds = DETAIL_SRC[sx.name];
-        var b = incCompact(l, !!ds) +
+        var isLT = sx.name === INCOME_SOURCES[0];
+        var b = incCompact(l, !!ds, isLT ? M.superseded : null) + (isLT ? olNoteHtml(M) : '') +
           sheetLink('Open in spend sheet', ds ? ds.tab : 'income', ds && ds.tab === 'ls' ? M.lsGid : '');
         h += vSec('inc-' + sx.name, 'income incsrc', esc(sx.label), '<span class="amt-in">' + money(sx.amount) + '</span>', incomeRoute(sx.name), b);
       });
@@ -1938,13 +2055,15 @@
         '<div class="foot">' + inc.length + ' ' + (all ? (inc.length === 1 ? 'entry' : 'entries') : unit + (inc.length === 1 ? '' : 's')) +
         (all ? ' · ' + M.sources.filter(function (s) { return s.count; }).map(function (s) { return esc(s.label) + ' ' + money(s.amount); }).join(' · ') : '') +
         '</div><div class="foot how">Source: ' + (isPT ? 'the ' + esc(ds.tabName) + ' tab (' + ds.what + ') of the spend sheet.'
-          : 'the Income tab (weekly lump sums), the Personal Training tab (client payments)' + (hasLS ? ' and the Land &amp; Structure Pay tab' : '') + ' of the spend sheet.') + '</div></div>';
+          : 'the Income tab (weekly lump sums), the Personal Training tab (client payments)' + (hasLS ? ' and the Land &amp; Structure Pay tab' : '') + ' of the spend sheet.') +
+          (isPT ? '' : ' Lisa\u2019s Table income is live from the Orders summary (paid orders only), not typed in.') + '</div></div>';
       h += sheetLink('Open in spend sheet' + (isPT ? ' (' + ds.tabName + ' tab)' : ' (Income tab)'), isPT ? ds.tab : 'income', isPT && ds.tab === 'ls' ? M.lsGid : '');
       if (all) {
         h += sheetLink('Open Personal Training tab', 'pt').replace('linkrow sheetbtn', 'linkrow sheetbtn second');
         if (hasLS) h += sheetLink('Open Land & Structure Pay tab', 'ls', M.lsGid).replace('linkrow sheetbtn', 'linkrow sheetbtn second');
       }
       h += '<div class="card income">' + incomeRows(inc, all) + '</div>';
+      if (all || src === INCOME_SOURCES[0]) h += olNoteHtml(M) + (M.superseded.length ? '<div class="card income">' + olSupRows(M.superseded) + '</div>' : '');
 
     } else if (sr.kind === 'calc') {
       var key = sr.val, c = null;
@@ -5204,6 +5323,7 @@
       inc = V.M.incomeTotal || 0;
       h += '<div class="ovrow calc"><div class="ovl"><span>Vault income</span><small><span class="badge ok">Verified</span> Vault \u00b7 logged this month so far</small></div><div class="ovv"><button class="ovgo amt-in" data-go="' + esc(incomeRoute('All')) + '">' + ovWhole(inc) + ' &rsaquo;</button></div></div>';
     } else h += '<div class="ovnote">Vault income is not loaded yet.</div>';
+    if (V && V.M && V.M.liveNote) h += '<div class="ovnote">' + esc(V.M.liveNote) + '</div>';
     h += ovCalcRow('Total income (month to date)', ovWhole(inc), 'amt-in', '', refs);
     if (ds !== null && inc > 0) h += ovCalcRow('Debt service \u00f7 income', Math.round(ds / inc * 100) + '%', '', 'lower is better', refs);
     if (ds !== null && C.burn && V && V.M) {
@@ -5568,9 +5688,10 @@
       V.M.sources.forEach(function (s) {
         if (!s.amount) return;
         incC.push({ id: 'inc-' + s.name, label: s.label, val: r2(s.amount), tag: 'ver', vault: true,
-          src: 'Vault Income \u00b7 logged ' + (V.logged ? V.logged + ' day' + (V.logged === 1 ? '' : 's') + ' into the month' : 'this month'), go: incomeRoute(s.name), goLabel: 'Vault income' });
+          src: (s.name === INCOME_SOURCES[0] && !V.M.liveNote ? 'Live from Lisa\u2019s Table Orders (paid) \u00b7 ' : '') + 'Vault Income \u00b7 logged ' + (V.logged ? V.logged + ' day' + (V.logged === 1 ? '' : 's') + ' into the month' : 'this month'), go: incomeRoute(s.name), goLabel: 'Vault income' });
       });
       incVal = incC.length ? ovSumC(incC) : 0;
+      if (V.M.liveNote) incNotes.push(V.M.liveNote);
       incNotes.push('Only income logged in the Vault is counted, month to date. The K-1 and W-2 amounts are listed below as Incomplete.');
     } else {
       incNotes.push('The live Vault income is not loaded yet.');
@@ -5840,6 +5961,7 @@
     });
   }
   function loadOv(force) {
+    ordLiveFetch(!!force);
     ovFetchFin(!!force); ovFetchSpend(!!force); loadAccounts(!!force); loadDebt(!!force); renderOv();
   }
   function ovClick(e) {
@@ -6001,6 +6123,8 @@
     if (src.length) b += '<div class="ledgrp"><div class="ledgh">Income by source</div>' + src.map(function (x) { return ledLine(esc(x.label), '<span class="amt-in">' + money(x.amount) + '</span>', incomeRoute(x.name)); }).join('') + '</div>';
     var acc = M.accounts.filter(function (x) { return x.amount && !ledSierra(x.name); });
     if (acc.length) b += '<div class="ledgrp"><div class="ledgh">Expenses by entity</div>' + acc.map(function (x) { return ledLine(esc(x.name), '<span class="amt-out">' + money(x.amount) + '</span>', acctRoute(x.name)); }).join('') + '</div>';
+    if (M.liveNote) b += ledNote(esc(M.liveNote));
+    else if (M.liveCount) b += ledNote('Lisa\u2019s Table income is live from Orders (paid only).');
     b += ledNote((days > 0 ? days + ' day' + (days === 1 ? '' : 's') + ' logged this month' : 'No days logged yet') + '. Same numbers as the Vault Summary. Tap a number to open it in the Vault.');
     b += '<button class="linkrow smallrow" data-go="spend" data-ov-vsec="summary">Open the Vault &rsaquo;</button>';
     return ledCard('flow', 'Cash flow this month', tot, b);
@@ -6176,6 +6300,7 @@
     });
   }
   function loadLed(force) {
+    ordLiveFetch(!!force);
     loadAccounts(!!force); loadDebt(!!force); ledFetchSpend(!!force); ledFetchIns(!!force); ledFetchFin(!!force);
     renderLed();
   }

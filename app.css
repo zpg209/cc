@@ -1692,3 +1692,16 @@ button.ledchip { cursor: pointer; }
 #screen-pt .psbtns .navbtn.on { background: var(--lt-t); color: #0b0b0b; }
 #screen-pt .psuse { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 #screen-pt .psuse .bigsave { min-height: 48px; padding: 6px 4px; font-size: 15px; font-weight: 700; margin: 0; }
+
+/* Lisa's Table income, live from the Orders summary (Vault Income / Ledger / Overview) */
+.livetag { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #8fd19e; border: .75px solid #3f7a4f; border-radius: 999px; padding: 1px 7px; line-height: 1.35; vertical-align: 1px; }
+.icrow.liverow, .entry.liveent { cursor: pointer; -webkit-tap-highlight-color: rgba(240,122,42,.18); }
+.icrow.liverow:active, .entry.liveent:active { background: rgba(240,122,42,.08); }
+.livesub { font-size: 11.5px; line-height: 1.4; color: var(--muted, #9a9a9a); padding: 0 0 8px; overflow-wrap: anywhere; }
+.entry.liveent .notes { color: var(--muted, #9a9a9a); font-size: 12px; overflow-wrap: anywhere; }
+.olnote { color: #c9a07e; overflow-wrap: anywhere; }
+.olsup { margin: 6px 0 4px; padding-top: 4px; border-top: 1px dashed var(--line); }
+.olsuph { font-size: 11px; color: var(--muted, #9a9a9a); text-transform: uppercase; letter-spacing: .05em; padding: 4px 0 2px; }
+.icrow.sup { opacity: .6; border-top: 0; padding: 4px 0; font-size: 13px; }
+.icrow.sup .amt { text-decoration: line-through; color: var(--muted, #9a9a9a); }
+.icrow.sup .icc { color: var(--muted, #9a9a9a); font-size: 12px; }
