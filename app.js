@@ -149,6 +149,10 @@
     }
     if (name === 'pt') state.ptRoute = R.kind === 'new' ? { kind: 'new', id: '' } : (R.kind === 'client' && R.val ? { kind: 'client', id: R.val } : { kind: '', id: '' });   // #pt, #pt/new, #pt/client/<id>
     if (name === 'monofold') name = 'mf';   // #monofold alias
+    if (name === 'mf') {
+      var mfOk = { home: 1, orders: 1, customers: 1, design: 1, pricing: 1 };
+      state.mfTab = mfOk[R.kind] ? R.kind : 'home';   // #mf, #mf/home, #mf/orders, #mf/customers, #mf/design
+    }
     if (name === 'punch' && !(PROJ[R.kind] && PROJ[R.kind].punchUrl)) { name = 'proj'; route = 'proj/' + (PROJ[R.kind] ? R.kind : 'terravi'); }
     var logMic = name === 'mic' && R.kind === 'dailylog';       // #mic/dailylog = Dictate page for the Daily log (Voice notes)
     if (logMic) micLogSetup();
@@ -180,7 +184,7 @@
         name === 'insn' ? '#insn' + (state.insSlug ? '/' + encodeURIComponent(state.insSlug) : '') :
         name === 'lt' ? '#lt' + (R.kind ? '/' + encodeURIComponent(R.kind) : '') :
         name === 'pt' ? '#pt' + (state.ptRoute.kind ? '/' + encodeURIComponent(state.ptRoute.kind) + (state.ptRoute.id ? '/' + encodeURIComponent(state.ptRoute.id) : '') : '') :
-        name === 'mf' ? '#mf' :
+        name === 'mf' ? (state.mfTab && state.mfTab !== 'home' ? '#mf/' + state.mfTab : '#mf') :
         name === 're' ? (state.reRoute.ins ? '#ins' : '#re' + (state.reRoute.slug ? '/' + encodeURIComponent(state.reRoute.slug) : '')) : '#' + name;
       if (location.hash !== h) history.pushState({ screen: name }, '', h || location.pathname + location.search);
     }
@@ -9827,10 +9831,21 @@
   });
 
 
-  /* ---------------- Mono Fold design Q&A (#mf / #monofold) — one-at-a-time checklist, mic + localStorage ---------------- */
-  // Lives on THIS PHONE only (localStorage key cc_mf_design). ALL reads/writes go through mfLoad / mfSave. No Api.gs.
-  // Zac answers design questions one by one (mic or type) → Save → Next. Progress + answered status persist across reloads.
+  /* ---------------- Mono Fold mini-app (#mf / #monofold) — Home / Orders / Customers / Design ---------------- */
+  // Design answers: THIS PHONE only (localStorage cc_mf_design) via mfLoad / mfSave. Demo customers/orders: cc_mf_customers / cc_mf_orders.
+  // Tabs: #mf|#mf/home (ops preview), #mf/orders, #mf/customers, #mf/design (14-Q mic checklist). Pricing tab reserved.
   var MF_KEY = 'cc_mf_design';
+  var MF_CUST_KEY = 'cc_mf_customers';
+  var MF_ORD_KEY = 'cc_mf_orders';
+  var MF_TABS = [
+    { id: 'home', label: 'Home' },
+    { id: 'orders', label: 'Orders' },
+    { id: 'customers', label: 'Customers' },
+    { id: 'design', label: 'Design' }
+  ];
+  var MF_STATUSES = ['Intake', 'Washing', 'Drying', 'Folding', 'Ready', 'Paid'];
+  var MF_STATUS_SHORT = { Intake: 'Intake', Washing: 'Washing', Drying: 'Drying', Folding: 'Folding', Ready: 'Ready', Paid: 'Paid / Picked up' };
+  var MF_PREF_OPTS = ['No bleach', 'Hang dry', 'Softener', 'Fold flat', 'Hang shirts', 'Extra soft', 'Hypoallergenic', 'Comforter'];
   var MF_QS = [
     { id: 'pickup_dropoff', title: 'Pickup vs drop-off (day one)',
       help: 'Will day-one customers drop bags off, get pickup, or both? How do they hand off bags?' },
@@ -9865,8 +9880,13 @@
       help: 'After-hours pricing is deferred. Confirm we park it for a later pass.',
       seed: 'Confirmed — after-hours pricing later.' }
   ];
-  var mf = { idx: 0, draft: '', flash: '', flashBad: false,
-    mic: { rec: null, on: false, base: '', committed: '', interim: '', msg: '' } };
+  var mf = {
+    tab: 'home', view: '', custId: '', orderId: '', q: '', statusFilter: '',
+    toast: '', toastAt: 0,
+    idx: 0, draft: '', flash: '', flashBad: false,
+    mic: { rec: null, on: false, base: '', committed: '', interim: '', msg: '' },
+    custForm: null, orderForm: null
+  };
 
   function mfLoad() {
     var d = lsGet(MF_KEY, null);
@@ -9911,6 +9931,91 @@
     var el = $('mf-flash');
     if (el) { el.textContent = mf.flash; el.hidden = !mf.flash; el.className = 'noteflash' + (mf.flash ? ' show' : '') + (bad ? ' bad' : ''); }
   }
+  function mfToast(msg) {
+    mf.toast = msg || ''; mf.toastAt = Date.now();
+    var el = $('mf-toast');
+    if (el) { el.textContent = mf.toast; el.hidden = !mf.toast; el.classList.add('show'); }
+    setTimeout(function () {
+      if (Date.now() - mf.toastAt < 2400) return;
+      mf.toast = '';
+      var t = $('mf-toast'); if (t) { t.hidden = true; t.classList.remove('show'); }
+    }, 2600);
+  }
+  function mfUid(prefix) {
+    return (prefix || 'id') + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  }
+  function mfDemoStamp() {
+    return '<span class="mfdemo" title="Sample data for layout preview">Demo</span>';
+  }
+  function mfTodayLabel() {
+    try {
+      return new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    } catch (e) { return 'Today'; }
+  }
+
+  /* ---- Demo customers / orders (localStorage; seeded once) ---- */
+  function mfDefaultCustomers() {
+    return [
+      { id: 'c_demo_1', demo: true, name: 'Maya Chen', phone: '(310) 555-0142', venmo: '@maya-chen', prefs: ['No bleach', 'Hang dry'], bags: 3, lastOrder: '2026-10-03', notes: 'Prefers text when Ready.' },
+      { id: 'c_demo_2', demo: true, name: 'Jordan Blake', phone: '(424) 555-0198', venmo: '', prefs: ['Softener', 'Fold flat'], bags: 2, lastOrder: '2026-10-04', notes: '' },
+      { id: 'c_demo_3', demo: true, name: 'Sam Rivera', phone: '(213) 555-0177', venmo: '@samr', prefs: ['Hypoallergenic', 'Hang shirts'], bags: 5, lastOrder: '2026-09-28', notes: 'Comforter last month.' },
+      { id: 'c_demo_4', demo: true, name: 'Alex Kim', phone: '(818) 555-0110', venmo: '@alexkim', prefs: ['No bleach'], bags: 1, lastOrder: '2026-10-05', notes: '' }
+    ];
+  }
+  function mfDefaultOrders() {
+    return [
+      { id: 'o_demo_1', demo: true, ticket: 'MF-1042', customerId: 'c_demo_1', customer: 'Maya Chen', bags: 3, weight: 18, status: 'Washing', due: 'Today 4:00p', pay: 'Venmo', price: 42, prefs: ['No bleach', 'Hang dry'], at: '2026-10-05T08:10:00' },
+      { id: 'o_demo_2', demo: true, ticket: 'MF-1043', customerId: 'c_demo_2', customer: 'Jordan Blake', bags: 2, weight: 12, status: 'Intake', due: 'Today 6:00p', pay: 'Cash', price: 28, prefs: ['Softener'], at: '2026-10-05T09:05:00' },
+      { id: 'o_demo_3', demo: true, ticket: 'MF-1040', customerId: 'c_demo_3', customer: 'Sam Rivera', bags: 4, weight: 22, status: 'Folding', due: 'Today 2:30p', pay: 'Venmo', price: 55, prefs: ['Hypoallergenic'], at: '2026-10-05T07:40:00' },
+      { id: 'o_demo_4', demo: true, ticket: 'MF-1038', customerId: 'c_demo_4', customer: 'Alex Kim', bags: 1, weight: 8, status: 'Ready', due: 'Ready now', pay: 'Cash', price: 18, prefs: ['No bleach'], at: '2026-10-04T16:20:00' },
+      { id: 'o_demo_5', demo: true, ticket: 'MF-1035', customerId: 'c_demo_1', customer: 'Maya Chen', bags: 2, weight: 11, status: 'Paid', due: 'Picked up', pay: 'Venmo', price: 26, prefs: ['Hang dry'], at: '2026-10-03T11:00:00' },
+      { id: 'o_demo_6', demo: true, ticket: 'MF-1044', customerId: 'c_demo_2', customer: 'Jordan Blake', bags: 1, weight: 7, status: 'Drying', due: 'Today 5:00p', pay: 'Venmo', price: 16, prefs: ['Fold flat'], at: '2026-10-05T10:15:00' }
+    ];
+  }
+  function mfLoadCustomers() {
+    var d = lsGet(MF_CUST_KEY, null);
+    if (!d || !Array.isArray(d.list) || !d.list.length) {
+      var list = mfDefaultCustomers();
+      mfSaveCustomers(list);
+      return list;
+    }
+    return d.list;
+  }
+  function mfSaveCustomers(list) {
+    try { localStorage.setItem(MF_CUST_KEY, JSON.stringify({ list: list })); return true; } catch (e) { return false; }
+  }
+  function mfLoadOrders() {
+    var d = lsGet(MF_ORD_KEY, null);
+    if (!d || !Array.isArray(d.list) || !d.list.length) {
+      var list = mfDefaultOrders();
+      mfSaveOrders(list);
+      return list;
+    }
+    return d.list;
+  }
+  function mfSaveOrders(list) {
+    try { localStorage.setItem(MF_ORD_KEY, JSON.stringify({ list: list })); return true; } catch (e) { return false; }
+  }
+  function mfFindCust(id) {
+    var list = mfLoadCustomers();
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+    return null;
+  }
+  function mfFindOrder(id) {
+    var list = mfLoadOrders();
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+    return null;
+  }
+  function mfOrdersForCust(cid) {
+    return mfLoadOrders().filter(function (o) { return o.customerId === cid; })
+      .sort(function (a, b) { return String(b.at || '').localeCompare(String(a.at || '')); });
+  }
+  function mfCountByStatus(orders) {
+    var m = {}; MF_STATUSES.forEach(function (s) { m[s] = 0; });
+    (orders || mfLoadOrders()).forEach(function (o) { if (m[o.status] != null) m[o.status]++; else m[o.status] = 1; });
+    return m;
+  }
+
   function mfMicStop(quiet) {
     var r = mf.mic.rec;
     if (quiet) { mf.mic.rec = null; mf.mic.on = false; try { r && r.abort(); } catch (e) {} mfMicPaint(); return; }
@@ -9996,26 +10101,86 @@
     var d = mfLoad(); d.idx = i; mfSave(d);
     mfRender();
   }
+
+  function mfSubnavHtml() {
+    var tab = state.mfTab || 'home';
+    return '<nav class="mfnav" aria-label="Mono Fold sections">' + MF_TABS.map(function (t) {
+      var on = tab === t.id;
+      return '<button type="button" class="mfnavbtn' + (on ? ' on' : '') + '" data-go="mf/' + t.id + '"' + (on ? ' aria-current="page"' : '') + '>' + t.label + '</button>';
+    }).join('') + '<button type="button" class="mfnavbtn mfsoon" data-mf="pricing-soon" title="Coming later">Pricing</button></nav>' +
+      '<div class="mftoast" id="mf-toast"' + (mf.toast ? '' : ' hidden') + '>' + esc(mf.toast || '') + '</div>';
+  }
+
   function mfOpen() {
     mfMicStop(true);
     mf.flash = ''; mf.flashBad = false;
-    var d = mfLoad();
-    mf.idx = d.idx;
-    // Prefer first unanswered if nothing was in progress at a answered slot with empty draft intent
-    var q0 = MF_QS[mf.idx];
-    if (q0 && d.answers[q0.id] && d.answers[q0.id].answered) {
-      var first = -1;
-      for (var i = 0; i < MF_QS.length; i++) {
-        var a = d.answers[MF_QS[i].id];
-        if (!(a && a.answered && String(a.text || '').trim())) { first = i; break; }
-      }
-      // Stay on saved idx if user was mid-review; only jump when all prior unanswered exist and idx is past them
-      if (first >= 0 && first < mf.idx) { /* keep saved idx for review */ }
+    mf.tab = state.mfTab || 'home';
+    if (mf.tab !== 'design') { mf.view = mf.view && (mf.tab === 'customers' || mf.tab === 'orders') ? mf.view : ''; }
+    if (mf.tab === 'design') {
+      var d = mfLoad();
+      mf.idx = d.idx;
     }
+    if (mf.tab !== 'customers') { mf.custId = ''; mf.custForm = null; if (mf.view === 'cust-detail' || mf.view === 'cust-form') mf.view = ''; }
+    if (mf.tab !== 'orders') { mf.orderId = ''; mf.orderForm = null; if (mf.view === 'ord-detail' || mf.view === 'ord-form') mf.view = ''; }
     mfRender();
   }
-  function mfRender() {
-    var box = $('mf-body'); if (!box) return;
+
+  function mfPrefsChips(prefs, interactive, selected) {
+    prefs = prefs || [];
+    if (!interactive) {
+      if (!prefs.length) return '<span class="mfmuted">No prefs</span>';
+      return prefs.map(function (p) { return '<span class="mfchip">' + esc(p) + '</span>'; }).join('');
+    }
+    var sel = selected || {};
+    return MF_PREF_OPTS.map(function (p) {
+      var on = !!sel[p];
+      return '<button type="button" class="mfchipbtn' + (on ? ' on' : '') + '" data-mf="pref-tog" data-p="' + esc(p) + '" aria-pressed="' + on + '">' + esc(p) + '</button>';
+    }).join('');
+  }
+
+  /* ---- HOME: live-preview ops dashboard ---- */
+  function mfRenderHome() {
+    var orders = mfLoadOrders(), counts = mfCountByStatus(orders);
+    var active = orders.filter(function (o) { return o.status !== 'Paid'; });
+    var bagsIn = active.reduce(function (n, o) { return n + (parseInt(o.bags, 10) || 0); }, 0);
+    var readyN = counts.Ready || 0;
+    var cashToday = 0, venmoToday = 0;
+    orders.forEach(function (o) {
+      if (o.status !== 'Paid' && o.status !== 'Ready') return;
+      var p = parseFloat(o.price) || 0;
+      if (o.pay === 'Cash') cashToday += p; else if (o.pay === 'Venmo') venmoToday += p;
+    });
+    var statusRow = ['Intake', 'Washing', 'Drying', 'Folding', 'Ready'].map(function (s) {
+      return '<div class="mfstatcard" data-go="mf/orders"><div class="mfstatn">' + (counts[s] || 0) + '</div><div class="mfstatl">' + esc(s) + '</div></div>';
+    }).join('');
+    var cards = active.slice(0, 4).map(function (o) {
+      return '<button type="button" class="mfocard" data-mf="ord-open" data-id="' + esc(o.id) + '">' +
+        '<div class="mfohead"><span class="mfticket">' + esc(o.ticket) + '</span>' + (o.demo ? mfDemoStamp() : '') +
+        '<span class="mfostatus s-' + esc(o.status.toLowerCase().replace(/\s+/g, '')) + '">' + esc(o.status) + '</span></div>' +
+        '<div class="mfowho">' + esc(o.customer) + '</div>' +
+        '<div class="mfometa">' + (o.bags || 0) + ' bag' + (o.bags === 1 ? '' : 's') +
+        (o.weight ? ' \u00b7 ' + o.weight + ' lb' : '') + ' \u00b7 Due ' + esc(o.due || '\u2014') + '</div></button>';
+    }).join('');
+    return '<div class="mfhome">' +
+      '<div class="mfheroband"><div class="mfhero">' +
+      '<div class="mfkicker">Go-live preview</div>' +
+      '<h3 class="mfherotitle">Today\u2019s floor</h3>' +
+      '<div class="mfherodate">' + esc(mfTodayLabel()) + ' \u00b7 sample data ' + mfDemoStamp() + '</div></div>' +
+      '<button type="button" class="bigsave mfnewbig" data-mf="new-order">+ New Order</button></div>' +
+      '<div class="mfstats">' + statusRow + '</div>' +
+      '<div class="mfquick">' +
+      '<div class="mfqcard"><div class="mfql">Bags in</div><div class="mfqv">' + bagsIn + '</div></div>' +
+      '<div class="mfqcard"><div class="mfql">Ready pickup</div><div class="mfqv">' + readyN + '</div></div>' +
+      '<div class="mfqcard"><div class="mfql">Cash today</div><div class="mfqv">$' + cashToday.toFixed(0) + '</div></div>' +
+      '<div class="mfqcard"><div class="mfql">Venmo today</div><div class="mfqv">$' + venmoToday.toFixed(0) + '</div></div>' +
+      '</div>' +
+      '<div class="mfsechead"><span>Active orders</span><button type="button" class="navbtn mfmini" data-go="mf/orders">Board</button></div>' +
+      '<div class="mfoquick">' + (cards || '<div class="mfempty">No active orders yet.</div>') + '</div>' +
+      '<div class="foot mffoot">Layout preview for Mono Fold ops. Design Q&amp;A lives under Design. Demo numbers are not live.</div></div>';
+  }
+
+  /* ---- DESIGN tab (existing 14-Q checklist) ---- */
+  function mfRenderDesign() {
     var d = mfLoad(), q = mfQ(), a = d.answers[q.id] || { text: '', answered: false };
     mf.draft = a.text || '';
     var done = mfAnsweredCount(d), total = MF_QS.length, n = mf.idx + 1;
@@ -10024,8 +10189,7 @@
       var aa = d.answers[qq.id], ok = aa && aa.answered && String(aa.text || '').trim();
       return '<button type="button" class="mfdot' + (i === mf.idx ? ' on' : '') + (ok ? ' ok' : '') + '" data-mf="jump" data-i="' + i + '" aria-label="Question ' + (i + 1) + (ok ? ' answered' : '') + '"' + (i === mf.idx ? ' aria-current="true"' : '') + '>' + (i + 1) + '</button>';
     }).join('');
-    box.innerHTML =
-      '<div class="mf">' +
+    return '<div class="mfdesign">' +
       '<div class="foot mfintro">Design checklist for Mono Fold (laundry). Answer one at a time — mic or type. Saved on this phone only.</div>' +
       '<div class="mfprog"><span class="mfprog-lbl">Progress <b>' + done + '</b> of <b>' + total + '</b> answered</span>' +
       '<span class="mfbadge ' + status + '">' + (status === 'answered' ? 'Answered' : 'Unanswered') + '</span></div>' +
@@ -10048,19 +10212,248 @@
       '<button type="button" class="navbtn" data-mf="clear">Clear answer</button>' +
       '</div>' +
       '</div>' +
-      '<div class="foot mffoot">Answers stay on this phone (<code>cc_mf_design</code>). Reorder the Home tile anytime by press-and-hold.</div>' +
+      '<div class="foot mffoot">Answers stay on this phone (<code>cc_mf_design</code>).</div></div>';
+  }
+
+  /* ---- CUSTOMERS ---- */
+  function mfRenderCustomers() {
+    if (mf.view === 'cust-form') return mfRenderCustForm();
+    if (mf.view === 'cust-detail') return mfRenderCustDetail();
+    var list = mfLoadCustomers();
+    var q = String(mf.q || '').trim().toLowerCase();
+    var filtered = !q ? list : list.filter(function (c) {
+      var blob = (c.name + ' ' + (c.phone || '') + ' ' + (c.venmo || '') + ' ' + (c.prefs || []).join(' ')).toLowerCase();
+      return blob.indexOf(q) >= 0;
+    });
+    var rows = filtered.map(function (c) {
+      return '<button type="button" class="mfclist" data-mf="cust-open" data-id="' + esc(c.id) + '">' +
+        '<div class="mfcrow1"><span class="mfcname">' + esc(c.name) + '</span>' + (c.demo ? mfDemoStamp() : '') +
+        '<span class="mfcbag">' + (c.bags != null ? c.bags + ' bags' : '') + '</span></div>' +
+        '<div class="mfcrow2">' + esc(c.phone || 'No phone') +
+        (c.venmo ? ' \u00b7 ' + esc(c.venmo) : '') +
+        (c.lastOrder ? ' \u00b7 Last ' + esc(c.lastOrder) : '') + '</div>' +
+        '<div class="mfcprefs">' + mfPrefsChips(c.prefs) + '</div></button>';
+    }).join('');
+    return '<div class="mfcusts">' +
+      '<div class="mftoolbar"><input type="search" class="searchbox" id="mf-cust-q" placeholder="Search name, phone, Venmo\u2026" value="' + esc(mf.q || '') + '" autocomplete="off">' +
+      '<button type="button" class="bigsave mfadd" data-mf="cust-new">+ Add</button></div>' +
+      (rows || '<div class="mfempty card"><b>No customers yet</b><p>Add your first regular — name, phone, and wash prefs. Demo people appear until you add real ones.</p>' +
+        '<button type="button" class="bigsave" data-mf="cust-new">+ Add customer</button></div>') +
+      '<div class="foot mffoot">Customer list layout for go-live. Saved on this phone (<code>cc_mf_customers</code>).</div></div>';
+  }
+  function mfBlankCustForm(base) {
+    return {
+      id: (base && base.id) || '',
+      name: (base && base.name) || '',
+      phone: (base && base.phone) || '',
+      venmo: (base && base.venmo) || '',
+      notes: (base && base.notes) || '',
+      prefs: (base && base.prefs) ? base.prefs.slice() : [],
+      demo: false
+    };
+  }
+  function mfRenderCustForm() {
+    var f = mf.custForm || mfBlankCustForm();
+    var sel = {}; (f.prefs || []).forEach(function (p) { sel[p] = 1; });
+    return '<div class="mfform">' +
+      '<button type="button" class="navbtn mfback" data-mf="cust-back">&lsaquo; Customers</button>' +
+      '<h3 class="sechead">' + (f.id ? 'Edit customer' : 'Add customer') + '</h3>' +
+      '<label class="mflbl" for="mf-cf-name">Name</label>' +
+      '<input class="wlin" id="mf-cf-name" data-mf-cf="name" value="' + esc(f.name) + '" placeholder="Full name" maxlength="80" autocomplete="name">' +
+      '<label class="mflbl" for="mf-cf-phone">Phone</label>' +
+      '<input class="wlin" id="mf-cf-phone" data-mf-cf="phone" value="' + esc(f.phone) + '" placeholder="(xxx) xxx-xxxx" maxlength="30" inputmode="tel" autocomplete="tel">' +
+      '<label class="mflbl" for="mf-cf-venmo">Venmo <span class="mfopt">(optional)</span></label>' +
+      '<input class="wlin" id="mf-cf-venmo" data-mf-cf="venmo" value="' + esc(f.venmo) + '" placeholder="@handle" maxlength="40">' +
+      '<div class="mflbl">Prefs</div><div class="mfchipwrap" id="mf-cf-prefs">' + mfPrefsChips(null, true, sel) + '</div>' +
+      '<label class="mflbl" for="mf-cf-notes">Notes</label>' +
+      '<textarea class="notebox" id="mf-cf-notes" data-mf-cf="notes" rows="3" maxlength="500" placeholder="Ready text, specials\u2026">' + esc(f.notes || '') + '</textarea>' +
+      '<div class="noteflash" id="mf-flash" hidden></div>' +
+      '<div class="draftbtns mfactions"><button type="button" class="bigsave" data-mf="cust-save">Save customer</button>' +
+      '<button type="button" class="navbtn" data-mf="cust-back">Cancel</button></div></div>';
+  }
+  function mfRenderCustDetail() {
+    var c = mfFindCust(mf.custId);
+    if (!c) { mf.view = ''; return mfRenderCustomers(); }
+    var hist = mfOrdersForCust(c.id);
+    var histHtml = hist.length ? hist.map(function (o) {
+      return '<div class="mohist"><div class="mohist1"><b>' + esc(o.ticket) + '</b> ' + (o.demo ? mfDemoStamp() : '') +
+        '<span class="mfostatus s-' + esc(String(o.status).toLowerCase().replace(/\s+/g, '')) + '">' + esc(o.status) + '</span></div>' +
+        '<div class="mohist2">' + (o.bags || 0) + ' bags \u00b7 $' + (o.price != null ? o.price : '\u2014') + ' \u00b7 ' + esc(o.pay || '') +
+        (o.at ? ' \u00b7 ' + esc(String(o.at).slice(0, 10)) : '') + '</div></div>';
+    }).join('') : '<div class="mfempty">No orders yet for this customer.</div>';
+    return '<div class="mfcdetail">' +
+      '<button type="button" class="navbtn mfback" data-mf="cust-back">&lsaquo; Customers</button>' +
+      '<div class="card mfprofile">' +
+      '<div class="mfcrow1"><h3 class="mfherotitle">' + esc(c.name) + '</h3>' + (c.demo ? mfDemoStamp() : '') + '</div>' +
+      '<div class="mfprow"><span class="mflbl">Phone</span><span>' + esc(c.phone || '\u2014') + '</span></div>' +
+      '<div class="mfprow"><span class="mflbl">Venmo</span><span>' + esc(c.venmo || '\u2014') + '</span></div>' +
+      '<div class="mfprow"><span class="mflbl">Bags / last</span><span>' + (c.bags != null ? c.bags : '\u2014') +
+      (c.lastOrder ? ' \u00b7 ' + esc(c.lastOrder) : '') + '</span></div>' +
+      '<div class="mflbl">Prefs</div><div class="mfcprefs">' + mfPrefsChips(c.prefs) + '</div>' +
+      (c.notes ? '<p class="mfhelp">' + esc(c.notes) + '</p>' : '') +
+      '<div class="draftbtns mfactions2"><button type="button" class="navbtn" data-mf="cust-edit" data-id="' + esc(c.id) + '">Edit</button>' +
+      '<button type="button" class="navbtn" data-mf="new-order" data-cid="' + esc(c.id) + '">New order</button></div></div>' +
+      '<div class="mfsechead"><span>Order history</span></div>' + histHtml +
       '</div>';
-    if (mf.flash) mfFlash(mf.flash, mf.flashBad);
-    mfMicPaint();
-    var ta = $('mf-answer');
-    if (ta) {
-      ta.addEventListener('input', function () { mf.draft = ta.value; });
+  }
+
+  /* ---- ORDERS ---- */
+  function mfRenderOrders() {
+    if (mf.view === 'ord-form') return mfRenderOrderForm();
+    if (mf.view === 'ord-detail') return mfRenderOrderDetail();
+    var orders = mfLoadOrders();
+    var filter = mf.statusFilter || '';
+    var board = MF_STATUSES.map(function (s) {
+      var items = orders.filter(function (o) { return o.status === s; });
+      if (filter && filter !== s) return '';
+      var cards = items.map(function (o) {
+        return '<button type="button" class="mfocard compact" data-mf="ord-open" data-id="' + esc(o.id) + '">' +
+          '<div class="mfohead"><span class="mfticket">' + esc(o.ticket) + '</span>' + (o.demo ? mfDemoStamp() : '') + '</div>' +
+          '<div class="mfowho">' + esc(o.customer) + '</div>' +
+          '<div class="mfometa">' + (o.bags || 0) + ' bag' + (o.bags === 1 ? '' : 's') +
+          (o.weight ? ' \u00b7 ' + o.weight + ' lb' : '') + '</div>' +
+          '<div class="mfometa">Due ' + esc(o.due || '\u2014') + ' \u00b7 ' + esc(o.pay || '') + '</div>' +
+          '<div class="mfcprefs">' + mfPrefsChips(o.prefs) + '</div></button>';
+      }).join('');
+      return '<div class="mfcol" data-status="' + esc(s) + '">' +
+        '<div class="mfcolhead"><span>' + esc(MF_STATUS_SHORT[s] || s) + '</span><span class="mfcoln">' + items.length + '</span></div>' +
+        (cards || '<div class="mfcolempty">None</div>') + '</div>';
+    }).join('');
+    var seg = ['', 'Intake', 'Washing', 'Drying', 'Folding', 'Ready', 'Paid'].map(function (s) {
+      var label = s ? (MF_STATUS_SHORT[s] || s) : 'All';
+      var on = (filter || '') === s;
+      return '<button type="button" class="vchip' + (on ? ' on' : '') + '" data-mf="ord-filter" data-s="' + esc(s) + '" aria-pressed="' + on + '">' + esc(label) + '</button>';
+    }).join('');
+    return '<div class="mforders">' +
+      '<div class="mftoolbar"><div class="vchips mfseg">' + seg + '</div>' +
+      '<button type="button" class="bigsave mfadd" data-mf="new-order">+ New</button></div>' +
+      '<div class="mfboard">' + board + '</div>' +
+      '<div class="foot mffoot">Order board layout (Intake \u2192 Paid). Demo tickets labeled. Saved on this phone (<code>cc_mf_orders</code>).</div></div>';
+  }
+  function mfBlankOrderForm(preCust) {
+    var c = preCust ? mfFindCust(preCust) : null;
+    return {
+      customerId: c ? c.id : '',
+      customer: c ? c.name : '',
+      bags: '1', weight: '', price: '', pay: 'Venmo', due: 'Today 6:00p',
+      prefs: c && c.prefs ? c.prefs.slice() : [], notes: ''
+    };
+  }
+  function mfRenderOrderForm() {
+    var f = mf.orderForm || mfBlankOrderForm();
+    var custs = mfLoadCustomers();
+    var opts = '<option value="">Select customer\u2026</option>' + custs.map(function (c) {
+      return '<option value="' + esc(c.id) + '"' + (f.customerId === c.id ? ' selected' : '') + '>' + esc(c.name) + '</option>';
+    }).join('');
+    var sel = {}; (f.prefs || []).forEach(function (p) { sel[p] = 1; });
+    return '<div class="mfform">' +
+      '<button type="button" class="navbtn mfback" data-mf="ord-back">&lsaquo; Orders</button>' +
+      '<h3 class="sechead">New order (intake)</h3>' +
+      '<label class="mflbl" for="mf-of-cust">Customer</label>' +
+      '<select class="wlin" id="mf-of-cust" data-mf-of="customerId">' + opts + '</select>' +
+      '<div class="mffields2">' +
+      '<div><label class="mflbl" for="mf-of-bags">Bags</label>' +
+      '<input class="wlin" id="mf-of-bags" data-mf-of="bags" value="' + esc(f.bags) + '" inputmode="numeric" maxlength="3"></div>' +
+      '<div><label class="mflbl" for="mf-of-wt">Weight (lb)</label>' +
+      '<input class="wlin" id="mf-of-wt" data-mf-of="weight" value="' + esc(f.weight) + '" inputmode="decimal" maxlength="6"></div></div>' +
+      '<div class="mffields2">' +
+      '<div><label class="mflbl" for="mf-of-price">Price ($)</label>' +
+      '<input class="wlin" id="mf-of-price" data-mf-of="price" value="' + esc(f.price) + '" inputmode="decimal" maxlength="8"></div>' +
+      '<div><label class="mflbl" for="mf-of-due">Due</label>' +
+      '<input class="wlin" id="mf-of-due" data-mf-of="due" value="' + esc(f.due) + '" maxlength="40" placeholder="Today 6:00p"></div></div>' +
+      '<div class="mflbl">Payment</div><div class="vchips" id="mf-of-pay">' +
+      [['Cash', 'Cash'], ['Venmo', 'Venmo']].map(function (p) {
+        var on = f.pay === p[0];
+        return '<button type="button" class="vchip' + (on ? ' on' : '') + '" data-mf="pay-set" data-p="' + p[0] + '" aria-pressed="' + on + '">' + p[1] + '</button>';
+      }).join('') + '</div>' +
+      '<div class="mflbl">Prefs</div><div class="mfchipwrap">' + mfPrefsChips(null, true, sel) + '</div>' +
+      '<div class="noteflash" id="mf-flash" hidden></div>' +
+      '<div class="draftbtns mfactions"><button type="button" class="bigsave" data-mf="ord-save">Create order</button>' +
+      '<button type="button" class="navbtn" data-mf="ord-back">Cancel</button></div>' +
+      '<div class="foot">Creates an Intake ticket on this phone (demo layout).</div></div>';
+  }
+  function mfRenderOrderDetail() {
+    var o = mfFindOrder(mf.orderId);
+    if (!o) { mf.view = ''; return mfRenderOrders(); }
+    var steps = MF_STATUSES.map(function (s) {
+      var on = o.status === s;
+      return '<button type="button" class="vchip' + (on ? ' on' : '') + '" data-mf="ord-status" data-s="' + esc(s) + '" aria-pressed="' + on + '">' + esc(MF_STATUS_SHORT[s] || s) + '</button>';
+    }).join('');
+    return '<div class="mfodetail">' +
+      '<button type="button" class="navbtn mfback" data-mf="ord-back">&lsaquo; Orders</button>' +
+      '<div class="card mfprofile">' +
+      '<div class="mfohead"><span class="mfticket big">' + esc(o.ticket) + '</span>' + (o.demo ? mfDemoStamp() : '') +
+      '<span class="mfostatus s-' + esc(String(o.status).toLowerCase().replace(/\s+/g, '')) + '">' + esc(o.status) + '</span></div>' +
+      '<div class="mfprow"><span class="mflbl">Customer</span><span>' + esc(o.customer) + '</span></div>' +
+      '<div class="mfprow"><span class="mflbl">Bags / wt</span><span>' + (o.bags || 0) + ' bags' + (o.weight ? ' \u00b7 ' + o.weight + ' lb' : '') + '</span></div>' +
+      '<div class="mfprow"><span class="mflbl">Due</span><span>' + esc(o.due || '\u2014') + '</span></div>' +
+      '<div class="mfprow"><span class="mflbl">Pay</span><span>' + esc(o.pay || '\u2014') + (o.price != null ? ' \u00b7 $' + o.price : '') + '</span></div>' +
+      '<div class="mflbl">Prefs</div><div class="mfcprefs">' + mfPrefsChips(o.prefs) + '</div>' +
+      '<div class="mflbl">Move status</div><div class="vchips mfseg">' + steps + '</div></div></div>';
+  }
+
+  function mfRender() {
+    var box = $('mf-body'); if (!box) return;
+    var tab = state.mfTab || 'home';
+    mf.tab = tab;
+    var title = $('mf-title'); if (title) title.textContent = 'Mono Fold';
+    var inner = '';
+    if (tab === 'design') inner = mfRenderDesign();
+    else if (tab === 'customers') inner = mfRenderCustomers();
+    else if (tab === 'orders') inner = mfRenderOrders();
+    else if (tab === 'pricing') inner = '<div class="mfempty card"><b>Pricing</b><p>Coming later — room reserved in the Mono Fold sub-nav.</p></div>';
+    else inner = mfRenderHome();
+    box.innerHTML = '<div class="mf">' + mfSubnavHtml() + inner + '</div>';
+    if (tab === 'design' && mf.flash) mfFlash(mf.flash, mf.flashBad);
+    if (tab === 'design') {
+      mfMicPaint();
+      var ta = $('mf-answer');
+      if (ta) ta.addEventListener('input', function () { mf.draft = ta.value; });
+    }
+    var sq = $('mf-cust-q');
+    if (sq) {
+      sq.addEventListener('input', function () {
+        mf.q = sq.value;
+        // lightweight re-filter without losing focus: re-render list only if needed
+        mfRender();
+        var again = $('mf-cust-q'); if (again) { again.focus(); try { again.setSelectionRange(again.value.length, again.value.length); } catch (e) {} }
+      });
     }
   }
+
+  function mfReadCustForm() {
+    var f = mf.custForm || mfBlankCustForm();
+    var name = $('mf-cf-name'), phone = $('mf-cf-phone'), venmo = $('mf-cf-venmo'), notes = $('mf-cf-notes');
+    if (name) f.name = name.value; if (phone) f.phone = phone.value;
+    if (venmo) f.venmo = venmo.value; if (notes) f.notes = notes.value;
+    mf.custForm = f; return f;
+  }
+  function mfReadOrderForm() {
+    var f = mf.orderForm || mfBlankOrderForm();
+    var cust = $('mf-of-cust'), bags = $('mf-of-bags'), wt = $('mf-of-wt'), price = $('mf-of-price'), due = $('mf-of-due');
+    if (cust) {
+      f.customerId = cust.value;
+      var c = mfFindCust(f.customerId);
+      f.customer = c ? c.name : '';
+      if (c && (!f.prefs || !f.prefs.length)) f.prefs = (c.prefs || []).slice();
+    }
+    if (bags) f.bags = bags.value; if (wt) f.weight = wt.value;
+    if (price) f.price = price.value; if (due) f.due = due.value;
+    mf.orderForm = f; return f;
+  }
+  function mfNextTicket() {
+    var orders = mfLoadOrders(), max = 1044;
+    orders.forEach(function (o) {
+      var m = String(o.ticket || '').match(/(\d+)/); if (m) { var n = parseInt(m[1], 10); if (n > max) max = n; }
+    });
+    return 'MF-' + (max + 1);
+  }
+
   $('mf-body').addEventListener('click', function (e) {
     if (!mfOnScreen()) return;
     var b = e.target.closest('[data-mf]'); if (!b) return;
     var a = b.getAttribute('data-mf');
+    if (a === 'pricing-soon') { mfToast('Pricing — coming later'); return; }
     if (a === 'mic') { if (mf.mic.on) mfMicStop(); else mfMicStart(); }
     else if (a === 'save') {
       mfMicStop(true);
@@ -10073,7 +10466,6 @@
     }
     else if (a === 'next') {
       mfMicStop(true);
-      // Keep unsaved draft only in memory for this visit; Save is required to persist the answer.
       var dN = mfLoad(); dN.idx = mf.idx; mfSave(dN);
       if (mf.idx < MF_QS.length - 1) mfGoto(mf.idx + 1);
       else { mfFlash('That was the last question. ' + mfAnsweredCount(mfLoad()) + ' of ' + MF_QS.length + ' answered.', false); mfRender(); }
@@ -10095,6 +10487,115 @@
       d2.idx = mf.idx;
       if (!mfSave(d2)) return mfFlash('Could not save on this phone.', true);
       mf.draft = ''; mfFlash('Answer cleared.', false); mfRender();
+    }
+    else if (a === 'new-order') {
+      state.mfTab = 'orders';
+      mf.view = 'ord-form';
+      mf.orderForm = mfBlankOrderForm(b.getAttribute('data-cid') || '');
+      if (location.hash !== '#mf/orders') history.pushState({ screen: 'mf' }, '', '#mf/orders');
+      mfRender();
+    }
+    else if (a === 'cust-new') {
+      mf.view = 'cust-form'; mf.custForm = mfBlankCustForm(); mfRender();
+    }
+    else if (a === 'cust-open') {
+      mf.custId = b.getAttribute('data-id') || ''; mf.view = 'cust-detail'; mfRender();
+    }
+    else if (a === 'cust-back') {
+      mf.view = ''; mf.custForm = null; mf.custId = ''; mfRender();
+    }
+    else if (a === 'cust-edit') {
+      var ec = mfFindCust(b.getAttribute('data-id') || mf.custId);
+      mf.view = 'cust-form'; mf.custForm = mfBlankCustForm(ec || null); mfRender();
+    }
+    else if (a === 'cust-save') {
+      var cf = mfReadCustForm();
+      if (!String(cf.name || '').trim()) return mfFlash('Name is required.', true);
+      var clist = mfLoadCustomers();
+      if (cf.id) {
+        for (var ci = 0; ci < clist.length; ci++) {
+          if (clist[ci].id === cf.id) {
+            var prev = clist[ci];
+            clist[ci] = { id: prev.id, demo: !!prev.demo, name: cf.name.trim(), phone: String(cf.phone || '').trim(), venmo: String(cf.venmo || '').trim(), notes: String(cf.notes || '').trim(), prefs: cf.prefs || [], bags: prev.bags, lastOrder: prev.lastOrder };
+            break;
+          }
+        }
+      } else {
+        clist.unshift({ id: mfUid('c'), demo: false, name: cf.name.trim(), phone: String(cf.phone || '').trim(), venmo: String(cf.venmo || '').trim(), notes: String(cf.notes || '').trim(), prefs: cf.prefs || [], bags: 0, lastOrder: '' });
+      }
+      if (!mfSaveCustomers(clist)) return mfFlash('Could not save on this phone.', true);
+      mf.view = ''; mf.custForm = null; mfToast('Customer saved'); mfRender();
+    }
+    else if (a === 'pref-tog') {
+      var p = b.getAttribute('data-p');
+      if (mf.view === 'cust-form') {
+        var cf2 = mfReadCustForm(); cf2.prefs = cf2.prefs || [];
+        var ix = cf2.prefs.indexOf(p); if (ix >= 0) cf2.prefs.splice(ix, 1); else cf2.prefs.push(p);
+        mf.custForm = cf2; mfRender();
+      } else if (mf.view === 'ord-form') {
+        var of2 = mfReadOrderForm(); of2.prefs = of2.prefs || [];
+        var ix2 = of2.prefs.indexOf(p); if (ix2 >= 0) of2.prefs.splice(ix2, 1); else of2.prefs.push(p);
+        mf.orderForm = of2; mfRender();
+      }
+    }
+    else if (a === 'ord-open') {
+      state.mfTab = 'orders';
+      mf.orderId = b.getAttribute('data-id') || ''; mf.view = 'ord-detail';
+      if (location.hash.indexOf('#mf/orders') !== 0) history.pushState({ screen: 'mf' }, '', '#mf/orders');
+      mfRender();
+    }
+    else if (a === 'ord-back') {
+      mf.view = ''; mf.orderForm = null; mf.orderId = ''; mfRender();
+    }
+    else if (a === 'ord-filter') {
+      mf.statusFilter = b.getAttribute('data-s') || ''; mfRender();
+    }
+    else if (a === 'pay-set') {
+      var of3 = mfReadOrderForm(); of3.pay = b.getAttribute('data-p') || 'Venmo'; mf.orderForm = of3; mfRender();
+    }
+    else if (a === 'ord-save') {
+      var of = mfReadOrderForm();
+      if (!of.customerId) return mfFlash('Pick a customer.', true);
+      var bagsN = parseInt(of.bags, 10) || 0;
+      if (bagsN < 1) return mfFlash('Bags must be at least 1.', true);
+      var olist = mfLoadOrders();
+      var neu = {
+        id: mfUid('o'), demo: false, ticket: mfNextTicket(),
+        customerId: of.customerId, customer: of.customer,
+        bags: bagsN, weight: parseFloat(of.weight) || '', status: 'Intake',
+        due: String(of.due || 'Today 6:00p').trim(), pay: of.pay || 'Venmo',
+        price: parseFloat(of.price) || 0, prefs: of.prefs || [],
+        at: new Date().toISOString()
+      };
+      olist.unshift(neu);
+      if (!mfSaveOrders(olist)) return mfFlash('Could not save on this phone.', true);
+      // bump customer bags / lastOrder
+      var cl2 = mfLoadCustomers();
+      for (var j = 0; j < cl2.length; j++) {
+        if (cl2[j].id === of.customerId) {
+          cl2[j].bags = (parseInt(cl2[j].bags, 10) || 0) + bagsN;
+          cl2[j].lastOrder = neu.at.slice(0, 10);
+          break;
+        }
+      }
+      mfSaveCustomers(cl2);
+      mf.view = 'ord-detail'; mf.orderId = neu.id; mf.orderForm = null;
+      mfToast('Order ' + neu.ticket + ' created'); mfRender();
+    }
+    else if (a === 'ord-status') {
+      var olist2 = mfLoadOrders(), oid = mf.orderId, st = b.getAttribute('data-s');
+      for (var k = 0; k < olist2.length; k++) {
+        if (olist2[k].id === oid) { olist2[k].status = st; break; }
+      }
+      mfSaveOrders(olist2); mfToast('Moved to ' + st); mfRender();
+    }
+  });
+  $('mf-body').addEventListener('change', function (e) {
+    if (!mfOnScreen()) return;
+    if (e.target && e.target.getAttribute('data-mf-of') === 'customerId') {
+      var ofc = mfReadOrderForm();
+      var c = mfFindCust(ofc.customerId);
+      if (c) { ofc.customer = c.name; ofc.prefs = (c.prefs || []).slice(); mf.orderForm = ofc; mfRender(); }
     }
   });
 
