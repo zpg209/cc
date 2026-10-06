@@ -113,7 +113,7 @@
   var RC_MAX_AGE = 3 * 864e5;       // older than this: ignored (the screen waits for the server like before)
   var RC_READS = { links: 1, log: 1, spend: 1, accounts: 1, vaultdebt: 1, biz: 1, re: 1, ins: 1, ltmacros: 1, notes: 1, punch: 1, lognotes: 1,
     fin: 1, insnotes: 1, wishlist: 1, orders: 1, ptclients: 1, receipts: 1, entity: 1, entitytax: 1, folder: 1 };
-  var RC_NOCACHE = { ping: 1, file: 1 };      // reads that are never stored (passcode check; file bytes are big)
+  var RC_NOCACHE = { ping: 1, file: 1, filebytes: 1 };      // reads that are never stored (passcode check; file bytes are big)
   var RC_MONEY = ['spend', 'accounts', 'vaultdebt', 'entity', 'entitytax', 'receipts', 'fin', 'insnotes'];
   var RC_DEBT = ['vaultdebt', 'spend', 'entity', 'entitytax', 'fin'];
   var RC_WRITES = {
@@ -614,16 +614,17 @@
     $('doc-title').textContent = p.t || 'Document';
     $('doc-open').href = url || '#';
     closeDoc(true);
-    if (!ref || state.proxyOff) return iframeFallback(url);
+    daSetDoc(url, p.t, ref);                 // v120: the action bar follows whatever the viewer shows
+    if (!ref || state.proxyOff) { if (ref && !ref.folder) daPreviewFailed({ error: 'proxy_off' }); return iframeFallback(url); }
     var cached = ref.folder && state.folderCache[ref.id];
     if (cached) return renderFolder(cached);
     docMessage('<div class="spinner"></div><div>Loading…</div>');
     apiRaw(ref.folder ? 'folder' : 'file', { id: ref.id }).then(function (j) {
       if (seq !== state.docSeq) return;
       if (j.error === 'bad_action') { state.proxyOff = true; return iframeFallback(url); }   // API not deployed yet
-      if (j.error) return docError(j);
+      if (j.error) { if (!ref.folder) daPreviewFailed(j); return docError(j); }
       if (ref.folder) { state.folderCache[ref.id] = j.data; return renderFolder(j.data); }
-      renderFile(j.data, seq);
+      renderFile(j.data, seq, daFromPreview(j.data));
     }, function (err) {
       if (seq !== state.docSeq) return;
       if (err instanceof AuthError) { setPc(''); return lock('Passcode changed. Enter the new one.'); }
@@ -643,8 +644,13 @@
     else if (j.error === 'unsupported') m = j.message || 'This file type can\u2019t be previewed in the app.';
     else if (j.error === 'forbidden') m = 'This file isn\u2019t in the Second Brain, so the app won\u2019t show it.';
     else if (j.error === 'not_found') m = 'File not found (it may have been moved or deleted).';
+    else if (j.error === 'server' && /conversion/i.test(j.message || '')) m = 'Google couldn\u2019t turn this file into a preview for the app.';
     else m = j.message || ('Couldn\u2019t load this file (' + j.error + ').');
-    docMessage(esc(m) + openBtn());
+    // v120: a file the server can't convert (e.g. some .docx) can still be tried in Google's own previewer.
+    var tryPrev = (j.error === 'unsupported' || j.error === 'server') && toEmbed($('doc-open').href);
+    docMessage(esc(m) + (tryPrev ? '<div class="retry"><button class="navbtn" id="doc-tryprev">Show Google preview</button></div>' : '') + openBtn() +
+      '<div class="foot">Share, Email, Text and Copy link below still work.</div>');
+    var tb = $('doc-tryprev'); if (tb) tb.addEventListener('click', function () { iframeFallback($('doc-open').href); });
   }
   function iframeFallback(url) {
     var src = toEmbed(url), f = $('doc-frame');
@@ -682,9 +688,9 @@
     for (var i = 0; i < n; i++) out[i] = bin.charCodeAt(i);
     return out;
   }
-  function renderFile(d, seq) {
+  function renderFile(d, seq, bytes) {
     var mime = d.mime || '';
-    if (mime === 'application/pdf') return renderPdf(b64bytes(d.b64), seq);
+    if (mime === 'application/pdf') return renderPdf(bytes || b64bytes(d.b64), seq);   // bytes: decoded once by daFromPreview (its Blob holds its own copy)
     if (mime.indexOf('image/') === 0) {
       $('doc-view').innerHTML = '<div class="imgview"><img alt="" src="data:' + esc(mime) + ';base64,' + d.b64 + '"></div>';
       return;
@@ -793,6 +799,7 @@
     if (state.pdf) { try { state.pdf.destroy(); } catch (e) {} state.pdf = null; }
     (state.docUrls || []).forEach(function (u) { URL.revokeObjectURL(u); });
     state.docUrls = [];
+    daReset();
   }
   // Back replaces the viewer's history entry with the originating screen instead of history.back():
   // Google's viewers can add their own entries inside the iframe, which would make history.back() stall.
@@ -803,6 +810,271 @@
     show(from, true);
   });
   if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+
+  /* ---------------- Document actions (v120) ----------------
+   * ONE action bar under every document the app opens (all sections funnel Drive links into #doc):
+   *   Share  : navigator.share({ files:[File] }) with the ACTUAL file, so iPhone's sheet offers Messages / Mail / AirDrop / Save to Files
+   *            and the recipient needs no Drive access. Bytes come from action=file (already fetched by the viewer for PDFs / images /
+   *            Google Docs-as-PDF) or action=filebytes (original bytes, e.g. .docx/.xlsx; backend/doc-share.patch, needs a redeploy).
+   *            No bytes possible -> navigator.share({ title, url }) with the Drive link + a note that the recipient needs Drive access.
+   *            Desktop (no file sharing) -> Download + Copy link.
+   *   Email / Text : real mailto: / sms: links (subject = file name, body = name + link). Attaching the file goes through Share.
+   *   Save   : the bytes as a download (iPhone: Files > Downloads), else Drive's own download / export URL.
+   *   Full   : hides the bars (and real fullscreen where the browser allows it); pinch zoom is on app-wide.
+   *   Copy link.
+   * Nothing here changes any Drive sharing permission. */
+  var da = { cur: null };
+  var DA_MAX = 20 * 1024 * 1024;
+  var DA_OFFICE = /\.(docx?|xlsx?|xlsm|pptx?|odt|ods|odp|rtf)\s*$/i;
+  function daIsIOS() { return /iPhone|iPad|iPod/.test(navigator.userAgent || '') || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); }
+  function daNativeType(url) {
+    var m = String(url || '').match(/docs\.google\.com\/(document|spreadsheets|presentation|drawings)\/d\/([\w-]+)/);
+    return m && !/[?&]rtpof=true/.test(url) ? m[1] : '';
+  }
+  // Clean, shareable link for the document (the same link the app opens; Drive decides who can open it).
+  function daLinkOf(url, ref) {
+    var u = String(url || ''), n = daNativeType(u);
+    if (ref && ref.folder) return 'https://drive.google.com/drive/folders/' + ref.id;
+    if (ref && n) return 'https://docs.google.com/' + n + '/d/' + ref.id + '/edit';
+    if (ref && /^https:\/\/(drive|docs)\.google\.com\//.test(u) && !/\/forms\//.test(u)) return 'https://drive.google.com/file/d/' + ref.id + '/view';
+    return u;
+  }
+  function daDownloadUrl(c) {
+    if (!c.ref || c.ref.folder) return '';
+    var id = c.ref.id, n = daNativeType(c.url) || c.native;
+    if (n === 'document') return 'https://docs.google.com/document/d/' + id + '/export?format=pdf';
+    if (n === 'spreadsheets') return 'https://docs.google.com/spreadsheets/d/' + id + '/export?format=pdf';
+    if (n === 'presentation') return 'https://docs.google.com/presentation/d/' + id + '/export/pdf';
+    if (n === 'drawings') return 'https://docs.google.com/drawings/d/' + id + '/export/pdf';
+    if (/\/forms\//.test(c.url)) return '';
+    return 'https://drive.google.com/uc?export=download&id=' + id;
+  }
+  function daMb(n) { return (n / 1048576).toFixed(n < 10485760 ? 1 : 0) + ' MB'; }
+  function daExt(mime) {
+    var m = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp', 'image/heic': 'heic', 'text/plain': 'txt', 'text/csv': 'csv',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx', 'application/msword': 'doc',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx', 'application/vnd.ms-excel': 'xls',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx', 'application/zip': 'zip' };
+    return m[String(mime || '').split(';')[0]] || '';
+  }
+  function daSafeName(name, mime) {
+    var n = String(name || 'Document').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 150) || 'Document';
+    var ext = daExt(mime);
+    if (ext && !/\.[A-Za-z0-9]{2,5}$/.test(n)) n += '.' + ext;
+    return n;
+  }
+  // Turn a server answer {name, mime|mimeType, b64} into a shareable File. Returns the decoded bytes (the viewer reuses them).
+  function daSetFile(c, d, original) {
+    var type = d.mimeType || d.mime || 'application/octet-stream';
+    var name = daSafeName(d.name || c.title, type);
+    var bytes = b64bytes(d.b64);
+    var blob = new Blob([bytes], { type: type }), file = null;
+    try { file = new File([blob], name, { type: type }); } catch (e) {}
+    var converted = original ? !!d.converted : (/\.pdf$/i.test(name) && !/\.pdf\s*$/i.test(c.title || ''));
+    c.file = { blob: blob, file: file, name: name, type: type, size: blob.size, converted: converted, original: !!original };
+    return bytes;
+  }
+  function daReset() {
+    if (da.cur) da.cur.dead = true;
+    da.cur = null;
+    daFull(false);
+    daNote('');
+    daPaint();
+  }
+  function daSetDoc(url, title, ref) {
+    if (da.cur) da.cur.dead = true;
+    var c = { url: url, title: String(title || 'Document'), ref: ref, link: daLinkOf(url, ref), file: null, loading: false, why: '', native: '' };
+    da.cur = c;
+    daNote('');
+    daPaint();
+    return c;
+  }
+  // The viewer got the bytes from action=file: keep them for Share / Save. Office files the server shows as a PDF copy
+  // get their ORIGINAL bytes from action=filebytes in the background (once that action is deployed).
+  function daFromPreview(d) {
+    var c = da.cur; if (!c || !d || !d.b64) return null;
+    var bytes = daSetFile(c, d, false);
+    if (c.file.converted && !DA_OFFICE.test(c.title)) { c.file.original = true; c.native = c.native || 'document'; }   // a Google Doc/Sheet: the PDF export IS the file to send
+    if (c.file.converted && DA_OFFICE.test(c.title)) daFetchOriginal(c);
+    else daPaint();
+    return bytes;
+  }
+  // The viewer couldn't get bytes (unsupported / conversion failed / proxy off): try action=filebytes; too big -> link only.
+  function daPreviewFailed(j) {
+    var c = da.cur; if (!c) return;
+    if (j && j.error === 'too_big') { c.why = 'big'; c.bigSize = j.data && j.data.size; daPaint(); return; }
+    if (j && (j.error === 'forbidden' || j.error === 'not_found' || j.error === 'bad_id')) { c.why = j.error; daPaint(); return; }
+    daFetchOriginal(c);
+  }
+  function daFetchOriginal(c) {
+    if (!c.ref || c.ref.folder || c.loading) return;
+    if (state.fbOff) { if (!c.file) c.why = 'pending'; daPaint(); return; }
+    c.loading = true; daPaint();
+    apiRaw('filebytes', { id: c.ref.id }).then(function (j) {
+      c.loading = false;
+      if (j.error === 'bad_action') { state.fbOff = true; if (!c.file) c.why = 'pending'; }
+      else if (j.error === 'too_big') { if (!c.file) { c.why = 'big'; c.bigSize = j.data && j.data.size; } }
+      else if (j.error || !j.data || !j.data.b64) { if (!c.file) c.why = j.error || 'error'; }
+      else daSetFile(c, j.data, true);
+      daReady(c);
+    }, function (err) {
+      c.loading = false;
+      if (err instanceof AuthError) { setPc(''); return lock('Passcode changed. Enter the new one.'); }
+      if (!c.file) c.why = 'net';
+      daReady(c);
+    });
+  }
+  function daReady(c) {
+    if (c.dead || c !== da.cur) return;
+    daPaint();
+    if (c.wantSave && c.file) { c.wantSave = false; daSaveFile(c); }
+    if (c.wantShare) {
+      c.wantShare = false;
+      if (c.file) {
+        var b = document.querySelector('#docact [data-da="share"]'); if (b) b.classList.add('ready');
+        daNote('<b>' + esc(c.file.name) + '</b> is ready (' + daMb(c.file.size) + '). Tap <b>Share</b> again to send the file.');
+      } else daNote(daWhyText(c) + ' Tap <b>Share</b> to send the link instead.');
+    }
+  }
+  function daWhyText(c) {
+    if (c.why === 'big') return 'This file is too large to attach' + (c.bigSize ? ' (' + daMb(c.bigSize) + ')' : '') + '.';
+    if (c.why === 'pending') return 'Attaching this file type needs a server update that isn\u2019t deployed yet.';
+    if (c.why === 'forbidden') return 'The app can\u2019t read this file (it\u2019s outside the Second Brain).';
+    if (c.why === 'net') return 'Couldn\u2019t download the file (connection).';
+    if (c.why) return 'The file itself couldn\u2019t be fetched.';
+    return '';
+  }
+  function daNote(html, bad) {
+    var n = $('docact-note'); if (!n) return;
+    n.innerHTML = html || ''; n.hidden = !html; n.classList.toggle('bad', !!bad);
+  }
+  function daPaint() {
+    var bar = $('docact'); if (!bar) return;
+    var c = da.cur, folder = !!(c && c.ref && c.ref.folder), noFile = !c || folder;
+    var q = function (k) { return bar.querySelector('[data-da="' + k + '"]'); };
+    q('share').classList.toggle('busy', !!(c && c.loading));
+    q('share').classList.remove('ready');
+    q('save').classList.toggle('off', noFile || !(c.file || c.loading || daDownloadUrl(c)));
+    q('save').classList.toggle('busy', !!(c && c.loading && c.wantSave));
+    q('full').classList.toggle('off', !c || folder);
+    ['share', 'copy'].forEach(function (k) { q(k).classList.toggle('off', !c || !c.link); });
+    var name = c ? (c.file ? c.file.name : c.title) : '', link = c ? c.link : '';
+    var mail = $('docact-mail'), sms = $('docact-sms');
+    mail.classList.toggle('off', !link); sms.classList.toggle('off', !link);
+    mail.setAttribute('href', 'mailto:?subject=' + encodeURIComponent(name) + '&body=' + encodeURIComponent(name + '\n' + link + '\n'));
+    sms.setAttribute('href', (daIsIOS() ? 'sms:&body=' : 'sms:?body=') + encodeURIComponent(name + ' ' + link));
+    q('share').setAttribute('aria-label', folder ? 'Share folder link' : 'Share file');
+  }
+  function daCanShareFiles(f) {
+    try { return !!(f && navigator.share && navigator.canShare && navigator.canShare({ files: [f] })); } catch (e) { return false; }
+  }
+  var DA_LINK_NOTE = 'the recipient will need Drive access to this ';
+  function daShare() {
+    var c = da.cur; if (!c) return;
+    if (c.ref && c.ref.folder) return daShareLink(c, '');
+    if (c.file && c.file.file) return daShareFile(c);
+    if (c.loading) { c.wantShare = true; daNote('Getting the file ready\u2026 Share will light up when it can be sent.'); return; }
+    daShareLink(c, daWhyText(c));
+  }
+  function daShareFile(c) {
+    var f = c.file;
+    if (!daCanShareFiles(f.file)) {          // desktop browsers: no file sharing -> Download + Copy link
+      daSaveBlob(f);
+      daCopy(c.link, true);
+      daNote('This browser can\u2019t attach files to a share, so <b>' + esc(f.name) + '</b> was downloaded and the link copied.');
+      return;
+    }
+    var extra = f.converted && !f.original ? ' (a PDF copy)' : '';
+    try {
+      navigator.share({ files: [f.file], title: f.name }).then(function () {
+        daNote('Shared <b>' + esc(f.name) + '</b>' + extra + '.');
+      }, function (err) {
+        if (err && err.name === 'AbortError') return;
+        daNote('Couldn\u2019t open the share sheet (' + esc((err && err.name) || 'error') + '). Tap <b>Share</b> again, or use <b>Save</b>.', true);
+      });
+    } catch (e) { daNote('Couldn\u2019t open the share sheet. Use <b>Save</b> or <b>Copy link</b>.', true); }
+  }
+  function daShareLink(c, why) {
+    var kind = c.ref && c.ref.folder ? 'folder' : 'file';
+    var note = (why ? why + ' ' : '') + 'Sharing the Drive link \u2014 ' + DA_LINK_NOTE + kind + '.';
+    if (navigator.share) {
+      daNote(note);
+      try {
+        navigator.share({ title: c.title, url: c.link }).then(function () {}, function (err) {
+          if (err && err.name === 'AbortError') return;
+          daCopy(c.link, true);
+          daNote('Couldn\u2019t open the share sheet, so the link was copied. ' + DA_LINK_NOTE.charAt(0).toUpperCase() + DA_LINK_NOTE.slice(1) + kind + '.', true);
+        });
+      } catch (e) { daCopy(c.link, true); daNote('Link copied. ' + note); }
+      return;
+    }
+    daCopy(c.link, true);
+    daNote('Link copied. ' + note);
+  }
+  function daSaveBlob(f) {
+    var url = URL.createObjectURL(f.blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = f.name; a.rel = 'noopener'; a.style.display = 'none'; a.setAttribute('data-external', '');
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+  }
+  function daSaveFile(c) {
+    daSaveBlob(c.file);
+    daNote('Saved <b>' + esc(c.file.name) + '</b>' + (daIsIOS() ? ' \u2014 it\u2019s in Files \u203a Downloads (Share \u203a Save to Files also works).' : '.'));
+  }
+  function daSave() {
+    var c = da.cur; if (!c || !c.ref || c.ref.folder) return;
+    if (c.file) return daSaveFile(c);
+    if (c.loading) { c.wantSave = true; daPaint(); daNote('Getting the file ready\u2026 it will save when it arrives.'); return; }
+    var u = daDownloadUrl(c); if (!u) return;
+    window.open(u, '_blank', 'noopener');
+    daNote((c.why ? daWhyText(c) + ' ' : '') + 'Opened Drive\u2019s download (uses your Google sign-in).');
+  }
+  function daCopyOld(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.top = '-1000px'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, text.length);
+    var ok = false; try { ok = document.execCommand('copy'); } catch (e) {}
+    ta.remove(); return ok;
+  }
+  function daCopy(text, quiet) {
+    var done = function () { if (!quiet) daNote('Link copied \u2014 ' + DA_LINK_NOTE + (da.cur && da.cur.ref && da.cur.ref.folder ? 'folder' : 'file') + '.'); };
+    var fail = function () { if (!daCopyOld(text)) { if (!quiet) daNote('Couldn\u2019t copy. The link is: ' + esc(text), true); return; } done(); };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(done, fail); return; }
+    } catch (e) {}
+    fail();
+  }
+  function daFull(on) {
+    var s = $('screen-doc'), x = $('docfs-exit'); if (!s || !x) return;
+    on = on == null ? !s.classList.contains('docfs') : !!on;
+    if (on === s.classList.contains('docfs')) return;
+    s.classList.toggle('docfs', on); x.hidden = !on;
+    try {
+      var el = document.documentElement;
+      if (on && el.requestFullscreen && !document.fullscreenElement && !daIsIOS()) { var pr = el.requestFullscreen(); if (pr && pr.catch) pr.catch(function () {}); }
+      if (!on && document.fullscreenElement && document.exitFullscreen) { var pe = document.exitFullscreen(); if (pe && pe.catch) pe.catch(function () {}); }
+    } catch (e) {}
+  }
+  document.addEventListener('fullscreenchange', function () {
+    var s = $('screen-doc');
+    if (!document.fullscreenElement && s && s.classList.contains('docfs')) { s.classList.remove('docfs'); $('docfs-exit').hidden = true; }
+  });
+  $('docfs-exit').addEventListener('click', function () { daFull(false); });
+  $('docact').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-da]'); if (!b || b.classList.contains('off')) return;
+    var k = b.getAttribute('data-da'), c = da.cur;
+    if (k === 'mail' || k === 'sms') {        // the link itself opens Mail / Messages; just say how to attach the file
+      if (c && c.ref && !c.ref.folder) daNote((k === 'mail' ? 'Email' : 'Text') + ' opened with the link (' + DA_LINK_NOTE + 'file). To send the file itself, use <b>Share</b> \u203a ' + (k === 'mail' ? 'Mail' : 'Messages') + '.');
+      return;
+    }
+    e.preventDefault();
+    if (k === 'share') daShare();
+    else if (k === 'save') daSave();
+    else if (k === 'full') daFull(true);
+    else if (k === 'copy' && c) daCopy(c.link);
+  });
+  window.ccDocActions = { state: function () { var c = da.cur; return c ? { link: c.link, title: c.title, loading: c.loading, why: c.why, file: c.file ? { name: c.file.name, type: c.file.type, size: c.file.size, converted: c.file.converted, original: c.file.original } : null } : null; } };
 
   /* ---------------- Passcode screen ---------------- */
   var entry = '', checking = false;

@@ -1,0 +1,60 @@
+--- a/Api.gs
++++ b/Api.gs
+@@ -13,6 +13,7 @@
+  *        RAW per account: balance, prevBalance, change, entries[].balance (a card's balance is the amount OWED, positive). NET (cards subtracted, apps counted as cash): groups[].total/prevTotal/change, total/prevTotal/change,
+  *        reconciliation[].balanceChange/expected/gap. New: groups[].cash/owed and cash/owed at the top level (cash = banks + apps, owed = sum of card balances, total = cash - owed))
+  *   GET  <exec>?api=1&pc=123456&action=acctadd&name=Chase%20Visa&entity=Household|TiwiK|KiwiT&kind=bank|card|app&cid=abc[&balance=1200.50][&asof=2026-10-04][&note=..][&bank=..][&type=..][&purpose=..][&dry=1]   (admin v44+: append ONE account row to the Accounts tab (adds a "Kind" column at the end if missing); with balance also adds the first Balances row (asof defaults to today); card balance = amount owed (positive); Sierra is rejected; an existing account name is rejected (use balset))
++ *   GET  <exec>?api=1&pc=123456&action=filebytes&id=<driveFileId>   (v48 doc share: original bytes of one Second Brain file as base64 {name,mimeType,size,b64,url,converted}; Google Docs/Sheets/Slides/Drawings exported as PDF; 20 MB cap; read-only)
+  *   GET  <exec>?api=1&pc=123456&action=spendcol   (admin: create the Daily Spend "Paid from" column I + dropdown if missing; idempotent)
+  *   GET  <exec>?api=1&pc=123456&action=spendfix&date=2026-09-27&amount=400&merchant=Wagner&paid_from=Cash[&notes=..][&category=..][&account=..][&row=N][&dry=1]   (admin: set Paid from / notes / category on ONE matched Daily Spend row)
+  *   GET  <exec>?api=1&pc=123456&action=spendadd&date=2026-10-02&amount=7.5&merchant=Bagel%20shop&category=Dining&account=Household&who=Zac&cid=abc[&paid_from=..][&method=Cash|Credit|Debit|Venmo|Zelle|Check|ACH/Transfer|Other][&notes=..][&dry=1]   (admin v31+: add ONE Daily Spend row; see SPENDADD_CHANGE.md; v42: method = the sheet's Method dropdown + Venmo/Zelle/Check, 'Credit card' = Credit; a value missing from the dropdown is added to it)
+@@ -94,6 +95,7 @@
+       case 'vaultdebt': return { ok: true, data: apiVaultDebt_() };
+       case 'biz':   return { ok: true, data: apiBiz_() };
+       case 'file':  return apiFile_(id);
++      case 'filebytes': return apiFileBytes_(id);   // v48 (doc share): original bytes of one Drive file for the phone share sheet / Save
+       case 'folder': return apiFolder_(id);
+       case 're':    return { ok: true, data: apiRe_() };
+       case 'ins':   return { ok: true, data: apiIns_() };
+@@ -756,6 +758,41 @@
+   return { ok: true, data: { name: name, mime: blob.getContentType() || mime, url: url, size: bytes.length, b64: Utilities.base64Encode(bytes) } };
+ }
+ 
++/**
++ * v48 (doc share): action=filebytes&id=<fileId> -> { ok, data:{ name, mimeType, mime, size, b64, url, converted } }
++ * The front end turns this into a File for navigator.share({files}) (Messages / Mail / AirDrop) and for Save to phone,
++ * so the recipient gets the file itself and needs no Drive access. Read-only: nothing about the file or its sharing changes.
++ * - Ordinary files (PDF, images, Word/Excel/PowerPoint, zip, ...): the ORIGINAL bytes (no conversion).
++ * - Google Docs / Sheets / Slides / Drawings: exported as PDF (name gets ".pdf", converted:true).
++ * - Other Google types (Forms, Sites, folders, shortcuts): { error:'unsupported' }.
++ * - Over API_FILE_MAX_BYTES (20 MB, raw or after export): { error:'too_big', data:{ size, ... } }.
++ * Same passcode check (apiDispatch_) and the same Second Brain allow-list as action=file (apiIsAllowed_).
++ */
++function apiFileBytes_(rawId) {
++  var id = apiCleanId_(rawId);
++  if (!id) return { error: 'bad_id' };
++  var file;
++  try { file = DriveApp.getFileById(id); } catch (e) { return { error: 'not_found' }; }
++  if (!apiIsAllowed_(file, id)) return { error: 'forbidden' };
++  var mime = file.getMimeType(), name = file.getName(), url = file.getUrl(), blob, converted = false;
++  if (mime.indexOf('application/vnd.google-apps.') === 0) {
++    if (!/\.(document|spreadsheet|presentation|drawing)$/.test(mime)) {
++      return { error: 'unsupported', message: 'This Google file type can\u2019t be sent as a file.', data: { name: name, mime: mime, url: url } };
++    }
++    try { blob = file.getAs('application/pdf'); } catch (e) { return { error: 'unsupported', message: 'Google couldn\u2019t export this file as PDF.', data: { name: name, mime: mime, url: url } }; }
++    name = /\.pdf$/i.test(name) ? name : name + '.pdf';
++    mime = 'application/pdf';
++    converted = true;
++  } else {
++    if (file.getSize() > API_FILE_MAX_BYTES) return { error: 'too_big', data: { name: name, mime: mime, url: url, size: file.getSize() } };
++    blob = file.getBlob();
++  }
++  var bytes = blob.getBytes();
++  if (bytes.length > API_FILE_MAX_BYTES) return { error: 'too_big', data: { name: name, mime: mime, url: url, size: bytes.length } };
++  var type = converted ? 'application/pdf' : (mime || blob.getContentType() || 'application/octet-stream');
++  return { ok: true, data: { name: name, mimeType: type, mime: type, size: bytes.length, url: url, converted: converted, b64: Utilities.base64Encode(bytes) } };
++}
++
+ function apiFolder_(rawId) {
+   var id = apiCleanId_(rawId);
+   if (!id) return { error: 'bad_id' };

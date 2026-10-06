@@ -36,3 +36,19 @@ What it adds:
 Until it is deployed (front end v119):
 - Spend: the add form writes to the Daily Spend Method column, as before. Card is sent as Credit and Bank transfer as ACH/Transfer, the dropdown's values; both display as Card and Bank transfer. Edit payment type uses spendfix to write a "[Pay: X] " tag in Notes, and the app reads the tag ahead of the column.
 - Income: the add form puts "[Pay: X] " in Notes ("[Category] [Pay: Cash] notes"). Editing a saved income entry says it needs the server update.
+
+## doc-share.patch (API v48, share the actual file from any document)
+Patch against Api.gs v45 (independent of the other patches here; applies before or after vault-category.patch and vault-paytype.patch). Apply it, then redeploy the Apps Script web app (Zac signs in, Deploy > Manage deployments > edit > New version). Read-only DriveApp calls only (getFileById, getBlob, getAs, getBytes), so the existing `drive.readonly` scope is enough and no re-authorization should be needed.
+
+What it adds:
+- new `filebytes` action: `?api=1&pc=PASSCODE&action=filebytes&id=<driveFileId>` returns `{ ok:true, data:{ name, mimeType, mime, size, b64, url, converted } }`.
+  - Ordinary files (PDF, images, Word, Excel, PowerPoint, zip and so on): the ORIGINAL bytes, with no conversion.
+  - Google Docs, Sheets, Slides and Drawings: exported as PDF (`converted: true`, name gets ".pdf").
+  - Other Google types (Forms, Sites, shortcuts): `{ error:'unsupported' }`.
+  - Over 20 MB (`API_FILE_MAX_BYTES`, raw or after export): `{ error:'too_big', data:{ size } }`.
+  - Same passcode check as every action, and the same Second Brain allow-list as `action=file` (`apiIsAllowed_`): anything outside it returns `forbidden`.
+- Nothing about any file or its Drive sharing is changed.
+
+Why: the document viewer's action bar (front end v120) shares the actual file through the phone's share sheet (`navigator.share({ files })`: Messages, Mail, AirDrop, Save to Files), so the recipient gets the file and needs no Drive access. PDFs, images and Google Docs already work through the live `action=file`. That action converts Office files to PDF, and Drive's conversion fails for some .docx (for example the Lisa's Table menu items), so those files have no bytes today. Until this is deployed, Share sends the Drive link instead, with a note that the recipient needs Drive access.
+
+Check after deploying: `…/exec?api=1&pc=PASSCODE&action=filebytes&id=1w-xDKd2UUlBd0vGXqrNruo0GNTvjgOtm` should return `"name":"2 egg muffins.docx"` and `"b64":"UEsDB…"` (a .docx is a zip). No front-end change is needed: the app notices the action on its own.
