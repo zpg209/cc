@@ -15197,7 +15197,8 @@
       setTimeout(function () { try { location.reload(); } catch (e3) {} }, 3000);
     }
     if (b) b.addEventListener('click', function () {
-      b.textContent = 'Refreshing\u2026';
+      b.classList.add('busy');            // v114: icon-only button spins instead of showing 'Refreshing...' text
+      b.setAttribute('aria-label', 'Refreshing\u2026'); b.title = 'Refreshing\u2026';
       b.disabled = true;
       try { hardRefresh(); } catch (e) { go(); }
       setTimeout(go, 6000);   // absolute backstop

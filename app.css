@@ -1117,7 +1117,19 @@ h2.vgrp.sum { color: #4DA3FF; }
 .homegrid .tile.dragging { position: relative; z-index: 20; opacity: .92; box-shadow: 0 14px 30px rgba(0,0,0,.65); transition: none; }
 .homegrid.reordering .tile:not(.dragging) { animation: tilewob .25s ease-in-out infinite alternate; }
 @keyframes tilewob { from { transform: rotate(-.6deg); } to { transform: rotate(.6deg); } }
-.refreshbtn { margin: 18px auto 8px; display: block; width: auto; min-width: 180px; text-align: center; padding: 12px 22px; }
+/* v114: Refresh app = 44px round icon button in the bottom-right corner; Home only (sibling of #screen-home), hidden in jiggle mode */
+.refreshbtn { display: none; position: fixed; right: calc(14px + env(safe-area-inset-right, 0px)); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); z-index: 25;
+  width: 44px; height: 44px; min-width: 0; margin: 0; padding: 0; border-radius: 50%; align-items: center; justify-content: center;
+  background: var(--btn); color: var(--red); border: var(--btn-border, .75px) solid var(--btn-edge, #D08A55); cursor: pointer;
+  box-shadow: 0 6px 16px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,160,90,.08); font-family: inherit; line-height: 0; }
+.refreshbtn svg { display: block; }
+.refreshbtn:active { background: var(--btn-press); transform: scale(.94); }
+.refreshbtn:disabled { opacity: .85; cursor: default; }
+.refreshbtn.busy svg { animation: ccspin .8s linear infinite; }
+@keyframes ccspin { to { transform: rotate(360deg); } }
+#screen-home.active + .refreshbtn { display: flex; }
+body.hl-edit .refreshbtn, body.hl-busy .refreshbtn { display: none !important; }
+body:not(.hl-edit) #screen-home { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 76px); }
 
 /* ---- v54: Vault mic / camera (title buttons + #vmic / #vcam screens) ---- */
 .vghead { display: flex; align-items: center; gap: 12px; margin: 18px 4px 8px; }
