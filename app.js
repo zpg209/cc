@@ -34,6 +34,25 @@
   function getPc() { try { return localStorage.getItem(PC_KEY) || ''; } catch (e) { return ''; } }
   function setPc(v) { try { v ? localStorage.setItem(PC_KEY, v) : localStorage.removeItem(PC_KEY); } catch (e) {} }
 
+  // Migration (v=104): v96–v103 declared a second top-level `var PC_KEY = 'cc_pc_checklists'` for Plan Checks, which
+  // overrode the passcode key above, so the passcode was read/written in 'cc_pc_checklists' (shared with the Plan Checks
+  // JSON). Runs on load, before auth: a value there that is not checklist JSON (an object/array) is a stray passcode,
+  // so move it to 'cc_passcode' (only if that is empty) and clear the slot so Plan Checks starts empty. Real checklist
+  // JSON is left alone. Idempotent: after the first run there is nothing left to move.
+  (function migratePcSlot() {
+    try {
+      var raw = localStorage.getItem('cc_pc_checklists');
+      if (raw == null) return;
+      var parsed = null;
+      try { parsed = JSON.parse(raw); } catch (e) { parsed = null; }
+      if (parsed && typeof parsed === 'object') return;   // checklist JSON: keep
+      var cur = localStorage.getItem(PC_KEY) || '';
+      if (!cur && String(raw).trim()) localStorage.setItem(PC_KEY, raw);
+      localStorage.removeItem('cc_pc_checklists');
+      if (String(raw).trim() && window.console && console.info) console.info('[cc] migrated stray passcode out of cc_pc_checklists' + (cur ? ' (kept existing cc_passcode)' : ''));
+    } catch (e) {}
+  })();
+
   /* ---------------- API ---------------- */
   function AuthError() { this.message = 'auth'; }
   // GET the API and return the body text. A network-level failure ("Failed to fetch": no connection, a blocked
@@ -10900,7 +10919,7 @@
 
 
   /* ---------------- Plan Checks (#pc) \u2014 mic numbered checklist + plan pins + text notes + PDF ---------------- */
-  var PC_KEY = 'cc_pc_checklists';
+  var PCHK_KEY = 'cc_pc_checklists';   // NOT PC_KEY: that name is the passcode key (top of file); a second var would clobber it
   var PC_TO_KEY = 'cc_pc_recent_to';
   var PC_DRIVE = 'https://drive.google.com/drive/folders/1aa_oZN1h014ohyC9m6TfWkbPg7fcaeo5';
   var PC_DRAW_MAX = 900000;   // ~data-URL char budget for localStorage (~675 KB jpeg)
@@ -10932,12 +10951,12 @@
   }
   function pcDefaultTitle() { return 'Plan check \u2014 ' + pcTodayLabel(); }
   function pcLoadStore() {
-    var d = lsGet(PC_KEY, null);
+    var d = lsGet(PCHK_KEY, null);
     if (!d || !Array.isArray(d.list)) d = { list: [] };
     return d;
   }
   function pcSaveStore(d) {
-    try { localStorage.setItem(PC_KEY, JSON.stringify(d)); return true; } catch (e) { return false; }
+    try { localStorage.setItem(PCHK_KEY, JSON.stringify(d)); return true; } catch (e) { return false; }
   }
   function pcFind(id) {
     var list = pcLoadStore().list;
