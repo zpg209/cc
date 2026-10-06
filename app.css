@@ -2116,3 +2116,15 @@ html.pc-fs-open, html.pc-fs-open body { overflow: hidden !important; touch-actio
 #screen-pt .ptpsaved b { color: var(--lt-t); font-size: 15px; }
 #screen-pt .ptpsaved span { font-size: 12px; color: var(--muted); }
 #screen-pt .ptpsaved .navbtn { flex: none; margin: 0; min-height: 42px; padding: 6px 10px; font-size: 13px; font-weight: 700; }
+
+/* v107: background refresh pill (stale-while-revalidate). Subtle, never blocks; only tappable when it offers new data. */
+.ccupd { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 8px); right: 10px; z-index: 9000; display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px 4px 9px; border: 1px solid rgba(255,255,255,.10); border-radius: 999px; background: rgba(18,18,18,.86); color: var(--muted);
+  font: 600 11px/1.2 Inter, system-ui, sans-serif; letter-spacing: .3px; opacity: 0; transform: translateY(-4px); pointer-events: none;
+  transition: opacity .25s ease, transform .25s ease; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.ccupd.on { opacity: .92; transform: none; }
+.ccupd.busy::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: ccupdPulse 1s ease-in-out infinite; }
+.ccupd.offer { pointer-events: auto; color: #fff; cursor: pointer; border-color: rgba(255,255,255,.28); }
+.ccupd.note { color: #e8b04a; }
+@keyframes ccupdPulse { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ccupd { transition: none; } .ccupd.busy::before { animation: none; } }

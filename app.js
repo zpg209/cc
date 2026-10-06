@@ -32,7 +32,7 @@
 
 
   function getPc() { try { return localStorage.getItem(PC_KEY) || ''; } catch (e) { return ''; } }
-  function setPc(v) { try { v ? localStorage.setItem(PC_KEY, v) : localStorage.removeItem(PC_KEY); } catch (e) {} }
+  function setPc(v) { try { v ? localStorage.setItem(PC_KEY, v) : localStorage.removeItem(PC_KEY); } catch (e) {} if (!v) rcClear(); }
 
   // Migration (v=104): v96–v103 declared a second top-level `var PC_KEY = 'cc_pc_checklists'` for Plan Checks, which
   // overrode the passcode key above, so the passcode was read/written in 'cc_pc_checklists' (shared with the Plan Checks
@@ -73,7 +73,7 @@
     var pc = pcOverride || getPc();
     var url = API_URL + '?api=1&action=' + encodeURIComponent(action) +
       '&offset=' + encodeURIComponent(offset || 0) + '&pc=' + encodeURIComponent(pc) + '&_=' + Date.now();
-    return apiGet(url)
+    return rcRequest(action, { offset: offset || 0 }, url, !!pcOverride)     // v107: cached reads paint at once (see rcRequest)
       .then(function (t) {
         var j;
         try { j = JSON.parse(t); } catch (e) { throw new Error('Unexpected response from server.'); }
@@ -87,7 +87,7 @@
   function apiRaw(action, params) {
     var url = API_URL + '?api=1&action=' + encodeURIComponent(action) + '&pc=' + encodeURIComponent(getPc()) + '&_=' + Date.now();
     Object.keys(params || {}).forEach(function (k) { url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); });
-    return apiGet(url)
+    return rcRequest(action, params, url)
       .then(function (t) {
         var j;
         try { j = JSON.parse(t); } catch (e) { throw new Error('Unexpected response from server.'); }
@@ -96,6 +96,303 @@
         return j;
       });
   }
+  /* ---------------- Read cache: stale-while-revalidate (v107) ----------------
+   * Every successful READ response (RC_READS) is kept in localStorage as 'cc_cache_<action>[?<params>]' = '<savedAtMs>|<response text>'.
+   * The key never holds the passcode (pc, _ and cid are left out of it) and neither does the value (it is the server's JSON).
+   * Opening a screen: a saved copy is returned at once (the screen paints immediately); if it is older than RC_FRESH_MS the same request
+   * also goes to the server in the background (small "Updating…" pill) and, when the answer differs, the screen's loader is re-run so it
+   * re-renders from the new copy (scroll kept; deferred behind a "tap to show" pill while the user is typing in that screen).
+   * Any WRITE (GET admin action or POST) drops the saved copies it can affect (RC_WRITES; unknown write = drop all) before AND after it runs,
+   * and bumps rcGen so a read that started before the write never stores pre-write data. Total size is capped (oldest evicted first) and a
+   * quota error evicts more of our own entries and otherwise gives up quietly. Nothing else in localStorage is ever touched.
+   * Refresh app and a rejected passcode clear every cc_cache_* key. */
+  var RC_PREFIX = 'cc_cache_';
+  var RC_MAX_TOTAL = 1500000;       // characters across all cc_cache_* entries
+  var RC_MAX_ENTRY = 400000;        // a bigger single response is not stored
+  var RC_FRESH_MS = 30000;          // younger than this: served from the cache without asking the server again
+  var RC_MAX_AGE = 3 * 864e5;       // older than this: ignored (the screen waits for the server like before)
+  var RC_READS = { links: 1, log: 1, spend: 1, accounts: 1, vaultdebt: 1, biz: 1, re: 1, ins: 1, ltmacros: 1, notes: 1, punch: 1, lognotes: 1,
+    fin: 1, insnotes: 1, wishlist: 1, orders: 1, ptclients: 1, receipts: 1, entity: 1, entitytax: 1, folder: 1 };
+  var RC_NOCACHE = { ping: 1, file: 1 };      // reads that are never stored (passcode check; file bytes are big)
+  var RC_MONEY = ['spend', 'accounts', 'vaultdebt', 'entity', 'entitytax', 'receipts', 'fin', 'insnotes'];
+  var RC_DEBT = ['vaultdebt', 'spend', 'entity', 'entitytax', 'fin'];
+  var RC_WRITES = {
+    logadd: ['log'], logset: ['log'], logday: ['log'], lognote: ['lognotes'],
+    addnote: ['notes'], delnote: ['notes'], punchset: ['punch'], punchnote: ['punch'],
+    spendadd: RC_MONEY, spenddel: RC_MONEY, spendfix: RC_MONEY, spendcol: RC_MONEY, incomeadd: RC_MONEY, incomedel: RC_MONEY,
+    balset: RC_MONEY, acctadd: RC_MONEY, receiptsave: RC_MONEY,
+    debttabs: RC_DEBT, debtset: RC_DEBT, billadd: RC_DEBT, billpaid: RC_DEBT, billdel: RC_DEBT, debtdel: RC_DEBT,
+    ltmacroset: ['ltmacros', 'orders'], ltpriceset: ['ltmacros', 'orders'], menuitemadd: ['ltmacros', 'orders', 'folder'],
+    orderset: ['orders'], orderpaid: ['orders'], orderdel: ['orders'], weekmenuset: ['orders'], menusave: ['folder'],
+    wishadd: ['wishlist'], wishset: ['wishlist'], wishdel: ['wishlist'],
+    ptclientset: ['ptclients'], ptclientdel: ['ptclients'], ptworkoutset: ['ptclients'], ptworkoutdel: ['ptclients']
+  };
+  var rcGen = 0, rcInflight = {}, rcBusyList = [], rcPendingScr = {}, rcFlushT = 0, rcOfferScr = '', rcNoteT = 0, rcBypass = false;
+  var rcTouched = window.WeakSet ? new WeakSet() : null;     // fields the user typed in (a background repaint never wipes them)
+  document.addEventListener('input', function (e) { if (rcTouched && e.target && e.target.nodeType === 1) rcTouched.add(e.target); }, true);
+  // An explicit refresh / Try again tap asks the server directly (old behavior) for the reads its handler starts in that same tick.
+  document.addEventListener('click', function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('.refbtn, [data-retry], [data-fin-retry], [data-acct-retry], [data-pt="reload"], button') : null;
+    if (!b || !(b.matches('.refbtn, [data-retry], [data-fin-retry], [data-acct-retry], [data-pt="reload"]') || /^\s*(Try again|Refresh)\s*$/i.test(b.textContent || ''))) return;
+    rcBypass = true; setTimeout(function () { rcBypass = false; }, 0);
+  }, true);
+
+  function rcKey(action, params) {
+    params = params || {};
+    var ks = Object.keys(params).filter(function (k) {
+      var v = params[k];
+      return k !== 'pc' && k !== '_' && k !== 'cid' && v !== undefined && v !== null && !(k === 'offset' && (v === 0 || v === '0' || v === ''));
+    }).sort();
+    return RC_PREFIX + action + (ks.length ? '?' + ks.map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); }).join('&') : '');
+  }
+  function rcAction(key) { return key.slice(RC_PREFIX.length).split('?')[0]; }
+  function rcIsRead(action) { return !!RC_READS[action] || !!RC_NOCACHE[action]; }
+  function rcCacheable(action, params) { return !!RC_READS[action] && !(params && (params.format || params.dry)); }
+  function rcGet(key) {
+    try {
+      var v = localStorage.getItem(key); if (!v) return null;
+      var i = v.indexOf('|'), t = Number(v.slice(0, i));
+      if (!(t > 0) || Date.now() - t > RC_MAX_AGE || t > Date.now() + 60000) return null;
+      return { t: t, text: v.slice(i + 1) };
+    } catch (e) { return null; }
+  }
+  function rcKeys() {
+    var out = [];
+    try { for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); if (k && k.indexOf(RC_PREFIX) === 0) out.push(k); } } catch (e) {}
+    return out;
+  }
+  function rcRemove(key) { try { localStorage.removeItem(key); } catch (e) {} }
+  function rcPut(key, text) {
+    var val = Date.now() + '|' + text;
+    if (val.length > RC_MAX_ENTRY) { rcRemove(key); return false; }
+    var idx = [];
+    rcKeys().forEach(function (k) {
+      if (k === key) return;
+      var v = ''; try { v = localStorage.getItem(k) || ''; } catch (e) {}
+      idx.push({ k: k, t: Number(v.slice(0, v.indexOf('|'))) || 0, n: k.length + v.length });
+    });
+    idx.sort(function (a, b) { return a.t - b.t; });      // oldest first
+    var total = key.length + val.length;
+    idx.forEach(function (e) { total += e.n; });
+    while (total > RC_MAX_TOTAL && idx.length) { var e = idx.shift(); total -= e.n; rcRemove(e.k); }
+    for (var tries = 0; tries < 8; tries++) {
+      try { localStorage.setItem(key, val); return true; }
+      catch (err) { if (!idx.length) break; rcRemove(idx.shift().k); }   // quota: evict our oldest entry and retry; other data is never touched
+    }
+    rcRemove(key);
+    return false;
+  }
+  function rcDrop(actions) {
+    var want = {}; (actions || []).forEach(function (a) { want[a] = 1; });
+    rcKeys().forEach(function (k) { if (want[rcAction(k)]) rcRemove(k); });
+  }
+  function rcClear() { rcGen++; rcKeys().forEach(rcRemove); }
+  function rcInvalidate(action) {
+    rcGen++;
+    var list = RC_WRITES[action];
+    if (list) rcDrop(list); else rcClear();     // unknown write: drop every saved read so nothing stale survives
+  }
+  // A write request: invalidate before it is sent and again when it settles (a read racing the write can never store old data).
+  function rcWrite(action, p) {
+    rcInvalidate(action);
+    var after = function () { rcInvalidate(action); };
+    p.then(after, after);
+    return p;
+  }
+  function rcOkText(t) {
+    try { var j = JSON.parse(t); return !!j && typeof j === 'object' && !j.error && (j.ok === true || j.data !== undefined); } catch (e) { return false; }
+  }
+  function rcScreenNow() { var el = document.querySelector('.screen.active'); return el ? el.id.replace(/^screen-/, '') : ''; }
+  // Network read for a cacheable key: one request per key at a time (a prefetch and a screen open share it); stores a good answer.
+  function rcFetch(key, url) {
+    var f = rcInflight[key];
+    if (f && f.gen === rcGen) return f.p;
+    var gen = rcGen, p;
+    p = apiGet(url).then(function (text) {
+      if (rcInflight[key] && rcInflight[key].p === p) delete rcInflight[key];
+      if (gen === rcGen && rcOkText(text)) rcPut(key, text);
+      return text;
+    }, function (err) {
+      if (rcInflight[key] && rcInflight[key].p === p) delete rcInflight[key];
+      throw err;
+    });
+    rcInflight[key] = { gen: gen, p: p };
+    return p;
+  }
+  function rcUrl(action, params) {
+    var url = API_URL + '?api=1&action=' + encodeURIComponent(action) + '&pc=' + encodeURIComponent(getPc()) + '&_=' + Date.now();
+    Object.keys(params || {}).forEach(function (k) { url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); });
+    return url;
+  }
+  // Every api()/apiRaw() GET goes through here. -> Promise of the response text.
+  function rcRequest(action, params, url, noCache) {
+    if (!rcIsRead(action)) return rcWrite(action, apiGet(url));
+    if (noCache || !rcCacheable(action, params)) return apiGet(url);
+    var key = rcKey(action, params), c = rcBypass ? null : rcGet(key);
+    if (!c) return rcFetch(key, url);
+    if (Date.now() - c.t >= RC_FRESH_MS) rcRevalidate(key, url, c.text, rcScreenNow());
+    return Promise.resolve(c.text);
+  }
+  function rcRevalidate(key, url, oldText, scr) {
+    var job = { scr: scr };
+    rcBusyList.push(job); rcPill();
+    rcFetch(key, url).then(function (text) {
+      var j = null; try { j = JSON.parse(text); } catch (e) {}
+      if (j && j.error === 'auth') { setPc(''); lock('Passcode changed. Enter the new one.'); return; }
+      if (text !== oldText && rcOkText(text)) rcChanged(key, scr);
+    }, function () {
+      if (rcScreenNow() === scr) rcNote('Couldn\u2019t update \u00b7 showing saved data');
+    }).then(function () {
+      var i = rcBusyList.indexOf(job); if (i >= 0) rcBusyList.splice(i, 1);
+      rcPill();
+    });
+  }
+  // In-memory copies the screens keep (their own TTLs): mark them old so the next open re-reads (from the fresh cache, no network).
+  var RC_MEM = {
+    links: function () { state.links = null; },
+    spend: function () { state.spendDataOff = null; if (typeof ov !== 'undefined') ov.cache = {}; if (typeof led !== 'undefined' && led.sp) led.sp.at = 0; },
+    accounts: function () { if (state.acct) state.acct.at = 0; },
+    vaultdebt: function () { if (state.debt) state.debt.at = 0; },
+    orders: function (key) {
+      var m = /[?&]week=([^&]*)/.exec(key);
+      if (!m) { ordLive.at = 0; return; }
+      var w = decodeURIComponent(m[1]); if (od.byWeek[w]) od.byWeek[w].at = 0;
+    },
+    biz: function () { var cur = rcScreenNow(); if (cur !== 'biz' && cur !== 'ent') state.biz = null; if (state.entDocs) state.entDocs.at = 0; },
+    re: function () { state.reAt = 0; },
+    ins: function () { state.insAt = 0; },
+    ltmacros: function () { if (state.ltCache.macros) state.ltCache.macros.at = 0; },
+    folder: function () { state.folderCache = {}; if (state.trustCache) state.trustCache.at = 0; docs.at = 0; Object.keys(state.ltCache).forEach(function (k) { if (k !== 'macros' && state.ltCache[k]) state.ltCache[k].at = 0; }); },
+    ptclients: function () { pt.at = 0; },
+    wishlist: function () { wl.listAt = 0; },
+    notes: function () { notes.at = 0; },
+    punch: function () { punch.at = 0; },
+    lognotes: function () { vn.at = 0; },
+    fin: function () { Object.keys(fin.cache).forEach(function (k) { if (fin.cache[k]) fin.cache[k].at = 0; }); },
+    insnotes: function () { if (fin.cache.insurance) fin.cache.insurance.at = 0; },
+    entity: function () { Object.keys(state.entCache || {}).forEach(function (k) { var c = state.entCache[k]; if (c && c.s !== 'load') c.at = 0; }); },
+    entitytax: function () { Object.keys(state.entTaxCache || {}).forEach(function (k) { var c = state.entTaxCache[k]; if (c && c.s !== 'load') c.at = 0; }); }
+  };
+  // Re-run the open screen's loader; every read it makes is now a fresh cache hit, so it repaints in the same frame (no spinner).
+  var RC_RELOAD = {
+    projects: function () { state.links = null; loadLinks(); },
+    log: function () { loadLog(); },
+    track: function () { loadTrack(); },
+    spend: function () { loadSpend(true); },
+    ent: function () { loadEnt(true); },
+    biz: function () { state.biz = null; loadBiz(); },
+    re: function () { loadRe(true); },
+    lt: function () {
+      var cfg = LT_PARTS[state.ltPart];
+      if (!cfg) return;
+      if (cfg.orders) return odEnsure();
+      if (cfg.wish) return wlLoadList();
+      if (cfg.notes || cfg.cost || cfg.gen || cfg.add) return;
+      loadLt(true);
+    },
+    fin: function () { loadFin(true); },
+    insn: function () { loadInsn(true); },
+    trust: function () { loadTrust(true); },
+    pt: function () { ptLoad(false); },
+    notes: function () { loadNotes(true); },
+    punch: function () { loadPunch(); },
+    docs: function () { loadDocs(); }
+  };
+  function rcChanged(key, scr) {
+    try { var mem = RC_MEM[rcAction(key)]; if (mem) mem(key); } catch (e) {}
+    rcPendingScr[scr] = 1;
+    clearTimeout(rcFlushT);
+    rcFlushT = setTimeout(rcFlush, 30);      // coalesce several changed reads of one screen into one repaint
+  }
+  function rcEditing(el) {
+    if (!el) return false;
+    var a = document.activeElement;
+    if (a && a !== document.body && el.contains(a) && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable)) return true;
+    var f = el.querySelectorAll('textarea, input');
+    for (var i = 0; i < f.length; i++) {
+      var x = f[i], ty = (x.type || '').toLowerCase();
+      if (rcTouched && !rcTouched.has(x)) continue;     // only fields the user actually typed in count
+      if (/^(button|submit|reset|hidden|file|image|range|color)$/.test(ty)) continue;
+      if (ty === 'checkbox' || ty === 'radio') { if (x.checked !== x.defaultChecked) return true; continue; }
+      if (x.value !== x.defaultValue) return true;
+    }
+    return false;
+  }
+  function rcFlush() {
+    var cur = rcScreenNow(), want = rcPendingScr[cur];
+    rcPendingScr = {};
+    if (!want || !RC_RELOAD[cur] || !getPc()) return;
+    if (rcEditing($('screen-' + cur))) { rcOfferScr = cur; rcPill(); return; }   // never wipe what is being typed: offer instead
+    rcApply(cur);
+  }
+  function rcApply(cur) {
+    rcOfferScr = ''; rcPill();
+    if (rcScreenNow() !== cur) return;
+    var y = window.scrollY || 0;
+    try { RC_RELOAD[cur](); } catch (e) { if (window.console) console.warn('[cc] refresh failed', e); }
+    if (y) (window.requestAnimationFrame || setTimeout)(function () { if (rcScreenNow() === cur && Math.abs((window.scrollY || 0) - y) > 1) window.scrollTo(0, y); });
+  }
+  // The small status pill (top right): "Updating…" while a background check for this screen runs; "New data · tap to show" when a repaint
+  // was held back because something is being typed; a short note when the check failed. Never blocks the screen.
+  function rcPillEl() {
+    var el = $('cc-upd');
+    if (el) return el;
+    el = document.createElement('button');
+    el.type = 'button'; el.id = 'cc-upd'; el.className = 'ccupd'; el.setAttribute('aria-live', 'polite'); el.tabIndex = -1;
+    el.addEventListener('click', function () { if (rcOfferScr && rcOfferScr === rcScreenNow()) rcApply(rcOfferScr); });
+    document.body.appendChild(el);
+    return el;
+  }
+  function rcPill() {
+    var cur = rcScreenNow(), el = rcPillEl(), mode = '', text = '';
+    if (rcOfferScr && rcOfferScr !== cur) rcOfferScr = '';
+    if (rcOfferScr) { mode = 'offer'; text = 'New data \u00b7 tap to show'; }
+    else if (rcBusyList.some(function (j) { return j.scr === cur; })) { mode = 'busy'; text = 'Updating\u2026'; }
+    else if (rcNoteT) { mode = 'note'; text = el.getAttribute('data-note') || ''; }
+    el.className = 'ccupd' + (mode ? ' on ' + mode : '');
+    if (mode) el.textContent = text;
+    el.disabled = mode !== 'offer';
+  }
+  function rcNote(t) {
+    var el = rcPillEl(); el.setAttribute('data-note', t);
+    clearTimeout(rcNoteT); rcNoteT = setTimeout(function () { rcNoteT = 0; rcPill(); }, 3500);
+    rcPill();
+  }
+  // Quietly warm the most-used screens' reads while Home sits idle (once per app start, 2 at a time, skips copies < 2 min old).
+  var rcWarmDone = false, rcWarmT = 0;
+  function rcWarmSoon() {
+    if (rcWarmDone || rcWarmT) return;
+    rcWarmT = setTimeout(function () {
+      rcWarmT = 0;
+      var go = function () {
+        if (rcWarmDone || rcScreenNow() !== 'home' || document.hidden || !getPc()) return;
+        if (navigator.connection && navigator.connection.saveData) { rcWarmDone = true; return; }
+        rcWarmDone = true;
+        // first content of each screen first (Daily Log, Vault, Lisa's Table Orders, PT clients), then the Vault's secondary reads
+        var jobs = [['log', {}], ['spend', {}], ['orders', { week: odDefaultWeek() }], ['ptclients', {}], ['accounts', {}], ['vaultdebt', {}], ['orders', {}]], i = 0;
+        var next = function () {
+          if (i >= jobs.length || !getPc()) return;
+          var jb = jobs[i++], key = rcKey(jb[0], jb[1]), c = rcGet(key);
+          if (c && Date.now() - c.t < 120000) return next();
+          rcFetch(key, rcUrl(jb[0], jb[1])).then(next, next);
+        };
+        next(); next();
+      };
+      if (window.requestIdleCallback) requestIdleCallback(go, { timeout: 2500 }); else go();
+    }, 1200);
+  }
+  // Keep-warm: one cheap ping when the app opens (and when it comes back after 3+ minutes in the background), so an Apps Script cold
+  // start (measured 17-21 s) is paid while Home is showing rather than when a screen is opened. Result ignored.
+  var rcPingAt = 0, rcHiddenAt = 0;
+  function rcPing() {
+    if (!getPc() || Date.now() - rcPingAt < 60000) return;
+    rcPingAt = Date.now();
+    apiGet(rcUrl('ping', {})).catch(function () {});
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { rcHiddenAt = Date.now(); return; }
+    if (rcHiddenAt && Date.now() - rcHiddenAt > 180000) rcPing();
+  });
   function friendly(err) {
     if (err instanceof AuthError) return 'Passcode no longer valid.';
     var m = String((err && err.message) || err || 'Something went wrong.');
@@ -208,6 +505,8 @@
     if (name !== 'punch') pmicStop();
     if (name !== 'doc') { state.docPushed = false; state.docSeq++; closeDoc(); }
     activate(name);
+    rcPill();                                  // v107: the Updating… pill only shows for the screen on view
+    if (name === 'home') rcWarmSoon();         // v107: warm the most-used screens while Home is idle
     if (!fromHistory) {
       if (name === 'biz') state.bizSlug = R.kind;
       var h = name === 'home' ? '' : name === 'spend' ? spendHash(state.spendRoute) :
@@ -1200,6 +1499,11 @@
 
   function loadSpend(force) {
     ordLiveFetch(!!force);
+    if (!state.spendData) {     // v107: first open: start Accounts + Debt alongside spend instead of after it renders (renderSpend asks again, a no-op then)
+      var sr0 = state.spendRoute || {};
+      if (!sr0.kind || sr0.kind === 'bal') loadAccounts(false);
+      if (!sr0.kind || sr0.kind === 'debt') loadDebt(false);
+    }
     if (!force && state.spendData && state.spendDataOff === state.monthOffset) return renderSpend();
     var seq = ++state.spendSeq, off = state.monthOffset;
     paintSpendChrome();
@@ -2915,7 +3219,8 @@
     var c = state.trustCache;
     if (c && !force && Date.now() - c.at < 60000) return renderTrust();
     $('trust-body').innerHTML = '<div class="loading">Loading…</div>';
-    ensureLinks(function () {
+    if (!state.links) ensureLinks(function () {});     // v107: links (for the folder link) and the folder list load in parallel
+    (function () {
       apiRaw('folder', { id: trustFolderId() }).then(function (j) {
         if (!$('screen-trust').classList.contains('active')) return;
         if (j.error === 'bad_action' || j.error === 'forbidden' || j.error === 'not_found') {
@@ -2926,7 +3231,7 @@
         state.trustCache = { at: Date.now(), data: j.data };
         renderTrust();
       }).catch(function (err) { onFail(['trust-body'], function () { loadTrust(true); })(err); });
-    });
+    })();
   }
   function renderTrust() {
     var d = state.trustCache.data, items = (d && d.items) || [];
@@ -7144,7 +7449,8 @@
     var ctl = window.AbortController ? new AbortController() : null, timer = 0, payload = { pc: getPc(), action: action };
     Object.keys(body || {}).forEach(function (k) { payload[k] = body[k]; });
     if (ctl) timer = setTimeout(function () { ctl.abort(); }, timeoutMs || 90000);
-    return fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload),
+    var post = rcIsRead(action) ? function (q) { return q; } : function (q) { return rcWrite(action, q); };   // v107: a write drops the saved reads it affects
+    return post(fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload),
       cache: 'no-store', credentials: 'omit', redirect: 'follow', signal: ctl ? ctl.signal : undefined })
       .then(function (r) { clearTimeout(timer); if (!r.ok) throw new Error('Server returned ' + r.status); return r.text(); })
       .then(function (t) {
@@ -7157,7 +7463,7 @@
         clearTimeout(timer);
         if (err && err.name === 'AbortError') throw new Error('The upload timed out. It may still have arrived: tap Save again (same entry id, so it will not double).');
         throw err;
-      });
+      }));
   }
   function vMsg(id, text, bad) { var el = $(id); if (!el) return; el.textContent = text || ''; el.hidden = !text; el.className = 'noteflash show' + (bad ? ' bad' : ''); if (!text) el.className = 'noteflash'; }
 
@@ -13313,7 +13619,7 @@
     setTimeout(function () { if (document.body.contains(t) && t.textContent === 'Trying\u2026') { t.textContent = 'Try again'; t.classList.remove('trying'); } }, 20000);
   }, true);
 
-  // Refresh: hard refresh, like signing out and back in, but keeps all saved data (localStorage is untouched).
+  // Refresh: hard refresh, like signing out and back in, but keeps all saved data (localStorage is untouched except the cc_cache_* screen-data copies).
   //  1) unregister any service workers  2) delete every Cache Storage cache  3) clear sessionStorage
   //  4) re-download index.html, app.js, app.css (and whatever ?v= the new index.html points at) with cache:'reload',
   //     which bypasses and overwrites the browser HTTP cache  5) navigate to a cache-busted URL.
@@ -13336,6 +13642,7 @@
         }
       } catch (e) {}
       try { sessionStorage.clear(); } catch (e) {}
+      try { rcClear(); } catch (e) {}      // v107: saved screen data (cc_cache_* only; passcode, checklists, prefs stay)
       var base = location.pathname.replace(/[^\/]*$/, '');
       function reget(url) {
         try { return fetch(url, { cache: 'reload', credentials: 'same-origin' }).then(function (r) { return r.text(); }).catch(function () { return ''; }); }
@@ -13387,6 +13694,6 @@
     try { setPc(decodeURIComponent(km[1])); } catch (e) {}
     try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
   }
-  if (getPc()) show(location.hash.slice(1) || 'home', true);
+  if (getPc()) { rcPing(); show(location.hash.slice(1) || 'home', true); }     // v107: ping first so a cold Apps Script start begins now
   else lock();
 })();
