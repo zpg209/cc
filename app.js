@@ -8267,7 +8267,11 @@
   /* ---------------- Lisa's Personal Training (#pt): clients -> profile -> workouts ---------------- */
   // Live from the Sheet "Lisa's Personal Training" through ptclients (read) and ptclientset / ptclientdel / ptworkoutset / ptworkoutdel (writes, cid + POST).
   // Nothing about clients is stored in this repo or in localStorage (only which cards are open). Unsaved edits live in memory until Save.
-  // Routes: #pt (client list), #pt/new (add client), #pt/client/<id> (profile + workouts).
+  // Routes: #pt (client list), #pt/new (add client), #pt/client/<id> (client: Profile | Workouts | History tabs, tab kept in memory).
+  // v103 workouts: still the sheet's Workouts tab via ptworkoutset (no backend change). Exercises are saved as one line each in the Exercises cell:
+  // the FIRST line is a JSON meta line {"cc":1,"kind":"prescribed"} or {"cc":1,"kind":"prior","source":"history"} (History tab = workouts done before
+  // starting), then one JSON line per exercise {"n":name,"s":sets,"r":reps,"w":weight,"d":duration,"note":..} (a name-only exercise is a plain text line).
+  // Older free-text lines (no meta line) read as prescribed, one exercise per line.
   var PT_OPEN_KEY = 'cc_pt_open', PT_TTL = 30000;
   var PT_SECS = [
     { key: 'basics',   title: 'Basics',              fields: ['name', 'age', 'phone', 'email', 'status', 'startDate', 'schedule'] },
@@ -8291,7 +8295,7 @@
     notes:       { label: 'Notes', kind: 'long', max: 2000, ph: 'Anything else' }
   };
   var pt = { data: null, at: 0, loading: false, err: '', na: false, seq: 0, filter: 'active', q: '', form: null, formId: '', wf: null, wfOpen: '', wConfirm: '', cConfirm: false,
-    busy: false, wbusy: '', open: null, flash: '', cur: '' };
+    busy: false, wbusy: '', open: null, flash: '', cur: '', tab: 'profile', stash: {} };
   var pm = { rec: null, on: false, wanted: false, spell: false, id: '', base: '', committed: '', interim: '', prev: '', msg: '' };
   function ptRoute() { return state.ptRoute || { kind: '', id: '' }; }
   function ptOnScreen() { return $('screen-pt').classList.contains('active'); }
@@ -8353,12 +8357,12 @@
     else if (r.kind === 'client') {
       var c = ptClient(r.id);
       if (!c) h = '<div class="card"><div class="foot empty">That client was not found. It may have been deleted.</div></div><button type="button" class="navbtn" data-go="pt">&lsaquo; All clients</button>';
-      else { if (pt.formId !== c.id) ptFormInit(c); h = ptProfileHtml(c); }
+      else { if (pt.formId !== c.id) ptFormInit(c); h = ptClientHtml(c); }
     } else h = ptListHtml();
     $('pt-body').innerHTML = h;
     if (r.kind) window.scrollTo(0, y);
     if (pt.flash) { ptMsg('pt-msg', pt.flash, false); pt.flash = ''; }
-    if ((r.kind === 'new' || r.kind === 'client') && (!pt.cur || !ptInfo(pt.cur))) pt.cur = 'ptf-name';
+    if ((r.kind === 'new' || r.kind === 'client') && (!pt.cur || !ptInfo(pt.cur))) pt.cur = $('ptf-name') ? 'ptf-name' : '';
     ptBarUpdate();
   }
   function ptCounts() {
@@ -8389,13 +8393,13 @@
       return '<button type="button" class="ptcl" data-go="pt/client/' + esc(encodeURIComponent(c.id)) + '"><span class="ptcl1"><b class="ptname">' + esc(c.name) + '</b>' +
         '<span class="ptchip ' + (c.status === 'paused' ? 'paused' : 'active') + '">' + (c.status === 'paused' ? 'Paused' : 'Active') + '</span></span>' +
         '<span class="ptcl2">' + (c.age !== '' && c.age != null ? esc(c.age) + ' yrs' : 'Age not set') + (goal ? ' \u00b7 ' + esc(goal) : '') + '</span>' +
-        '<span class="ptcl3">' + (c.workoutCount || 0) + ' workout' + (c.workoutCount === 1 ? '' : 's') + (c.lastWorkout ? ' \u00b7 last ' + esc(ptDate(c.lastWorkout)) : '') + '</span></button>';
+        '<span class="ptcl3">' + ptCountsLine(c) + (c.lastWorkout ? ' \u00b7 last ' + esc(ptDate(c.lastWorkout)) : '') + '</span></button>';
     }).join('');
   }
 
   // ---- profile ----
   function ptFormInit(c) {
-    pt.formId = c ? c.id : '(new)'; pt.cConfirm = false; pt.wf = null; pt.wfOpen = ''; pt.wConfirm = '';
+    pt.formId = c ? c.id : '(new)'; pt.cConfirm = false; pt.wf = null; pt.wfOpen = ''; pt.wConfirm = ''; pt.stash = {};
     pt.form = { cid: '', sig: '' };
     Object.keys(PT_FIELDS).forEach(function (k) { pt.form[k] = c ? (c[k] == null ? '' : String(c[k])) : (k === 'status' ? 'active' : ''); });
   }
@@ -8447,7 +8451,6 @@
       '<button type="button" class="navbtn discard" data-pt="cancel">' + (c ? 'Discard changes' : 'Cancel') + '</button></div>';
     h += '<div class="noteflash" id="pt-msg" hidden></div>';
     if (c) {
-      h += ptCard('workouts', 'Workouts', esc(ptSecSummary('workouts', c)), ptWorkoutsHtml(c));
       h += '<div class="ptdel">' + (pt.cConfirm
         ? '<div class="vdelq">Delete ' + esc(c.name) + ' and all ' + (c.workouts || []).length + ' of their workouts? This cannot be undone.</div><div class="draftbtns"><button type="button" class="bigsave vdelbtn" data-pt="delyes"' + (pt.busy ? ' disabled' : '') + '>Yes, delete client</button><button type="button" class="navbtn" data-pt="delno">Keep</button></div>'
         : '<button type="button" class="navbtn vdelbtn ptdelbtn" data-pt="del">Delete client</button>') + '</div>';
@@ -8455,39 +8458,253 @@
     return h + '</div>';
   }
 
-  // ---- workouts ----
-  function ptWfInit(w, clientId) {
-    pt.wf = { id: w ? w.id : '', clientId: clientId, date: w ? w.date : vToday(), title: w ? w.title : '', exercises: w ? w.exercises : '', notes: w ? w.notes : '', cid: '', sig: '' };
+  // ---- workouts (v103): client tabs Profile | Workouts | History; structured exercise rows; Text / Copy ----
+  var PT_EXF = ['n', 's', 'r', 'w', 'd', 'note'], PT_EXMAX = 40;
+  var PT_EXMETA = {
+    n:    { label: 'Exercise', kind: 'exname', max: 80, ph: 'Exercise name' },
+    s:    { label: 'Sets', kind: 'num', max: 10, ph: '3' },
+    r:    { label: 'Reps', kind: 'reps', max: 24, ph: '10' },
+    w:    { label: 'Weight', kind: 'wt', max: 30, ph: '25 lb' },
+    d:    { label: 'Time', kind: 'dur', max: 30, ph: '30 sec' },
+    note: { label: 'Note', kind: 'line', max: 150, ph: 'Cue or note (optional)' }
+  };
+  function ptExBlank() { return { n: '', s: '', r: '', w: '', d: '', note: '' }; }
+  function ptExPick(o, ks) { for (var i = 0; i < ks.length; i++) if (o[ks[i]] != null && String(o[ks[i]]).trim() !== '') return String(o[ks[i]]).trim(); return ''; }
+  // Exercises cell -> {kind:'prescribed'|'prior', ex:[{n,s,r,w,d,note}]} (cached on the workout object, keyed on the cell text)
+  function ptWParse(w) {
+    var src = String((w && w.exercises) || '');
+    if (w._p && w._p.src === src) return w._p;
+    var meta = null, ex = [];
+    src.split('\n').forEach(function (line) {
+      var t = line.trim(); if (!t) return;
+      if (t.charAt(0) === '{') {
+        var o = null; try { o = JSON.parse(t); } catch (e) { o = null; }
+        if (o && typeof o === 'object' && !Array.isArray(o)) {
+          if (o.cc) { if (!meta) meta = o; return; }
+          var e1 = ptExBlank();
+          e1.n = ptExPick(o, ['n', 'name', 'exercise']); e1.s = ptExPick(o, ['s', 'sets']); e1.r = ptExPick(o, ['r', 'reps']);
+          e1.w = ptExPick(o, ['w', 'weight', 'load']); e1.d = ptExPick(o, ['d', 'duration', 'time']); e1.note = ptExPick(o, ['note', 'notes']);
+          if (PT_EXF.some(function (k) { return e1[k]; })) ex.push(e1);
+          return;
+        }
+      }
+      var e2 = ptExBlank(); e2.n = t; ex.push(e2);
+    });
+    var kind = meta && (meta.kind === 'prior' || meta.kind === 'history' || meta.source === 'history' || meta.source === 'prior') ? 'prior' : 'prescribed';
+    w._p = { src: src, kind: kind, ex: ex };
+    return w._p;
   }
+  function ptSplit(c) {
+    var rx = [], prior = [];
+    (c.workouts || []).forEach(function (w) { (ptWParse(w).kind === 'prior' ? prior : rx).push(w); });
+    return { rx: rx, prior: prior };
+  }
+  function ptCountsLine(c) {
+    var x = ptSplit(c);
+    return x.rx.length + ' workout' + (x.rx.length === 1 ? '' : 's') + (x.prior.length ? ' \u00b7 ' + x.prior.length + ' history' : '');
+  }
+  // form rows -> the list sent as `exercises`: meta line first, then one object per exercise (name-only -> plain text line)
+  function ptExOut(kind, rows) {
+    var out = [kind === 'prior' ? { cc: 1, kind: 'prior', source: 'history' } : { cc: 1, kind: 'prescribed' }];
+    (rows || []).forEach(function (e) {
+      var o = {}, keys = [];
+      PT_EXF.forEach(function (k) { var v = String(e[k] == null ? '' : e[k]).replace(/\s+/g, ' ').trim(); if (v) { o[k] = v; keys.push(k); } });
+      if (!keys.length) return;
+      out.push(keys.length === 1 && keys[0] === 'n' && !/^[\[{]/.test(o.n) ? o.n : o);
+    });
+    return out;
+  }
+  function ptExBits(e) {              // ["3 x 10", "25 lb", "30 sec"]
+    var b = [], sr = '';
+    if (e.s && e.r) sr = e.s + ' x ' + e.r;
+    else if (e.s && e.d) sr = e.s + ' x ' + e.d;
+    else if (e.s) sr = e.s + (/^\d+$/.test(e.s) ? (e.s === '1' ? ' set' : ' sets') : '');
+    else if (e.r) sr = e.r + (/^[\d\- ]+$/.test(e.r) ? ' reps' : '');
+    if (sr) b.push(sr);
+    if (e.w) b.push(e.w);
+    if (e.d && !(e.s && !e.r)) b.push(e.d);
+    return b;
+  }
+  function ptDateW(iso) {
+    var m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); if (!m) return String(iso || '');
+    var d = new Date(+m[1], +m[2] - 1, +m[3], 12), opt = { weekday: 'short', month: 'short', day: 'numeric' };
+    if (d.getFullYear() !== new Date().getFullYear()) opt.year = 'numeric';
+    return d.toLocaleDateString('en-US', opt);
+  }
+  // clean plain text for a text message / clipboard
+  function ptWorkoutText(c, w) {
+    var p = ptWParse(w), L = [];
+    L.push(String(w.title || 'Workout').trim());
+    L.push(ptDateW(w.date));
+    L.push('');
+    p.ex.forEach(function (e, i) {
+      var bits = ptExBits(e);
+      L.push((i + 1) + '. ' + e.n + (bits.length ? ': ' + bits.join(', ') : ''));
+      if (e.note) L.push('   ' + e.note);
+    });
+    if (!p.ex.length) L.push('(No exercises listed)');
+    if (String(w.notes || '').trim()) { L.push(''); L.push('Notes: ' + String(w.notes).trim()); }
+    return L.join('\n');
+  }
+  function ptSmsNum(ph) {
+    var raw = String(ph || '').trim(), d = raw.replace(/\D/g, '');
+    if (d.length < 7) return '';
+    if (raw.charAt(0) === '+') return '+' + d;
+    if (d.length === 10) return '+1' + d;
+    if (d.length === 11 && d.charAt(0) === '1') return '+' + d;
+    return d;
+  }
+  // sms:<number>?&body=... opens Messages on iPhone and Android with the body filled in (no number -> Messages asks who to send to)
+  function ptSmsHref(c, w) { return 'sms:' + ptSmsNum(c.phone) + '?&body=' + encodeURIComponent(ptWorkoutText(c, w)); }
+  function ptWorkoutCopy(id) {
+    var c = ptClient(ptRoute().id), w = c && (c.workouts || []).filter(function (x) { return x.id === id; })[0]; if (!w) return;
+    var txt = ptWorkoutText(c, w);
+    var done = function (ok) { ptMsg('pt-wflash', ok ? 'Copied. Paste it into a text or email.' : 'Couldn\u2019t copy on this phone. Use Text workout instead.', !ok); var f = $('pt-wflash'); if (f && f.scrollIntoView) f.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); };
+    var fallback = function () {
+      var ta = document.createElement('textarea'); ta.value = txt; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;left:-9999px;top:0';
+      document.body.appendChild(ta); ta.select(); try { ta.setSelectionRange(0, txt.length); } catch (e0) {}
+      var ok = false; try { ok = document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta); done(ok);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(function () { done(true); }, fallback); else fallback();
+  }
+
+  function ptWfInit(w, clientId, kind) {
+    var p = w ? ptWParse(w) : null;
+    var ex = p ? p.ex.map(function (e) { var o = ptExBlank(); PT_EXF.forEach(function (k) { o[k] = e[k] || ''; }); return o; }) : [];
+    if (!ex.length) ex.push(ptExBlank());
+    pt.wf = { id: w ? w.id : '', clientId: clientId, kind: p ? p.kind : (kind === 'prior' ? 'prior' : 'prescribed'), date: w ? w.date : vToday(), title: w ? w.title : '', ex: ex, notes: w ? w.notes : '', cid: '', sig: '' };
+  }
+  function ptTab(t) {
+    if (!/^(profile|workouts|history)$/.test(t || '') || t === pt.tab) return;
+    ptMicStop(true); if (sp.open) ptSpellClose();
+    pt.stash[pt.tab] = { wf: pt.wf, wfOpen: pt.wfOpen };
+    var st = pt.stash[t] || {}; pt.wf = st.wf || null; pt.wfOpen = st.wfOpen || ''; pt.wConfirm = '';
+    pt.tab = t; pt.cur = '';
+    ptRender();
+    var tb = document.querySelector('#pt-body .pttabs'); if (tb && tb.getBoundingClientRect().top < 0) tb.scrollIntoView({ block: 'start' });
+  }
+  function ptClientHtml(c) {
+    var t = pt.tab, x = ptSplit(c);
+    var h = '<div class="pthead"><b class="ptname">' + esc(c.name) + '</b><span class="ptchip ' + (c.status === 'paused' ? 'paused' : 'active') + '">' + (c.status === 'paused' ? 'Paused' : 'Active') + '</span></div>';
+    h += '<div class="pttabs" role="tablist" aria-label="Client sections">' + [['profile', 'Profile', ''], ['workouts', 'Workouts', x.rx.length], ['history', 'History', x.prior.length]].map(function (d) {
+      var on = t === d[0];
+      return '<button type="button" role="tab" class="vchip' + (on ? ' on' : '') + '" data-pt="tab" data-t="' + d[0] + '" aria-selected="' + on + '">' + d[1] + (d[2] !== '' ? ' <small>' + d[2] + '</small>' : '') + '</button>';
+    }).join('') + '</div>';
+    if (t === 'workouts') return h + ptWorkoutsHtml(c, x.rx);
+    if (t === 'history') return h + ptHistoryHtml(c, x.prior);
+    return h + ptProfileHtml(c);
+  }
+  // one mic for the workout / history form: same mic as the client form (pm + ptMicListen), same ids, so ptMicStatus / ptMicUi just work
+  function ptWMicHtml(hist) {
+    return '<div class="ptformmic inform"><button type="button" class="micbtn ptmic ptformmicbtn" id="pt-form-mic" data-pt="formmic" aria-pressed="false" aria-label="Dictate this workout">' +
+      '<span class="micico" aria-hidden="true">' + vsvg('mic', 34) + '</span><span class="miclbl" id="pt-form-mic-lbl">Tap to talk</span></button>' +
+      '<div class="micstate" id="pt-mic-state">&nbsp;</div>' +
+      '<p class="pthint">Starts on ' + (hist ? 'Date done' : 'Date') + ' (or the box you tapped). Say the value, then &ldquo;tab&rdquo; for next or &ldquo;tab back&rdquo;. Say &ldquo;add exercise&rdquo; for a new row, &ldquo;spelling&rdquo; to spell.</p></div>';
+  }
+  function ptExCtl(i, k, e) {
+    var m = PT_EXMETA[k], id = 'ptw-ex-' + i + '-' + k, lbl = 'Exercise ' + (i + 1) + (k === 'n' ? ' name' : ' ' + m.label.toLowerCase());
+    return '<div class="vfield ptexf ptexf-' + k + '" data-ptid="' + id + '">' + (k === 'n' ? '' : '<span>' + m.label + '</span>') +
+      '<input class="wlin ptin" id="' + id + '" data-ptw="ex.' + i + '.' + k + '" type="text"' + (k === 's' ? ' inputmode="numeric"' : '') +
+      (k === 'n' ? ' autocapitalize="words"' : ' autocapitalize="sentences"') + ' maxlength="' + m.max + '" autocomplete="off" enterkeyhint="next" value="' + esc(e[k] || '') +
+      '" placeholder="' + esc(m.ph) + '" aria-label="' + esc(lbl) + '"></div>';
+  }
+  function ptExRowsHtml() {
+    return pt.wf.ex.map(function (e, i) {
+      return '<div class="ptexrow" data-exi="' + i + '"><div class="ptexhd"><b aria-hidden="true">' + (i + 1) + '</b>' + ptExCtl(i, 'n', e) +
+        '<button type="button" class="wlx ptexdel" data-pt="exdel" data-i="' + i + '" aria-label="Remove exercise ' + (i + 1) + '">\u00d7</button></div>' +
+        '<div class="ptexgrid">' + ptExCtl(i, 's', e) + ptExCtl(i, 'r', e) + ptExCtl(i, 'w', e) + ptExCtl(i, 'd', e) + '</div>' + ptExCtl(i, 'note', e) + '</div>';
+    }).join('');
+  }
+  function ptExRowsRefresh() { var box = $('ptw-exrows'); if (box) box.innerHTML = ptExRowsHtml(); ptBarUpdate(); }
+  function ptExAdd() {
+    if (!pt.wf) return;
+    if (pt.wf.ex.length >= PT_EXMAX) return ptMsg('pt-wmsg', 'That is the most exercises one workout can hold (' + PT_EXMAX + ').', true);
+    pt.wf.ex.push(ptExBlank()); ptExRowsRefresh();
+    var el = $('ptw-ex-' + (pt.wf.ex.length - 1) + '-n'); if (el) ptFocusField(el);
+  }
+  function ptExDel(i) {
+    if (!pt.wf || isNaN(i) || !pt.wf.ex[i]) return;
+    if (pm.wanted || pm.on) { ptMicStop(true); ptMicUi(); }
+    if (pt.wf.ex.length > 1) pt.wf.ex.splice(i, 1); else pt.wf.ex[0] = ptExBlank();
+    if (/^ptw-ex-/.test(pt.cur || '')) pt.cur = '';
+    ptExRowsRefresh();
+  }
+  function ptExGo(cmd) {            // voice "next exercise" / "add exercise": the id of the name box to move to ('' = full)
+    var rows = pt.wf.ex, m = /^ptw-ex-(\d+)-/.exec(pt.cur || ''), i = m ? +m[1] : -1;
+    if (cmd === 'nextex' && i >= 0 && i + 1 < rows.length) return 'ptw-ex-' + (i + 1) + '-n';
+    var last = rows[rows.length - 1];
+    if (!last || PT_EXF.some(function (k) { return String(last[k] || '').trim(); })) {
+      if (rows.length >= PT_EXMAX) return '';
+      rows.push(ptExBlank()); ptExRowsRefresh();
+    }
+    return 'ptw-ex-' + (rows.length - 1) + '-n';
+  }
+  function ptWSaveLabel(f) { return f.id ? 'Save changes' : (f.kind === 'prior' ? 'Save to history' : 'Add workout'); }
   function ptWorkoutForm() {
-    var f = pt.wf, id = f.id;
-    var h = '<div class="ptwform">' + ptCtl('date', 'ptw-date', 'data-ptw', 'date', f.date, 10, '', 'Date') +
-      ptCtl('text', 'ptw-title', 'data-ptw', 'title', f.title, 120, 'e.g. Lower body, week 3', 'Title');
-    h += ptCtl('long', 'ptw-exercises', 'data-ptw', 'exercises', f.exercises, 4000, 'One per line: exercise, sets x reps, weight', 'Exercises', 5) +
-      ptCtl('long', 'ptw-notes', 'data-ptw', 'notes', f.notes, 1500, 'How it went, what to change', 'Notes', 3);
-    h += '<div class="draftbtns"><button type="button" class="bigsave" data-pt="wsave"' + (pt.wbusy ? ' disabled' : '') + '>' + (pt.wbusy === 'save' ? 'Saving\u2026' : (id ? 'Save workout' : 'Add workout')) + '</button><button type="button" class="navbtn discard" data-pt="wcancel">Cancel</button></div>';
+    var f = pt.wf, id = f.id, hist = f.kind === 'prior';
+    var h = '<div class="ptwform">' + ptWMicHtml(hist) +
+      ptCtl('date', 'ptw-date', 'data-ptw', 'date', f.date, 10, '', hist ? 'Date done' : 'Date') +
+      ptCtl('text', 'ptw-title', 'data-ptw', 'title', f.title, 120, hist ? 'e.g. Upper body, walk, yoga class' : 'e.g. Lower body, week 3', hist ? 'Type / focus' : 'Title / focus');
+    h += '<div class="vfield ptexwrap"><span>Exercises</span><div id="ptw-exrows">' + ptExRowsHtml() + '</div>' +
+      '<button type="button" class="navbtn ptexadd" data-pt="exadd">+ Add exercise</button></div>';
+    h += ptCtl('long', 'ptw-notes', 'data-ptw', 'notes', f.notes, 1500, hist ? 'How it felt: energy, soreness, pain, anything to note' : 'Coaching cues, how it went, what to change', hist ? 'How it felt / notes' : 'Notes', 3);
+    h += '<div class="draftbtns"><button type="button" class="bigsave" data-pt="wsave"' + (pt.wbusy ? ' disabled' : '') + '>' + (pt.wbusy === 'save' ? 'Saving\u2026' : ptWSaveLabel(f)) + '</button>' +
+      '<button type="button" class="navbtn discard" data-pt="' + (hist && !id ? 'hclear' : 'wcancel') + '">' + (hist && !id ? 'Clear' : 'Cancel') + '</button></div>';
     if (id) {
       h += pt.wConfirm === id
-        ? '<div class="wlconf ptwconf"><div class="vdelq">Delete this workout?</div><div class="draftbtns"><button type="button" class="bigsave vdelbtn" data-pt="wdelyes"' + (pt.wbusy ? ' disabled' : '') + '>Yes, delete</button><button type="button" class="navbtn" data-pt="wdelno">Keep</button></div></div>'
-        : '<button type="button" class="navbtn vdelbtn ptwdel" data-pt="wdel">Delete workout</button>';
+        ? '<div class="wlconf ptwconf"><div class="vdelq">Delete this ' + (hist ? 'history entry' : 'workout') + '?</div><div class="draftbtns"><button type="button" class="bigsave vdelbtn" data-pt="wdelyes"' + (pt.wbusy ? ' disabled' : '') + '>Yes, delete</button><button type="button" class="navbtn" data-pt="wdelno">Keep</button></div></div>'
+        : '<button type="button" class="navbtn vdelbtn ptwdel" data-pt="wdel">Delete ' + (hist ? 'entry' : 'workout') + '</button>';
     }
     return h + '<div class="noteflash" id="pt-wmsg" hidden></div></div>';
   }
-  function ptWorkoutsHtml(c) {
-    var list = c.workouts || [];
-    var h = '<button type="button" class="navbtn wladd ptwadd" data-pt="wnew">+ Add workout</button>';
-    if (pt.wfOpen === '(new)' && pt.wf) h += '<div class="card ptwcard">' + ptWorkoutForm() + '</div>';
-    if (!list.length && pt.wfOpen !== '(new)') h += '<div class="foot empty">No workouts yet. Tap Add workout.</div>';
+  function ptWCardHtml(c, w, hist) {
+    var p = ptWParse(w), busy = pt.wbusy === w.id;
+    var h = '<div class="ptwk' + (w.done ? ' isdone' : '') + (hist ? ' prior' : '') + '"><div class="ptwkhead"><div class="ptwkwhen"><b class="ptwkdate">' + esc(ptDateW(w.date)) + '</b>' +
+      (hist ? '<span class="ptchip prior">History</span>' : '') + '</div>';
+    if (!hist) h += '<button type="button" class="vchip ptwkdone' + (w.done ? ' on' : '') + '" data-pt="wdone" data-id="' + esc(w.id) + '"' + (busy ? ' disabled' : '') +
+      ' aria-pressed="' + !!w.done + '">' + (w.done ? '\u2713 Done' : 'Mark done') + '</button>';
+    h += '</div><div class="ptwktitle">' + esc(w.title) + '</div>';
+    if (p.ex.length) h += '<ol class="ptexlist">' + p.ex.map(function (e) {
+      var b = ptExBits(e);
+      return '<li><span class="ptexn">' + esc(e.n || 'Exercise') + '</span>' + (b.length ? '<span class="ptexd">' + b.map(esc).join(' \u00b7 ') + '</span>' : '') + (e.note ? '<span class="ptexnote">' + esc(e.note) + '</span>' : '') + '</li>';
+    }).join('') + '</ol>';
+    else h += '<div class="ptwkempty">No exercises listed.</div>';
+    if (String(w.notes || '').trim()) h += '<div class="ptwknotes"><span>' + (hist ? 'How it felt / notes' : 'Notes') + '</span>' + esc(w.notes) + '</div>';
+    if (!hist && w.done && w.doneOn) h += '<div class="ptwkmeta">Done ' + esc(ptDate(w.doneOn)) + '</div>';
+    h += '<div class="ptwkbtns' + (hist ? ' one' : '') + '"><button type="button" class="navbtn" data-pt="wedit" data-id="' + esc(w.id) + '">Edit</button>';
+    if (!hist) h += '<a class="navbtn ptsms" href="' + esc(ptSmsHref(c, w)) + '">Text workout</a><button type="button" class="navbtn" data-pt="wcopy" data-id="' + esc(w.id) + '">Copy</button>';
+    h += '</div>';
+    if (!hist && !ptSmsNum(c.phone)) h += '<div class="ptwkmeta">No phone number on the profile: Messages will ask who to send it to.</div>';
+    return h + '</div>';
+  }
+  function ptWorkoutsHtml(c, list) {
+    if (pt.wf && pt.wf.kind === 'prior') { pt.wf = null; pt.wfOpen = ''; }
+    var h = '<div class="pt ptwktab"><button type="button" class="navbtn wladd ptwadd" data-pt="wnew">+ Add workout</button>';
+    if (pt.wfOpen === '(new)' && pt.wf) h += '<div class="card ptwcard"><h3 class="ptwfh">New workout</h3>' + ptWorkoutForm() + '</div>';
+    h += '<div class="noteflash" id="pt-wflash" hidden></div>';
+    if (!list.length && pt.wfOpen !== '(new)') h += '<div class="card"><div class="foot empty">No workouts yet. Tap Add workout to write the first one. Past workouts go under History.</div></div>';
     list.forEach(function (w) {
-      if (pt.wfOpen === w.id && pt.wf) { h += '<div class="card ptwcard editing">' + ptWorkoutForm() + '</div>'; return; }
-      var ex = ptFirstLine(w.exercises, 90), n = String(w.exercises || '').split('\n').filter(Boolean).length;
-      h += '<div class="wlitem ptw' + (w.done ? ' isdone' : '') + '"><div class="wlmain"><button type="button" class="wlchk' + (w.done ? ' on' : '') + '" data-pt="wdone" data-id="' + esc(w.id) + '"' + (pt.wbusy === w.id ? ' disabled' : '') +
-        ' aria-label="' + (w.done ? 'Mark as not done' : 'Mark as done') + '" aria-pressed="' + w.done + '">' + (w.done ? '\u2713' : '') + '</button>' +
-        '<button type="button" class="lntext ptwtext" data-pt="wedit" data-id="' + esc(w.id) + '" aria-label="Edit workout"><span class="wlname">' + esc(w.title) + '</span>' +
-        '<small class="wlmeta">' + esc(ptDate(w.date)) + (w.done ? ' \u00b7 done' + (w.doneOn ? ' ' + esc(ptDate(w.doneOn)) : '') : '') + (n ? ' \u00b7 ' + n + ' line' + (n === 1 ? '' : 's') : '') + '</small>' +
-        (ex ? '<small class="ptwex">' + esc(ex) + '</small>' : '') + '</button></div></div>';
+      if (pt.wfOpen === w.id && pt.wf) h += '<div class="card ptwcard editing"><h3 class="ptwfh">Edit workout</h3>' + ptWorkoutForm() + '</div>';
+      else h += ptWCardHtml(c, w, false);
     });
-    return h + '<div class="noteflash" id="pt-wflash" hidden></div>';
+    return h + '</div>';
+  }
+  function ptHistoryHtml(c, list) {
+    var editing = !!(pt.wf && pt.wf.id && pt.wfOpen === pt.wf.id);
+    if (!editing && (!pt.wf || pt.wf.kind !== 'prior' || pt.wf.id)) { ptWfInit(null, c.id, 'prior'); pt.wfOpen = '(new)'; }
+    var first = String(c.name || '').split(' ')[0] || 'the client';
+    var h = '<div class="pt ptwktab"><p class="pthint pthisthint">Log workouts ' + esc(first) + ' did before starting with you. They are saved as history (not workouts you prescribed), so the 4-week plan can build on them.</p>';
+    if (editing) h += '<button type="button" class="navbtn wladd ptwadd" data-pt="hnew">+ Log a past workout</button>';
+    else h += '<div class="card ptwcard"><h3 class="ptwfh">Log a past workout</h3>' + ptWorkoutForm() + '</div>';
+    h += '<div class="noteflash" id="pt-wflash" hidden></div>';
+    h += '<h3 class="ptsubh">History <small>' + list.length + (list.length === 1 ? ' entry' : ' entries') + '</small></h3>';
+    if (!list.length) h += '<div class="card"><div class="foot empty">No history yet. Entries you save above show here, newest first.</div></div>';
+    list.forEach(function (w) {
+      if (editing && pt.wf.id === w.id) h += '<div class="card ptwcard editing"><h3 class="ptwfh">Edit history entry</h3>' + ptWorkoutForm() + '</div>';
+      else h += ptWCardHtml(c, w, true);
+    });
+    return h + '</div>';
   }
 
   // ---- spoken-value parsing (short fields): the result is shown in the field so it can be corrected ----
@@ -8581,7 +8798,38 @@
     if (kind === 'date') return ptParseDate(raw);
     if (kind === 'name') return ptParseName(raw);
     if (kind === 'status') return ptParseStatus(raw);
+    if (kind === 'num' || kind === 'reps') return ptParseCount(raw, kind);
+    if (kind === 'wt' || kind === 'dur') return ptParseUnits(raw, kind);
+    if (kind === 'exname' || kind === 'line') { raw = raw.replace(/[.!?]+$/, '').trim(); return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : null; }
     return raw;
+  }
+  // sets / reps: "three" -> 3, "8 to 12" -> 8-12, "ten each side" -> 10 each side, "as many as possible" -> AMRAP
+  function ptParseCount(raw, kind) {
+    var s = String(raw).toLowerCase().replace(/[.,!?]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (kind === 'reps' && /amrap|as many/.test(s)) return 'AMRAP';
+    if (kind === 'reps' && /fail/.test(s)) return 'to failure';
+    var side = (s.match(/\b(each|per) (side|leg|arm)\b/) || [''])[0];
+    var core = s.replace(/\b(each|per) (side|leg|arm)\b/, ' ').replace(/\b(sets?|reps?|repetitions?|times|rounds?)\b/g, ' ').trim();
+    var parts = core.split(/\s*(?:-|\u2013|\bto\b|\bthrough\b)\s*/), out = [];
+    for (var i = 0; i < parts.length; i++) {
+      var tk = ptToks(parts[i]).filter(function (t) { return /^\d+$/.test(t) || PT_UNITS[t] !== undefined || PT_TENS[t] || t === 'hundred' || t === 'and'; });
+      var n = tk.length === 1 && /^\d+$/.test(tk[0]) ? Number(tk[0]) : ptWordsNum(tk);
+      if (isNaN(n) || n < 0 || n > 999) { out = null; break; }
+      out.push(n);
+    }
+    if (out && out.length && out.length <= 2) return out.join('-') + (side ? ' ' + side : '');
+    return /\d/.test(s) ? String(raw).replace(/[.!?]+$/, '').trim() : null;
+  }
+  // weight / time: "twenty five pounds" -> 25 lb, "thirty seconds" -> 30 sec, "body weight" -> bodyweight
+  function ptParseUnits(raw, kind) {
+    var s = String(raw).replace(/[.!?]+$/, '').replace(/\s+/g, ' ').trim(); if (!s) return null;
+    var toks = s.split(' '), j = 0;
+    while (j < toks.length && (PT_UNITS[toks[j].toLowerCase()] !== undefined || PT_TENS[toks[j].toLowerCase()] || /^(hundred|and)$/i.test(toks[j]))) j++;
+    if (j) { var n = ptWordsNum(toks.slice(0, j).map(function (t) { return t.toLowerCase(); })); if (!isNaN(n)) s = [String(n)].concat(toks.slice(j)).join(' '); }
+    s = s.replace(/(\d)\s*(and a half|\.5)\b/i, '$1.5');
+    if (kind === 'wt') s = s.replace(/\b(pounds?|lbs?)\b\.?/gi, 'lb').replace(/\b(kilograms?|kilos?|kgs?)\b/gi, 'kg').replace(/\bbody ?weight\b/gi, 'bodyweight');
+    else s = s.replace(/\b(seconds?|secs?)\b/gi, 'sec').replace(/\b(minutes?|mins?)\b/gi, 'min').replace(/\bhours?\b/gi, 'hr');
+    return s.replace(/\s+/g, ' ').trim();
   }
   var PT_NEXT = /^(tab|next|next field|next one|go next|continue)$/;
   var PT_BACK = /^(tab back|back|previous|go back|previous field|last field)$/;
@@ -8592,17 +8840,23 @@
     if (PT_SPELL.test(t)) return 'spell';
     if (PT_BACK.test(t)) return 'back';
     if (PT_NEXT.test(t)) return 'next';
+    if (/^next exercise$/.test(t)) return 'nextex';
+    if (/^((add|new) (an )?(exercise|row)|add another( one| exercise)?|another exercise)$/.test(t)) return 'addex';
     return '';
   }
 
   // ---- fields in order, current field, Back / Next bar ----
-  var PT_WMETA = { date: { label: 'Date', kind: 'date' }, title: { label: 'Title', kind: 'text' }, exercises: { label: 'Exercises', kind: 'long' }, notes: { label: 'Notes', kind: 'long' } };
+  var PT_WMETA = { date: { label: 'Date', kind: 'date' }, title: { label: 'Title / focus', kind: 'text' }, notes: { label: 'Notes', kind: 'long' } };
   function ptInfo(id) {
     var el = id ? $(id) : null; if (!el) return null;
     if (id === 'ptf-status') return { el: el, kind: 'status', label: 'Status', group: 'f', mode: 'replace' };
-    var k = el.getAttribute('data-ptf'), w = el.getAttribute('data-ptw'), d = k ? PT_FIELDS[k] : (w ? PT_WMETA[w] : null);
+    var k = el.getAttribute('data-ptf'), w = el.getAttribute('data-ptw'), d = k ? PT_FIELDS[k] : (w ? PT_WMETA[w] : null), lbl = '';
+    var em = !k && w ? /^ex\.(\d+)\.(\w+)$/.exec(w) : null;
+    if (em && PT_EXMETA[em[2]]) { d = PT_EXMETA[em[2]]; lbl = 'Exercise ' + (+em[1] + 1) + (em[2] === 'n' ? '' : ' \u00b7 ' + d.label); }
     if (!d) return null;
-    return { el: el, kind: d.kind, label: d.label, key: k || w, group: k ? 'f' : 'w', mode: (d.kind === 'text' || d.kind === 'long') ? 'append' : 'replace' };
+    if (w === 'title') lbl = pt.wf && pt.wf.kind === 'prior' ? 'Type / focus' : 'Title / focus';
+    if (w === 'notes' && pt.wf && pt.wf.kind === 'prior') lbl = 'How it felt / notes';
+    return { el: el, kind: d.kind, label: lbl || d.label, key: k || w, group: k ? 'f' : 'w', mode: (d.kind === 'text' || d.kind === 'long') ? 'append' : 'replace' };
   }
   function ptNavList(group) { return [].slice.call($('pt-body').querySelectorAll(group === 'f' ? '[data-ptf], #ptf-status' : '[data-ptw]')); }
   function ptOnForm() { var r = ptRoute(); return ptOnScreen() && (r.kind === 'new' || r.kind === 'client'); }
@@ -8781,6 +9035,15 @@
       if (!pm.wanted) { ptMicUi(); return; }
       if (!raw) { if (inf && !isStatus && !pm.spell) ta.value = pm.prev; ptMicUi(); ptMicRestart(); return; }
       var cmd = ptVoiceCmd(raw);
+      if ((cmd === 'addex' || cmd === 'nextex') && !(inf && inf.group === 'w' && pt.wf && $('ptw-exrows'))) cmd = '';
+      if (cmd === 'addex' || cmd === 'nextex') {
+        if (!isStatus) ta.value = pm.prev;
+        pm.spell = false;
+        var nid = ptExGo(cmd), nel = nid && $(nid);
+        if (nel) { ptFocusField(nel); pm.id = nid; inf = ptInfo(nid); if (inf && pm.wanted) ptMicStatus('Listening for ' + inf.label + '\u2026'); }
+        else ptMicStatus('That is the most exercises one workout can hold.', true);
+        ptMicUi(); ptMicRestart(); return;
+      }
       if (cmd === 'spell') {
         if (!isStatus) ta.value = pm.prev;
         if (inf && inf.kind === 'status') { ptMicStatus('Status can\u2019t be spelled. Say active or paused, or tab.', true); ptMicUi(); ptMicRestart(); return; }
@@ -8994,23 +9257,33 @@
   function ptWorkoutSave() {
     if (pt.wbusy || !pt.wf) return;
     var f = pt.wf, r = ptRoute(), c = ptClient(r.id); if (!c) return;
-    var body = { clientId: c.id, date: String(f.date || '').trim(), title: String(f.title || '').replace(/^\s+|\s+$/g, ''), exercises: String(f.exercises || '').replace(/\s+$/, ''), notes: String(f.notes || '').replace(/\s+$/, '') };
-    if (!body.title) return ptMsg('pt-wmsg', 'Give the workout a title.', true);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(body.date)) return ptMsg('pt-wmsg', 'Pick a date.', true);
+    var hist = f.kind === 'prior', trim = function (v) { return String(v == null ? '' : v).replace(/^\s+|\s+$/g, ''); };
+    var rows = f.ex || [], bad = -1;
+    rows.forEach(function (e, i) { if (bad < 0 && !trim(e.n) && PT_EXF.some(function (k) { return k !== 'n' && trim(e[k]); })) bad = i; });
+    if (bad >= 0) return ptMsg('pt-wmsg', 'Exercise ' + (bad + 1) + ' needs a name (or clear that row).', true);
+    var title = trim(f.title).replace(/\s+/g, ' ');
+    if (!title) { if (hist) title = 'Past workout'; else return ptMsg('pt-wmsg', 'Give the workout a title.', true); }
+    var date = trim(f.date);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return ptMsg('pt-wmsg', 'Pick a date.', true);
+    if (hist && date > vToday()) return ptMsg('pt-wmsg', 'History is for workouts already done: pick today or an earlier date.', true);
+    var body = { clientId: c.id, date: date, title: title, exercises: ptExOut(f.kind, rows), notes: String(f.notes || '').replace(/\s+$/, '') };
     if (f.id) body.id = f.id;
-    var sig = JSON.stringify(body); if (f.sig !== sig) { f.sig = sig; f.cid = vNewCid(); }
+    var sig = JSON.stringify(body); if (f.sig !== sig) { f.sig = sig; f.cid = vNewCid(); }      // unchanged retry keeps its id, so it never doubles
     body.cid = f.cid; pt.wbusy = 'save'; ptMsg('pt-wmsg', '');
+    if (pm.wanted || pm.on) { ptMicStop(true); ptMicUi(); }
     var btn = document.querySelector('[data-pt="wsave"]'); if (btn) { btn.disabled = true; btn.textContent = 'Saving\u2026'; }
     apiPostRaw('ptworkoutset', body, 60000).then(function (j) {
       pt.wbusy = '';
-      if (j.error) { if (btn) { btn.disabled = false; btn.textContent = f.id ? 'Save workout' : 'Add workout'; } return ptMsg('pt-wmsg', ptApiMsg(j) + (j.error === 'bad_action' ? ' Nothing was saved.' : ''), true); }
+      if (j.error) { if (btn) { btn.disabled = false; btn.textContent = ptWSaveLabel(f); } return ptMsg('pt-wmsg', ptApiMsg(j) + (j.error === 'bad_action' ? ' Nothing was saved.' : ''), true); }
       var w = j.data && j.data.workout;
       if (w) { var ws = (c.workouts || []).filter(function (x) { return x.id !== w.id; }); ws.push(w); ws.sort(function (a, b) { return a.date === b.date ? b.row - a.row : (a.date < b.date ? 1 : -1); }); c.workouts = ws; ptApply(c); }
-      pt.wf = null; pt.wfOpen = ''; pt.wConfirm = ''; ptRender(); ptMsg('pt-wflash', 'Workout saved.', false);
+      else ptLoad(false);          // already saved earlier (same entry id): re-read so the list shows it
+      if (hist && !f.id) { ptWfInit(null, c.id, 'prior'); pt.wfOpen = '(new)'; } else { pt.wf = null; pt.wfOpen = ''; }
+      pt.wConfirm = ''; pt.cur = ''; ptRender(); ptMsg('pt-wflash', hist ? (f.id ? 'History entry saved.' : 'Saved to history.') : 'Workout saved.', false);
     }, function (err) {
       pt.wbusy = '';
       if (vAuth(err)) return;
-      if (btn) { btn.disabled = false; btn.textContent = f.id ? 'Save workout' : 'Add workout'; }
+      if (btn) { btn.disabled = false; btn.textContent = ptWSaveLabel(f); }
       ptMsg('pt-wmsg', friendly(err) + ' Not confirmed yet: tap Save again to retry (same entry id, it will not double).', true);
     });
   }
@@ -9062,9 +9335,14 @@
     else if (a === 'del') { pt.cConfirm = true; ptRender(); }
     else if (a === 'delno') { pt.cConfirm = false; ptRender(); }
     else if (a === 'delyes') ptDelete();
-    else if (a === 'wnew') { ptWfInit(null, ptRoute().id); pt.wfOpen = '(new)'; pt.wConfirm = ''; ptRender(); var t = $('ptw-title'); if (t) t.focus(); }
-    else if (a === 'wedit') { var c = ptClient(ptRoute().id), w = c && (c.workouts || []).filter(function (x) { return x.id === id; })[0]; if (!w) return; ptWfInit(w, c.id); pt.wfOpen = id; pt.wConfirm = ''; ptRender(); }
-    else if (a === 'wcancel') { pt.wf = null; pt.wfOpen = ''; pt.wConfirm = ''; ptRender(); }
+    else if (a === 'tab') ptTab(b.getAttribute('data-t'));
+    else if (a === 'wnew' || a === 'hnew') { ptWfInit(null, ptRoute().id, a === 'hnew' ? 'prior' : 'prescribed'); pt.wfOpen = '(new)'; pt.wConfirm = ''; pt.cur = ''; ptRender(); var t = $('ptw-title'); if (t) t.focus(); }
+    else if (a === 'wedit') { var c = ptClient(ptRoute().id), w = c && (c.workouts || []).filter(function (x) { return x.id === id; })[0]; if (!w) return; ptWfInit(w, c.id); pt.wfOpen = id; pt.wConfirm = ''; pt.cur = ''; ptRender(); var fm = document.querySelector('#pt-body .ptwcard.editing'); if (fm) fm.scrollIntoView({ block: 'start', behavior: 'smooth' }); }
+    else if (a === 'wcancel') { ptMicStop(true); pt.wf = null; pt.wfOpen = ''; pt.wConfirm = ''; pt.cur = ''; ptRender(); }
+    else if (a === 'hclear') { ptMicStop(true); ptWfInit(null, ptRoute().id, 'prior'); pt.wfOpen = '(new)'; pt.wConfirm = ''; pt.cur = ''; ptRender(); }
+    else if (a === 'wcopy') ptWorkoutCopy(id);
+    else if (a === 'exadd') ptExAdd();
+    else if (a === 'exdel') ptExDel(+b.getAttribute('data-i'));
     else if (a === 'wsave') ptWorkoutSave();
     else if (a === 'wdone') ptWorkoutDone(id);
     else if (a === 'wdel') { pt.wConfirm = pt.wf ? pt.wf.id : ''; ptRender(); }
@@ -9077,7 +9355,7 @@
     var k = t.getAttribute && t.getAttribute('data-ptf');
     if (k && pt.form) { pt.form[k] = t.value; var s = document.querySelector('[data-ptsec="' + (PT_SECS.filter(function (x) { return x.fields.indexOf(k) >= 0; })[0] || {}).key + '"] .ptsum span'); if (s) s.innerHTML = ptSecSummary((PT_SECS.filter(function (x) { return x.fields.indexOf(k) >= 0; })[0] || {}).key, null); return; }
     var wk = t.getAttribute && t.getAttribute('data-ptw');
-    if (wk && pt.wf) pt.wf[wk] = t.value;
+    if (wk && pt.wf) { var exm = /^ex\.(\d+)\.(\w+)$/.exec(wk); if (exm) { var exr = pt.wf.ex && pt.wf.ex[+exm[1]]; if (exr) exr[exm[2]] = t.value; } else pt.wf[wk] = t.value; }
   });
   document.addEventListener('visibilitychange', function () { if (document.hidden && pm.on) { ptMicStop(true); ptMicUi(); } });
 
