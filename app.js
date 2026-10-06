@@ -14,7 +14,7 @@
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', ovKey: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
-  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc'];
+  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -486,6 +486,8 @@
       else if (R.kind === 'new') state.pcRoute = { kind: 'new', id: '' };
       else state.pcRoute = { kind: 'edit', id: R.kind };
     }
+    if (name === 'hf' && !hlOpenFolder(R.kind)) name = 'home';   // #hf/archive = layout folder
+    if (hl.edit && !/^(home|projects|biz|hf)$/.test(name)) hlEdit(false);   // leaving the layout screens stops the shaking
     if (name === 'punch' && !(PROJ[R.kind] && PROJ[R.kind].punchUrl)) { name = 'proj'; route = 'proj/' + (PROJ[R.kind] ? R.kind : 'terravi'); }
     var logMic = name === 'mic' && R.kind === 'dailylog';       // #mic/dailylog = Dictate page for the Daily log (Voice notes)
     if (logMic) micLogSetup();
@@ -520,6 +522,7 @@
         name === 'insn' ? '#insn' + (state.insSlug ? '/' + encodeURIComponent(state.insSlug) : '') :
         name === 'lt' ? '#lt' + (R.kind ? '/' + encodeURIComponent(R.kind) : '') :
         name === 'pt' ? '#pt' + (state.ptRoute.kind ? '/' + encodeURIComponent(state.ptRoute.kind) + (state.ptRoute.id ? '/' + encodeURIComponent(state.ptRoute.id) : '') : '') :
+        name === 'hf' ? '#hf/' + encodeURIComponent(state.hfId.replace(/^f:/, '')) :
         name === 'mf' ? (state.mfTab && state.mfTab !== 'home' ? '#mf/' + state.mfTab : '#mf') :
         name === 'pc' ? (state.pcRoute && state.pcRoute.kind === 'new' ? '#pc/new' : state.pcRoute && state.pcRoute.kind === 'edit' && state.pcRoute.id ? '#pc/' + encodeURIComponent(state.pcRoute.id) : '#pc') :
         name === 're' ? (state.reRoute.ins ? '#ins' : '#re' + (state.reRoute.slug ? '/' + encodeURIComponent(state.reRoute.slug) : '')) : '#' + name;
@@ -531,6 +534,7 @@
     if (name === 'spend') loadSpend(false);
     if (name === 'ent') loadEnt(false);
     if (name === 'biz') { state.bizSlug = R.kind; loadBiz(); }
+    if (name === 'home' || name === 'projects' || name === 'biz' || name === 'hf') hlRender();   // Home layout grids (folders)
     if (name === 're') loadRe();
     if (name === 'proj') renderProj();
     if (name === 'notes') openNotes();
@@ -880,8 +884,8 @@
     Object.keys(PROJ).forEach(function (k) {       // projects set up in PROJ show even before the server's project list knows them
       if (!plist.some(function (p) { return projSlugOf(p.name) === k; })) plist.push({ name: PROJ[k].name, url: PROJ[k].docUrl, kind: 'doc' });
     });
-    var pcTile = '<button class="tile small pc-entry" data-go="pc">Plan Checks<span class="sub">Mic checklist \u00b7 fullscreen plan \u00b7 pins &amp; notes</span></button>';
-    $('projects-list').innerHTML = pcTile + plist.map(function (p) {
+    // Plan Checks is a movable layout item now (#hl-projects above this list; see Home layout).
+    $('projects-list').innerHTML = plist.map(function (p) {
       var slug = projSlugOf(p.name);
       if (slug) {
         (state.projDocUrls = state.projDocUrls || {})[slug] = p.url;
@@ -3013,7 +3017,7 @@
   function loadBiz() {
     if (state.biz) return renderBiz();
     $('biz-title').textContent = 'Business';
-    $('biz-back').setAttribute('data-go', state.bizSlug ? 'biz' : 'home');
+    $('biz-back').setAttribute('data-go', state.bizSlug ? 'biz' : hlBackOf('biz'));
     $('biz-body').innerHTML = '<div class="loading">Loading…</div>';
     api('biz').then(function (d) { state.biz = d; renderBiz(); }, function (err) {
       if (err instanceof AuthError) return onFail(['biz-body'], loadBiz)(err);
@@ -3057,7 +3061,8 @@
   function renderBiz() {
     var d = state.biz, slug = state.bizSlug;
     var b = slug && (d.businesses || []).filter(function (x) { return x.slug === slug; })[0];
-    $('biz-back').setAttribute('data-go', b ? 'biz' : 'home');
+    $('biz-back').setAttribute('data-go', b ? 'biz' : hlBackOf('biz'));
+    if ($('hl-biz')) $('hl-biz').hidden = !!b || !(hl.f && hl.f.biz.length);
     if (!b) {
       $('biz-title').textContent = 'Business';
       $('biz-title').classList.remove('sub');
@@ -14144,60 +14149,458 @@
   });
 
   /* ---------------- Init ---------------- */
-  // Home tiles: press and hold, then drag to reorder. Order is saved on this device.
-  (function homeReorder() {
-    var grid = $('home-grid'); if (!grid) return;
-    var KEY = 'cc_home_order';
-    function tiles() { return [].slice.call(grid.children).filter(function (x) { return x.getAttribute && x.getAttribute('data-go'); }); }
-    function applyOrder() {
-      var saved = []; try { saved = JSON.parse(localStorage.getItem(KEY) || '[]') || []; } catch (e) {}
-      if (!saved.length) return;
-      var map = {}; tiles().forEach(function (t) { map[t.getAttribute('data-go')] = t; });
-      saved.forEach(function (k) { if (map[k]) { grid.appendChild(map[k]); delete map[k]; } });
-      tiles().forEach(function (t) { if (map[t.getAttribute('data-go')]) grid.appendChild(t); });   // new tiles go last
+  /* ---------------- Home layout: folders + press-and-hold drag (reorder, move into folders) ---------------- */
+  // Every Home button (and the Plan Checks button in L&S projects) is a layout item keyed by its route. Folder items
+  // (L&S projects, Business, Archive) hold other items. The layout lives on this device only (localStorage
+  // 'cc_home_layout'); HL_DEFAULT is the fallback, and items shipped later are slotted into their default folder.
+  // Moving an item only changes where its button appears: the button keeps its data-go, so it opens the same screen.
+  var HL_KEY = 'cc_home_layout', HL_OLD_KEY = 'cc_home_order';
+  var HL_ITEMS = {
+    'projects':  { label: 'L&S projects', go: 'projects', folder: true },
+    'log':       { label: 'Daily Log', go: 'log' },
+    'spend':     { label: 'Vault', go: 'spend' },
+    'fin':       { label: 'Finances', go: 'fin' },
+    'insn':      { label: 'Insurance', go: 'insn' },
+    'lt':        { label: 'Lisa\u2019s Table', go: 'lt' },
+    'pt':        { label: 'Lisa\u2019s Personal Training', go: 'pt' },
+    'trust':     { label: 'Trust & Estate', go: 'trust' },
+    'ent/kiwit': { label: 'KiwiT LLC', go: 'ent/kiwit' },
+    'ent/tiwik': { label: 'TiwiK LLC', go: 'ent/tiwik' },
+    'mf':        { label: 'Mono Fold', go: 'mf' },
+    'biz':       { label: 'Business', go: 'biz', folder: true },
+    'pc':        { label: 'Plan Checks', go: 'pc', sub: 'Mic checklist \u00b7 fullscreen plan \u00b7 pins & notes', cls: 'pc-entry' },
+    'f:archive': { label: 'Archive', go: 'hf/archive', folder: true }
+  };
+  var HL_DEFAULT = {
+    home: ['projects', 'log', 'spend', 'fin', 'insn', 'lt', 'pt', 'trust', 'ent/kiwit', 'ent/tiwik', 'mf', 'biz'],
+    projects: ['pc'],
+    biz: ['f:archive'],
+    'f:archive': []
+  };
+  var hl = { f: null, dragging: false, edit: false };
+  function hlIsFolder(id) { return id === 'home' || !!(HL_ITEMS[id] && HL_ITEMS[id].folder); }
+  function hlFolderIds() { return ['home'].concat(Object.keys(HL_ITEMS).filter(function (k) { return HL_ITEMS[k].folder; })); }
+  function hlDefaultParent(id) {
+    var p = 'home';
+    Object.keys(HL_DEFAULT).forEach(function (f) { if (HL_DEFAULT[f].indexOf(id) >= 0) p = f; });
+    return p;
+  }
+  function hlParentIn(f, id) {
+    var ks = Object.keys(f);
+    for (var i = 0; i < ks.length; i++) if (f[ks[i]].indexOf(id) >= 0) return ks[i];
+    return '';
+  }
+  function hlParent(id) { return hlParentIn(hl.f, id); }
+  // Clean up any stored layout: drop unknown ids and duplicates, break folder cycles, add missing (new) items at their default place.
+  function hlNormalize(src) {
+    var out = {}, placed = {};
+    hlFolderIds().forEach(function (fid) {
+      out[fid] = ((src && Array.isArray(src[fid])) ? src[fid] : []).filter(function (id) {
+        if (typeof id !== 'string' || !HL_ITEMS[id] || placed[id] || id === fid) return false;
+        placed[id] = 1; return true;
+      });
+    });
+    function insertDefault(id) {
+      var p = hlDefaultParent(id); if (!out[p]) p = 'home';
+      var def = HL_DEFAULT[p] || [], di = def.indexOf(id), at = out[p].length;
+      for (var j = di - 1; j >= 0; j--) { var k = out[p].indexOf(def[j]); if (k >= 0) { at = k + 1; break; } }
+      if (di >= 0 && at === out[p].length && di === 0) at = 0;
+      out[p].splice(at, 0, id);
     }
-    function saveOrder() { try { localStorage.setItem(KEY, JSON.stringify(tiles().map(function (t) { return t.getAttribute('data-go'); }))); } catch (e) {} }
-    applyOrder();
-    var timer = null, drag = null, sx = 0, sy = 0, justDragged = false;
-    function cancelTimer() { if (timer) { clearTimeout(timer); timer = null; } }
-    grid.addEventListener('touchstart', function (e) {
-      var t = e.target.closest('.tile'); if (!t || e.touches.length !== 1) return;
-      var pt = e.touches[0]; sx = pt.clientX; sy = pt.clientY;
-      cancelTimer();
-      timer = setTimeout(function () {
-        timer = null; drag = { el: t, ox: 0, oy: 0 };
-        t.classList.add('dragging'); grid.classList.add('reordering');
-        if (navigator.vibrate) try { navigator.vibrate(15); } catch (er) {}
-      }, 450);
-    }, { passive: true });
-    grid.addEventListener('touchmove', function (e) {
-      var pt = e.touches[0];
-      if (!drag) { if (Math.abs(pt.clientX - sx) > 10 || Math.abs(pt.clientY - sy) > 10) cancelTimer(); return; }
-      e.preventDefault();
-      var el = drag.el;
-      el.style.transform = 'translate(' + (pt.clientX - sx) + 'px,' + (pt.clientY - sy) + 'px) scale(1.04)';
-      el.style.pointerEvents = 'none';
-      var over = document.elementFromPoint(pt.clientX, pt.clientY), tgt = over && over.closest ? over.closest('.tile') : null;
-      if (tgt && tgt !== el && tgt.parentNode === grid) {
-        var before = el.getBoundingClientRect();
-        var kids = tiles(), ei = kids.indexOf(el), ti = kids.indexOf(tgt);
-        grid.insertBefore(el, ei < ti ? tgt.nextSibling : tgt);
-        var after = el.getBoundingClientRect();   // keep the dragged tile under the finger after the DOM move
-        sx += after.left - before.left; sy += after.top - before.top;
-        el.style.transform = 'translate(' + (pt.clientX - sx) + 'px,' + (pt.clientY - sy) + 'px) scale(1.04)';
+    Object.keys(HL_ITEMS).forEach(function (id) { if (!placed[id]) { insertDefault(id); placed[id] = 1; } });
+    for (var guard = 0; guard < 20; guard++) {          // every folder must be reachable from Home (no folder inside itself)
+      var seen = { home: 1 }, stack = ['home'];
+      while (stack.length) { var f = stack.pop(); (out[f] || []).forEach(function (id) { if (hlIsFolder(id) && !seen[id]) { seen[id] = 1; stack.push(id); } }); }
+      var lost = hlFolderIds().filter(function (fid) { return !seen[fid]; });
+      if (!lost.length) break;
+      var fid = lost[0], par = hlParentIn(out, fid);
+      if (par) out[par].splice(out[par].indexOf(fid), 1);
+      var dp = hlDefaultParent(fid); out[seen[dp] ? dp : 'home'].push(fid);
+    }
+    return out;
+  }
+  function hlLoad() {
+    var raw = null;
+    try { raw = JSON.parse(localStorage.getItem(HL_KEY) || 'null'); } catch (e) { raw = null; }
+    if (raw && raw.f && typeof raw.f === 'object') { hl.f = hlNormalize(raw.f); return; }
+    var src = JSON.parse(JSON.stringify(HL_DEFAULT)), old = [];   // first run: carry over the old Home order (v<=106)
+    try { old = JSON.parse(localStorage.getItem(HL_OLD_KEY) || '[]') || []; } catch (e) { old = []; }
+    if (Array.isArray(old) && old.length) {
+      var rest = src.home.filter(function (id) { return old.indexOf(id) < 0; });
+      src.home = old.filter(function (id) { return src.home.indexOf(id) >= 0; }).concat(rest);
+    }
+    hl.f = hlNormalize(src);
+  }
+  function hlSave() {
+    try { localStorage.setItem(HL_KEY, JSON.stringify({ v: 1, f: hl.f })); } catch (e) {}
+    try { localStorage.setItem(HL_OLD_KEY, JSON.stringify(hl.f.home)); } catch (e) {}   // keep the old key in step (Home order)
+  }
+  function hlRoute(fid) { return fid === 'home' ? 'home' : HL_ITEMS[fid].go; }
+  function hlName(fid) { return fid === 'home' ? 'Home' : HL_ITEMS[fid].label; }
+  function hlPath(fid) {
+    var parts = [], p = fid;
+    for (var g = 0; g < 20 && p && p !== 'home'; g++) { parts.unshift(hlName(p)); p = hlParent(p); }
+    return parts.length ? parts.join(' \u203a ') : 'Home';
+  }
+  function hlBackOf(fid) { var p = hl.f ? hlParent(fid) : 'home'; return hlRoute(p || 'home'); }
+  // true when folder `fid` is `anc` itself or nested anywhere inside it.
+  function hlInside(fid, anc) {
+    for (var p = fid, g = 0; g < 30 && p; g++) { if (p === anc) return true; if (p === 'home') return false; p = hlParent(p); }
+    return false;
+  }
+  function hlCanMove(id, to) { return !!HL_ITEMS[id] && hlIsFolder(to) && !(HL_ITEMS[id].folder && hlInside(to, id)); }
+  function hlMove(id, to, at) {
+    if (!hlCanMove(id, to)) return false;
+    var from = hlParent(id);
+    if (from) hl.f[from].splice(hl.f[from].indexOf(id), 1);
+    var list = hl.f[to];
+    if (at == null || at < 0 || at > list.length) at = list.length;
+    list.splice(at, 0, id);
+    hlSave(); hlRender();
+    return true;
+  }
+  function hlTileHtml(id) {
+    var it = HL_ITEMS[id];
+    return '<button type="button" class="tile' + (it.sub ? ' small' : '') + (it.folder ? ' hl-folder' : '') + (it.cls ? ' ' + it.cls : '') +
+      '" data-go="' + esc(it.go) + '" data-hl="' + esc(id) + '"><span class="hl-dots" aria-hidden="true"></span>' + esc(it.label) + (it.sub ? '<span class="sub">' + esc(it.sub) + '</span>' : '') + '</button>';
+  }
+  function hlRenderGrid(el, fid, empty) {
+    if (!el) return;
+    var ids = hl.f[fid] || [];
+    el.setAttribute('data-hl-folder', fid);
+    el.innerHTML = ids.map(hlTileHtml).join('') + (!ids.length && empty ? '<div class="hl-empty">Empty, drag buttons here</div>' : '');
+    if (!empty) el.hidden = !ids.length;
+  }
+  function hlRender() {
+    if (!hl.f || hl.dragging) return;
+    hlRenderGrid($('home-grid'), 'home', true);
+    hlRenderGrid($('hl-projects'), 'projects', false);
+    hlRenderGrid($('hl-biz'), 'biz', false);
+    if ($('hl-biz') && state.bizSlug) $('hl-biz').hidden = true;
+    var pb = $('projects-back'); if (pb) { var pr = hlBackOf('projects'); pb.setAttribute('data-go', pr); pb.hidden = pr === 'home'; }
+    if (!state.bizSlug && $('biz-back')) $('biz-back').setAttribute('data-go', hlBackOf('biz'));
+    if (state.hfId && HL_ITEMS[state.hfId]) {
+      $('hf-title').textContent = HL_ITEMS[state.hfId].label;
+      $('hf-back').setAttribute('data-go', hlBackOf(state.hfId));
+      $('hf-path').textContent = hlPath(state.hfId);
+      hlRenderGrid($('hf-grid'), state.hfId, true);
+    }
+  }
+  function hlOpenFolder(kind) {          // #hf/<name> = a layout-only folder (Archive)
+    var id = 'f:' + (kind || 'archive');
+    if (!HL_ITEMS[id]) { state.hfId = ''; return false; }
+    state.hfId = id; hlRender(); return true;
+  }
+
+  // Toast with Undo (after a move or reset).
+  var hlToastT = 0, hlUndo = null, HL_HINT = 'Drag onto a folder to move it in, between buttons to reorder';
+  function hlToastHide() {
+    var t = $('hl-toast'); if (t) { t.classList.remove('show'); t.hidden = true; }
+    var h = document.querySelector('#hl-editbar .hl-ehint'); if (h) { h.textContent = HL_HINT; h.classList.remove('hl-msg'); }
+    hlUndo = null;
+  }
+  // While shaking, the message (with Undo) shows in the Done bar so it never covers a button; otherwise a toast.
+  function hlToast(msg, undoF) {
+    hlToastHide();
+    var box = document.querySelector('#hl-editbar .hl-ehint'), t = null;
+    if (!box) {
+      t = $('hl-toast');
+      if (!t) { t = document.createElement('div'); t.id = 'hl-toast'; t.className = 'hl-toast'; t.setAttribute('role', 'status'); document.body.appendChild(t); }
+      box = t;
+    } else box.classList.add('hl-msg');
+    hlUndo = undoF || null;
+    box.innerHTML = '<span>' + esc(msg) + '</span>' + (undoF ? ' <button type="button" class="hl-undo">Undo</button>' : '');
+    if (t) { t.hidden = false; t.classList.add('show'); }
+    clearTimeout(hlToastT);
+    hlToastT = setTimeout(hlToastHide, 4500);
+    var u = box.querySelector('.hl-undo');
+    if (u) u.addEventListener('click', function (e) {
+      e.stopPropagation(); e.preventDefault();
+      if (hlUndo) { hl.f = hlNormalize(hlUndo); hlSave(); hlRender(); }
+      hlToastHide();
+    });
+  }
+  function hlSnap() { return JSON.parse(JSON.stringify(hl.f)); }
+  function hlMoveToast(id, to) {
+    var before = hlSnap();
+    if (hlMove(id, to)) hlToast(HL_ITEMS[id].label + ' moved to ' + hlPath(to), before);
+  }
+
+  // Long-press / right-click menu: Open, Move to… (folder picker), Reset layout.
+  function hlSheetClose() { var s = $('hl-sheet'); if (s) s.remove(); }
+  function hlSheet(inner) {
+    hlSheetClose();
+    hlToastHide();   // never cover the menu
+    var s = document.createElement('div');
+    s.id = 'hl-sheet'; s.className = 'hl-sheet'; s.setAttribute('role', 'dialog'); s.setAttribute('aria-modal', 'true');
+    s.innerHTML = '<div class="hl-box">' + inner + '</div>';
+    s.addEventListener('click', function (e) {
+      e.stopPropagation(); e.preventDefault();
+      if (e.target === s) return hlSheetClose();
+      var b = e.target.closest('[data-hl-act]'); if (!b || b.disabled) return;
+      var act = b.getAttribute('data-hl-act'), id = b.getAttribute('data-id');
+      if (act === 'cancel') return hlSheetClose();
+      if (act === 'open') { hlSheetClose(); return show(HL_ITEMS[id].go); }
+      if (act === 'move') return hlPicker(id);
+      if (act === 'to') { hlSheetClose(); return hlMoveToast(id, b.getAttribute('data-to')); }
+      if (act === 'reset') return hlResetAsk(id);
+      if (act === 'menu') return hlMenu(id);
+      if (act === 'doreset') {
+        hlSheetClose();
+        var before = hlSnap();
+        try { localStorage.removeItem(HL_KEY); localStorage.removeItem(HL_OLD_KEY); } catch (er) {}
+        hl.f = hlNormalize(HL_DEFAULT); hlRender();
+        hlToast('Layout reset to default', before);
       }
-    }, { passive: false });
-    function end() {
-      cancelTimer();
-      if (!drag) return;
-      drag.el.classList.remove('dragging'); drag.el.style.transform = ''; drag.el.style.pointerEvents = '';
-      grid.classList.remove('reordering'); drag = null; saveOrder();
-      justDragged = true; setTimeout(function () { justDragged = false; }, 350);
+    });
+    document.body.appendChild(s);
+    var f = s.querySelector('button:not([disabled])'); if (f) try { f.focus({ preventScroll: true }); } catch (e) {}
+  }
+  function hlMenu(id) {
+    var it = HL_ITEMS[id]; if (!it) return;
+    hlSheet('<div class="hl-title">' + esc(it.label) + '</div><div class="hl-sub">In ' + esc(hlPath(hlParent(id))) + '</div>' +
+      '<button type="button" class="hl-opt" data-hl-act="open" data-id="' + esc(id) + '">Open</button>' +
+      '<button type="button" class="hl-opt" data-hl-act="move" data-id="' + esc(id) + '">Move to\u2026</button>' +
+      '<button type="button" class="hl-opt hl-quiet" data-hl-act="reset" data-id="' + esc(id) + '">Reset layout\u2026</button>' +
+      '<button type="button" class="hl-opt hl-cancel" data-hl-act="cancel">Cancel</button>');
+  }
+  function hlPicker(id) {
+    var rows = [], cur = hlParent(id);
+    (function walk(fid, depth) {
+      rows.push({ fid: fid, depth: depth });
+      (hl.f[fid] || []).forEach(function (k) { if (hlIsFolder(k)) walk(k, depth + 1); });
+    })('home', 0);
+    hlSheet('<div class="hl-title">Move \u201c' + esc(HL_ITEMS[id].label) + '\u201d to\u2026</div>' + rows.map(function (r) {
+      var here = r.fid === cur, bad = !hlCanMove(id, r.fid);
+      return '<button type="button" class="hl-opt hl-dest" style="padding-left:' + (16 + r.depth * 18) + 'px" data-hl-act="to" data-id="' + esc(id) +
+        '" data-to="' + esc(r.fid) + '"' + (here || bad ? ' disabled' : '') + '>' + (r.fid === 'home' ? '\u2302 ' : '\u25B8 ') + esc(hlPath(r.fid)) +
+        (here ? ' <small>(here now)</small>' : bad ? ' <small>(itself)</small>' : '') + '</button>';
+    }).join('') + '<button type="button" class="hl-opt hl-cancel" data-hl-act="menu" data-id="' + esc(id) + '">Back</button>');
+  }
+  function hlResetAsk(id) {
+    hlSheet('<div class="hl-title">Reset layout?</div><div class="hl-sub">Puts every button and folder back where it started. Nothing is deleted.</div>' +
+      '<button type="button" class="hl-opt" data-hl-act="doreset">Reset layout</button>' +
+      '<button type="button" class="hl-opt hl-cancel" data-hl-act="' + (id ? 'menu' : 'cancel') + '" data-id="' + esc(id || '') + '">Cancel</button>');
+  }
+
+  // Edit ("jiggle") mode, like the iPhone: hold any layout button ~3 s and every button shakes. While shaking, drag a
+  // button onto a folder's middle to move it in, or over other buttons to reorder; inside a folder a bar at the top
+  // offers Home / Up one level. Tap a folder to open it (still shaking), tap a button or its corner badge for the menu
+  // (Move to…, Reset layout). Done (or a tap on empty space) stops the shaking. Every change is saved as it happens.
+  // Not shaking: a short tap opens the button as always.
+  function hlEdit(on) {
+    on = !!on;
+    if (!!hl.edit === on) return;
+    hl.edit = on;
+    document.body.classList.toggle('hl-edit', on);
+    var bar = $('hl-editbar');
+    if (on && !bar) {
+      bar = document.createElement('div'); bar.id = 'hl-editbar'; bar.className = 'hl-editbar';
+      bar.innerHTML = '<button type="button" class="hl-reset" data-hl-bar="reset">Reset layout</button>' +
+        '<span class="hl-ehint">' + HL_HINT + '</span>' +
+        '<button type="button" class="hl-donebtn" data-hl-bar="done">Done</button>';
+      bar.addEventListener('click', function (e) {
+        e.stopPropagation(); e.preventDefault();
+        var b = e.target.closest('[data-hl-bar]'); if (!b) return;
+        if (b.getAttribute('data-hl-bar') === 'done') hlEdit(false); else hlResetAsk('');
+      });
+      document.body.appendChild(bar);
+      if (navigator.vibrate) try { navigator.vibrate(20); } catch (er) {}
     }
-    grid.addEventListener('touchend', end); grid.addEventListener('touchcancel', end);
-    grid.addEventListener('click', function (e) { if (justDragged) { e.preventDefault(); e.stopPropagation(); } }, true);
-    grid.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+    if (!on) { if (bar) bar.remove(); if (hl.f) hlSave(); }
+  }
+
+  (function hlDrag() {
+    var HOLD = 3000;   // press and hold this long (without moving) to start shaking
+    var press = null, drag = null, lastTouch = 0, suppressUntil = 0, raf = 0;
+    function tileOf(t) { return t && t.closest ? t.closest('.hl-grid > .tile[data-hl]') : null; }
+    function clearPress() { if (press) { if (press.timer) clearTimeout(press.timer); press.el.classList.remove('hl-holding'); } press = null; }
+    function startPress(t, x, y, mouse) {
+      clearPress();
+      press = { el: t, x: x, y: y, mouse: mouse, edit: !!hl.edit, entered: false };
+      if (!press.edit) { t.classList.add('hl-holding'); press.timer = setTimeout(enter, HOLD); }
+    }
+    function enter() {           // the 3 s hold finished: everything starts shaking; keep holding and move to drag right away
+      if (!press) return;
+      press.timer = 0; press.el.classList.remove('hl-holding');
+      press.edit = true; press.entered = true;
+      hlEdit(true);
+    }
+    function pressMove(x, y, e) {     // -> true when this movement started a drag
+      var dist = Math.abs(x - press.x) + Math.abs(y - press.y);
+      if (press.edit && dist > 6) { if (e && e.cancelable) e.preventDefault(); begin(); if (drag) { drag.moved = true; move(x, y); } return true; }
+      if (!press.edit && dist > 10) clearPress();   // scrolling / not a hold
+      return false;
+    }
+    function zonesHtml(fid) {
+      if (fid === 'home') return '';
+      var par = hlParent(fid), h = '<button type="button" class="hl-zone" data-zone="home">\u2302 Home</button>';
+      if (par && par !== 'home') h += '<button type="button" class="hl-zone" data-zone="' + esc(par) + '">\u2191 Up to ' + esc(hlName(par)) + '</button>';
+      else h = '<button type="button" class="hl-zone" data-zone="home">\u2191 Up one level \u00b7 Home</button>';
+      return h;
+    }
+    function begin() {
+      if (!press) return;
+      var el = press.el, grid = el.parentNode;
+      drag = { el: el, grid: grid, fid: grid.getAttribute('data-hl-folder') || 'home', id: el.getAttribute('data-hl'),
+        sx: press.x, sy: press.y, x: press.x, y: press.y, moved: false, maxY: Math.max(0, document.documentElement.scrollHeight - window.innerHeight), reordered: false, target: null, zone: null, mouse: press.mouse };
+      if (press.timer) clearTimeout(press.timer);
+      press = null; hl.dragging = true;
+      el.classList.add('dragging'); document.body.classList.add('hl-busy');
+      var zh = zonesHtml(drag.fid);
+      if (zh) { var z = document.createElement('div'); z.id = 'hl-zones'; z.className = 'hl-zones'; z.innerHTML = '<div class="hl-zlabel">Drop here to move out</div><div class="hl-zrow">' + zh + '</div>'; document.body.appendChild(z); }
+    }
+    function setTarget(t) {
+      if (drag.target === t) return;
+      if (drag.target) drag.target.classList.remove('hl-target');
+      drag.target = t; if (t) t.classList.add('hl-target');
+      place();
+    }
+    function setZone(z) {
+      if (drag.zone === z) return;
+      if (drag.zone) drag.zone.classList.remove('hl-on');
+      drag.zone = z; if (z) z.classList.add('hl-on');
+      place();
+    }
+    function place() {   // over a drop target the dragged button shrinks and fades so the highlighted folder / zone shows through
+      var over = !!(drag.target || drag.zone);
+      drag.el.classList.toggle('hl-over', over);
+      drag.el.style.transform = 'translate(' + (drag.x - drag.sx) + 'px,' + (drag.y - drag.sy) + 'px) scale(' + (over ? 0.72 : 1.04) + ')';
+    }
+    function move(x, y) {
+      drag.x = x; drag.y = y;
+      if (!drag.moved && Math.abs(x - drag.sx) + Math.abs(y - drag.sy) > 6) drag.moved = true;
+      var el = drag.el, grid = drag.grid;
+      el.style.pointerEvents = 'none'; place();
+      var over = document.elementFromPoint(x, y);
+      var zone = over && over.closest ? over.closest('.hl-zone') : null;
+      setZone(zone);
+      if (zone) { drag.edge = null; setTarget(null); return autoScroll(); }
+      var tgt = over && over.closest ? over.closest('.tile[data-hl]') : null;
+      if (!tgt || tgt === el || tgt.parentNode !== grid) { drag.edge = null; setTarget(null); return autoScroll(); }
+      var r = tgt.getBoundingClientRect(), tid = tgt.getAttribute('data-hl');
+      var mid = x > r.left + r.width * 0.22 && x < r.right - r.width * 0.22;
+      if (HL_ITEMS[tid] && HL_ITEMS[tid].folder) {
+        // Folder: the middle is a drop target; its edges reorder only after a short pause there, so passing over an
+        // edge on the way to the middle does not shove the folder out from under the finger.
+        if (mid) { drag.edge = null; setTarget(hlCanMove(drag.id, tid) ? tgt : null); return autoScroll(); }
+        setTarget(null);
+        if (drag.edge !== tgt) {
+          drag.edge = tgt; drag.edgeAt = Date.now(); clearTimeout(drag.edgeT);
+          drag.edgeT = setTimeout(function () { if (drag && drag.edge === tgt) move(drag.x, drag.y); }, 480);
+          return autoScroll();
+        }
+        if (Date.now() - drag.edgeAt < 450) return autoScroll();
+      }
+      drag.edge = null; setTarget(null);
+      var before = el.getBoundingClientRect(), kids = [].slice.call(grid.children), ei = kids.indexOf(el), ti = kids.indexOf(tgt);
+      grid.insertBefore(el, ei < ti ? tgt.nextSibling : tgt);
+      var after = el.getBoundingClientRect();   // keep the dragged button under the finger after the DOM move
+      drag.sx += after.left - before.left; drag.sy += after.top - before.top;
+      drag.reordered = true; place();
+      autoScroll();
+    }
+    function autoScroll() {
+      if (raf) return;
+      var zb = $('hl-zones'), top = zb ? zb.getBoundingClientRect().bottom : 0;
+      var dir = (drag.y > window.innerHeight - 56 && window.scrollY < drag.maxY) ? 1 : (drag.y < top + 48 && drag.y > top && window.scrollY > 0) ? -1 : 0;
+      if (!dir) return;
+      raf = requestAnimationFrame(function () {
+        raf = 0; if (!drag) return;
+        var y0 = window.scrollY; window.scrollTo(0, Math.max(0, Math.min(drag.maxY, y0 + dir * 8)));   // never past the page's real end
+        var d = window.scrollY - y0;
+        if (d) { drag.sy -= d; place(); autoScroll(); }
+      });
+    }
+    function end(cancelled) {
+      if (!drag) return;
+      var d = drag; drag = null; hl.dragging = false; clearTimeout(d.edgeT);
+      if (raf) { cancelAnimationFrame(raf); raf = 0; }
+      d.el.classList.remove('dragging', 'hl-over'); d.el.style.transform = ''; d.el.style.pointerEvents = '';
+      document.body.classList.remove('hl-busy');
+      if (d.target) d.target.classList.remove('hl-target');
+      var zEl = $('hl-zones'); if (zEl) zEl.remove();
+      suppressUntil = Date.now() + 300;
+      var orderBefore = hlSnap();   // the order before this drag (live reordering only touched the DOM)
+      if (!cancelled && (d.zone || d.target)) {   // dropped on a folder or on Home / Up: move it there (source order unchanged)
+        var to = d.zone ? d.zone.getAttribute('data-zone') : d.target.getAttribute('data-hl');
+        if (hlMove(d.id, to)) { hlToast(HL_ITEMS[d.id].label + ' moved to ' + hlPath(to), orderBefore); return; }
+      }
+      if (d.reordered) {          // save the reordered DOM as this folder's order
+        hl.f[d.fid] = [].slice.call(d.grid.children).map(function (t) { return t.getAttribute && t.getAttribute('data-hl'); }).filter(function (k) { return k && HL_ITEMS[k]; });
+        hl.f = hlNormalize(hl.f); hlSave();
+      }
+      hlRender();
+    }
+    // Touch (phone)
+    document.addEventListener('touchstart', function (e) {
+      lastTouch = Date.now();
+      if (drag) return;
+      var t = tileOf(e.target); if (!t || e.touches.length !== 1) { clearPress(); return; }
+      startPress(t, e.touches[0].clientX, e.touches[0].clientY, false);
+    }, { passive: true });
+    document.addEventListener('touchmove', function (e) {
+      lastTouch = Date.now();
+      var p = e.touches[0]; if (!p) return;
+      if (drag) { if (e.cancelable) e.preventDefault(); move(p.clientX, p.clientY); return; }
+      if (press) pressMove(p.clientX, p.clientY, e);
+    }, { passive: false });
+    document.addEventListener('touchend', function (e) {
+      lastTouch = Date.now();
+      if (drag) { if (e.cancelable) e.preventDefault(); end(false); return; }
+      if (press && press.entered) { if (e.cancelable) e.preventDefault(); suppressUntil = Date.now() + 350; }   // the hold that started shaking is not a tap
+      clearPress();
+    }, { passive: false });
+    document.addEventListener('touchcancel', function () { lastTouch = Date.now(); clearPress(); if (drag) end(true); });
+    // Mouse (Windows desktop): hold 3 s to start shaking; while shaking, press and move to drag; right-click = menu.
+    document.addEventListener('mousedown', function (e) {
+      if (Date.now() - lastTouch < 1000 || e.button !== 0 || drag) return;
+      var t = tileOf(e.target); if (!t) return;
+      e.preventDefault();   // no text selection / native drag; the click still fires
+      startPress(t, e.clientX, e.clientY, true);
+    });
+    document.addEventListener('mousemove', function (e) {
+      if (Date.now() - lastTouch < 1000) return;
+      if (drag && drag.mouse) { e.preventDefault(); move(e.clientX, e.clientY); return; }
+      if (press && press.mouse) pressMove(e.clientX, e.clientY, e);
+    });
+    document.addEventListener('mouseup', function (e) {
+      if (Date.now() - lastTouch < 1000) return;
+      if (drag && drag.mouse) { e.preventDefault(); end(false); return; }
+      if (press && press.entered) suppressUntil = Date.now() + 350;
+      clearPress();
+    });
+    window.addEventListener('blur', function () { clearPress(); if (drag) end(true); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      if (drag) { e.preventDefault(); end(true); }
+      else if ($('hl-sheet')) { e.preventDefault(); hlSheetClose(); }
+      else if (hl.edit) { e.preventDefault(); hlEdit(false); }
+    });
+    document.addEventListener('contextmenu', function (e) {
+      var t = tileOf(e.target); if (!t) return;
+      e.preventDefault();
+      if (Date.now() - lastTouch < 1000 || drag) return;   // touch long-press is handled above
+      clearPress(); hlMenu(t.getAttribute('data-hl'));
+    });
+    // Taps. Not shaking: buttons open normally (the global data-go handler). Shaking: folder = open it (keeps shaking),
+    // other button or corner badge = menu, empty space = Done. A drag or the hold that started shaking never counts as a tap.
+    window.addEventListener('click', function (e) {
+      var t = tileOf(e.target);
+      if (Date.now() < suppressUntil && (t || hl.edit)) { e.preventDefault(); e.stopPropagation(); return; }
+      if (!hl.edit) return;
+      if (e.target.closest && e.target.closest('#hl-editbar, #hl-sheet, #hl-toast, #hl-zones')) return;
+      if (t) {
+        e.preventDefault(); e.stopPropagation();
+        var id = t.getAttribute('data-hl');
+        if (e.target.closest('.hl-dots') || !HL_ITEMS[id].folder) hlMenu(id); else show(HL_ITEMS[id].go);
+        return;
+      }
+      if (e.target.closest && e.target.closest('button, a, input, textarea, select, label, [data-go], [role="button"]')) return;   // other controls work
+      e.preventDefault(); e.stopPropagation(); hlEdit(false);
+    }, true);
   })();
+  hlLoad(); hlRender();
 
   // Every "Try again" button: show it is working (handlers re-render the box, replacing the button; restore if nothing does).
   document.addEventListener('click', function (e) {

@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lora:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=108">
+<link rel="stylesheet" href="app.css?v=109">
 </head>
 <body>
   <div class="bg"></div>
@@ -46,7 +46,7 @@
       <h1 class="title">Command Center</h1>
       <div class="subtitle" id="home-date"></div>
     </header>
-    <div class="grid2 homegrid" id="home-grid">
+    <div class="grid2 homegrid hl-grid" id="home-grid" data-hl-folder="home">
       <button class="tile" data-go="projects">L&amp;S projects</button>
       <button class="tile" data-go="log">Daily Log</button>
       <button class="tile" data-go="spend">Vault</button>
@@ -65,11 +65,10 @@
 
   <!-- ============ L&S PROJECTS ============ -->
   <section id="screen-projects" class="screen">
-    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><h2>L&amp;S projects</h2></div>
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="projects-back" data-go="home" hidden>&lsaquo; Back</button><h2>L&amp;S projects</h2></div>
     <p class="hint">Opens each project's Running Notes.</p>
-    <div class="grid2" id="projects-list">
-      <button class="tile small pc-entry" data-go="pc">Plan Checks<span class="sub">Mic checklist · fullscreen plan · pins &amp; notes</span></button>
-    </div>
+    <div class="grid2 homegrid hl-grid hl-sub" id="hl-projects" data-hl-folder="projects"></div>
+    <div class="grid2" id="projects-list"></div>
   </section>
 
   <!-- ============ PROJECT PAGE (#proj/<slug>) — Terra Vi is the pilot ============ -->
@@ -136,7 +135,16 @@
   <!-- ============ BUSINESS (#biz; no Home tile — reached from the KiwiT/TiwiK Business Documents tab or by URL) ============ -->
   <section id="screen-biz" class="screen">
     <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="biz-back" data-go="home">&lsaquo; Back</button><h2 id="biz-title">Business</h2></div>
+    <div class="grid2 homegrid hl-grid hl-sub" id="hl-biz" data-hl-folder="biz"></div>
     <div id="biz-body"><div class="loading">Loading…</div></div>
+  </section>
+
+  <!-- ============ LAYOUT FOLDER (#hf/archive): a Home-layout folder (Archive, inside Business by default) ============ -->
+  <section id="screen-hf" class="screen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="hf-back" data-go="biz">&lsaquo; Back</button><h2 id="hf-title">Archive</h2></div>
+    <p class="hint" id="hf-path"></p>
+    <div class="grid2 homegrid hl-grid" id="hf-grid" data-hl-folder="f:archive"></div>
+    <p class="hint hl-foot">Press and hold any button for 3 seconds until the buttons shake, then drag it onto a folder or between buttons.</p>
   </section>
 
   <!-- ============ REAL ESTATE (#re, #re/<slug>) + INSURANCE (#ins) — live from Drive ============ -->
@@ -286,6 +294,6 @@
     <div id="vcam-body"></div>
   </section>
 
-  <script src="app.js?v=108"></script>
+  <script src="app.js?v=109"></script>
 </body>
 </html>

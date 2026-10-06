@@ -2148,3 +2148,69 @@ html.pc-fs-open, html.pc-fs-open body { overflow: hidden !important; touch-actio
 .ccupd.note { color: #e8b04a; }
 @keyframes ccupdPulse { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .ccupd { transition: none; } .ccupd.busy::before { animation: none; } }
+
+/* ---- Home layout: folders + jiggle-mode drag between folders (v=109) ---- */
+.hl-grid[hidden] { display: none !important; }
+.hl-grid .tile { position: relative; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+#home-grid .tile .sub { display: none; }
+.hl-sub { margin-bottom: 12px; }
+/* folder buttons: a small copper folder mark in the corner */
+.hl-grid .tile.hl-folder::before { content: ''; position: absolute; top: 7px; right: 8px; width: 13px; height: 9px;
+  border: 1px solid var(--btn-edge); border-radius: 1px 2px 2px 2px; opacity: .7; }
+.hl-grid .tile.hl-folder::after { content: ''; position: absolute; top: 5px; right: 15px; width: 6px; height: 2px;
+  border: 1px solid var(--btn-edge); border-bottom: 0; border-radius: 2px 2px 0 0; opacity: .7; }
+.hl-grid .tile.dragging { position: relative; z-index: 40; opacity: .92; box-shadow: 0 14px 30px rgba(0,0,0,.65); transition: none; }
+/* hold-to-shake: the held button eases in for 3 s, then every button shakes (edit mode) */
+.hl-grid .tile.hl-holding { transform: scale(.94); background: var(--btn-press); transition: transform 2.9s ease-in, background 2.9s; }
+body.hl-edit .hl-grid .tile:not(.dragging) { animation: hlwob .26s ease-in-out infinite alternate; touch-action: none; }
+body.hl-edit .hl-grid .tile:nth-child(2n):not(.dragging) { animation-delay: -.13s; animation-duration: .3s; }
+@keyframes hlwob { from { transform: rotate(-1.1deg); } to { transform: rotate(1.1deg); } }
+body.hl-edit .hl-grid .tile.dragging { animation: none; touch-action: none; }
+.hl-grid .tile.dragging.hl-over { opacity: .4; }
+.hl-dots { display: none; }
+body.hl-edit .hl-grid .tile .hl-dots { display: flex; position: absolute; top: -9px; left: -9px; width: 26px; height: 26px; border-radius: 50%;
+  align-items: center; justify-content: center; background: #2b2b2b; border: 1px solid var(--btn-edge); color: var(--red); z-index: 2; }
+body.hl-edit .hl-grid .tile .hl-dots::before { content: '\22EF'; font-size: 17px; line-height: 1; font-weight: 700; }
+body.hl-edit .screen { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 100px); }
+.hl-editbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 35; display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px calc(env(safe-area-inset-bottom, 0px) + 10px); background: rgba(20,20,20,.96); border-top: 1px solid var(--btn-edge);
+  box-shadow: 0 -6px 18px rgba(0,0,0,.5); }
+.hl-ehint { flex: 1 1 auto; min-width: 0; color: var(--muted); font-size: 12px; line-height: 1.3; text-align: center; }
+.hl-donebtn { flex: none; min-height: 46px; min-width: 96px; padding: 0 18px; background: var(--red); color: #111; border: 0; border-radius: var(--radius);
+  font: 800 18px 'Inter', sans-serif; cursor: pointer; }
+.hl-reset { flex: none; min-height: 46px; padding: 0 10px; background: transparent; color: var(--muted); border: 1px solid rgba(255,255,255,.15);
+  border-radius: var(--radius); font: 600 13px 'Inter', sans-serif; cursor: pointer; }
+.hl-ehint.hl-msg { color: var(--text); font-size: 13px; }
+.hl-ehint .hl-undo { padding: 2px 4px; font-size: 14px; }
+body.hl-edit .hl-grid .tile.hl-target { animation: none; transform: scale(1.07); background: #1f140b; border-color: var(--red);
+  box-shadow: 0 0 0 2px var(--red), 0 0 18px rgba(240,122,42,.45); transition: transform .08s; }
+.hl-empty { grid-column: 1 / -1; padding: 26px 12px; text-align: center; color: var(--muted); font-size: 15px; font-weight: 600;
+  border: 1px dashed rgba(208,138,85,.5); border-radius: var(--radius); background: rgba(0,0,0,.25); }
+.hl-foot { margin-top: 16px; text-align: center; }
+body.hl-busy { -webkit-user-select: none; user-select: none; cursor: grabbing; }
+/* drop zones shown at the top while dragging inside a folder */
+.hl-zones { position: fixed; left: 0; right: 0; top: 0; z-index: 30; padding: calc(env(safe-area-inset-top, 0px) + 8px) 14px 10px;
+  background: rgba(20,20,20,.94); border-bottom: 1px solid var(--btn-edge); box-shadow: 0 6px 18px rgba(0,0,0,.5); }
+.hl-zlabel { max-width: 612px; margin: 0 auto 6px; color: var(--muted); font-size: 12px; letter-spacing: .5px; text-transform: uppercase; }
+.hl-zrow { max-width: 612px; margin: 0 auto; display: flex; gap: 10px; }
+.hl-zone { flex: 1 1 0; min-height: 52px; background: #000; color: var(--red); font: 700 17px/1.2 'Inter', sans-serif;
+  border: 1px dashed var(--btn-edge); border-radius: var(--radius); }
+.hl-zone.hl-on { background: #1f140b; border-style: solid; border-color: var(--red); box-shadow: 0 0 0 2px var(--red); }
+/* long-press menu / folder picker */
+.hl-sheet { position: fixed; inset: 0; z-index: 90; background: rgba(0,0,0,.55); display: flex; align-items: flex-end; justify-content: center; }
+.hl-box { width: 100%; max-width: 520px; max-height: 80vh; overflow: auto; background: #1e1e1e; border: 1px solid var(--btn-edge); border-bottom: 0;
+  border-radius: 10px 10px 0 0; padding: 14px 14px calc(env(safe-area-inset-bottom, 0px) + 14px); display: flex; flex-direction: column; gap: 8px; }
+.hl-title { color: var(--red); font: 700 19px/1.25 'Inter', sans-serif; padding: 2px 4px; }
+.hl-sub { color: var(--muted); font-size: 13px; padding: 0 4px 4px; }
+.hl-opt { min-height: 50px; text-align: left; padding: 0 16px; background: #000; color: var(--red); font: 700 17px/1.2 'Inter', sans-serif;
+  border: var(--btn-border) solid var(--btn-edge); border-radius: var(--radius); cursor: pointer; }
+.hl-opt:active { background: var(--btn-press); }
+.hl-opt[disabled] { opacity: .45; cursor: default; }
+.hl-opt small { color: var(--muted); font-weight: 600; font-size: 12px; }
+.hl-opt.hl-quiet { color: var(--muted); font-weight: 600; font-size: 15px; min-height: 44px; }
+.hl-opt.hl-cancel { text-align: center; color: var(--text); background: transparent; }
+.hl-toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); transform: translateX(-50%); z-index: 85;
+  display: flex; align-items: center; gap: 14px; max-width: calc(100% - 28px); padding: 10px 12px 10px 16px; background: #000; color: var(--text);
+  border: 1px solid var(--btn-edge); border-radius: var(--radius); box-shadow: 0 8px 22px rgba(0,0,0,.6); font-size: 14px; }
+.hl-toast[hidden] { display: none; }
+.hl-undo { background: transparent; color: var(--red); border: 0; font: 700 15px 'Inter', sans-serif; padding: 6px 4px; cursor: pointer; }
