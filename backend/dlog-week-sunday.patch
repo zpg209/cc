@@ -1,0 +1,39 @@
+--- a/Code.gs
++++ b/Code.gs
+@@ -264,13 +264,13 @@
+   if (col.date < 0 && col.timestamp < 0) throw new Error('No Date column found in Phone Log.');
+   var waterHeader = col.water >= 0 ? norm_(values[0][col.water]) : '';
+ 
+-  // Week window (Mon..Sun) in script time zone
++  // Week window (Sun..Sat) in script time zone (CC v117: on a Tuesday the week already holds Sunday and Monday; was Mon..Sun)
+   var today = keyToDate_(todayKey_());
+-  var dow = (today.getDay() + 6) % 7; // Mon=0
+-  var monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - dow + weekOffset * 7, 12);
++  var dow = today.getDay(); // Sun=0
++  var sunday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - dow + weekOffset * 7, 12);
+   var days = [];
+   for (var i = 0; i < 7; i++) {
+-    var d = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i, 12);
++    var d = new Date(sunday.getFullYear(), sunday.getMonth(), sunday.getDate() + i, 12);
+     days.push(dateToKey_(d));
+   }
+   var inWeek = {};
+@@ -333,6 +333,7 @@
+   var first = keyToDate_(days[0]), last = keyToDate_(days[6]);
+   return {
+     weekOffset: weekOffset,
++    weekStart: 'sun',
+     rangeLabel: Utilities.formatDate(first, CONFIG.TIME_ZONE, 'MMM d') + ' – ' + Utilities.formatDate(last, CONFIG.TIME_ZONE, 'MMM d, yyyy'),
+     targets: CONFIG.TARGETS,
+     days: outDays,
+--- a/Api.gs
++++ b/Api.gs
+@@ -3187,6 +3187,8 @@
+     weight: weight,
+     body: body,
+     totals: totals,
++    historyDays: C.historyDays,      // dlog-week: how far back `history` reaches (the phone builds Sun..Sat weeks from it)
++    weekStart: 'sun',                // dlog-week: getDailyLog weeks run Sunday..Saturday
+     columns: { weight: col.weight >= 0, sleep: col.sleep >= 0, steps: col.steps >= 0, hike: col.hike >= 0 },
+     write: { water: col.water >= 0, waterStepOz: 8, set: setFields, logday: true }
+   };

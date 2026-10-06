@@ -1013,6 +1013,14 @@ div.sumline { cursor: default; }
 /* v42: four-way totals toggle */
 .seg.four { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
 .seg.four button { font-size: 12.5px; padding: 0 2px; }
+/* v117 Daily Log: Running totals = 5 equal buttons (Today / Yesterday / Week / Month / All time); Daily Tracker + Log day buttons are
+   CC buttons: black with the copper #F07A2A label (the selected one keeps its copper tint) */
+.seg.five { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+.seg.five button { font-size: 12px; padding: 0 1px; letter-spacing: -.2px; white-space: nowrap; overflow: hidden; text-overflow: clip; }
+.fitscreen .seg button { background: #000; color: #F07A2A; }
+.fitscreen .seg button.on { background: rgba(240,122,42,.18); color: #F07A2A; }
+.fitbtn.logday-go { margin-top: 10px; }
+.fittoday.pastday h3 { color: #F07A2A; }
 
 /* ---- Overview v46: tappable headline numbers, coverage chips, Vault summary strip, detail view ---- */
 .ov-debt, .ov-debt b { color: var(--c-debt, #D9A441) !important; }

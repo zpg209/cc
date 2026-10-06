@@ -925,8 +925,54 @@
     $('log-body').innerHTML = '<div class="loading">Loading…</div>';
     $('log-range').textContent = '…';
     if (!state.logData) $('log-top').innerHTML = '';
-    api('log', state.weekOffset).then(function (d) { if (seq === state.logSeq) renderLog(d); },
-      function (err) { if (seq === state.logSeq) { $('log-range').textContent = ''; $('log-top').innerHTML = ''; state.logData = null; onFail(['log-body'], loadLog)(err); } });
+    api('log', 0).then(function (d0) {
+      if (seq !== state.logSeq) return;
+      if (!(d0 && d0.ext && d0.ext.today && d0.ext.history)) {     // server without `ext`: its own Mon..Sun weeks, previous screen
+        if (!state.weekOffset) return renderLog(d0);
+        return api('log', state.weekOffset).then(function (d) { if (seq === state.logSeq) renderLog(d); });
+      }
+      var W = logSunWeek(d0.ext.today.date, state.weekOffset), need = logWeekNeed(d0, W);
+      if (!need.length) return renderLog(d0, W, null);
+      return Promise.all(need.map(function (j) { return api('log', j); })).then(function (rs) { if (seq === state.logSeq) renderLog(d0, W, rs); });
+    }).then(null, function (err) { if (seq === state.logSeq) { $('log-range').textContent = ''; $('log-top').innerHTML = ''; state.logData = null; onFail(['log-body'], loadLog)(err); } });
+  }
+  /* v117 Daily Log weeks run SUNDAY..SATURDAY (Zac: on Tuesday the week should already hold Sunday and Monday). The server's `log` read
+   * (Code.gs getDailyLog) still windows Mon..Sun, so the week summary, the Week running total and Past days are built here from
+   * ext.history (every logged day of the last ~120 days, with minutes / hike / steps); only a week older than that is pieced together
+   * from the server's own weeks (fetched by date, so it works with either server convention). */
+  var LOG_HIST_DAYS = 119;          // ext.history covers today-120 .. today (Api.gs API_LOG_CFG.historyDays); one day of margin
+  var LOG_DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], LOG_MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function logKeyDate(k) { return new Date(+k.slice(0, 4), +k.slice(5, 7) - 1, +k.slice(8, 10), 12); }   // local noon: never slips a day (no UTC parse)
+  function logDaysBetween(a, b) { return Math.round((logKeyDate(b) - logKeyDate(a)) / 864e5); }
+  function logLbl(k) { return LOG_DOW[logKeyDate(k).getDay()] + ' ' + logMD(k); }                     // "Mon 10/5", like the server's labels
+  function logSunWeek(today, off) {
+    var dow = logKeyDate(today).getDay(), keys = [];
+    for (var i = 0; i < 7; i++) keys.push(trkAddDays(today, -dow + (off || 0) * 7 + i));
+    return { keys: keys, start: keys[0], end: keys[6], today: today, dow: dow, off: off || 0 };
+  }
+  function logRangeLabel(W) {
+    var a = logKeyDate(W.start), b = logKeyDate(W.end);
+    return LOG_MON[a.getMonth()] + ' ' + a.getDate() + (a.getFullYear() !== b.getFullYear() ? ', ' + a.getFullYear() : '') + ' \u2013 ' + LOG_MON[b.getMonth()] + ' ' + b.getDate() + ', ' + b.getFullYear();
+  }
+  function logWeekNeed(d0, W) {     // server week offsets still needed for days older than ext.history
+    var cut = trkAddDays(W.today, -((d0.ext && d0.ext.historyDays > 1) ? d0.ext.historyDays - 1 : LOG_HIST_DAYS)), s0 = d0.days && d0.days[0] && d0.days[0].date, out = [];
+    if (!s0) return out;
+    W.keys.forEach(function (k) { if (k < cut) { var j = Math.floor(logDaysBetween(s0, k) / 7); if (out.indexOf(j) < 0) out.push(j); } });
+    return out;
+  }
+  function logWeekDays(d, W, extra) {   // the 7 days of W in the ext.history shape (not logged days as blanks)
+    var ext = d.ext, by = {};
+    (ext.history || []).forEach(function (x) { by[x.date] = x; });
+    if (ext.today && ext.today.logged) by[ext.today.date] = ext.today;
+    (extra || []).forEach(function (r) {
+      ((r && r.days) || []).forEach(function (x) {
+        if (!x.logged || by[x.date]) return;
+        var w = String(x.workout || '');
+        by[x.date] = { date: x.date, label: x.label, logged: true, did: !!w && !/^(rest|none)\b/i.test(w), calories: x.calories, protein: x.protein, carbs: x.carbs, fat: x.fat,
+          water: x.water, weight: null, sleep: null, steps: null, hike: null, workout: w, minutes: null };
+      });
+    });
+    return W.keys.map(function (k) { return by[k] || { date: k, label: logLbl(k), logged: false, did: false, workout: '' }; });
   }
 
   // Previous screen — still used when the API has no `ext` (not redeployed yet) or `ext` fails.
@@ -1018,32 +1064,37 @@
       fitBar(val, target, st) + '</div>';
   }
 
-  function renderLogV2(d) {
+  function renderLogV2(d, W, extra) {
     state.logData = d;
     renderLogTop(d);
-    var T = fitTargets(d), ext = d.ext, h = '';
-    var isNow = !d.weekOffset;
+    var T = fitTargets(d), ext = d.ext, h = '', cols = ext.columns || {};
+    var todayKey = ext.today && ext.today.date;
+    W = W || logSunWeek(todayKey, state.weekOffset);
+    var isNow = !W.off, days = logWeekDays(d, W, extra), sofar = days.filter(function (x) { return x.date <= todayKey; });
+    var a = logAgg(sofar, '9999-12-31', T);    // like the server's weekly summary: averages over logged days (today included), sums of the rest
 
-    // Week summary: averages (over logged days) vs targets + workout count vs weekly target
-    var wt = T.workoutsPerWeek, wc = d.workoutDays || 0;
+    // Week summary (Sun..Sat): averages (over logged days) vs targets + workout count vs weekly target + minutes / hike / steps sums
+    var wt = T.workoutsPerWeek, wc = a.workouts || 0;
     var wst = wc >= wt ? 'ok' : wc >= wt - 1 ? 'warn' : 'prog';
     h += '<div class="card fitcard"><h3>' + (isNow ? 'This week' : 'Week') + ' summary</h3>';
-    ['calories', 'protein', 'water'].forEach(function (k) {
-      var row = FIT_ROWS.filter(function (r) { return r.key === k; })[0];
-      var v = d.avg ? d.avg[k] : null, st = fitStatus(row.rule, v, T[k]);
-      h += '<div class="fitrow"><div class="fl">' + row.name + ' avg</div>' +
-        '<div class="fv t-' + (st || 'none') + '"><b>' + fmt(v) + '</b> / ' + fmt(T[k]) + ' ' + row.unit + '</div>' +
-        '<div class="fn">' + (v === null || v === undefined ? 'not logged' : fitNote(row, v, T[k], st).replace('to go', 'short')) + '</div>' + fitBar(v, T[k], st) + '</div>';
-    });
+    ['calories', 'protein', 'water'].forEach(function (k) { h += avgRow(d, k, a, T); });
     h += '<div class="fitrow"><div class="fl">Workouts</div><div class="fv t-' + wst + '"><b>' + wc + '</b> / ' + wt + ' this week</div>' +
       '<div class="fn">' + (wc >= wt ? 'target met' : (wt - wc) + ' to go') + '</div>' + fitBar(wc, wt, wst) + '</div>';
-    h += '<div class="foot">' + d.loggedDays + ' of 7 days logged · averages are over logged days</div></div>';
+    var tv = function (x, dec, unit) { return x === null || x === undefined ? '\u2014' : fmt(x, dec) + (unit || ''); };
+    var tiles = [['Days logged', a.logged + ' of ' + sofar.length], ['Workout min', fmt(a.minutes)], ['Hike miles', cols.hike === false || !a.hike.days ? '\u2014' : tv(a.hike.total, 1, ' mi')],
+      ['Carbs avg', tv(a.carbs.avg, 0, ' g')], ['Fat avg', tv(a.fat.avg, 0, ' g')],
+      cols.steps ? ['Steps total', a.steps.days ? tv(a.steps.total, 0) : '\u2014'] : ['Sleep avg', tv(a.sleep.avg, 1, ' h')]];
+    h += '<div class="btiles tot" id="log-wk-tiles">' + tiles.map(function (x) { return '<div><span>' + x[0] + '</span><b>' + x[1] + '</b></div>'; }).join('') + '</div>';
+    var noCal = sofar.filter(function (x) { return x.logged && !(x.calories > 0); }).map(function (x) { return x.label; });
+    h += '<div class="foot">' + LOG_DOW[0] + ' ' + logMD(W.start) + ' \u2013 ' + LOG_DOW[6] + ' ' + logMD(W.end) + ' \u00b7 ' + a.logged + ' of ' + sofar.length + ' day' + (sofar.length === 1 ? '' : 's') +
+      ' logged' + (isNow ? ' so far' : '') + ' \u00b7 averages are over logged days; workouts, minutes and hike miles are sums.</div>';
+    if (noCal.length) h += '<div class="foot hint2">No calorie numbers on ' + esc(noCal.join(', ')) + ' (meals only in Notes), so ' + (noCal.length === 1 ? 'it is' : 'they are') + ' left out of the calorie and macro averages.</div>';
+    h += '</div>';
 
     // Past days: collapsible rows (date + calories), expand for macros / water / workout / body
     var hist = {};
-    (ext.history || []).forEach(function (x) { hist[x.date] = x; });
-    var todayKey = ext.today && ext.today.date;
-    var past = d.days.filter(function (x) { return (!todayKey || x.date < todayKey); }).slice().reverse();
+    days.forEach(function (x) { if (x.logged) hist[x.date] = x; });
+    var past = days.filter(function (x) { return (!todayKey || x.date < todayKey); }).slice().reverse();
     h += '<div class="card fitcard"><h3>Past days</h3>';
     if (!past.length) h += '<div class="foot">No past days in this week yet.</div>';
     past.forEach(function (day) {
@@ -1111,11 +1162,10 @@
     var ext = d.ext, tot = ext.totals, today = (ext.today && ext.today.date) || '', T = fitTargets(d), hist = ext.history || [];
     var FUT = '9999-12-31';   // passed as "today" so today counts as a finished day (averages include it)
     if (which === 'today') return { a: logAgg(hist.filter(function (x) { return x.date === today; }), FUT, T), server: false, since: today };
-    if (which === 'week') {   // Monday..Sunday, same convention as the weekly summary (Code.gs getDailyLog)
-      var td = new Date(+today.slice(0, 4), +today.slice(5, 7) - 1, +today.slice(8, 10), 12), dow = (td.getDay() + 6) % 7;
-      var mon = new Date(td.getFullYear(), td.getMonth(), td.getDate() - dow, 12);
-      var ws = mon.getFullYear() + '-' + ('0' + (mon.getMonth() + 1)).slice(-2) + '-' + ('0' + mon.getDate()).slice(-2);
-      return { a: logAgg(hist.filter(function (x) { return x.date >= ws && x.date <= today; }), FUT, T), server: false, since: ws, dayN: dow + 1 };
+    if (which === 'yesterday') { var yk = trkAddDays(today, -1); return { a: logAgg(hist.filter(function (x) { return x.date === yk; }), FUT, T), server: false, since: yk, day: yk }; }
+    if (which === 'week') {   // v117: Sunday..Saturday, same week as the summary below (built from ext.history, see logSunWeek)
+      var W = logSunWeek(today, 0);
+      return { a: logAgg(hist.filter(function (x) { return x.date >= W.start && x.date <= today; }), FUT, T), server: false, since: W.start, dayN: W.dow + 1 };
     }
     if (which === 'month') {
       var ms = today.slice(0, 8) + '01';
@@ -1131,13 +1181,15 @@
     return '<div class="fitrow"><div class="fl">' + row.name + (plain ? '' : ' avg') + '</div><div class="fv t-' + (st || 'none') + '"><b>' + fmt(v) + '</b> / ' + fmt(T[key]) + ' ' + row.unit + '</div>' +
       '<div class="fn">' + (v === null || v === undefined ? 'not logged' : fitNote(row, v, T[key], st).replace('to go', 'short')) + '</div>' + fitBar(v, T[key], st) + '</div>';
   }
-  var LOG_TOT_TABS = [['today', 'Today'], ['week', 'Week'], ['month', 'Month'], ['all', 'All time']];
+  var LOG_TOT_TABS = [['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'Week'], ['month', 'Month'], ['all', 'All time']];
   function totalsCardHtml(d) {
     var T = fitTargets(d), ext = d.ext, cols = ext.columns || {}, which = LOG_TOT_TABS.some(function (x) { return x[0] === state.logTot; }) ? state.logTot : 'month', W = logTotals(d, which), a = W.a, h = '';
-    var one = which === 'today';
-    h += '<div class="card fitcard"><h3>Running totals</h3><div class="seg four">' + LOG_TOT_TABS.map(function (x) {
+    var one = which === 'today' || which === 'yesterday';
+    // Yesterday (v117): that day's numbers + a button that opens the Tracker set to yesterday (forms, water and the mic save there)
+    var yBtn = which === 'yesterday' ? '<button type="button" class="fitbtn wide logday-go" data-go="track" data-logday="' + esc(W.day) + '">Log or fix yesterday \u00b7 ' + esc(logLbl(W.day)) + ' \u203a</button>' : '';
+    h += '<div class="card fitcard"><h3>Running totals</h3><div class="seg five" id="log-tot-seg">' + LOG_TOT_TABS.map(function (x) {
       return '<button type="button" data-tot="' + x[0] + '" class="' + (which === x[0] ? 'on' : '') + '">' + x[1] + '</button>'; }).join('') + '</div>';
-    if (!a.logged) return h + '<div class="foot">' + ({ today: 'Nothing logged yet today.', week: 'Nothing logged yet this week.', month: 'Nothing logged yet this month.', all: 'Nothing logged yet.' })[which] + '</div></div>';
+    if (!a.logged) return h + '<div class="foot">' + ({ today: 'Nothing logged yet today.', yesterday: 'Nothing logged for yesterday' + (W.day ? ' (' + logLbl(W.day) + ')' : '') + '.', week: 'Nothing logged yet this week.', month: 'Nothing logged yet this month.', all: 'Nothing logged yet.' })[which] + '</div>' + yBtn + '</div>';
     h += avgRow(d, 'calories', a, T, one) + avgRow(d, 'protein', a, T, one) + avgRow(d, 'water', a, T, one);
     var v = function (x, dec, unit) { return x === null || x === undefined ? '\u2014' : fmt(x, dec) + (unit || ''); };
     var tiles = [];
@@ -1158,15 +1210,16 @@
       if (a.water.days) hit.push('water met ' + a.water.hit + ' of ' + a.water.days);
     }
     var note;
-    if (one) note = (ext.today && ext.today.label ? ext.today.label + ' \u00b7 ' : '') + 'today so far; the day is not finished.';
-    else if (which === 'week') note = 'Mon ' + logMD(W.since) + ' to today \u00b7 ' + a.logged + ' of ' + W.dayN + ' day' + (W.dayN === 1 ? '' : 's') + ' logged. Averages are over logged days including today, like the weekly summary below; workouts, minutes, hike and steps are sums.';
+    if (which === 'yesterday') note = logLbl(W.day) + ' \u00b7 yesterday' + ((ext.history || []).filter(function (x) { return x.date === W.day; }).map(function (x) { return x.workout ? ' \u00b7 workout: ' + esc(x.workout) : ''; })[0] || '') + '.';
+    else if (one) note = (ext.today && ext.today.label ? ext.today.label + ' \u00b7 ' : '') + 'today so far; the day is not finished.';
+    else if (which === 'week') note = 'Sun ' + logMD(W.since) + ' to today \u00b7 ' + a.logged + ' of ' + W.dayN + ' day' + (W.dayN === 1 ? '' : 's') + ' logged. Averages are over logged days including today, like the weekly summary below; workouts, minutes, hike and steps are sums.';
     else {
       note = (which === 'month' ? 'Since ' + logMD(W.since) : (W.partial ? 'Last ' + (ext.history || []).length + ' logged days, since ' + logMD(W.since) : 'Since ' + logMD(W.since) + ' (first entry)')) +
         ' \u00b7 ' + a.logged + ' day' + (a.logged === 1 ? '' : 's') + ' logged. Averages are over finished days; workouts, minutes, hike and steps include today.' + (hit.length ? ' ' + hit.join(' \u00b7 ') + '.' : '');
     }
     h += '<div class="foot">' + note + '</div>';
     if (W.partial) h += '<div class="foot hint2">All-time totals cover the whole sheet once the server update is live. For now this is the recent history only.</div>';
-    return h + '</div>';
+    return h + yBtn + '</div>';
   }
   function weightCardHtml(d) {
     var ext = d.ext, cols = ext.columns || {}, w = ext.weight || {}, b = ext.body || {}, A = logTotals(d, 'all').a, wa = A.weight, h = '';
@@ -1218,6 +1271,8 @@
     $('log-top').innerHTML = totalsCardHtml(d) + weightCardHtml(d) + streaksCardHtml(d);
   }
   $('log-top').addEventListener('click', function (ev) {
+    var g = ev.target.closest ? ev.target.closest('[data-logday]') : null;
+    if (g) { var gk = g.getAttribute('data-logday'); state.trkDate = gk && gk !== trkTodayKey(state.logData) ? gk : ''; state.trkFormsFor = ''; return; }   // then data-go opens the Tracker
     var b = ev.target.closest ? ev.target.closest('[data-tot]') : null;
     if (!b || !state.logData || !state.logData.ext) return;
     state.logTot = b.getAttribute('data-tot'); renderLogTop(state.logData);
@@ -1248,7 +1303,7 @@
   function loadTrack() {
     loadVoiceNotes();
     var seq = ++state.trkSeq;
-    if (state.trackData) renderTrack(state.trackData, false);
+    if (state.trackData) renderTrack(state.trackData, !state.trkFormsFor);
     else { $('trk-prog').innerHTML = '<div class="loading">Loading\u2026</div>'; $('trk-forms').innerHTML = ''; }
     api('log', 0).then(function (d) { if (seq === state.trkSeq) { state.trackData = d; renderTrack(d, !state.trkFormsFor || state.trkFormsFor !== formsKey(d)); } },
       function (err) { if (seq === state.trkSeq && !state.trackData) { $('trk-forms').innerHTML = ''; onFail(['trk-prog'], loadTrack)(err); } });
@@ -1263,10 +1318,13 @@
     var t = null; (d.days || []).forEach(function (x) { if (x.isToday) t = x; });
     return t ? { label: t.label, calories: t.calories, protein: t.protein, carbs: t.carbs, fat: t.fat, water: t.water, workout: t.workout || '', logged: !!t.logged } : { label: '', logged: false };
   }
+  var VN_SUB = 'Ate \u00b7 drank \u00b7 workout \u00b7 weight \u00b7 sleep';
   function renderTrackProg(d) {
-    var ext = d.ext, T = fitTargets(d), t = trackToday(d), h = '';
-    var canWater = !!(ext && ext.write && ext.write.water);
-    h += '<div class="card fitcard fittoday"><h3>Today \u00b7 ' + esc(t.label || '') + '</h3>';
+    var ext = d.ext, T = fitTargets(d), t = trackToday(d), h = '', pk = ext ? trkPast() : '';
+    if (pk) { t = (ext.history || []).filter(function (x) { return x.date === pk; })[0] || { date: pk, label: logLbl(pk), logged: false, workout: '' }; }   // v117: the day picked under "Log for"
+    var canWater = !pk && !!(ext && ext.write && ext.write.water);    // a past day's water: the +/- buttons in the "Log for" card
+    var vs = document.querySelector('#vn-mic .sub'); if (vs) vs.textContent = pk ? 'Saves to ' + (pk === trkAddDays(trkTodayKey(d), -1) ? 'yesterday' : 'that day') + ' \u00b7 ' + trkDayLabel(pk) : VN_SUB;
+    h += '<div class="card fitcard fittoday' + (pk ? ' pastday' : '') + '"><h3>' + (pk ? (pk === trkAddDays(trkTodayKey(d), -1) ? 'Yesterday' : 'Day') : 'Today') + ' \u00b7 ' + esc(t.label || '') + '</h3>';
     FIT_ROWS.forEach(function (row) {
       var extra = (row.key === 'water' && canWater) ? '<button type="button" class="fitbtn" id="fit-water" aria-label="Add 8 ounces of water">+' + ((ext.write && ext.write.waterStepOz) || 8) + ' oz</button>' : '';
       h += fitRow(row, t[row.key], T[row.key], extra);
@@ -1290,7 +1348,7 @@
   function trkTodayKey(d) { d = d || state.trackData; var t = d && d.ext && d.ext.today; if (t && t.date) return t.date; var n = new Date(); return n.getFullYear() + '-' + ('0' + (n.getMonth() + 1)).slice(-2) + '-' + ('0' + n.getDate()).slice(-2); }
   function trkAddDays(key, n) { var p = key.split('-'), t = new Date(+p[0], +p[1] - 1, +p[2] + n); return t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2); }
   function trkDayLabel(key) { var p = key.split('-'), t = new Date(+p[0], +p[1] - 1, +p[2]); return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][t.getDay()] + ' ' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][t.getMonth()] + ' ' + t.getDate(); }
-  function trkPast() { var d = state.trackData; return state.trkDate && d && state.trkDate !== trkTodayKey(d) ? state.trkDate : ''; }
+  function trkPast() { var d = state.trackData || state.logData; return state.trkDate && d && state.trkDate !== trkTodayKey(d) ? state.trkDate : ''; }
   function trkWhen() { var k = trkPast(); return k ? (k === trkAddDays(trkTodayKey(), -1) ? 'yesterday' : trkDayLabel(k)) : 'today'; }
   function trkWithDate(p) { var k = trkPast(); if (k) p.date = k; return p; }
   var TRK_BODY = { hike: ['Hike miles', '0.1'], steps: ['Steps', '1'], weight: ['Weight (lb)', '0.1'], sleep: ['Sleep (hours)', '0.1'] };
@@ -1424,7 +1482,7 @@
     var tk = trkTodayKey();
     if (!i.value || i.value > tk) { i.value = state.trkDate || tk; return; }
     state.trkDate = i.value === tk ? '' : i.value;
-    renderTrackForms(state.trackData);
+    renderTrackForms(state.trackData); renderTrackProg(state.trackData);
   });
   $('trk-forms').addEventListener('click', function (ev) {
     var t = ev.target.closest ? ev.target.closest('button') : null; if (!t) return;
@@ -1436,7 +1494,7 @@
       if (dk === 'today') state.trkDate = '';
       else if (dk === 'yesterday') state.trkDate = trkAddDays(tk, -1);
       else { var pk = $('qa-datepick'); state.trkDate = pk && pk.value && pk.value < tk ? pk.value : trkAddDays(tk, -2); }
-      renderTrackForms(state.trackData);
+      renderTrackForms(state.trackData); renderTrackProg(state.trackData);
     }
     else if (t.getAttribute('data-wd')) {
       var oz = Number(t.getAttribute('data-wd')), k = trkPast(); if (!k || state.trkBusy) return;
@@ -1469,11 +1527,12 @@
     }).then(function () { state.waterBusy = false; });
   }
 
-  function renderLog(d) {
-    $('log-range').textContent = d.rangeLabel;
+  function renderLog(d, W, extra) {
+    $('log-range').textContent = W ? logRangeLabel(W) : d.rangeLabel;
     if (d.ext && d.ext.today && d.ext.history) {
-      try { return renderLogV2(d); } catch (e) { if (window.console) console.error('Daily log v2 failed, using the previous screen', e); }
+      try { return renderLogV2(d, W, extra); } catch (e) { if (window.console) console.error('Daily log v2 failed, using the previous screen', e); }
     }
+    $('log-range').textContent = d.rangeLabel;
     renderLogLegacy(d);
   }
 
