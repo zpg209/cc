@@ -14188,7 +14188,9 @@
     id: '', title: '', project: 'Terra Vi', projectOther: '', to: '',
     items: [{ text: '', pin: null }], annots: [], cur: 1, annotCur: '',
     drawing: '', drawingKind: '', // 'image' | 'pdf'
-    page: 1, pdfPages: 1, pdfDoc: null, pdfToken: 0, pdfBusy: false,
+    page: 1, pdfPages: 1, pdfDoc: null, pdfDocP: null, pdfToken: 0, pdfBusy: false,
+    planBytes: null, planBytesKey: '', // PDF bytes for the open checklist (from IndexedDB, see pcPlanBytes)
+    pageCache: [], thumbs: {}, renderedW: 0, renderedPage: 0, focusPin: 0, pickToken: 0,
     mode: 'view', // 'view' | 'pin' | 'text'
     drawBusy: false, flash: '', flashBad: false,
     fs: false, zoom: 1, panX: 0, panY: 0, // fullscreen plan workspace
@@ -14227,7 +14229,7 @@
     if (!pin || typeof pin.x !== 'number' || typeof pin.y !== 'number') return null;
     var p = { x: pcClampPct(pin.x), y: pcClampPct(pin.y) };
     var pg = parseInt(pin.page, 10);
-    if (pg >= 1) p.page = pg;
+    p.page = pg >= 1 ? pg : 1;   // v125: pins saved before per-page support belong to page 1
     return p;
   }
   function pcNormItem(it) {
@@ -14319,6 +14321,7 @@
       drawing: pc.drawing || '',
       drawingKind: kind || '',
       page: pc.page || 1,
+      pdfPages: kind === 'pdf' ? Math.max(1, pc.pdfPages || 1) : 1,
       updated: Date.now()
     };
     pc.id = row.id;
@@ -14329,7 +14332,7 @@
     if (!found) store.list.unshift(row);
     store.list.sort(function (a, b) { return (b.updated || 0) - (a.updated || 0); });
     if (!pcSaveStore(store)) {
-      if (row.drawing) {
+      if (row.drawing && row.drawing.indexOf('idb:') !== 0) {
         pcDropHeavyDrawing(row);
         for (var j = 0; j < store.list.length; j++) if (store.list[j].id === row.id) store.list[j] = row;
         if (!pcSaveStore(store)) { pc.flash = 'Could not save on this phone (storage full or blocked).'; pc.flashBad = true; return false; }
@@ -14346,13 +14349,16 @@
     var t = $('pc-title-in'); if (t) pc.title = t.value;
     var to = $('pc-to'); if (to) pc.to = to.value;
     var oth = $('pc-project-other'); if (oth) pc.projectOther = oth.value;
-    document.querySelectorAll('[data-pc-item]').forEach(function (ta) {
+    // While fullscreen is open the editor underneath still holds older copies of the item textareas; read only the
+    // fullscreen ones then, or typing in the fullscreen dock gets overwritten when you switch items (v125).
+    var scope = (pc.fs && $('pc-fs')) ? '#pc-fs ' : '';
+    document.querySelectorAll(scope + '[data-pc-item]').forEach(function (ta) {
       var n = parseInt(ta.getAttribute('data-pc-item'), 10);
       if (!n) return;
       while (pc.items.length < n) pc.items.push({ text: '', pin: null });
       pc.items[n - 1] = pcNormItem({ text: ta.value, pin: (pc.items[n - 1] && pc.items[n - 1].pin) || null });
     });
-    document.querySelectorAll('[data-pc-annot-text]').forEach(function (ta) {
+    document.querySelectorAll(scope + '[data-pc-annot-text]').forEach(function (ta) {
       var id = ta.getAttribute('data-pc-annot-text');
       var a = pcFindAnnot(id);
       if (a) a.text = String(ta.value || '').slice(0, 2000);
@@ -14591,28 +14597,103 @@
     for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
     return u8;
   }
+  /* v125: plan PDFs live in IndexedDB ('cc_pc_files' / 'plans', key = checklist id) so a full multi-page plan set fits
+     (localStorage only holds ~5 MB, so before v125 anything over ~1.3 MB was flattened to a page-1 image). The checklist
+     row keeps just drawing = 'idb:<id>'. Old rows with a data: URL still work and are moved to IndexedDB when opened. */
+  var PC_IDB = 'cc_pc_files', PC_IDB_STORE = 'plans', PC_PDF_HARD_MAX = 120 * 1048576;
+  var pcIdbP = null;
+  function pcIdb() {
+    if (pcIdbP) return pcIdbP;
+    pcIdbP = new Promise(function (res, rej) {
+      if (!window.indexedDB) return rej(new Error('This browser has no file storage.'));
+      var rq; try { rq = indexedDB.open(PC_IDB, 1); } catch (e) { return rej(e); }
+      rq.onupgradeneeded = function () { try { rq.result.createObjectStore(PC_IDB_STORE); } catch (e) {} };
+      rq.onsuccess = function () { var db = rq.result; db.onversionchange = function () { try { db.close(); } catch (e) {} pcIdbP = null; }; res(db); };
+      rq.onerror = function () { rej(rq.error || new Error('File storage error.')); };
+      rq.onblocked = function () { rej(new Error('File storage is busy.')); };
+    }).catch(function (e) { pcIdbP = null; throw e; });
+    return pcIdbP;
+  }
+  function pcIdbReq(mode, fn) {
+    return pcIdb().then(function (db) {
+      return new Promise(function (res, rej) {
+        var tx; try { tx = db.transaction(PC_IDB_STORE, mode); } catch (e) { pcIdbP = null; return rej(e); }
+        var r = fn(tx.objectStore(PC_IDB_STORE)), out;
+        if (r) r.onsuccess = function () { out = r.result; };
+        tx.oncomplete = function () { res(out); };
+        tx.onerror = tx.onabort = function () { rej(tx.error || new Error('File storage error.')); };
+      });
+    });
+  }
+  function pcIdbPut(key, val) {
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {}); } catch (e) {}
+    return pcIdbReq('readwrite', function (st) { return st.put(val, key); });
+  }
+  function pcIdbGet(key) { return pcIdbReq('readonly', function (st) { return st.get(key); }); }
+  function pcIdbDel(key) { if (!key) return Promise.resolve(); return pcIdbReq('readwrite', function (st) { return st.delete(key); }).catch(function () {}); }
+  function pcIdbKey(drawing) { drawing = String(drawing || ''); return drawing.indexOf('idb:') === 0 ? drawing.slice(4) : ''; }
+  // Remove stored plan files no checklist points at (e.g. after a delete that happened offline / in an older version).
+  function pcIdbSweep() {
+    if (pc.drawBusy || !window.indexedDB) return;
+    var keep = {};
+    pcLoadStore().list.forEach(function (r) { var k = pcIdbKey(r.drawing); if (k) keep[k] = 1; });
+    var k0 = pcIdbKey(pc.drawing); if (k0) keep[k0] = 1;
+    pcIdbReq('readonly', function (st) { return st.getAllKeys ? st.getAllKeys() : null; }).then(function (keys) {
+      (keys || []).forEach(function (k) { if (!keep[k]) pcIdbDel(k); });
+    }, function () {});
+  }
+  // Bytes of the open plan PDF (Uint8Array), from memory, IndexedDB or a legacy data: URL.
+  function pcPlanBytes() {
+    var d = pc.drawing || '', key = pcIdbKey(d);
+    if (key) {
+      if (pc.planBytes && pc.planBytesKey === key) return Promise.resolve(pc.planBytes);
+      return pcIdbGet(key).then(function (v) {
+        if (!v || !v.bytes) throw new Error('The plan PDF isn\u2019t on this phone any more. Tap Replace plan and pick it again (pins stay).');
+        var u8 = new Uint8Array(v.bytes);
+        if (pc.drawing === d) { pc.planBytes = u8; pc.planBytesKey = key; }
+        return u8;
+      });
+    }
+    try { return Promise.resolve(pcDataUrlToBytes(d)); } catch (e) { return Promise.reject(e); }
+  }
+  // Legacy rows: move a data: URL PDF out of localStorage into IndexedDB (frees phone storage for everything else).
+  function pcMovePdfToIdb(id, dataUrl) {
+    var bytes; try { bytes = pcDataUrlToBytes(dataUrl); } catch (e) { return; }
+    pcIdbPut(id, { bytes: bytes.buffer, size: bytes.length, ts: Date.now() }).then(function () {
+      if (pc.id !== id || pc.drawing !== dataUrl) return;
+      pc.drawing = 'idb:' + id; pc.planBytes = bytes; pc.planBytesKey = id;
+      pcAutosave();
+    }, function () {});
+  }
   function pcReleasePdf() {
     pc.pdfToken++;
     if (pc.pdfDoc) { try { pc.pdfDoc.destroy(); } catch (e) {} }
     pc.pdfDoc = null;
+    pc.pdfDocP = null;
     pc.pdfBusy = false;
     pc.pgInfo = {};
     pc._imgInfoP = null;
+    pc.pageCache = []; pc.thumbs = {}; pc.renderedW = 0; pc.renderedPage = 0; pc.pickToken++;
   }
   function pcLoadPdfDoc() {
     if (pc.drawingKind !== 'pdf' || !pc.drawing) return Promise.reject(new Error('No PDF plan.'));
     if (pc.pdfDoc) return Promise.resolve(pc.pdfDoc);
-    var bytes;
-    try { bytes = pcDataUrlToBytes(pc.drawing); } catch (e) { return Promise.reject(e); }
-    return loadPdfJs().then(function (lib) {
-      return lib.getDocument({ data: bytes }).promise.then(function (pdf) {
-        pc.pdfDoc = pdf;
-        pc.pdfPages = pdf.numPages || 1;
-        if (pc.page > pc.pdfPages) pc.page = pc.pdfPages;
-        if (pc.page < 1) pc.page = 1;
-        return pdf;
-      });
-    });
+    if (pc.pdfDocP) return pc.pdfDocP;
+    var p = Promise.all([pcPlanBytes(), loadPdfJs()]).then(function (r) {
+      return r[1].getDocument({ data: r[0].slice() }).promise;   // copy: pdf.js hands the buffer to its worker
+    }).then(function (pdf) {
+      if (pc.pdfDocP !== p) { try { pdf.destroy(); } catch (e) {} throw new Error('Plan changed.'); }
+      pc.pdfDocP = null;
+      pc.pdfDoc = pdf;
+      var prevPages = pc.pdfPages;
+      pc.pdfPages = pdf.numPages || 1;
+      if (prevPages !== pc.pdfPages && pc.id) setTimeout(function () { if (pc.pdfDoc === pdf) pcAutosave(); }, 0);
+      if (pc.page > pc.pdfPages) pc.page = pc.pdfPages;
+      if (pc.page < 1) pc.page = 1;
+      return pdf;
+    }, function (e) { if (pc.pdfDocP === p) pc.pdfDocP = null; throw e; });
+    pc.pdfDocP = p;
+    return p;
   }
   function pcActiveDrawIds() {
     if (pc.fs && $('pc-fs-stage')) {
@@ -14620,52 +14701,106 @@
     }
     return { stage: 'pc-draw-stage', img: 'pc-draw-img', pins: 'pc-pins', meta: 'pc-page-meta' };
   }
+  // Render PDF page n to a JPEG data URL about targetW px wide (capped so iPhone canvases stay under ~16 MP).
+  function pcRenderPageUrl(pdf, n, targetW, quality, onPage) {
+    return pdf.getPage(n).then(function (page) {
+      if (onPage) onPage(page);
+      var vp1 = page.getViewport({ scale: 1 });
+      var sc = targetW / vp1.width;
+      sc = Math.min(sc, 4096 / Math.max(vp1.width, vp1.height), Math.sqrt(16e6 / (vp1.width * vp1.height)));
+      var vp = page.getViewport({ scale: sc });
+      var cv = document.createElement('canvas');
+      cv.width = Math.floor(vp.width); cv.height = Math.floor(vp.height);
+      var ctx = cv.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+      return page.render({ canvasContext: ctx, viewport: vp }).promise.then(function () {
+        var out = { url: cv.toDataURL('image/jpeg', quality || 0.9), w: cv.width, h: cv.height, page: n };
+        cv.width = cv.height = 0;
+        page.cleanup();
+        return out;
+      }, function (e) { cv.width = cv.height = 0; page.cleanup(); throw e; });
+    });
+  }
+  function pcBaseTarget(stage) {
+    var viewEl = $('pc-fs-view') || stage;
+    var w = (viewEl && viewEl.clientWidth) || (stage && stage.clientWidth) || 360;
+    return Math.min(2200, Math.max(900, w * Math.min(window.devicePixelRatio || 1, 2.5)));
+  }
+  var PC_PAGE_CACHE = 3;   // rendered pages kept in memory (current + neighbours); others render when opened
+  function pcCacheGet(n, target) {
+    for (var i = 0; i < pc.pageCache.length; i++) {
+      var c = pc.pageCache[i];
+      if (c.page === n && c.w >= target * 0.95) { pc.pageCache.splice(i, 1); pc.pageCache.push(c); return c; }
+    }
+    return null;
+  }
+  function pcCachePut(res) {
+    pc.pageCache = pc.pageCache.filter(function (c) { return c.page !== res.page; });
+    pc.pageCache.push(res);
+    while (pc.pageCache.length > PC_PAGE_CACHE) pc.pageCache.shift();
+  }
+  function pcPaintPageNav() {
+    var max = Math.max(1, pc.pdfPages || 1);
+    document.querySelectorAll('#pc-page-meta, #pc-fs-page-meta').forEach(function (meta) {
+      meta.textContent = pc.drawingKind === 'pdf' ? ('Page ' + pc.page + ' of ' + max) : 'Image';
+    });
+    document.querySelectorAll('#screen-pc [data-pc="page-prev"]').forEach(function (b) { b.disabled = pc.page <= 1; });
+    document.querySelectorAll('#screen-pc [data-pc="page-next"]').forEach(function (b) { b.disabled = pc.page >= max; });
+  }
+  function pcPrefetchNeighbour(drawing, n) {
+    setTimeout(function () {
+      if (pc.drawing !== drawing || pc.page !== n || !pc.pdfDoc) return;
+      var max = pc.pdfPages || 1, nb = n < max ? n + 1 : n - 1;
+      if (nb < 1 || nb === n) return;
+      var target = pcBaseTarget($(pcActiveDrawIds().stage));
+      if (pcCacheGet(nb, target)) return;
+      pcRenderPageUrl(pc.pdfDoc, nb, target, 0.9, function (page) { pcPdfPageInfo(nb, page); }).then(function (res) {
+        if (pc.drawing === drawing) pcCachePut(res);
+      }, function () {});
+    }, 500);
+  }
+  function pcShowRendered(stageImg, stage, res) {
+    stageImg.src = res.url;
+    stageImg.alt = 'Plan PDF page ' + res.page;
+    stage.classList.remove('pdfloading');
+    pc.pdfBusy = false;
+    pc.renderedW = res.w; pc.renderedPage = res.page;
+    pcPaintOverlays();
+    pcPaintPageNav();
+    var nav = $('pc-page-nav');
+    if (!nav && !pc.fs && pc.pdfPages > 1) {
+      var head = document.querySelector('.pcdrawhead');
+      if (head) head.insertAdjacentHTML('beforeend', pcPageNavHtml());
+    }
+    if (pc.fs) { if (pc.focusPin) pcFocusPinNow(); else pcApplyZoomPan(); }
+    pcPrefetchNeighbour(pc.drawing, res.page);
+  }
   function pcRenderPdfIntoStage() {
     var ids = pcActiveDrawIds();
     var stageImg = $(ids.img);
     var stage = $(ids.stage);
     if (!stageImg || !stage || pc.drawingKind !== 'pdf') return;
     var token = ++pc.pdfToken;
+    var n = pc.page, target = pcBaseTarget(stage);
     pc.pdfBusy = true;
-    stageImg.alt = 'Loading PDF page ' + pc.page + '\u2026';
+    var hit = pcCacheGet(n, target);
+    if (hit) {
+      pcShowRendered(stageImg, stage, hit);
+      pcLoadPdfDoc().then(function () { if (token === pc.pdfToken) pcPaintPageNav(); }, function () {});
+      return;
+    }
+    stageImg.alt = 'Loading PDF page ' + n + '\u2026';
     stage.classList.add('pdfloading');
     pcLoadPdfDoc().then(function (pdf) {
       if (token !== pc.pdfToken) return;
-      return pdf.getPage(pc.page).then(function (page) {
+      pcPaintPageNav();
+      return pcRenderPageUrl(pdf, n, target, 0.9, function (page) {
+        var hadTs = pcDefaultFs(n) > 0;
+        pcPdfPageInfo(n, page).then(function () { if (!hadTs && pc.page === n) pcRepaintMarks(); });
+      }).then(function (res) {
+        if (pc.drawing && pc.drawingKind === 'pdf') pcCachePut(res);
         if (token !== pc.pdfToken) return;
-        var infoPage = pc.page, hadTs = pcDefaultFs(infoPage) > 0;
-        pcPdfPageInfo(infoPage, page).then(function () { if (!hadTs && pc.page === infoPage) pcRepaintMarks(); });
-        var vp1 = page.getViewport({ scale: 1 });
-        var viewEl = $('pc-fs-view') || stage;
-        var w = (viewEl && viewEl.clientWidth) || stage.clientWidth || 360;
-        var target = Math.min(2200, Math.max(900, w * Math.min(window.devicePixelRatio || 1, 2.5)));
-        var vp = page.getViewport({ scale: target / vp1.width });
-        var cv = document.createElement('canvas');
-        cv.width = Math.floor(vp.width); cv.height = Math.floor(vp.height);
-        var ctx = cv.getContext('2d');
-        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
-        return page.render({ canvasContext: ctx, viewport: vp }).promise.then(function () {
-          if (token !== pc.pdfToken) { page.cleanup(); return; }
-          var url = cv.toDataURL('image/jpeg', 0.9);
-          cv.width = cv.height = 0;
-          page.cleanup();
-          stageImg.src = url;
-          stageImg.alt = 'Plan PDF page ' + pc.page;
-          stage.classList.remove('pdfloading');
-          pc.pdfBusy = false;
-          pcPaintOverlays();
-          document.querySelectorAll('#pc-page-meta, #pc-fs-page-meta').forEach(function (meta) {
-            meta.textContent = 'Page ' + pc.page + ' of ' + pc.pdfPages;
-          });
-          document.querySelectorAll('[data-pc="page-prev"]').forEach(function (prev) { prev.disabled = pc.page <= 1; });
-          document.querySelectorAll('[data-pc="page-next"]').forEach(function (next) { next.disabled = pc.page >= pc.pdfPages; });
-          var nav = $('pc-page-nav');
-          if (!nav && !pc.fs && pc.pdfPages > 1) {
-            var head = document.querySelector('.pcdrawhead');
-            if (head) head.insertAdjacentHTML('beforeend', pcPageNavHtml());
-          }
-          if (pc.fs) pcApplyZoomPan();
-        });
+        pcShowRendered(stageImg, stage, res);
       });
     }).catch(function (err) {
       if (token !== pc.pdfToken) return;
@@ -14673,6 +14808,25 @@
       stage.classList.remove('pdfloading');
       pcFlash((err && err.message) || 'Could not render the PDF page.', true);
     });
+  }
+  // Fullscreen zoom: once the zoom settles, re-render the current page sharper (not cached, so memory stays flat).
+  function pcSharpenSoon() {
+    clearTimeout(pc._sharpT);
+    if (!pc.fs || pc.drawingKind !== 'pdf') return;
+    pc._sharpT = setTimeout(pcSharpen, 450);
+  }
+  function pcSharpen() {
+    if (!pc.fs || pc.drawingKind !== 'pdf' || !pc.pdfDoc || pc.pdfBusy) return;
+    var view = $('pc-fs-view'), img = $('pc-fs-img'); if (!view || !img) return;
+    var need = view.clientWidth * (pc.zoom || 1) * Math.min(window.devicePixelRatio || 1, 3);
+    if (need <= pc.renderedW * 1.2 || pc.renderedPage !== pc.page) return;
+    var token = pc.pdfToken, n = pc.page, info = pc.pgInfo[n];
+    if (info && info.w && pc.renderedW >= Math.min(4096 / Math.max(info.w, info.h) * info.w, Math.sqrt(16e6 / (info.w * info.h)) * info.w) - 2) return;
+    pcRenderPageUrl(pc.pdfDoc, n, need, 0.85).then(function (res) {
+      if (token !== pc.pdfToken || pc.page !== n || !pc.fs) return;
+      var im = $('pc-fs-img'); if (!im) return;
+      im.src = res.url; pc.renderedW = res.w;
+    }, function () {});
   }
   /** Flatten PDF page 1 to jpeg \u2014 fallback when PDF is too large for storage. */
   function pcPdfFirstPage(file) {
@@ -14711,65 +14865,71 @@
       return;
     }
     pc.drawBusy = true;
-    if (isPdf) {
-      pcFlash('Loading PDF plan\u2026', false);
-      pcFileToDataUrl(file).then(function (dataUrl) {
-        if (dataUrl.length > PC_PDF_MAX) {
-          pcFlash('PDF is large \u2014 flattening page 1 as an image for phone storage\u2026', false);
-          return pcPdfFirstPage(file).then(function (imgUrl) {
-            return { kind: 'image', data: imgUrl, note: 'PDF was too large to keep as PDF; page 1 saved as image.' };
-          });
-        }
-        return loadPdfJs().then(function (lib) {
-          var bytes = pcDataUrlToBytes(dataUrl);
-          return lib.getDocument({ data: bytes }).promise.then(function (pdf) {
-            var pages = pdf.numPages || 1;
-            pdf.destroy();
-            return { kind: 'pdf', data: dataUrl, pages: pages, note: 'PDF attached (' + pages + ' page' + (pages === 1 ? '' : 's') + ').' };
-          });
-        });
-      }).then(function (info) {
-        pc.drawBusy = false;
-        pcReleasePdf();
-        pc.drawing = info.data;
-        pc.drawingKind = info.kind;
-        pc.page = 1;
-        pc.pdfPages = info.pages || 1;
-        pc.mode = 'view';
-        pc.annotCur = '';
-        // Clear pins/notes that belonged to a previous plan
+    var oldKey = pcIdbKey(pc.drawing);
+    var hadMarks = pc.items.some(function (it) { return it.pin; }) || pc.annots.length > 0;
+    // Replacing a plan: offer to keep the pins/notes (e.g. re-uploading the full PDF after an older page-1-only import).
+    function applyPlan(info) {
+      pc.drawBusy = false;
+      var keep = hadMarks && confirm('Keep your existing pins and text notes on the new plan?\n\nOK = keep them (same spots, same pages)\nCancel = start clean');
+      pcReleasePdf();
+      pc.drawing = info.data;
+      pc.drawingKind = info.kind;
+      pc.page = 1;
+      pc.pdfPages = info.pages || 1;
+      pc.mode = 'view';
+      pc.annotCur = '';
+      if (keep) {
+        var max = pc.pdfPages;
+        pc.items.forEach(function (it) { if (it.pin) it.pin.page = Math.min(max, it.pin.page >= 1 ? it.pin.page : 1); });
+        pc.annots.forEach(function (a) { a.page = Math.min(max, a.page >= 1 ? a.page : 1); });
+      } else {
         pc.items.forEach(function (it) { it.pin = null; });
         pc.annots = [];
-        pcAutosave();
-        pcRenderEditor(true);
-        pcFlash(info.note || 'Plan attached.', info.kind === 'image' && /too large/.test(info.note || '') );
-        setTimeout(function () { pcEnterFs(); }, 30);
-      }, function (err) {
-        pc.drawBusy = false;
-        pcFlash((err && err.message) || 'Could not prepare that plan file.', true);
-      });
+      }
+      if (oldKey && pcIdbKey(info.data) !== oldKey) pcIdbDel(oldKey);
+      pcAutosave();
+      pcRenderEditor(true);
+      pcFlash(info.note || 'Plan attached.', !!info.bad);
+      setTimeout(function () { pcEnterFs(); }, 30);
+    }
+    function failed(err) {
+      pc.drawBusy = false;
+      pcFlash((err && err.message) || 'Could not prepare that plan file.', true);
+    }
+    if (isPdf) {
+      if (file.size > PC_PDF_HARD_MAX) { pc.drawBusy = false; pcFlash('That PDF is over ' + Math.round(PC_PDF_HARD_MAX / 1048576) + ' MB, too big to open on a phone. Split the set into smaller PDFs.', true); return; }
+      pcFlash('Loading PDF plan\u2026', false);
+      if (!pc.id) pc.id = pcUid();
+      var key = pc.id;
+      (file.arrayBuffer ? file.arrayBuffer() : new Response(file).arrayBuffer()).then(function (buf) {
+        var u8 = new Uint8Array(buf);
+        return loadPdfJs().then(function (lib) {
+          return lib.getDocument({ data: u8.slice() }).promise;
+        }).then(function (pdf) {
+          var pages = pdf.numPages || 1;
+          try { pdf.destroy(); } catch (e) {}
+          var note = 'PDF attached \u2014 ' + pages + ' page' + (pages === 1 ? '' : 's') + '.' + (pages > 1 ? ' Use \u2039 \u203a or tap \u201cPage 1 of ' + pages + '\u201d to switch pages.' : '');
+          return pcIdbPut(key, { bytes: buf, name: String(file.name || ''), size: buf.byteLength, pages: pages, ts: Date.now() }).then(function () {
+            pc.planBytes = u8; pc.planBytesKey = key;
+            return { kind: 'pdf', data: 'idb:' + key, pages: pages, note: note };
+          }, function () {
+            // No IndexedDB (private mode / storage blocked): old behaviour, small PDFs in localStorage, else page 1 as an image.
+            return pcFileToDataUrl(file).then(function (dataUrl) {
+              if (dataUrl.length <= PC_PDF_MAX) return { kind: 'pdf', data: dataUrl, pages: pages, note: note };
+              pcFlash('Phone storage is blocked \u2014 keeping page 1 as an image\u2026', false);
+              return pcPdfFirstPage(file).then(function (imgUrl) {
+                return { kind: 'image', data: imgUrl, bad: true, note: 'This browser blocked file storage, so only page 1 was kept (as an image). Turn off Private Browsing and upload again to get every page.' };
+              });
+            });
+          });
+        });
+      }).then(applyPlan, failed);
       return;
     }
     pcFlash('Preparing plan image\u2026', false);
     pcShrinkImage(file).then(function (dataUrl) {
-      pc.drawBusy = false;
-      pcReleasePdf();
-      pc.drawing = dataUrl;
-      pc.drawingKind = 'image';
-      pc.page = 1;
-      pc.pdfPages = 1;
-      pc.mode = 'view';
-      pc.annotCur = '';
-      pc.items.forEach(function (it) { it.pin = null; });
-      pc.annots = [];
-      pcAutosave();
-      pcRenderEditor(true);
-      pcFlash('Plan image attached.', false);
-      setTimeout(function () { pcEnterFs(); }, 30);
-    }, function (err) {
-      pc.drawBusy = false;
-      pcFlash((err && err.message) || 'Could not prepare that plan file.', true);
-    });
+      applyPlan({ kind: 'image', data: dataUrl, pages: 1, note: 'Plan image attached.' });
+    }, failed);
   }
 
   function pcOpen() {
@@ -14783,7 +14943,9 @@
       if (back) back.setAttribute('data-go', 'projects');
       if (title) title.textContent = 'Plan Checks';
       pcReleasePdf();
+      pc.planBytes = null; pc.planBytesKey = '';
       pcRenderList();
+      pcIdbSweep();
       return;
     }
     if (back) back.setAttribute('data-go', 'pc');
@@ -14828,10 +14990,12 @@
     pc.drawing = row.drawing || '';
     pc.drawingKind = row.drawingKind || pcInferKind(pc.drawing);
     pc.page = Math.max(1, parseInt(row.page, 10) || 1);
-    pc.pdfPages = pc.drawingKind === 'pdf' ? Math.max(1, pc.page) : 1;
+    pc.pdfPages = pc.drawingKind === 'pdf' ? Math.max(1, pc.page, parseInt(row.pdfPages, 10) || 1) : 1;
+    if (pc.planBytesKey && pc.planBytesKey !== pcIdbKey(pc.drawing)) { pc.planBytes = null; pc.planBytesKey = ''; }
     pc.cur = 1; pc.annotCur = ''; pc.mode = 'view';
     if (title) title.textContent = 'Checklist';
     pcRenderEditor(false);
+    if (pc.drawingKind === 'pdf' && pc.drawing.indexOf('data:') === 0) pcMovePdfToIdb(pc.id, pc.drawing);
   }
 
   function pcFmtDate(ts) {
@@ -14849,7 +15013,8 @@
       }).length;
       var pins = (row.items || []).filter(function (it) { return it && it.pin; }).length;
       var notes = Array.isArray(row.annots) ? row.annots.length : 0;
-      var plan = row.drawing ? (row.drawingKind === 'pdf' || (row.drawing || '').indexOf('data:application/pdf') === 0 ? 'PDF' : 'plan') : '';
+      var plan = row.drawing ? (row.drawingKind === 'pdf' || (row.drawing || '').indexOf('data:application/pdf') === 0
+        ? 'PDF' + (row.pdfPages > 1 ? ' (' + row.pdfPages + ' pages)' : '') : 'plan') : '';
       return '<button type="button" class="pclist" data-go="pc/' + esc(encodeURIComponent(row.id)) + '">' +
         '<div class="pcl1"><b>' + esc(row.title || 'Untitled') + '</b></div>' +
         '<div class="pcl2">' + esc(row.project || '\u2014') + ' \u00b7 ' + n + ' item' + (n === 1 ? '' : 's') +
@@ -14906,7 +15071,8 @@
     pcEnsureItems();
     return pc.items.map(function (it, i) {
       var n = i + 1, on = n === pc.cur;
-      var pinMark = it.pin ? '<span class="pcpinmark" title="Pinned on plan">&#128205;</span>' : '';
+      var pinMark = it.pin ? '<button type="button" class="pcpingo" data-pc="pin-go" data-n="' + n + '" aria-label="Show pin ' + n + ' on the plan' +
+        (pc.drawingKind === 'pdf' ? ', page ' + (it.pin.page || 1) : '') + '">&#128205;' + (pc.drawingKind === 'pdf' ? '<b>p' + (it.pin.page || 1) + '</b>' : '') + '</button>' : '';
       return '<div class="pcitem' + (on ? ' on' : '') + '" data-pc-row="' + n + '">' +
         '<button type="button" class="pcnum" data-pc="sel" data-n="' + n + '" aria-label="Select item ' + n + '">' + n + '</button>' +
         '<textarea class="notebox pcitemta" data-pc-item="' + n + '" rows="2" maxlength="2000" placeholder="Item ' + n + '\u2026">' + esc(it.text || '') + '</textarea>' +
@@ -14935,7 +15101,7 @@
     var pages = Math.max(1, pc.pdfPages || 1);
     return '<div class="pcpagenav" id="pc-page-nav">' +
       '<button type="button" class="navbtn pcmini" data-pc="page-prev"' + (pc.page <= 1 ? ' disabled' : '') + '>&lsaquo; Prev</button>' +
-      '<span class="pcpagemeta" id="pc-page-meta">Page ' + pc.page + ' of ' + pages + '</span>' +
+      '<button type="button" class="pcpagemeta" id="pc-page-meta" data-pc="page-pick" aria-label="Pick a page">Page ' + pc.page + ' of ' + pages + '</button>' +
       '<button type="button" class="navbtn pcmini" data-pc="page-next"' + (pc.page >= pages ? ' disabled' : '') + '>Next &rsaquo;</button>' +
       '</div>';
   }
@@ -14969,6 +15135,7 @@
     world.style.transform = 'translate(' + (pc.panX || 0) + 'px,' + (pc.panY || 0) + 'px) scale(' + (pc.zoom || 1) + ')';
     var zl = $('pc-fs-zoom-lbl');
     if (zl) zl.textContent = Math.round((pc.zoom || 1) * 100) + '%';
+    pcSharpenSoon();
   }
   function pcZoomBy(factor, cx, cy) {
     var view = $('pc-fs-view'); if (!view) return;
@@ -15044,12 +15211,14 @@
     var it = pc.items[pc.cur - 1] || { text: '', pin: null };
     var tip = pc.mode === 'pin'
       ? 'Tap the plan to place pin #' + pc.cur
-      : (pc.mode === 'text' ? 'Tap the plan to place a text box' : 'Pinch / wheel to zoom \u00b7 drag to pan');
+      : (pc.mode === 'text' ? 'Tap the plan to place a text box' : ('Pinch / wheel to zoom \u00b7 drag to pan' +
+        (pc.drawingKind === 'pdf' && pc.pdfPages > 1 ? ' \u00b7 at 100%, swipe left/right for the next/previous page' : '')));
     dock.innerHTML =
       '<div class="pcfs-itemrow">' +
       '<button type="button" class="pcnum" data-pc="fs-prev-item" aria-label="Previous item">&lsaquo;</button>' +
       '<div class="pcfs-itemmain">' +
-      '<div class="pcfs-docklbl">Item ' + pc.cur + (it.pin ? ' \u00b7 pinned' : '') + '</div>' +
+      '<div class="pcfs-docklbl">Item ' + pc.cur + (it.pin ? ' \u00b7 pinned' + (pc.drawingKind === 'pdf' ? ' on page ' + (it.pin.page || 1) : '') +
+        ' <button type="button" class="pcpingo pcfs-pingo" data-pc="pin-go" data-n="' + pc.cur + '">Show &rsaquo;</button>' : '') + '</div>' +
       '<textarea class="notebox pcfs-ta" data-pc-item="' + pc.cur + '" rows="2" maxlength="2000" placeholder="Checklist note for item ' + pc.cur + '\u2026">' + esc(it.text || '') + '</textarea>' +
       '<div class="pcfs-annotrow" style="margin-top:6px">' +
       '<button type="button" class="navbtn pcmini" data-pc="fs-item-mic">' + (pc.mic.on && pc.mic.target === 'item' ? 'Listening\u2026' : 'Dictate item') + '</button>' +
@@ -15069,7 +15238,7 @@
       '<button type="button" class="navbtn pcfs-done" data-pc="fs-done">Done</button>' +
       '<div class="pcfs-pagenav" id="pc-fs-pagenav"' + (pc.drawingKind !== 'pdf' ? ' hidden' : '') + '>' +
       '<button type="button" class="navbtn pcmini" data-pc="page-prev"' + (pc.page <= 1 ? ' disabled' : '') + '>&lsaquo;</button>' +
-      '<span class="pcpagemeta" id="pc-fs-page-meta">Page ' + pc.page + ' of ' + Math.max(1, pc.pdfPages || 1) + '</span>' +
+      '<button type="button" class="pcpagemeta" id="pc-fs-page-meta" data-pc="page-pick" aria-label="Pick a page">Page ' + pc.page + ' of ' + Math.max(1, pc.pdfPages || 1) + '</button>' +
       '<button type="button" class="navbtn pcmini" data-pc="page-next"' + (pc.page >= Math.max(1, pc.pdfPages || 1) ? ' disabled' : '') + '>&rsaquo;</button>' +
       '</div>' +
       '<div class="pcfs-zoom">' +
@@ -15111,7 +15280,7 @@
     else if (pc.drawingKind === 'image' && pc.drawing) {
       var img = $('pc-fs-img'); if (img) img.src = pc.drawing;
     }
-    if (pc.drawingKind !== 'pdf' && pc.drawing) pcImageInfo().then(pcRepaintMarks, function () {});
+    if (pc.drawingKind !== 'pdf' && pc.drawing) pcImageInfo().then(function () { pcRepaintMarks(); if (pc.focusPin) pcFocusPinNow(); }, function () {});
   }
   function pcExitFs(opts) {
     if (!pc.fs && !$('pc-fs')) return;
@@ -15120,6 +15289,7 @@
     pc.fs = false;
     pc.mode = 'view';
     var el = $('pc-fs'); if (el) el.remove();
+    pcPagePickClose();
     document.documentElement.classList.remove('pc-fs-open');
     document.body.classList.remove('pc-fs-open');
     pcAutosave();
@@ -15130,7 +15300,7 @@
       return '<div class="pcdrawempty card">' +
         '<b>Plan drawing</b><p>Upload a PDF (viewed in-app, multi-page) or a JPG/PNG of the plan. Open fullscreen to zoom, pan, and place pins or text notes on the drawing.</p>' +
         '<div class="draftbtns"><label class="bigsave" for="pc-draw-file">Upload plan (PDF or image)</label></div>' +
-        '<div class="foot">PDFs stay as PDF when they fit on this phone; oversized PDFs fall back to a page-1 image. Images are resized (~1600px).</div></div>';
+        '<div class="foot">PDFs keep every page (saved on this phone; switch pages with \u2039 \u203a or tap \u201cPage 1 of N\u201d). Images are resized (~1600px).</div></div>';
     }
 
     var modeClass = pc.mode === 'pin' ? ' placing-pin' : (pc.mode === 'text' ? ' placing-text' : '');
@@ -15141,8 +15311,10 @@
       : (pc.mode === 'text'
         ? 'Place text box: tap the plan to add a note. Prefer fullscreen for review.'
         : 'Open plan fullscreen to zoom, pan, and place pins or text while reviewing the drawing.');
+    var imgHint = pc.drawingKind === 'image'
+      ? '<div class="foot pcimghint">Plan set showing only page 1? Older versions kept big PDFs as a page-1 picture. Tap <b>Replace plan</b> and pick the PDF again \u2014 every page loads now and you can keep your pins.</div>' : '';
     return '<div class="pcdrawwrap' + modeClass + '">' +
-      '<div class="pcdrawhead">' + kindTag + pcPageNavHtml() + '</div>' +
+      '<div class="pcdrawhead">' + kindTag + pcPageNavHtml() + '</div>' + imgHint +
       '<div class="pcdrawstage" id="pc-draw-stage" data-pc="draw-tap">' +
       '<img class="pcdrawimg" id="pc-draw-img" src="' + (imgSrc ? imgSrc : '') + '" alt="Plan drawing">' +
       '<div class="pcpins" id="pc-pins">' + pcPinsHtml() + pcAnnotsHtml() + '</div></div>' +
@@ -15295,27 +15467,129 @@
       if (ta) try { ta.focus(); } catch (e) {}
     }, 50);
   }
-  function pcSetPage(n) {
+  function pcSetPage(n, opts) {
+    opts = opts || {};
     n = parseInt(n, 10) || 1;
     if (pc.drawingKind !== 'pdf') return;
     var max = Math.max(1, pc.pdfPages || 1);
     if (n < 1) n = 1;
     if (n > max) n = max;
-    if (n === pc.page) return;
+    if (n === pc.page) { if (pc.focusPin && pc.fs) pcFocusPinNow(); return; }
     pcReadDomMeta();
     pc.page = n;
     pc.annotCur = '';
     pcAutosave();
-    // Update nav + overlays without full re-render when possible
-    var meta = $('pc-page-meta');
-    if (meta) meta.textContent = 'Page ' + pc.page + ' of ' + max;
-    var prev = document.querySelector('[data-pc="page-prev"]');
-    var next = document.querySelector('[data-pc="page-next"]');
-    if (prev) prev.disabled = pc.page <= 1;
-    if (next) next.disabled = pc.page >= max;
+    pcPaintPageNav();
+    if (pc.fs && !opts.keepZoom && !pc.focusPin) pcZoomFit();
+    var ids = pcActiveDrawIds(), st = $(ids.stage);
+    if (st && !pcCacheGet(n, pcBaseTarget(st))) st.classList.add('pdfloading');
     pcPaintOverlays();
     var edit = $('pc-annot-edit'); if (edit) edit.remove();
     pcRenderPdfIntoStage();
+  }
+  // Pins + text notes per page (for the page picker badges and the summary).
+  function pcPageMarks() {
+    var m = {};
+    pc.items.forEach(function (it) { if (it.pin) { var p = it.pin.page || 1; m[p] = (m[p] || 0) + 1; } });
+    pc.annots.forEach(function (a) { var p = a.page || 1; m[p] = (m[p] || 0) + 1; });
+    return m;
+  }
+  function pcMarkedPages() {
+    var m = pcPageMarks();
+    return Object.keys(m).map(Number).sort(function (a, b) { return a - b; });
+  }
+  // Fullscreen: center the plan on pin #pc.focusPin (zoomed in) and pulse it.
+  function pcFocusPinNow() {
+    var n = pc.focusPin; pc.focusPin = 0;
+    if (!pc.fs || !n) return;
+    var it = pc.items[n - 1], pin = it && it.pin;
+    var view = $('pc-fs-view'), stage = $('pc-fs-stage');
+    if (!pin || !view || !stage || (pc.drawingKind === 'pdf' && (pin.page || 1) !== pc.page)) { pcApplyZoomPan(); return; }
+    var info = pc.pgInfo[pc.drawingKind === 'pdf' ? pc.page : 1];
+    var sw = stage.offsetWidth || view.clientWidth;
+    var ratio = info && info.w ? info.h / info.w : ((stage.offsetHeight || sw) / sw);
+    var sh = sw * ratio, z = pcClampZoom(Math.max(pc.zoom || 1, 2.5));
+    pc.zoom = z;
+    pc.panX = view.clientWidth / 2 - (pin.x / 100) * sw * z;
+    pc.panY = view.clientHeight / 2 - (pin.y / 100) * sh * z;
+    pcApplyZoomPan();
+    setTimeout(function () {
+      var el = document.querySelector('#pc-fs-pins .pcpin[data-n="' + n + '"]');
+      if (el) { el.classList.add('pulse'); setTimeout(function () { el.classList.remove('pulse'); }, 1600); }
+    }, 60);
+  }
+  // Tap a checklist item's pin chip: open that page in fullscreen, zoomed to the pin.
+  function pcGoToPin(n) {
+    n = parseInt(n, 10) || 0;
+    pcReadDomMeta(); pcEnsureItems();
+    var it = pc.items[n - 1];
+    if (!it || !it.pin || !pcHasPlan()) return;
+    pc.cur = n; pc.annotCur = ''; pc.mode = 'view'; pc.mic.target = 'item';
+    pc.focusPin = n;
+    var pg = pc.drawingKind === 'pdf' ? Math.min(Math.max(1, pc.pdfPages || 1), it.pin.page || 1) : 1;
+    pcAutosave();
+    if (!pc.fs) {
+      if (pc.drawingKind === 'pdf') pc.page = pg;
+      pcEnterFs();
+      return;
+    }
+    pcPaintOverlays();
+    if (pc.drawingKind === 'pdf' && pg !== pc.page) pcSetPage(pg);
+    else pcFocusPinNow();
+  }
+  // Page picker: grid of all pages with lazy thumbnails and a badge for pages that have pins/notes.
+  function pcPagePickClose() {
+    pc.pickToken++;
+    if (pc._pickIO) { try { pc._pickIO.disconnect(); } catch (e) {} pc._pickIO = null; }
+    var el = $('pc-pgpick'); if (el) el.remove();
+  }
+  function pcPagePickOpen() {
+    if (pc.drawingKind !== 'pdf') return;
+    pcPagePickClose();
+    var root = $('screen-pc'); if (!root) return;
+    var max = Math.max(1, pc.pdfPages || 1), marks = pcPageMarks(), tiles = '';
+    for (var i = 1; i <= max; i++) {
+      var th = pc.thumbs[i];
+      tiles += '<button type="button" class="pcpgtile' + (i === pc.page ? ' on' : '') + '" data-pc="page-go" data-p="' + i + '" aria-label="Page ' + i + (marks[i] ? ', ' + marks[i] + ' marks' : '') + '">' +
+        '<span class="pcpgthumb" data-thumb="' + i + '">' + (th ? '<img src="' + th + '" alt="">' : '') + '</span>' +
+        '<span class="pcpglbl">Page ' + i + (marks[i] ? '<em>' + marks[i] + '</em>' : '') + '</span></button>';
+    }
+    var el = document.createElement('div');
+    el.id = 'pc-pgpick'; el.className = 'pcpgpick'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Pick a page');
+    el.setAttribute('data-pc', 'page-pick-close');
+    el.innerHTML = '<div class="pcpgpanel" data-pc="noop">' +
+      '<div class="pcpghead"><b>Pages (' + max + ')</b><span>Tap a page to open it' + (Object.keys(marks).length ? ' \u00b7 red = pins/notes' : '') + '</span>' +
+      '<button type="button" class="navbtn pcmini" data-pc="page-pick-close">Close</button></div>' +
+      '<div class="pcpggrid" id="pc-pggrid">' + tiles + '</div></div>';
+    root.appendChild(el);
+    var on = el.querySelector('.pcpgtile.on'); if (on) try { on.scrollIntoView({ block: 'center' }); } catch (e) {}
+    var token = ++pc.pickToken, queue = [], busy = false;
+    function pump() {
+      if (busy || token !== pc.pickToken || !queue.length) return;
+      var n = queue.shift();
+      if (pc.thumbs[n]) { paint(n); pump(); return; }
+      busy = true;
+      pcLoadPdfDoc().then(function (pdf) { return pcRenderPageUrl(pdf, n, 220, 0.7); }).then(function (res) {
+        busy = false;
+        if (token !== pc.pickToken && !$('pc-pgpick')) return;
+        pc.thumbs[n] = res.url; paint(n); pump();
+      }, function () { busy = false; pump(); });
+    }
+    function paint(n) {
+      var box = document.querySelector('#pc-pgpick [data-thumb="' + n + '"]');
+      if (box && !box.firstChild && pc.thumbs[n]) box.innerHTML = '<img src="' + pc.thumbs[n] + '" alt="">';
+    }
+    function want(n) { if (!pc.thumbs[n] && queue.indexOf(n) < 0) queue.push(n); }
+    if (window.IntersectionObserver) {
+      pc._pickIO = new IntersectionObserver(function (ents) {
+        ents.forEach(function (en) { if (en.isIntersecting) { want(parseInt(en.target.getAttribute('data-thumb'), 10)); } });
+        pump();
+      }, { root: $('pc-pggrid'), rootMargin: '200px' });
+      el.querySelectorAll('[data-thumb]').forEach(function (b) { if (!b.firstChild) pc._pickIO.observe(b); });
+    } else {
+      for (var k = 1; k <= Math.min(max, 60); k++) want(k);
+      pump();
+    }
   }
   function pcEmailParts(pdfAttached) {
     pcReadDomMeta();
@@ -15326,12 +15600,13 @@
     var title = (pc.title || pcDefaultTitle()).trim();
     var project = pcProjectValue();
     var subject = 'Plan check \u2014 ' + project + ' \u2014 ' + title;
-    var body = title + '\nProject: ' + project + '\nDate: ' + pcTodayLabel() + '\n\n' +
+    var isPdf = pc.drawingKind === 'pdf', marked = pcMarkedPages();
+    var planLine = pcHasPlan() ? ('\nPlan: ' + (isPdf ? 'PDF, ' + Math.max(1, pc.pdfPages || 1) + ' page' + (pc.pdfPages > 1 ? 's' : '') +
+      (marked.length ? ' \u00b7 marked on page' + (marked.length > 1 ? 's ' : ' ') + marked.join(', ') : '') : 'image')) : '';
+    var body = title + '\nProject: ' + project + '\nDate: ' + pcTodayLabel() + planLine + '\n\n' +
       lines.map(function (x) {
         var pinNote = '';
-        if (x.pin) {
-          pinNote = '  [pin p' + (x.pin.page >= 1 ? x.pin.page : 1) + ' @ ' + x.pin.x.toFixed(0) + '%, ' + x.pin.y.toFixed(0) + '%]';
-        }
+        if (x.pin) pinNote = isPdf ? '  [pin on page ' + (x.pin.page >= 1 ? x.pin.page : 1) + ']' : '  [pinned on plan]';
         return x.n + '. ' + x.text + pinNote;
       }).join('\n');
     var notes = pc.annots.filter(function (a) { return String(a.text || '').trim(); });
@@ -15339,7 +15614,7 @@
       body += '\n\nNotes on plan:';
       notes.forEach(function (a) {
         var ref = a.refItem >= 1 ? ' (ref #' + a.refItem + ')' : '';
-        body += '\n- [p' + (a.page || 1) + ']' + ref + ' ' + String(a.text).trim();
+        body += '\n- ' + (isPdf ? '[page ' + (a.page || 1) + ']' : '') + ref + ' ' + String(a.text).trim();
       });
     }
     if (pdfAttached) body += '\n\nMarked-up plan PDF attached: ' + pcPdfFileName(pcPdfBaseName());
@@ -15657,12 +15932,14 @@
     return chain.then(function () { return infos; });
   }
   function pcPdfPlanPages(L, out, snap, F, all) {
-    var bytes = pcDataUrlToBytes(snap.drawing);
-    return L.PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false }).then(function (src) {
+    return pcPlanBytes().then(function (bytes) {
+      return L.PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
+    }).then(function (src) {
       return src.isEncrypted ? null : src;
     }, function () { return null; }).then(function (src) {
       if (!src) return pcPdfRasterPages(L, out, snap, F, all);   // encrypted/odd file: pdf.js renders it, marks drawn on top
       var idx = pcPdfPickPages(snap, src.getPageCount(), all);
+      snap.srcPages = src.getPageCount();
       return pcPdfInfosFor(snap, idx).then(function (infos) {
         return out.copyPages(src, idx).then(function (pages) {
           pages.forEach(function (p, k) {
@@ -15751,6 +16028,13 @@
     meta.push('Reviewer: ' + PC_REVIEWER);
     if (snap.has) meta.push('Plan: ' + (snap.kind === 'pdf' ? 'PDF, ' + snap.planPages + ' sheet page' + (snap.planPages === 1 ? '' : 's') + ' in this file' : 'image') +
       ' \u00b7 ' + nPins + ' pin' + (nPins === 1 ? '' : 's') + ' \u00b7 ' + nNotes + ' text note' + (nNotes === 1 ? '' : 's'));
+    if (snap.kind === 'pdf') {
+      var mk = {};
+      snap.items.forEach(function (it) { if (it.pin) mk[it.pin.page] = 1; });
+      snap.annots.forEach(function (a) { if (String(a.text).trim() || a.refItem >= 1) mk[a.page] = 1; });
+      var mkl = Object.keys(mk).map(Number).sort(function (a, b) { return a - b; });
+      if (mkl.length) meta.push('Marked sheet page' + (mkl.length > 1 ? 's' : '') + ': ' + mkl.join(', ') + (snap.srcPages ? ' of ' + snap.srcPages : ''));
+    }
     meta.forEach(function (s) { para(s, M, 12.5, F.semi, gray, 17); });
     y -= 6;
     p.drawLine({ start: { x: M, y: y }, end: { x: PW - M, y: y }, thickness: 1.2, color: red });
@@ -15901,6 +16185,9 @@
     if (!confirm('Delete this plan check checklist from this phone?')) return;
     pcMicStop(true);
     if (pc.fs) { pc.fs = false; var fsel = $('pc-fs'); if (fsel) fsel.remove(); document.documentElement.classList.remove('pc-fs-open'); document.body.classList.remove('pc-fs-open'); }
+    pcPagePickClose();
+    pcIdbDel(pcIdbKey(pc.drawing));
+    pc.planBytes = null; pc.planBytesKey = '';
     pcReleasePdf();
     var store = pcLoadStore();
     store.list = store.list.filter(function (x) { return x.id !== pc.id; });
@@ -15986,7 +16273,7 @@
       pc.cur = Math.max(1, pc.cur - 1);
       pc.annotCur = '';
       pc.mic.target = 'item';
-      pcAutosave(); pcPaintOverlays(); return;
+      pcAutosave(); pcPaintOverlays(); pcFollowPinPage(); return;
     }
     if (a === 'fs-next-item') {
       pcReadDomMeta();
@@ -15996,7 +16283,7 @@
       pcEnsureItems();
       pc.annotCur = '';
       pc.mic.target = 'item';
-      pcAutosave(); pcPaintOverlays(); return;
+      pcAutosave(); pcPaintOverlays(); pcFollowPinPage(); return;
     }
     if (a === 'fs-item-mic') {
       pc.annotCur = '';
@@ -16015,6 +16302,8 @@
     if (a === 'draw-clear') {
       if (!confirm('Remove the plan from this checklist? Pins and text notes on it will be cleared.')) return;
       if (pc.fs) pcExitFs();
+      pcIdbDel(pcIdbKey(pc.drawing));
+      pc.planBytes = null; pc.planBytesKey = '';
       pcReleasePdf();
       pc.drawing = ''; pc.drawingKind = '';
       pc.page = 1; pc.pdfPages = 1;
@@ -16025,6 +16314,11 @@
     }
     if (a === 'page-prev') { pcSetPage((pc.page || 1) - 1); return; }
     if (a === 'page-next') { pcSetPage((pc.page || 1) + 1); return; }
+    if (a === 'page-pick') { pcPagePickOpen(); return; }
+    if (a === 'page-pick-close') { pcPagePickClose(); return; }
+    if (a === 'noop') return;
+    if (a === 'page-go') { var pgo = parseInt(b.getAttribute('data-p'), 10); pcPagePickClose(); pcSetPage(pgo); return; }
+    if (a === 'pin-go') { e.stopPropagation(); pcGoToPin(b.getAttribute('data-n')); return; }
     if (a === 'annot-del') {
       if (!pc.annotCur) return;
       pc.annots = pc.annots.filter(function (x) { return x.id !== pc.annotCur; });
@@ -16076,6 +16370,11 @@
       return;
     }
     if (a === 'delete') { pcDeleteChecklist(); return; }
+  }
+  // Fullscreen item stepping: if the selected item is pinned on another page, turn to that page.
+  function pcFollowPinPage() {
+    var it = pc.items[pc.cur - 1];
+    if (pc.fs && pc.drawingKind === 'pdf' && it && it.pin && (it.pin.page || 1) !== pc.page) pcSetPage(it.pin.page || 1);
   }
   function pcBodyInput(e) {
     if (!pcOnScreen()) return;
@@ -16194,7 +16493,7 @@
       // Pan fullscreen plan when Select tool is active
       if (pc.fs && e.target.closest('#pc-fs-view') && !e.target.closest('.pcpin,.pcannot,textarea,select,button,a,input')) {
         var p = finger(e);
-        pan = { x0: p.clientX, y0: p.clientY, panX: pc.panX || 0, panY: pc.panY || 0, moved: false };
+        pan = { x0: p.clientX, y0: p.clientY, lx: p.clientX, ly: p.clientY, t0: Date.now(), z0: pc.zoom || 1, panX: pc.panX || 0, panY: pc.panY || 0, moved: false };
       }
     }
     function onMove(e) {
@@ -16220,6 +16519,7 @@
       if (pan && pc.fs) {
         var p2 = finger(e);
         var dx = p2.clientX - pan.x0, dy = p2.clientY - pan.y0;
+        pan.lx = p2.clientX; pan.ly = p2.clientY;
         if (!pan.moved && Math.abs(dx) + Math.abs(dy) < 6) return;
         pan.moved = true;
         if (e.cancelable) e.preventDefault();
@@ -16248,6 +16548,14 @@
       if (pinch && (!e.touches || e.touches.length < 2)) pinch = null;
       if (pan) {
         if (pan.moved) { pc._suppressTap = true; setTimeout(function () { pc._suppressTap = false; }, 450); }
+        // Swipe = quick, mostly-horizontal flick while the plan is at fit (100% or less) with the Select tool.
+        var sdx = pan.lx - pan.x0, sdy = pan.ly - pan.y0;
+        if (pan.moved && pc.fs && pc.mode === 'view' && pc.drawingKind === 'pdf' && pan.z0 <= 1.01 && (pc.zoom || 1) <= 1.01 &&
+            Math.abs(sdx) > 70 && Math.abs(sdx) > Math.abs(sdy) * 2 && Date.now() - pan.t0 < 600) {
+          var to = (pc.page || 1) + (sdx < 0 ? 1 : -1);
+          pcZoomFit();
+          if (to >= 1 && to <= (pc.pdfPages || 1)) pcSetPage(to);
+        }
         pan = null;
       }
       if (!drag) return;

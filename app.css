@@ -1904,6 +1904,29 @@ button.ledchip { cursor: pointer; }
 #screen-pc .pcdrawkind { display: inline-block; padding: 3px 8px; border-radius: 999px; font: 700 11px/1.2 'Inter', sans-serif; letter-spacing: .4px; text-transform: uppercase; color: #0b0b0b; background: var(--pc-copper2); }
 #screen-pc .pcpagenav { display: flex; align-items: center; gap: 8px; flex: 1; justify-content: flex-end; }
 #screen-pc .pcpagemeta { font-size: 13px; color: var(--muted); font-weight: 600; min-width: 7.5em; text-align: center; }
+/* v125: multi-page plans: tappable 'Page N of M' (opens the page picker), pin chips with page, page picker sheet */
+#screen-pc button.pcpagemeta { appearance: none; -webkit-appearance: none; min-height: 34px; padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(208,138,85,.55); background: #000; color: var(--pc-copper2); font: 700 13px/1.1 'Inter', sans-serif; cursor: pointer; white-space: nowrap; min-width: 0; }
+#screen-pc button.pcpagemeta::after { content: ' \25BE'; font-size: 11px; opacity: .85; }
+#screen-pc button.pcpagemeta:active { background: rgba(208,138,85,.18); }
+#screen-pc .pcpagenav .navbtn, #screen-pc .pcfs-pagenav .navbtn { min-width: 40px; font-weight: 800; }
+#screen-pc .pcimghint { margin: 0 0 8px; }
+#screen-pc .pcpingo { appearance: none; -webkit-appearance: none; align-self: start; margin-top: 6px; display: inline-flex; align-items: center; gap: 2px; min-height: 34px; padding: 4px 8px; border-radius: 8px; border: 1px solid rgba(208,138,85,.45); background: #000; color: var(--pc-copper2); font: 700 13px/1 'Inter', sans-serif; cursor: pointer; white-space: nowrap; }
+#screen-pc .pcpingo b { font-weight: 800; }
+#screen-pc .pcfs-pingo { margin: 0 0 0 6px; min-height: 26px; padding: 2px 8px; font-size: 11px; text-transform: none; letter-spacing: 0; vertical-align: middle; }
+#screen-pc .pcpin.pulse { animation: pcpinpulse .5s ease-in-out 3; }
+@keyframes pcpinpulse { 0%,100% { transform: translate(-50%,-50%) scale(1); } 50% { transform: translate(-50%,-50%) scale(1.6); } }
+#screen-pc .pcpgpick { position: fixed; inset: 0; z-index: 96; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; padding: env(safe-area-inset-top, 0) 0 0; }
+#screen-pc .pcpgpanel { width: 100%; max-width: 640px; max-height: 82vh; display: flex; flex-direction: column; background: #151515; border: 1px solid rgba(208,138,85,.5); border-bottom: 0; border-radius: 14px 14px 0 0; box-shadow: 0 -8px 28px rgba(0,0,0,.6); padding: 12px 12px calc(12px + env(safe-area-inset-bottom, 0px)); }
+#screen-pc .pcpghead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+#screen-pc .pcpghead b { color: var(--pc-copper2); font-size: 16px; }
+#screen-pc .pcpghead span { flex: 1 1 auto; font-size: 12px; color: var(--muted); }
+#screen-pc .pcpggrid { overflow: auto; -webkit-overflow-scrolling: touch; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding-bottom: 4px; }
+#screen-pc .pcpgtile { appearance: none; -webkit-appearance: none; display: flex; flex-direction: column; gap: 4px; padding: 4px; border-radius: 10px; border: 1px solid rgba(255,255,255,.12); background: #000; color: #f2f2f2; cursor: pointer; min-width: 0; }
+#screen-pc .pcpgtile.on { border-color: var(--pc-copper); box-shadow: 0 0 0 2px rgba(208,138,85,.45); }
+#screen-pc .pcpgthumb { display: block; width: 100%; aspect-ratio: 17 / 11; background: #2a2a2a; border-radius: 6px; overflow: hidden; }
+#screen-pc .pcpgthumb img { display: block; width: 100%; height: 100%; object-fit: contain; background: #fff; }
+#screen-pc .pcpglbl { display: flex; align-items: center; justify-content: center; gap: 6px; font: 700 13px/1.2 'Inter', sans-serif; color: var(--pc-copper2); }
+#screen-pc .pcpglbl em { font-style: normal; min-width: 18px; padding: 1px 5px; border-radius: 999px; background: #9B111E; color: #fff; font-size: 11px; }
 #screen-pc .pcdrawstage { container-type: inline-size; position: relative; width: 100%; border-radius: 10px; overflow: hidden; border: 1px solid rgba(208,138,85,.35); background: #111; touch-action: manipulation; min-height: 120px; }
 #screen-pc .pcdrawstage.pdfloading::after { content: 'Rendering PDF…'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.45); color: var(--pc-copper2); font-size: 14px; font-weight: 700; z-index: 4; pointer-events: none; }
 #screen-pc .pcdrawwrap.placing-pin .pcdrawstage,
@@ -1984,8 +2007,10 @@ html.pc-fs-open, html.pc-fs-open body { overflow: hidden !important; touch-actio
   width: 100%;
 }
 #screen-pc .pcfs-world .pcdrawstage {
-  width: 100%; border-radius: 0; border: none; min-height: 40vh;
+  width: 100%; border-radius: 0; border: none; min-height: 0;
 }
+/* v125: the stage must be exactly the image's height (pins are stored as % of the stage); only reserve space while loading */
+#screen-pc .pcfs-world .pcdrawstage.pdfloading { min-height: 40vh; }
 #screen-pc .pcfs-world .pcdrawimg { width: 100%; height: auto; display: block; }
 #screen-pc .pcfs.placing-pin .pcdrawstage { outline: 2px solid var(--pc-copper); outline-offset: -2px; }
 #screen-pc .pcfs.placing-text .pcdrawstage { outline: 2px solid #7ec8e3; outline-offset: -2px; }
