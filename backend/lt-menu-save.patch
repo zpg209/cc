@@ -1,0 +1,121 @@
+--- a/Api.gs
++++ b/Api.gs
+@@ -26,6 +26,7 @@
+  *   GET  <exec>?api=1&pc=123456&action=orderpaid&orderId=o..&payStatus=paid|unpaid|trade[&payMethod=cash|zelle|venmo]&cid=abc[&dry=1] (or the old paid=true|false)   |   action=orderdel&orderId=o..&cid=abc[&dry=1]   (admin v40+: set an order's payment (v41: paid/unpaid/trade + cash/zelle/venmo); soft-delete an order)
+  *   POST <exec>  body {"pc":..,"action":"weekmenuset","cid":..,"week":"2026-10-05","items":[{"item":..,"price":14}][,"dry":1]}   (admin v40+: save the menu chosen for a week (Week Menus tab); replaces that week's rows)
+  *   GET  <exec>?api=1&pc=123456&action=menusave&week=2026-10-05&deliver=2026-10-06&items=%5B%7B%22name%22%3A%22Taco%20Salad%22%2C%22price%22%3A%2214%22%2C%22desc%22%3A%22romaine%2C%20beef%22%7D%5D&cid=abc[&dry=1]   (admin: create a Google Doc 'Menu - <week>' in Drive > Menu Designs; never overwrites, appends ' (2)')
++ *   POST <exec>  body (text/plain JSON) {"pc":..,"action":"ltmenusave","cid":"abc","name":"Lisa's Table Menu 2026-10-12.pdf","week":"2026-10-12","data":"<base64 PDF>"[,"dry":1]}   (admin v53: file a menu PDF made on the phone in Drive > Lisa's Table > Past Menus; never overwrites, appends ' (2)'; the same cid never files twice)
+  *   GET  <exec>?api=1&pc=123456&action=wishlist   (v36+: Lisa's Table Wish List, shared phone list; read-only, creates nothing; {items:[{id,row,added,item,notes,status:'open'|'done',by,doneOn}],open,done,sheetUrl}; open newest first, then done)
+  *   GET  <exec>?api=1&pc=123456&action=wishadd&items=%5B%22milk%22%2C%22eggs%22%5D[&by=Lisa|Zac][&notes=..]&cid=abc[&dry=1]   (admin v36+: add up to 30 items (<=200 chars each; or item=<one>); skips loose duplicates of OPEN items; sheet "Wish List" is created in the Lisa's Table Drive folder on the first write)
+  *   GET  <exec>?api=1&pc=123456&action=wishset&id=w123&status=done|open&cid=abc[&dry=1]   (admin v36+: mark a wish done (Done on = today) or open again; no status = toggle)
+@@ -124,6 +125,7 @@
+       case 'weekmenuset': return apiWeekMenuSet_(extra.all || {});
+       case 'menuitemadd': return apiMenuItemAdd_(extra.all || {});
+       case 'menusave':  return apiMenuSave_(extra.all || {});
++      case 'ltmenusave': return apiLtMenuSave_(extra.all || {});     // v53: Lisa's Table menu PDF -> Drive > Past Menus
+       case 'wishadd':   return apiWishAdd_(extra.all || {});
+       case 'wishset':   return apiWishSet_(extra.all || {});
+       case 'wishdel':   return apiWishDel_(extra.all || {});
+@@ -1241,6 +1243,102 @@
+     return { ok: true, data: out };
+   } finally {
+     lock.releaseLock();
++  }
++}
++
++/* ======================================================================= */
++/* Lisa's Table — file a menu PDF made on the phone — action=ltmenusave (v53) */
++/* ======================================================================= */
++var API_LTM = {
++  MAX_BYTES: 8 * 1024 * 1024,                      // decoded PDF size limit
++  MAX_B64: Math.ceil(8 * 1024 * 1024 / 3) * 4 + 8,
++  DESC_TAG: 'CC ltmenusave '                      // file description = tag + {"cid":..,"week":..} (finds a retry even if the journal write failed)
++};
++function apiLtmFindCid_(ss, folder, cid) {
++  var jt = ss.getSheetByName(API_SPENDFIX_CFG.journalTab);
++  if (jt && jt.getLastRow() >= 2) {
++    var v = jt.getRange(2, 1, jt.getLastRow() - 1, 7).getValues();
++    for (var i = v.length - 1; i >= 0; i--) {
++      if (String(v[i][1]) === 'ltmenusave' && String(v[i][6]) === cid) {
++        var m = String(v[i][5]).split(' | ');
++        try { var f = DriveApp.getFileById(m[0]); if (!f.isTrashed()) return f; } catch (e) { /* gone: look in the folder */ }
++      }
++    }
++  }
++  var it = folder.getFilesByType('application/pdf');
++  while (it.hasNext()) {
++    var g = it.next(), d = String(g.getDescription() || '');
++    if (d.indexOf(API_LTM.DESC_TAG) === 0) {
++      try { if (JSON.parse(d.slice(API_LTM.DESC_TAG.length)).cid === cid && !g.isTrashed()) return g; } catch (e2) { /* not ours */ }
++    }
++  }
++  return null;
++}
++/**
++ * action=ltmenusave  (admin; POST JSON body, or GET params for dry=1 checks)
++ *   cid    required when writing (idempotency key: the same cid never files two PDFs; a repeat returns the first file, duplicate:'cid')
++ *   name   file name, e.g. "Lisa's Table Menu 2026-10-12.pdf" (cleaned, max 120 characters, ".pdf" added)
++ *   week   optional yyyy-mm-dd (kept in the file description)
++ *   data   base64 PDF (a data: URL prefix is tolerated); decoded size <= 8 MB; must start with %PDF- and end with %%EOF
++ *   dry=1  validate + show the final name; nothing is created or logged (data optional)
++ * Saves into Drive > Lisa's Table > Past Menus (API_LT.menusId, the folder the app lists as Past Menus).
++ * An existing file with the same name is NEVER overwritten: ' (2)', ' (3)' ... is added before .pdf.
++ * Response {ok:true,data:{id,url,name,folderUrl,bytes,cid,dry,version:53[,duplicate:'cid']}}
++ */
++function apiLtMenuSave_(p) {
++  p = p || {};
++  var dry = apiAdminBool_(p.dry), cid = apiAdminClean_(p.cid, 80);
++  if (!dry && !cid) return { error: 'bad_value', message: 'cid is required when writing (idempotency key).' };
++  var base = String(p.name == null ? '' : p.name).replace(/[\\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim()
++    .replace(/\.pdf$/i, '').trim().substring(0, 120);
++  var week = p.week ? apiAdminDate_(p.week) : '';
++  if (p.week && !week) return { error: 'bad_value', message: 'week must be a date like 2026-10-12.' };
++  if (!base) base = "Lisa's Table Menu " + (week || todayKey_());
++  var bytes = null;
++  if (p.data != null && String(p.data) !== '') {
++    var b64 = String(p.data).replace(/^data:[^,]*,/, '').replace(/\s+/g, '');
++    if (b64.length > API_LTM.MAX_B64) return { error: 'too_big', message: 'The PDF is larger than 8 MB.' };
++    if (!/^[A-Za-z0-9+\/]+={0,2}$/.test(b64)) return { error: 'bad_value', message: 'data must be base64.' };
++    try { bytes = Utilities.base64Decode(b64); } catch (e1) { return { error: 'bad_value', message: 'data is not valid base64.' }; }
++    var n = bytes.length;
++    if (n > API_LTM.MAX_BYTES) return { error: 'too_big', message: 'The PDF is larger than 8 MB.' };
++    var head = String.fromCharCode(bytes[0] & 255, bytes[1] & 255, bytes[2] & 255, bytes[3] & 255, bytes[4] & 255);
++    if (n < 200 || head !== '%PDF-') return { error: 'bad_value', message: 'data is not a PDF.' };
++    var tail = ''; for (var t = Math.max(0, n - 64); t < n; t++) tail += String.fromCharCode(bytes[t] & 255);
++    if (tail.indexOf('%%EOF') < 0) return { error: 'bad_value', message: 'The PDF looks cut off (upload incomplete). Try again.' };
++  } else if (!dry) {
++    return { error: 'bad_value', message: 'data (base64 PDF) is required when writing.' };
++  }
++  var folder;
++  try { folder = DriveApp.getFolderById(API_LT.menusId); folder.getName(); } catch (fe) { return { error: 'not_found', message: 'The Past Menus folder was not found.' }; }
++  var out = { dry: dry, cid: cid, name: base + '.pdf', folderUrl: 'https://drive.google.com/drive/folders/' + API_LT.menusId, version: 53 };
++  if (bytes) out.bytes = bytes.length;
++  var uniq = function () { var nm = base + '.pdf', k = 2; while (folder.getFilesByName(nm).hasNext() && k < 100) { nm = base + ' (' + k + ').pdf'; k++; } return nm; };
++  if (dry) { out.name = uniq(); return { ok: true, data: out }; }
++
++  var lock = LockService.getScriptLock();
++  try { lock.waitLock(20000); } catch (e3) { return { error: 'busy', message: 'Another update is running. Try again.' }; }
++  var file = null;
++  try {
++    var ss = SpreadsheetApp.openById(CONFIG.SPEND.SHEET_ID);
++    var seen = apiLtmFindCid_(ss, folder, cid);
++    if (seen) { out.duplicate = 'cid'; out.id = seen.getId(); out.url = seen.getUrl(); out.name = seen.getName(); return { ok: true, data: out }; }
++    var finalName = uniq();
++    try {
++      file = folder.createFile(Utilities.newBlob(bytes, 'application/pdf', finalName));
++      file.setDescription(API_LTM.DESC_TAG + JSON.stringify({ cid: cid, week: week }));
++      if (file.getSize() !== bytes.length) throw new Error('size mismatch after upload (' + file.getSize() + ' vs ' + bytes.length + ')');
++    } catch (werr) {
++      var undone = true;
++      try { if (file) file.setTrashed(true); } catch (e5) { undone = false; }
++      return { error: 'write_failed', message: String(werr && werr.message || werr), rolledBack: undone };
++    }
++    out.name = finalName; out.id = file.getId(); out.url = file.getUrl();
++    try { apiSpendJournal_(ss, [new Date(), 'ltmenusave', '', 'Past Menus: ' + finalName, '', out.id + ' | ' + out.url + ' | ' + (week || '') + ' | ' + bytes.length + ' bytes', cid]); }
++    catch (e7) { out.journalFailed = true; }   // the file carries the cid in its description, so a retry still finds it
++    return { ok: true, data: out };
++  } finally {
++    lock.releaseLock();
+   }
+ }
+ 

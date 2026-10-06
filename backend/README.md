@@ -115,3 +115,26 @@ Why: the Home Suggestions box (front end v121) offers 3 open items from Zac's pr
 The tasks themselves stay on the phone (localStorage `cc.tasks.v1`). Server sync for them is not part of this patch.
 
 Updating suggestions.json (no deploy needed beyond a push): edit `items` (each item has `id` (unique, stable), `text`, `project`, `due` YYYY-MM-DD, `priority` 1|2, optional `done: true`), bump `updated`, then push to main and spa. The phone re-checks it every time the app opens and keeps the last good copy for offline use.
+
+## lt-menu-save.patch (API v53, Lisa's Table: menu PDFs into Drive > Past Menus)
+Patch against Api.gs v45 (independent of the other patches here; applies before or after them). Apply it, then redeploy the Apps Script web app (Zac signs in, Deploy > Manage deployments > edit > New version). It uses `DriveApp.createFile` in an existing folder, the same call `receiptsave` already makes, so the existing Drive scope covers it and no new authorization should be needed.
+
+What it adds:
+- new `ltmenusave` action (admin, POST JSON body): `{ pc, action:'ltmenusave', cid, name, week, data }`.
+  - `data` = the menu PDF as base64 (up to 8 MB). It must start with `%PDF-` and end with `%%EOF`, so a cut-off upload is rejected.
+  - `name` is cleaned (no `/ \ : * ? " < > |`, max 120 characters) and gets `.pdf` added.
+  - The file goes into Drive > Lisa's Table > Past Menus (`API_LT.menusId` = `11tV_huL874mr4F3LdGA-2fvGQZyEWKZY`, the folder the app lists as Past Menus).
+  - It NEVER overwrites: if the name is taken, ` (2)`, ` (3)` ... goes before `.pdf`.
+  - `cid` is required. Retrying with the same cid returns the first file (`duplicate:'cid'`) and never files a second copy. The cid is checked in the CC write log first, then in the file description (`CC ltmenusave {"cid":..,"week":..}`), so a retry is still caught if the journal write failed.
+  - `dry=1` validates and returns the final name; it creates nothing.
+  - Response: `{ ok:true, data:{ id, url, name, folderUrl, bytes, cid, version:53 } }`. The write is journaled in the CC write log (`ltmenusave`, `Past Menus: <name>`, `<id> | <url> | <week> | <bytes>`, cid).
+- Same passcode check as every action. Nothing else in Drive changes.
+
+Until it is deployed (front end v127):
+- On the Generate menu screen, Generate PDF makes the PDF on the phone (pdf-lib, Crimson Text, the Lisa's Table logo). It is saved in that browser's IndexedDB (`cc_ltmenus`), shown with "Saved on this phone; will sync to Drive after update", and listed under Saved menus at the top of Past Menus.
+- Share (iPhone share sheet with the PDF file), Email / Text (a new message with the menu typed out) and Download work right away. They don't need the server.
+- The phone tries `ltmenusave` after each Generate and whenever Lisa's Table or Past Menus opens. After a `bad_action` it waits 30 minutes before trying again.
+
+After deploying, no front-end change is needed. The next time Lisa's Table opens, every waiting menu uploads on its own (same cid, so no doubles), each card switches to "Saved to Drive › Past Menus", and the PDF shows up in the Drive list.
+
+Check after deploying: `…/exec?api=1&pc=PASSCODE&action=ltmenusave&dry=1&name=Test` should return `{"ok":true,"data":{"dry":true,…,"name":"Test.pdf",…,"version":53}}`. The dry run creates nothing.

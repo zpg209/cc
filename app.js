@@ -124,7 +124,7 @@
     balset: RC_MONEY, acctadd: RC_MONEY, receiptsave: RC_MONEY,
     debttabs: RC_DEBT, debtset: RC_DEBT, billadd: RC_DEBT, billpaid: RC_DEBT, billdel: RC_DEBT, debtdel: RC_DEBT,
     ltmacroset: ['ltmacros', 'orders'], ltpriceset: ['ltmacros', 'orders'], menuitemadd: ['ltmacros', 'orders', 'folder'],
-    orderset: ['orders'], orderpaid: ['orders'], orderdel: ['orders'], weekmenuset: ['orders'], menusave: ['folder'],
+    orderset: ['orders'], orderpaid: ['orders'], orderdel: ['orders'], weekmenuset: ['orders'], menusave: ['folder'], ltmenusave: ['folder'],
     wishadd: ['wishlist'], wishset: ['wishlist'], wishdel: ['wishlist'],
     ptclientset: ['ptclients'], ptclientdel: ['ptclients'], ptworkoutset: ['ptclients'], ptworkoutdel: ['ptclients'],
     investsave: []   // v121: Investments live outside the read cache (phone copy + Script Properties)
@@ -623,7 +623,9 @@
     state.docFrom = p.from || 'home';
     $('doc-title').textContent = p.t || 'Document';
     $('doc-open').href = url || '#';
+    $('doc-open').style.display = '';
     closeDoc(true);
+    if (/^ltmenu:/.test(url)) return ltmDocOpen(url.slice(7), p.t, seq);     // v127: a Lisa's Table menu PDF saved on this phone
     daSetDoc(url, p.t, ref);                 // v120: the action bar follows whatever the viewer shows
     if (!ref || state.proxyOff) { if (ref && !ref.folder) daPreviewFailed({ error: 'proxy_off' }); return iframeFallback(url); }
     var cached = ref.folder && state.folderCache[ref.id];
@@ -967,12 +969,13 @@
     q('save').classList.toggle('off', noFile || !(c.file || c.loading || daDownloadUrl(c)));
     q('save').classList.toggle('busy', !!(c && c.loading && c.wantSave));
     q('full').classList.toggle('off', !c || folder);
-    ['share', 'copy'].forEach(function (k) { q(k).classList.toggle('off', !c || !c.link); });
+    q('share').classList.toggle('off', !c || !(c.link || c.file));      // v127: a phone-only file (saved menu PDF) has no link but can be shared
+    q('copy').classList.toggle('off', !c || !c.link);
     var name = c ? (c.file ? c.file.name : c.title) : '', link = c ? c.link : '';
     var mail = $('docact-mail'), sms = $('docact-sms');
-    mail.classList.toggle('off', !link); sms.classList.toggle('off', !link);
-    mail.setAttribute('href', 'mailto:?subject=' + encodeURIComponent(name) + '&body=' + encodeURIComponent(name + '\n' + link + '\n'));
-    sms.setAttribute('href', (daIsIOS() ? 'sms:&body=' : 'sms:?body=') + encodeURIComponent(name + ' ' + link));
+    mail.classList.toggle('off', !link && !(c && c.mailHref)); sms.classList.toggle('off', !link && !(c && c.smsHref));
+    mail.setAttribute('href', c && c.mailHref ? c.mailHref : 'mailto:?subject=' + encodeURIComponent(name) + '&body=' + encodeURIComponent(name + '\n' + link + '\n'));
+    sms.setAttribute('href', c && c.smsHref ? c.smsHref : (daIsIOS() ? 'sms:&body=' : 'sms:?body=') + encodeURIComponent(name + ' ' + link));
     q('share').setAttribute('aria-label', folder ? 'Share folder link' : 'Share file');
   }
   function daCanShareFiles(f) {
@@ -990,8 +993,8 @@
     var f = c.file;
     if (!daCanShareFiles(f.file)) {          // desktop browsers: no file sharing -> Download + Copy link
       daSaveBlob(f);
-      daCopy(c.link, true);
-      daNote('This browser can\u2019t attach files to a share, so <b>' + esc(f.name) + '</b> was downloaded and the link copied.');
+      if (c.link) daCopy(c.link, true);
+      daNote('This browser can\u2019t attach files to a share, so <b>' + esc(f.name) + '</b> was downloaded' + (c.link ? ' and the link copied.' : '.'));
       return;
     }
     var extra = f.converted && !f.original ? ' (a PDF copy)' : '';
@@ -4488,6 +4491,7 @@
         return '<button class="tile" data-go="lt/' + k + '">' + esc(LT_PARTS[k].label) + '</button>';
       }).join('') + '</div>' + (state.ltFolderUrl ? '<a class="linkrow" data-title="Lisa\u2019s Table" href="' + esc(state.ltFolderUrl) + '">Open Lisa\u2019s Table folder &rsaquo;</a>' : '');
       if (!state.ltFolderUrl && !state.links) ensureLinks(function () { if (state.ltPart === '' && $('screen-lt').classList.contains('active') && state.ltFolderUrl) loadLt(); });
+      ltmSync(false);       // v127: menus made on the phone go up to Drive once the server can take them
       return;
     }
     if (cfg.wish) { openWish(); return; }
@@ -4499,6 +4503,7 @@
     var key = cfg.folder || 'macros', c = state.ltCache[key];
     if (c && !force && Date.now() - c.at < LT_TTL) return renderLt();
     $('lt-body').innerHTML = '<div class="loading">Loading…</div>';
+    if (part === 'menus') ltmMountSaved();
     var want = part;
     apiRaw(cfg.folder ? 'folder' : 'ltmacros', cfg.folder ? { id: cfg.folder } : {}).then(function (j) {
       if (want !== state.ltPart) return;
@@ -4510,7 +4515,7 @@
       if (j.error) throw new Error(j.message || j.error);
       state.ltCache[key] = { at: Date.now(), data: j.data };
       renderLt();
-    }).catch(function (err) { if (want === state.ltPart) onFail(['lt-body'], function () { loadLt(true); })(err); });
+    }).catch(function (err) { if (want === state.ltPart) { onFail(['lt-body'], function () { loadLt(true); })(err); if (want === 'menus') ltmMountSaved(); } });
   }
 
 
@@ -4564,6 +4569,8 @@
   // "Menu week of Apr 13th 26" -> Date. Without a year, pick the most recent year (not in the future)
   // in which that date is a Monday (menus are "week of" Mondays), else the most recent past year.
   function menuDate(name) {
+    var iso = String(name).match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);       // v127: "Lisa's Table Menu 2026-10-12.pdf"
+    if (iso) { var di = new Date(+iso[1], +iso[2] - 1, +iso[3]); if (di.getMonth() === +iso[2] - 1) return di; }
     var m = String(name).match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*(\d{1,2})(?:st|nd|rd|th)?\b(?:,?\s+(\d{4}|\d{2})\b)?/i);
     if (!m) return null;
     var mo = MONTHS[m[1].toLowerCase()], d = Number(m[2]), now = new Date();
@@ -4606,6 +4613,7 @@
     if (cfg.check) ltSelPrune(data.items, c0 && c0.data ? c0.data.items.filter(function (x) { return !(x.sources && x.sources.length); }) : null);
     if (cfg.check) ltSelBar();
     paint();
+    if (part === 'menus') ltmMountSaved();
     if (cfg.check) {
       if (state.ltAddedFlash) { macFlash(state.ltAddedFlash); state.ltAddedFlash = ''; }
       ltEnsureMacros(function () {
@@ -4678,6 +4686,7 @@
   /* ---------------- Lisa's Table: Menu Items checklist (#lt/recipes) -> Generate menu (#lt/menu-gen) ---------------- */
   // Selection = [{id (Drive file id), n (file name)}] in the order ticked; kept in localStorage so it survives navigation and reloads.
   // Generate menu builds the weekly menu in the same layout as the Menu Designs docs; "Save to Menu Designs" calls the menusave action.
+  // v127: "Generate PDF" makes the menu PDF on the phone, keeps it (Saved menus) and files it in Drive > Past Menus (ltmenusave, see below).
   var LT_SEL_KEY = 'cc_ltsel', LT_PRICE_KEY = 'cc_ltprice', LT_MGD_KEY = 'cc_mgdraft';
   function lsGet(k, d) { try { var v = JSON.parse(localStorage.getItem(k) || 'null'); return v == null ? d : v; } catch (e) { return d; } }
   function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
@@ -4931,6 +4940,7 @@
     var pv = $('mg-preview'); if (pv) pv.innerHTML = mgPreviewHtml(blocks);
     var bad = rows.filter(function (r) { return String(r.name || '').trim() && mgPrice(r.price) === null; });
     var sv = $('mg-save'); if (sv) sv.disabled = !!mg.saving || !mgDate(mg.week) || !mgDate(mg.deliver) || !rows.some(function (r) { return String(r.name || '').trim(); }) || bad.length > 0;
+    var pb = $('mg-pdf'); if (pb) pb.disabled = !!ltm.busy || !mgDate(mg.week) || !mgDate(mg.deliver) || !rows.some(function (r) { return String(r.name || '').trim(); }) || bad.length > 0;
     var wn = $('mg-warn'); if (wn) { wn.hidden = !bad.length; wn.textContent = bad.length ? 'Fix the price for ' + bad[0].name + ' (like 12 or 12.50).' : ''; }
     return { rows: rows, blocks: blocks };
   }
@@ -4992,12 +5002,17 @@
       '<div id="mg-rows">' + mgRowsHtml() + '</div>' +
       '<div class="noteflash show bad" id="mg-warn" hidden></div>' +
       '<h3 class="sechead">Preview</h3><div class="mpaper" id="mg-preview"></div>' +
+      '<div class="card ltmgenbox"><button type="button" class="ltmgo" id="mg-pdf" data-mg="pdf">' + (ltm.busy ? 'Making PDF\u2026' : 'Generate PDF') + '</button>' +
+      '<label class="ltmopt"><input type="checkbox" id="mg-pdfmac"' + (lsGet(LTM_MAC_KEY, false) ? ' checked' : '') + '> Show macros on the PDF</label>' +
+      '<div class="noteflash" id="mg-pdfmsg" hidden></div></div>' +
+      '<div id="mg-pdfout"></div>' +
       '<div class="draftbtns mgbtns"><button type="button" class="navbtn" data-mg="copy">Copy text</button><button type="button" class="bigsave" id="mg-save" data-mg="save">Save to Menu Designs</button></div>' +
       '<div class="draftbtns mgbtns"><button type="button" class="navbtn" id="mg-orders-btn" data-mg="orders">Use for orders</button></div>' +
       '<div class="noteflash" id="mg-flash" hidden></div><div id="mg-saved"></div><div class="noteflash" id="mg-ordmsg" hidden></div>' +
       '<div id="mg-macros"></div>' +
       '<button type="button" class="navbtn wladd" data-go="lt/recipes">&lsaquo; Back to Menu Items</button></div>';
     mgRefresh();
+    ltmLoad().then(ltmPaintGen);
     var seq = ++mg.seq, c = state.ltCache.macros;
     if (c && Date.now() - c.at < LT_TTL * 5) { mg.macros = c.data; mg.macState = 'ok'; mgMacrosPaint(true); return; }
     mg.macros = c ? c.data : null; mg.macState = 'loading'; mgMacrosPaint(false);
@@ -5130,7 +5145,7 @@
     var m = e.target.closest('[data-mg]');
     if (m && state.ltPart === 'menu-gen') {
       var act = m.getAttribute('data-mg');
-      if (act === 'copy') mgCopy(); else if (act === 'save') mgSave(); else if (act === 'orders') mgWeekMenu(false);
+      if (act === 'copy') mgCopy(); else if (act === 'save') mgSave(); else if (act === 'orders') mgWeekMenu(false); else if (act === 'pdf') mgPdf();
     }
   });
   $('lt-body').addEventListener('input', function (e) {
@@ -5147,11 +5162,449 @@
     } else mgInput(t);
   });
   $('lt-body').addEventListener('change', function (e) {
+    if (state.ltPart === 'menu-gen' && e.target.id === 'mg-pdfmac') { lsSet(LTM_MAC_KEY, !!e.target.checked); return; }
     if (state.ltPart === 'menu-gen' && e.target.getAttribute && e.target.getAttribute('data-mgf') === 'price') mgPriceRemember(e.target);
   });
   $('lt-body').addEventListener('focusout', function (e) {
     if (state.ltPart === 'menu-gen' && e.target.getAttribute && e.target.getAttribute('data-mgf') === 'price') mgPriceRemember(e.target);
   });
+
+
+  /* ---------------- Lisa's Table: menu PDF (v127) ----------------
+   * Generate PDF (Generate menu screen) draws the menu on the phone with pdf-lib (vector text, Crimson Text from /fonts, the
+   * Lisa's Table logo), names it "Lisa's Table Menu <week>.pdf" and keeps it in IndexedDB ('cc_ltmenus' / 'menus'), so it
+   * survives reloads and works offline. Each saved menu gets the share bar: Share (the iPhone share sheet with the PDF file:
+   * Messages, Mail, AirDrop, Save to Files), Email / Text (a new message with the menu typed out; nothing is sent until you tap
+   * Send), Download, View (in-app viewer). Saved menus are listed on Past Menus above the Drive folder.
+   * Drive: action=ltmenusave (backend/lt-menu-save.patch, Api v53) files the PDF in Drive > Past Menus (never overwrites;
+   * cid = no doubles). Until it is deployed the server answers bad_action and the menu says "Saved on this phone; will sync
+   * to Drive after update"; the phone retries (at most every 30 min while Lisa's Table is open, or Try again) and uploads
+   * every waiting menu on its own once the action exists. */
+  var LTM_IDB = 'cc_ltmenus', LTM_STORE = 'menus', LTM_OFF_KEY = 'cc_ltm_off', LTM_MAC_KEY = 'cc_ltm_mac', LTM_RETRY_MS = 30 * 60000;
+  var LTM_FONTS = { reg: 'fonts/CrimsonText-Regular.ttf', it: 'fonts/CrimsonText-Italic.ttf', semi: 'fonts/CrimsonText-SemiBold.ttf' };
+  var LTM_LOGO = 'lt-menu-logo.png?v=1';
+  var ltm = { list: null, loadP: null, busy: false, syncing: false, curId: '', notes: {} };
+  var ltmIdbP = null;
+  function ltmIdb() {
+    if (ltmIdbP) return ltmIdbP;
+    ltmIdbP = new Promise(function (res, rej) {
+      if (!window.indexedDB) return rej(new Error('no storage'));
+      var rq; try { rq = indexedDB.open(LTM_IDB, 1); } catch (e) { return rej(e); }
+      rq.onupgradeneeded = function () { try { rq.result.createObjectStore(LTM_STORE, { keyPath: 'id' }); } catch (e) {} };
+      rq.onsuccess = function () { var db = rq.result; db.onversionchange = function () { try { db.close(); } catch (e) {} ltmIdbP = null; }; res(db); };
+      rq.onerror = function () { rej(rq.error || new Error('storage error')); };
+      rq.onblocked = function () { rej(new Error('storage busy')); };
+    }).catch(function (e) { ltmIdbP = null; throw e; });
+    return ltmIdbP;
+  }
+  function ltmReq(mode, fn) {
+    return ltmIdb().then(function (db) {
+      return new Promise(function (res, rej) {
+        var tx; try { tx = db.transaction(LTM_STORE, mode); } catch (e) { ltmIdbP = null; return rej(e); }
+        var r = fn(tx.objectStore(LTM_STORE)), out;
+        if (r) r.onsuccess = function () { out = r.result; };
+        tx.oncomplete = function () { res(out); };
+        tx.onerror = tx.onabort = function () { rej(tx.error || new Error('storage error')); };
+      });
+    });
+  }
+  function ltmStoreRec(rec) {          // the stored copy never carries UI-only fields
+    var o = {}; Object.keys(rec).forEach(function (k) { if (k !== 'st' && k !== 'memOnly') o[k] = rec[k]; });
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {}); } catch (e) {}
+    return ltmReq('readwrite', function (s) { return s.put(o); });
+  }
+  function ltmLoad() {
+    if (ltm.list) return Promise.resolve(ltm.list);
+    if (ltm.loadP) return ltm.loadP;
+    ltm.loadP = ltmReq('readonly', function (s) { return s.getAll(); }).then(function (rows) { return rows || []; }, function () { return []; }).then(function (rows) {
+      var mem = (ltm.list || []).filter(function (r) { return r.memOnly; });
+      ltm.list = mem.concat(rows.filter(function (r) { return r && r.id && r.bytes; })).sort(function (a, b) { return (b.created || 0) - (a.created || 0); });
+      ltm.loadP = null;
+      return ltm.list;
+    });
+    return ltm.loadP;
+  }
+  function ltmById(id) { return (ltm.list || []).filter(function (r) { return r.id === id; })[0] || null; }
+  function ltmOff() { var t = Number(lsGet(LTM_OFF_KEY, 0)) || 0; return t > 0 ? t : 0; }
+  function ltmB64(buf) {
+    var u = new Uint8Array(buf), s = '', CH = 0x8000;
+    for (var i = 0; i < u.length; i += CH) s += String.fromCharCode.apply(null, u.subarray(i, i + CH));
+    return btoa(s);
+  }
+  function ltmKb(n) { return n < 1048576 ? Math.max(1, Math.round(n / 1024)) + ' KB' : (n / 1048576).toFixed(1) + ' MB'; }
+  function ltmFileOf(rec) {
+    var blob = new Blob([rec.bytes], { type: 'application/pdf' }), file = null;
+    try { file = new File([blob], rec.name, { type: 'application/pdf' }); } catch (e) {}
+    return { blob: blob, file: file, name: rec.name, type: 'application/pdf', size: blob.size, converted: false, original: true };
+  }
+  function ltmSubject(rec) { return 'Lisa\u2019s Table Menu' + (rec.weekText ? ' \u2014 ' + rec.weekText.replace(/^Menu /, '') : ''); }
+  function ltmBody(rec) { return (rec.text || rec.name) + (rec.drive && rec.drive.url ? '\n\nMenu PDF: ' + rec.drive.url : '') + '\n'; }
+  function ltmMailHref(rec) { return 'mailto:?subject=' + encodeURIComponent(ltmSubject(rec)) + '&body=' + encodeURIComponent(ltmBody(rec)); }
+  function ltmSmsHref(rec) { return (daIsIOS() ? 'sms:&body=' : 'sms:?body=') + encodeURIComponent(ltmBody(rec)); }
+
+  // ---- PDF drawing ----
+  function ltmBytesOf(url) { return fetch(url, { cache: 'force-cache' }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); }); }
+  var ltmAssetP = null;
+  function ltmAssets() {        // pdf-lib (+ fontkit + Crimson Text + logo when they load; standard Times fonts / text logo otherwise)
+    if (ltmAssetP) return ltmAssetP;
+    var opt = function (p) { return p.then(function (x) { return x; }, function () { return null; }); };
+    ltmAssetP = Promise.all([
+      pcLoadScriptOnce('pdflib', PC_PDFLIB_URLS, function () { return window.PDFLib; }),
+      opt(pcLoadScriptOnce('fontkit', PC_FONTKIT_URLS, function () { return window.fontkit; })),
+      opt(ltmBytesOf(LTM_FONTS.reg)), opt(ltmBytesOf(LTM_FONTS.it)), opt(ltmBytesOf(LTM_FONTS.semi)), opt(ltmBytesOf(LTM_LOGO))
+    ]).then(function (r) { return { lib: r[0], fontkit: r[1], reg: r[2], it: r[3], semi: r[4], logo: r[5] }; }, function (e) { ltmAssetP = null; throw e; });
+    return ltmAssetP;
+  }
+  function ltmWinAnsi(s) {        // only for the standard-font fallback (pdf-lib throws on characters outside WinAnsi)
+    s = String(s || '');
+    try { s = s.normalize('NFKD').replace(/[\u0300-\u036f]/g, ''); } catch (e) {}
+    return s.replace(/[^\x20-\x7e\xa0-\xff\u2018\u2019\u201a\u201c\u201d\u201e\u2013\u2014\u2022\u2026\u20ac\u2122]/g, '');
+  }
+  function ltmBuildPdf(m) {
+    return ltmAssets().then(function (A) {
+      var L = A.lib, doc;
+      return L.PDFDocument.create().then(function (d) {
+        doc = d;
+        var custom = !!(A.fontkit && A.reg && A.it && A.semi);
+        if (custom) {
+          doc.registerFontkit(A.fontkit);
+          return Promise.all([doc.embedFont(A.reg, { subset: true }), doc.embedFont(A.it, { subset: true }), doc.embedFont(A.semi, { subset: true })])
+            .then(function (f) { return { reg: f[0], it: f[1], semi: f[2], custom: true }; }, function () { custom = false; return null; })
+            .then(function (F) { return F || Promise.all([doc.embedFont(L.StandardFonts.TimesRoman), doc.embedFont(L.StandardFonts.TimesRomanItalic), doc.embedFont(L.StandardFonts.TimesRomanBold)]).then(function (f) { return { reg: f[0], it: f[1], semi: f[2], custom: false }; }); });
+        }
+        return Promise.all([doc.embedFont(L.StandardFonts.TimesRoman), doc.embedFont(L.StandardFonts.TimesRomanItalic), doc.embedFont(L.StandardFonts.TimesRomanBold)])
+          .then(function (f) { return { reg: f[0], it: f[1], semi: f[2], custom: false }; });
+      }).then(function (F) {
+        var logoP = A.logo ? doc.embedPng(A.logo).then(function (x) { return x; }, function () { return null; }) : Promise.resolve(null);
+        return logoP.then(function (logo) { return ltmDraw(L, doc, F, logo, m); });
+      }).then(function () {
+        doc.setTitle('Lisa\u2019s Table Menu \u2014 ' + m.weekText.replace(/^Menu /, ''));
+        doc.setAuthor('Lisa\u2019s Table'); doc.setSubject(m.delivText); doc.setCreator('Command Center');
+        doc.setProducer('Command Center (pdf-lib, on device)'); doc.setCreationDate(new Date()); doc.setModificationDate(new Date());
+        return doc.save().then(function (bytes) { return { bytes: bytes, pages: doc.getPageCount() }; });
+      });
+    });
+  }
+  function ltmDraw(L, doc, F, logo, m) {
+    var W = 612, H = 792, X0 = 72, CW = W - 144, CX = W / 2;
+    var C = function (h) { return L.rgb(parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255); };
+    var INK = C('#3b2a20'), SOFT = C('#5a4636'), MUTE = C('#8a7563'), COP = C('#b0683a'), TAN = C('#c9a77c'), PAPER = C('#fcf8f1');
+    var T = F.custom ? function (s) { return String(s || ''); } : ltmWinAnsi;
+    var tw = function (f, s, z) { return f.widthOfTextAtSize(T(s), z); };
+    var wrap = function (f, s, z, maxW) {
+      var words = T(s).split(/\s+/).filter(Boolean), out = [], cur = '';
+      words.forEach(function (w) {
+        var t = cur ? cur + ' ' + w : w;
+        if (!cur || tw(f, t, z) <= maxW) { cur = t; return; }
+        out.push(cur); cur = w;
+      });
+      if (cur) out.push(cur);
+      return out.length ? out : [''];
+    };
+    var items = m.items, ratio = logo ? logo.height / logo.width : 0.944;
+    // vertical metrics at scale s: returns {head, rows[], foot} heights + wrapped lines
+    var measure = function (s) {
+      var r = { s: s, head: 0, rows: [], foot: 0 };
+      r.logoW = 112 * s; r.logoH = logo ? r.logoW * ratio : 30 * s;
+      r.head = 6 * s + r.logoH + 14 * s + 32 * s + 18 * s + 22 * s;
+      items.forEach(function (it) {
+        var nz = 16.5 * s, dz = 11 * s, mz = 9 * s, nameLines = wrap(F.semi, it.name + (it.price ? '  ' + it.price : ''), nz, CW - 20);
+        var nl = nameLines.length > 1 ? wrap(F.semi, it.name, nz, CW - 20) : [it.name];
+        var dl = it.desc ? wrap(F.reg, it.desc, dz, CW - 70) : [];
+        var h = nl.length * nz * 1.2 + (nameLines.length > 1 && it.price ? nz * 1.2 : 0) + dl.length * dz * 1.32 + (it.mac ? 4 * s + mz * 1.3 : 0);
+        r.rows.push({ it: it, nz: nz, dz: dz, mz: mz, nl: nl, priceOwn: nameLines.length > 1 && !!it.price, dl: dl, h: h });
+      });
+      var fz = 9 * s; r.fz = fz;
+      r.fl = m.foot.map(function (f) { return wrap(F.reg, f, fz, CW - 10); });
+      r.foot = 20 * s + r.fl.reduce(function (a, l) { return a + l.length * fz * 1.3 + 4 * s; }, 0);
+      r.gap = 18 * s;
+      r.body = r.rows.reduce(function (a, x) { return a + x.h; }, 0) + r.gap * Math.max(0, r.rows.length - 1);
+      return r;
+    };
+    var TOP = H - 52, BOT = 50, AVAIL = TOP - BOT, M = null, scales = [1, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7];
+    for (var i = 0; i < scales.length; i++) { var t = measure(scales[i]); if (t.head + t.body + 26 * scales[i] + t.foot <= AVAIL) { M = t; break; } }
+    var oneP = !!M; if (!M) M = measure(0.8);
+    var page, y;
+    var frame = function (p) {
+      p.drawRectangle({ x: 0, y: 0, width: W, height: H, color: PAPER });
+      p.drawRectangle({ x: 22, y: 22, width: W - 44, height: H - 44, borderColor: TAN, borderWidth: 1.1 });
+      p.drawRectangle({ x: 27, y: 27, width: W - 54, height: H - 54, borderColor: TAN, borderWidth: 0.45 });
+    };
+    var center = function (txt, f, z, yy, col, sp) {
+      txt = T(txt);
+      if (!sp) { page.drawText(txt, { x: CX - tw(f, txt, z) / 2, y: yy, size: z, font: f, color: col }); return; }
+      var chars = txt.split(''), wsum = chars.reduce(function (a, ch) { return a + f.widthOfTextAtSize(ch, z); }, 0) + sp * (chars.length - 1), x = CX - wsum / 2;
+      chars.forEach(function (ch) { page.drawText(ch, { x: x, y: yy, size: z, font: f, color: col }); x += f.widthOfTextAtSize(ch, z) + sp; });
+    };
+    var divider = function (yy, s, half) {
+      half = half || 64 * s; var d = 3.4 * s;
+      page.drawLine({ start: { x: CX - half, y: yy }, end: { x: CX - 9 * s, y: yy }, thickness: 0.6, color: COP });
+      page.drawLine({ start: { x: CX + 9 * s, y: yy }, end: { x: CX + half, y: yy }, thickness: 0.6, color: COP });
+      page.drawSvgPath('M 0 ' + (-d) + ' L ' + d + ' 0 L 0 ' + d + ' L ' + (-d) + ' 0 Z', { x: CX, y: yy, color: COP });
+    };
+    var newPage = function (first) {
+      page = doc.addPage([W, H]); frame(page); y = TOP;
+      if (!first) { center('Lisa\u2019s Table \u00b7 ' + m.weekText, F.it, 11, y - 10, MUTE); y -= 34; }
+    };
+    var s = M.s;
+    newPage(true);
+    // header
+    y -= 6 * s;
+    if (logo) { page.drawImage(logo, { x: CX - M.logoW / 2, y: y - M.logoH, width: M.logoW, height: M.logoH }); }
+    else center('LISA\u2019S TABLE', F.semi, 24 * s, y - 24 * s, INK, 4 * s);
+    y -= M.logoH + 14 * s;
+    center(m.weekText, F.semi, 29 * s, y - 26 * s, INK);
+    y -= 32 * s;
+    center(m.delivText.toUpperCase(), F.semi, 9.2 * s, y - 10 * s, COP, 2.1 * s);
+    y -= 18 * s;
+    divider(y - 10 * s, s);
+    y -= 22 * s;
+    // spread the items over the free space (one-page menus), like the printed menus
+    var gap = M.gap, footTop = BOT + M.foot;
+    if (oneP && M.rows.length) {
+      var free = (y - 8 * s) - footTop - M.body;
+      gap += Math.max(0, Math.min(34, free / (M.rows.length + 1)));
+      y -= Math.max(0, Math.min(34, free / (M.rows.length + 1)) * 0.6);
+    }
+    M.rows.forEach(function (r, ri) {
+      if (!oneP && y - r.h < BOT + 10) newPage(false);
+      if (ri) y -= gap;
+      var it = r.it;
+      r.nl.forEach(function (ln, li) {
+        var last = li === r.nl.length - 1 && !r.priceOwn && it.price;
+        y -= r.nz * 1.2;
+        if (last) {
+          var pr = T(it.price), wn = tw(F.semi, ln, r.nz), wp = tw(F.semi, pr, r.nz), sp = tw(F.semi, ' ', r.nz) * 1.6, x = CX - (wn + sp + wp) / 2;
+          page.drawText(T(ln), { x: x, y: y + r.nz * 0.25, size: r.nz, font: F.semi, color: INK });
+          page.drawText(pr, { x: x + wn + sp, y: y + r.nz * 0.25, size: r.nz, font: F.semi, color: COP });
+        } else center(ln, F.semi, r.nz, y + r.nz * 0.25, INK);
+      });
+      if (r.priceOwn) { y -= r.nz * 1.2; center(it.price, F.semi, r.nz, y + r.nz * 0.25, COP); }
+      r.dl.forEach(function (ln) { y -= r.dz * 1.32; center(ln, F.reg, r.dz, y + r.dz * 0.3, SOFT); });
+      if (it.mac) { y -= 4 * s + r.mz * 1.3; center(it.mac, F.it, r.mz, y + r.mz * 0.3, MUTE); }
+    });
+    // footer: pinned to the bottom of a one-page menu; after the items otherwise (new page if needed)
+    if (!oneP) { if (y - 26 * s - M.foot < BOT) newPage(false); else footTop = y - 26 * s; }
+    var fy = footTop;
+    page.drawLine({ start: { x: X0 + 30, y: fy - 4 * s }, end: { x: W - X0 - 30, y: fy - 4 * s }, thickness: 0.5, color: TAN });
+    fy -= 20 * s;
+    M.fl.forEach(function (lines) {
+      lines.forEach(function (ln) { center(ln, F.reg, M.fz, fy, SOFT); fy -= M.fz * 1.3; });
+      fy -= 4 * s;
+    });
+  }
+
+  // ---- generate (button on the Generate menu screen) ----
+  function ltmMacText(m) {
+    if (!m) return '';
+    var v = function (k) { var n = Number(m[k]); return m[k] === '' || m[k] == null || !isFinite(n) ? null : Math.round(n); };
+    var c = v('cal'), p = v('protein'), cb = v('carbs'), f = v('fat');
+    if (c == null && p == null && cb == null && f == null) return '';
+    return [c != null ? c + ' cal' : '', p != null ? p + ' g protein' : '', cb != null ? cb + ' g carbs' : '', f != null ? f + ' g fat' : ''].filter(Boolean).join(' \u00b7 ');
+  }
+  function ltmUniqueName(base) {
+    return ltmLoad().then(function (list) {
+      var have = {}; list.forEach(function (r) { have[String(r.name).toLowerCase()] = 1; });
+      var name = base + '.pdf', n = 2;
+      while (have[name.toLowerCase()] && n < 100) { name = base + ' (' + n + ').pdf'; n++; }
+      return name;
+    });
+  }
+  function mgPdf() {
+    if (ltm.busy) return;
+    var r = mgRefresh(), showMac = !!($('mg-pdfmac') && $('mg-pdfmac').checked);
+    var rows = r.rows.filter(function (x) { return String(x.name || '').trim(); });
+    if (!mgDate(mg.week) || !mgDate(mg.deliver) || !rows.length) return ltmGenMsg('Pick the week and delivery dates first.', true);
+    if (rows.some(function (x) { return mgPrice(x.price) === null; })) return ltmGenMsg('Fix the prices first (like 12 or 12.50).', true);
+    var blocks = r.blocks, weekText = (blocks.filter(function (b) { return b.t === 'week'; })[0] || {}).text || '', delivText = (blocks.filter(function (b) { return b.t === 'deliv'; })[0] || {}).text || '';
+    var model = { weekText: weekText, delivText: delivText, foot: MG_FOOT, items: rows.map(function (x) {
+      return { name: String(x.name).replace(/\s+/g, ' ').trim(), price: mgPrice(x.price) || '', desc: String(x.desc || '').replace(/\s+/g, ' ').trim(), mac: showMac ? ltmMacText(x.m) : '' };
+    }) };
+    ltm.busy = true; ltmGenBtn(); ltmGenMsg('Making the PDF\u2026');
+    var made;
+    ltmBuildPdf(model).then(function (out) {
+      made = out;
+      return ltmUniqueName('Lisa\u0027s Table Menu ' + mg.week);
+    }).then(function (name) {
+      var bytes = made.bytes, buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      var rec = { id: 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), cid: vNewCid(), name: name, week: mg.week, deliver: mg.deliver,
+        weekText: weekText, created: Date.now(), size: buf.byteLength, pages: made.pages, count: model.items.length, macros: showMac,
+        text: mgText(blocks), bytes: buf, drive: null, err: '' };
+      return ltmStoreRec(rec).then(function () { return rec; }, function () { rec.memOnly = true; return rec; });
+    }).then(function (rec) {
+      ltm.busy = false; ltmGenBtn();
+      (ltm.list || (ltm.list = [])).unshift(rec);
+      ltm.curId = rec.id;
+      ltmGenMsg('');
+      ltmPaintAll();
+      ltmSync(false);
+      var out = $('mg-pdfout'); if (out && out.scrollIntoView) try { out.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) {}
+    }).catch(function (err) {
+      ltm.busy = false; ltmGenBtn();
+      ltmGenMsg('Couldn\u2019t make the PDF: ' + ((err && err.message) || 'error') + ' Check your connection and tap Generate PDF again.', true);
+    });
+  }
+  function ltmGenBtn() { var b = $('mg-pdf'); if (b) { b.textContent = ltm.busy ? 'Making PDF\u2026' : 'Generate PDF'; b.classList.toggle('busy', ltm.busy); } mgRefresh(); }
+  function ltmGenMsg(text, bad) { var el = $('mg-pdfmsg'); if (!el) return; el.textContent = text || ''; el.hidden = !text; el.className = 'noteflash' + (text ? ' show' : '') + (bad ? ' bad' : ''); }
+
+  // ---- saved menu cards (Generate menu: the one just made; Past Menus: all of them) ----
+  var LTM_ICON = {
+    share: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M6 11v9h12v-9"/></svg>',
+    mail: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M3 7l9 6 9-6"/></svg>',
+    sms: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H10l-5 4v-4H4z"/></svg>',
+    dl: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>',
+    view: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>'
+  };
+  function ltmStatusHtml(rec) {
+    if (rec.drive && rec.drive.url) {
+      return '<div class="ltmstat ok">\u2713 Saved to Drive \u203a Past Menus' + (rec.drive.name && rec.drive.name !== rec.name ? ' as \u201c' + esc(rec.drive.name) + '\u201d' : '') +
+        ' <a class="mgopen" href="' + esc(rec.drive.url) + '" data-title="' + esc(rec.drive.name || rec.name) + '">Open &rsaquo;</a></div>';
+    }
+    var where = rec.memOnly ? 'This phone couldn\u2019t store it (private browsing?), so it will be gone after a reload. Share or Download it now.' : 'Saved on this phone';
+    if (rec.st === 'sync') return '<div class="ltmstat wait">' + esc(where) + ' \u00b7 saving to Drive\u2026</div>';
+    if (ltmOff()) return '<div class="ltmstat wait">' + (rec.memOnly ? esc(where) : 'Saved on this phone; will sync to Drive after update') + '</div>';
+    if (rec.err) return '<div class="ltmstat bad">' + esc(where) + '. Drive save didn\u2019t work: ' + esc(rec.err) + ' <button type="button" class="ltmretry" data-ltm="sync" data-id="' + esc(rec.id) + '">Try again</button></div>';
+    return '<div class="ltmstat wait">' + esc(where) + '; saving to Drive when the server answers\u2026</div>';
+  }
+  function ltmCardHtml(rec, big) {
+    var d = new Date(rec.created || Date.now()), id = esc(rec.id);
+    var meta = [rec.weekText ? rec.weekText.replace(/^Menu w/, 'W') : '', rec.count ? rec.count + ' item' + (rec.count === 1 ? '' : 's') : '',
+      (rec.pages || 1) + ' page' + ((rec.pages || 1) === 1 ? '' : 's'), ltmKb(rec.size || 0),
+      'made ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })].filter(Boolean).join(' \u00b7 ');
+    var note = ltm.notes[rec.id];
+    return '<div class="card ltmcard' + (big ? ' big' : '') + '" data-ltmcard="' + id + '">' +
+      '<div class="ltmhead"><span class="ft">PDF</span><div class="ltmname">' + esc(rec.name) + '<small>' + esc(meta) + '</small></div></div>' +
+      ltmStatusHtml(rec) +
+      '<nav class="ltmbar" aria-label="Share ' + esc(rec.name) + '">' +
+        '<button type="button" class="docact-btn" data-ltm="share" data-id="' + id + '">' + LTM_ICON.share + '<span>Share</span></button>' +
+        '<a class="docact-btn" data-ltm="mail" data-id="' + id + '" data-external href="' + esc(ltmMailHref(rec)) + '">' + LTM_ICON.mail + '<span>Email</span></a>' +
+        '<a class="docact-btn" data-ltm="sms" data-id="' + id + '" data-external href="' + esc(ltmSmsHref(rec)) + '">' + LTM_ICON.sms + '<span>Text</span></a>' +
+        '<button type="button" class="docact-btn" data-ltm="dl" data-id="' + id + '">' + LTM_ICON.dl + '<span>Download</span></button>' +
+        '<button type="button" class="docact-btn" data-ltm="view" data-id="' + id + '">' + LTM_ICON.view + '<span>View</span></button>' +
+      '</nav>' +
+      '<div class="ltmnote' + (note && note.bad ? ' bad' : '') + '" data-ltmnote="' + id + '"' + (note ? '' : ' hidden') + '>' + (note ? note.html : '') + '</div>' +
+      (big ? '<div class="ltmhint">Share attaches the PDF (Messages, Mail, AirDrop, Save to Files). Email and Text open a new message with the menu typed out \u2014 to attach the PDF use Share. Nothing is sent until you tap Send.</div>'
+           : '<button type="button" class="ltmdel" data-ltm="del" data-id="' + id + '">Remove from this phone</button>') +
+      '</div>';
+  }
+  function ltmNote(id, html, bad) {
+    if (html) ltm.notes[id] = { html: html, bad: !!bad }; else delete ltm.notes[id];
+    [].forEach.call(document.querySelectorAll('[data-ltmnote="' + id + '"]'), function (n) { n.innerHTML = html || ''; n.hidden = !html; n.classList.toggle('bad', !!bad); });
+  }
+  function ltmPaintGen() {
+    var out = $('mg-pdfout'); if (!out || !mgOnScreen()) return;
+    var rec = ltm.curId && ltmById(ltm.curId);
+    out.innerHTML = rec ? ltmCardHtml(rec, true) + '<button type="button" class="navbtn wladd ltmall" data-go="lt/menus">All saved menus &rsaquo;</button>' : '';
+  }
+  function ltmPaintSaved() {
+    var box = $('ltm-saved'); if (!box || state.ltPart !== 'menus') return;
+    var list = ltm.list || [];
+    if (!list.length) { box.innerHTML = ''; return; }
+    var waiting = list.filter(function (r) { return !r.drive; }).length;
+    box.innerHTML = '<div class="ltmsaved"><h4 class="sechead">Saved menus <small>' + list.length + (waiting ? ' \u00b7 ' + waiting + ' not on Drive yet' : '') + '</small></h4>' +
+      (waiting && ltmOff() ? '<div class="foot ltmwait">Menus made in the app are saved on this phone and will sync to Drive after the server update.</div>' : '') +
+      list.map(function (r) { return ltmCardHtml(r, false); }).join('') + '</div>';
+  }
+  function ltmPaintAll() { ltmPaintGen(); ltmPaintSaved(); }
+  function ltmShare(rec) {
+    var f = ltmFileOf(rec);
+    if (!daCanShareFiles(f.file)) {
+      daSaveBlob(f);
+      ltmNote(rec.id, 'This browser can\u2019t attach files to a share, so <b>' + esc(rec.name) + '</b> was downloaded instead.');
+      return;
+    }
+    try {
+      navigator.share({ files: [f.file], title: rec.name }).then(function () { ltmNote(rec.id, 'Shared <b>' + esc(rec.name) + '</b>.'); }, function (err) {
+        if (err && err.name === 'AbortError') return;
+        ltmNote(rec.id, 'Couldn\u2019t open the share sheet (' + esc((err && err.name) || 'error') + '). Tap <b>Share</b> again, or use <b>Download</b>.', true);
+      });
+    } catch (e) { ltmNote(rec.id, 'Couldn\u2019t open the share sheet. Use <b>Download</b>.', true); }
+  }
+  function ltmDownload(rec) {
+    daSaveBlob(ltmFileOf(rec));
+    ltmNote(rec.id, 'Saved <b>' + esc(rec.name) + '</b>' + (daIsIOS() ? ' \u2014 it\u2019s in Files \u203a Downloads (Share \u203a Save to Files also works).' : '.'));
+  }
+  function ltmRemove(rec) {
+    var msg = rec.drive ? 'Remove \u201c' + rec.name + '\u201d from this phone? The copy in Drive \u203a Past Menus stays.' : 'Remove \u201c' + rec.name + '\u201d from this phone? It is NOT on Drive yet, so it will be gone.';
+    if (!window.confirm(msg)) return;
+    ltm.list = (ltm.list || []).filter(function (r) { return r.id !== rec.id; });
+    if (ltm.curId === rec.id) ltm.curId = '';
+    if (!rec.memOnly) ltmReq('readwrite', function (s) { return s.delete(rec.id); }).catch(function () {});
+    ltmPaintAll();
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-ltm]'); if (!b || !$('screen-lt').contains(b)) return;
+    var act = b.getAttribute('data-ltm'), rec = ltmById(b.getAttribute('data-id')); if (!rec) return;
+    if (act === 'mail' || act === 'sms') {       // the link opens Mail / Messages with the menu typed out (the user sends it)
+      b.setAttribute('href', act === 'mail' ? ltmMailHref(rec) : ltmSmsHref(rec));
+      ltmNote(rec.id, act === 'mail' ? 'Opening Mail with the menu typed out. To attach the PDF, use <b>Share</b> \u203a Mail.' : 'Opening Messages with the menu typed out. To send the PDF itself, use <b>Share</b> \u203a Messages.');
+      return;
+    }
+    e.preventDefault();
+    if (act === 'share') ltmShare(rec);
+    else if (act === 'dl') ltmDownload(rec);
+    else if (act === 'view') openDoc('ltmenu:' + rec.id, rec.name);
+    else if (act === 'del') ltmRemove(rec);
+    else if (act === 'sync') { lsSet(LTM_OFF_KEY, 0); rec.err = ''; ltmSync(true); }
+  });
+
+  // ---- Drive sync (action=ltmenusave; backend/lt-menu-save.patch, Api v53) ----
+  function ltmSync(force) {
+    if (ltm.syncing || !getPc()) return;
+    ltmLoad().then(function (list) {
+      var pend = list.filter(function (r) { return !r.drive; });
+      if (!pend.length) return;
+      var off = ltmOff();
+      if (!force && off && Date.now() - off < LTM_RETRY_MS) return;
+      ltm.syncing = true;
+      var i = 0;
+      (function next() {
+        if (i >= pend.length) { ltm.syncing = false; ltmPaintAll(); return; }
+        var rec = pend[i++];
+        if (rec.drive) return next();
+        rec.st = 'sync'; ltmPaintAll();
+        apiPostRaw('ltmenusave', { cid: rec.cid, name: rec.name, week: rec.week || '', data: ltmB64(rec.bytes) }, 120000).then(function (j) {
+          rec.st = '';
+          if (j.error === 'bad_action') { lsSet(LTM_OFF_KEY, Date.now()); pend.forEach(function (x) { x.st = ''; }); ltm.syncing = false; ltmPaintAll(); return; }
+          lsSet(LTM_OFF_KEY, 0);
+          if (j.error || !j.data || !j.data.id) { rec.err = j.message || ('server error ' + (j.error || '')); return next(); }
+          var d = j.data;
+          rec.err = ''; rec.drive = { id: String(d.id), url: d.url || ('https://drive.google.com/file/d/' + d.id + '/view'), name: d.name || rec.name, at: Date.now() };
+          delete state.ltCache[LT_PARTS.menus.folder];
+          if (!rec.memOnly) ltmStoreRec(rec).catch(function () {});
+          if (state.ltPart === 'menus' && $('screen-lt').classList.contains('active')) setTimeout(function () { if (state.ltPart === 'menus' && !ltm.syncing) loadLt(true); }, 400);
+          next();
+        }, function (err) {
+          rec.st = '';
+          if (vAuth(err)) { ltm.syncing = false; return; }
+          rec.err = friendly(err); next();
+        });
+      })();
+    });
+  }
+
+  // ---- in-app viewer for a saved menu (#doc?u=ltmenu:<id>): pdf.js render + the v120 action bar with the real file ----
+  function ltmDocOpen(id, title, seq) {
+    docMessage('<div class="spinner"></div><div>Opening PDF\u2026</div>');
+    ltmLoad().then(function (list) {
+      if (seq !== state.docSeq) return;
+      var rec = ltmById(id);
+      if (!rec) { docMessage('This saved menu isn\u2019t on this phone anymore.'); return; }
+      $('doc-title').textContent = rec.name;
+      var link = rec.drive && rec.drive.url ? rec.drive.url : '';
+      $('doc-open').href = link || '#'; $('doc-open').hidden = !link;
+      var c = daSetDoc(link, rec.name, { id: 'ltm-' + rec.id, folder: false, local: true });
+      c.link = link; c.file = ltmFileOf(rec); c.mailHref = ltmMailHref(rec); c.smsHref = ltmSmsHref(rec);
+      daPaint();
+      renderPdf(new Uint8Array(rec.bytes.slice(0)), seq);
+    });
+  }
+  function ltmMountSaved() {
+    var body = $('lt-body'); if (!body || state.ltPart !== 'menus') return;
+    if (!$('ltm-saved')) { var d = document.createElement('div'); d.id = 'ltm-saved'; body.insertBefore(d, body.firstChild); }
+    ltmLoad().then(ltmPaintSaved);
+    ltmSync(false);
+  }
 
   /* ---------------- Lisa's Table: Menu Macros edit sheet (tap a row, dictate the measured numbers, confirm, Save -> ltmacroset) ---------------- */
   var MAC_DRAFT_KEY = 'cc_macdraft';
