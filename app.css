@@ -2611,3 +2611,6 @@ body.hl-busy { -webkit-user-select: none; user-select: none; cursor: grabbing; }
 #screen-lt .ltmsaved .sechead small { font: 600 12px/1 'Inter', sans-serif; color: var(--muted); margin-left: 6px; }
 #screen-lt .ltmwait { margin: 0 0 8px; color: #D08A55; }
 #screen-lt .ltmall { width: 100%; margin: 0 0 12px; }
+/* v129: separate Show ingredients / Show macros choices; macros line in the cream preview */
+#screen-lt .mp-mac { font-size: 12px; font-style: italic; color: #8a7563; margin-top: 2px; }
+#screen-lt .ltmopts { display: flex; flex-wrap: wrap; gap: 4px 22px; }

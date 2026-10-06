@@ -4894,7 +4894,8 @@
     var n = Number(s);
     return '$' + (n === Math.floor(n) ? String(n) : n.toFixed(2));
   }
-  function mgBlocks(week, deliver, rows) {
+  function mgBlocks(week, deliver, rows, opt) {     // v129: opt = { ing: show ingredients (default on), mac: show macros (default off) }
+    opt = opt || { ing: true, mac: false };
     var b = [{ t: 'title', text: 'Lisa\'s Table Menu' }];
     b.push({ t: 'week', text: week ? 'Menu week of ' + MG_MONTHS[week.getMonth()] + ' ' + mgOrd(week.getDate()) : 'Menu week of \u2026' });
     b.push({ t: 'deliv', text: deliver ? 'DELIVERY OR PICKUP ON ' + MG_DAYS[deliver.getDay()] + ' THE ' + mgOrd(deliver.getDate()).toUpperCase() : 'DELIVERY OR PICKUP ON \u2026' });
@@ -4903,8 +4904,10 @@
       var nm = String(r.name || '').replace(/\s+/g, ' ').trim(); if (!nm) return;
       var pr = mgPrice(r.price);
       b.push({ t: 'item', text: nm + (pr ? ' ' + pr : '') });
-      var ds = String(r.desc || '').replace(/\s+/g, ' ').trim();
+      var ds = opt.ing ? String(r.desc || '').replace(/\s+/g, ' ').trim() : '';
       if (ds) b.push({ t: 'desc', text: ds });
+      var mt = opt.mac ? ltmMacText(r.m) : '';
+      if (mt) b.push({ t: 'mac', text: mt });
     });
     b.push({ t: 'div', text: '\u25C6' });
     MG_FOOT.forEach(function (f) { b.push({ t: 'foot', text: f }); });
@@ -4936,7 +4939,7 @@
     return blocks.map(function (bl) { return '<div class="mp-' + bl.t + '">' + esc(bl.text) + '</div>'; }).join('');
   }
   function mgRefresh() {
-    var rows = mgRows(), blocks = mgBlocks(mgDate(mg.week), mgDate(mg.deliver), rows);
+    var rows = mgRows(), blocks = mgBlocks(mgDate(mg.week), mgDate(mg.deliver), rows, ltmOpts());
     var pv = $('mg-preview'); if (pv) pv.innerHTML = mgPreviewHtml(blocks);
     var bad = rows.filter(function (r) { return String(r.name || '').trim() && mgPrice(r.price) === null; });
     var sv = $('mg-save'); if (sv) sv.disabled = !!mg.saving || !mgDate(mg.week) || !mgDate(mg.deliver) || !rows.some(function (r) { return String(r.name || '').trim(); }) || bad.length > 0;
@@ -5003,7 +5006,8 @@
       '<div class="noteflash show bad" id="mg-warn" hidden></div>' +
       '<h3 class="sechead">Preview</h3><div class="mpaper" id="mg-preview"></div>' +
       '<div class="card ltmgenbox"><button type="button" class="ltmgo" id="mg-pdf" data-mg="pdf">' + (ltm.busy ? 'Making PDF\u2026' : 'Generate PDF') + '</button>' +
-      '<label class="ltmopt"><input type="checkbox" id="mg-pdfmac"' + (lsGet(LTM_MAC_KEY, false) ? ' checked' : '') + '> Show macros on the PDF</label>' +
+      '<div class="ltmopts"><label class="ltmopt"><input type="checkbox" id="mg-pdfing"' + (ltmOpts().ing ? ' checked' : '') + '> Show ingredients</label>' +
+      '<label class="ltmopt"><input type="checkbox" id="mg-pdfmac"' + (ltmOpts().mac ? ' checked' : '') + '> Show macros</label></div>' +
       '<div class="noteflash" id="mg-pdfmsg" hidden></div></div>' +
       '<div id="mg-pdfout"></div>' +
       '<div class="draftbtns mgbtns"><button type="button" class="navbtn" data-mg="copy">Copy text</button><button type="button" class="bigsave" id="mg-save" data-mg="save">Save to Menu Designs</button></div>' +
@@ -5046,7 +5050,7 @@
   function mgSave() {
     if (mg.saving) return;
     var r = mgRefresh(), items = r.rows.filter(function (x) { return String(x.name || '').trim(); }).map(function (x) {
-      return { name: String(x.name).replace(/\s+/g, ' ').trim(), price: String(x.price || '').replace(/[$\s]/g, ''), desc: String(x.desc || '').replace(/\s+/g, ' ').trim() };
+      return { name: String(x.name).replace(/\s+/g, ' ').trim(), price: String(x.price || '').replace(/[$\s]/g, ''), desc: ltmOpts().ing ? String(x.desc || '').replace(/\s+/g, ' ').trim() : '' };
     });
     var body = { week: mg.week, deliver: mg.deliver, items: items }, sig = JSON.stringify(body);
     if (!mgDate(mg.week) || !mgDate(mg.deliver) || !items.length) return mgFlash('Pick the week and delivery dates first.', true);
@@ -5162,7 +5166,12 @@
     } else mgInput(t);
   });
   $('lt-body').addEventListener('change', function (e) {
-    if (state.ltPart === 'menu-gen' && e.target.id === 'mg-pdfmac') { lsSet(LTM_MAC_KEY, !!e.target.checked); return; }
+    if (state.ltPart === 'menu-gen' && (e.target.id === 'mg-pdfmac' || e.target.id === 'mg-pdfing')) {    // v129: two independent choices, each remembered on this phone
+      lsSet(e.target.id === 'mg-pdfmac' ? LTM_MAC_KEY : LTM_ING_KEY, !!e.target.checked);
+      mgRefresh();
+      var sv0 = $('mg-saved'); if (sv0 && sv0.innerHTML) sv0.innerHTML = ''; mg.saved = null;
+      return;
+    }
     if (state.ltPart === 'menu-gen' && e.target.getAttribute && e.target.getAttribute('data-mgf') === 'price') mgPriceRemember(e.target);
   });
   $('lt-body').addEventListener('focusout', function (e) {
@@ -5180,7 +5189,10 @@
    * cid = no doubles). Until it is deployed the server answers bad_action and the menu says "Saved on this phone; will sync
    * to Drive after update"; the phone retries (at most every 30 min while Lisa's Table is open, or Try again) and uploads
    * every waiting menu on its own once the action exists. */
-  var LTM_IDB = 'cc_ltmenus', LTM_STORE = 'menus', LTM_OFF_KEY = 'cc_ltm_off', LTM_MAC_KEY = 'cc_ltm_mac', LTM_RETRY_MS = 30 * 60000;
+  var LTM_IDB = 'cc_ltmenus', LTM_STORE = 'menus', LTM_OFF_KEY = 'cc_ltm_off', LTM_MAC_KEY = 'cc_ltm_mac', LTM_ING_KEY = 'cc_ltm_ing', LTM_RETRY_MS = 30 * 60000;
+  // v129: "Show ingredients" (default ON, as the redesigned menu always printed them) and "Show macros" (default OFF) are separate.
+  // Each only adds its own line under an item, in the preview, Copy text, Email/Text, the PDF and Save to Menu Designs.
+  function ltmOpts() { return { ing: lsGet(LTM_ING_KEY, true) !== false, mac: lsGet(LTM_MAC_KEY, false) === true }; }
   var LTM_FONTS = { reg: 'fonts/CrimsonText-Regular.ttf', it: 'fonts/CrimsonText-Italic.ttf', semi: 'fonts/CrimsonText-SemiBold.ttf' };
   var LTM_LOGO = 'lt-menu-logo.png?v=1';
   var ltm = { list: null, loadP: null, busy: false, syncing: false, curId: '', notes: {} };
@@ -5412,13 +5424,13 @@
   }
   function mgPdf() {
     if (ltm.busy) return;
-    var r = mgRefresh(), showMac = !!($('mg-pdfmac') && $('mg-pdfmac').checked);
+    var r = mgRefresh(), op = ltmOpts(), showMac = op.mac, showIng = op.ing;
     var rows = r.rows.filter(function (x) { return String(x.name || '').trim(); });
     if (!mgDate(mg.week) || !mgDate(mg.deliver) || !rows.length) return ltmGenMsg('Pick the week and delivery dates first.', true);
     if (rows.some(function (x) { return mgPrice(x.price) === null; })) return ltmGenMsg('Fix the prices first (like 12 or 12.50).', true);
     var blocks = r.blocks, weekText = (blocks.filter(function (b) { return b.t === 'week'; })[0] || {}).text || '', delivText = (blocks.filter(function (b) { return b.t === 'deliv'; })[0] || {}).text || '';
     var model = { weekText: weekText, delivText: delivText, foot: MG_FOOT, items: rows.map(function (x) {
-      return { name: String(x.name).replace(/\s+/g, ' ').trim(), price: mgPrice(x.price) || '', desc: String(x.desc || '').replace(/\s+/g, ' ').trim(), mac: showMac ? ltmMacText(x.m) : '' };
+      return { name: String(x.name).replace(/\s+/g, ' ').trim(), price: mgPrice(x.price) || '', desc: showIng ? String(x.desc || '').replace(/\s+/g, ' ').trim() : '', mac: showMac ? ltmMacText(x.m) : '' };
     }) };
     ltm.busy = true; ltmGenBtn(); ltmGenMsg('Making the PDF\u2026');
     var made;
@@ -5428,7 +5440,7 @@
     }).then(function (name) {
       var bytes = made.bytes, buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
       var rec = { id: 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), cid: vNewCid(), name: name, week: mg.week, deliver: mg.deliver,
-        weekText: weekText, created: Date.now(), size: buf.byteLength, pages: made.pages, count: model.items.length, macros: showMac,
+        weekText: weekText, created: Date.now(), size: buf.byteLength, pages: made.pages, count: model.items.length, macros: showMac, ing: showIng,
         text: mgText(blocks), bytes: buf, drive: null, err: '' };
       return ltmStoreRec(rec).then(function () { return rec; }, function () { rec.memOnly = true; return rec; });
     }).then(function (rec) {
@@ -5469,6 +5481,7 @@
   function ltmCardHtml(rec, big) {
     var d = new Date(rec.created || Date.now()), id = esc(rec.id);
     var meta = [rec.weekText ? rec.weekText.replace(/^Menu w/, 'W') : '', rec.count ? rec.count + ' item' + (rec.count === 1 ? '' : 's') : '',
+      rec.ing === false && !rec.macros ? 'names + prices only' : (rec.ing === false ? '' : 'ingredients') + (rec.ing !== false && rec.macros ? ' + ' : '') + (rec.macros ? 'macros' : ''),
       (rec.pages || 1) + ' page' + ((rec.pages || 1) === 1 ? '' : 's'), ltmKb(rec.size || 0),
       'made ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })].filter(Boolean).join(' \u00b7 ');
     var note = ltm.notes[rec.id];
