@@ -2256,3 +2256,42 @@ body.hl-busy { -webkit-user-select: none; user-select: none; cursor: grabbing; }
 .sfrow .sfwm { display: flex; gap: 4px; }
 .sfrow .sfwm button { flex: 1; }
 .sffoot { margin: 8px 0 0; }
+
+/* ---- v114: Vault month selector: Prev month | this month | Next month | All (year to date). Four identical CC buttons on a charcoal strip. ---- */
+.vmbar { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 0 0 10px; padding: 6px; background: #232323;
+  border: 1px solid var(--line); border-radius: var(--radius); }
+.vmb { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-width: 0; height: 58px; padding: 0 4px; margin: 0;
+  background: var(--btn); color: var(--copper); border: 1px solid var(--copper-edge); border-radius: var(--radius); cursor: pointer;
+  font-family: 'Inter', sans-serif; box-shadow: 0 6px 14px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,160,90,.06); transition: background .1s, box-shadow .1s; }
+.vmb small { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 10px/1.1 'Inter', sans-serif;
+  letter-spacing: .4px; text-transform: uppercase; color: var(--copper); opacity: .72; }
+.vmb b { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 16px/1.1 'Inter', sans-serif; color: var(--copper); font-variant-numeric: tabular-nums; }
+.vmb:active { background: var(--btn-press); }
+.vmb.on { background: #1d140c; border-color: var(--copper); box-shadow: inset 0 0 0 1px var(--copper), 0 0 12px rgba(208,138,85,.35); }
+.vmb.on small { opacity: 1; }
+.vmb.on b { color: #FFB27A; }
+.vmb:focus-visible { outline: 2px solid #FFB27A; outline-offset: 1px; }
+
+/* ---- v114: Category (type-ahead input in the Add / Edit forms; tag on every entry row; by-category totals) ---- */
+.vcatbox { position: relative; }
+.vcathint { font-style: normal; font-weight: 400; text-transform: none; letter-spacing: 0; color: #7d7d7d; margin-left: 4px; }
+.vcatlist { position: absolute; left: 0; right: 0; top: calc(100% + 2px); z-index: 60; max-height: 264px; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  background: #0b0b0b; border: 1px solid var(--copper-edge); border-radius: var(--radius); box-shadow: 0 10px 24px rgba(0,0,0,.6); }
+.vcatlist[hidden] { display: none; }
+.vcatopt { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 44px; padding: 10px 12px; margin: 0;
+  background: transparent; border: 0; border-bottom: 1px solid var(--line); color: var(--text); font: 500 15px/1.2 'Inter', sans-serif; text-align: left; cursor: pointer; }
+.vcatopt:last-child { border-bottom: 0; }
+.vcatopt b { color: var(--red); font-weight: 700; }
+.vcatopt small { color: var(--muted); font-size: 10.5px; letter-spacing: .5px; text-transform: uppercase; }
+.vcatopt.hi, .vcatopt:active { background: #1d140c; }
+.vcatnew { padding: 8px 12px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); }
+.vcatnew b { color: var(--copper); }
+.cattag { display: inline-block; color: #d9a77c; border: 1px solid rgba(208,138,85,.4); border-radius: 3px; padding: 0 4px; font-size: 10.5px; font-weight: 600; line-height: 1.45; white-space: nowrap; }
+.icc .cattag { margin-left: 2px; }
+.foot.bycat { margin: 10px 0 2px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; }
+.vsbox.vform { padding: 16px 16px calc(18px + env(safe-area-inset-bottom, 0px)); }
+.vsbox .vsedtitle { margin: -2px 0 10px; font-size: 13px; color: #ddd; }
+.vsbox .vfield textarea { min-height: 64px; }
+.vsedit.navbtn, #vs-edit { color: var(--copper); }
+.vsbox .draftbtns.vsacts { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); }
+.vsbox .draftbtns.vsacts .navbtn { padding: 0 8px; font-size: 16px; }

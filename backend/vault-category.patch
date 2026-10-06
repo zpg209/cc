@@ -1,0 +1,267 @@
+--- a/Api.gs
++++ b/Api.gs
+@@ -133,6 +133,7 @@
+       case 'ptworkoutset': return apiPtWorkoutSet_(extra.all || {});
+       case 'ptworkoutdel': return apiPtWorkoutDel_(extra.all || {});
+       case 'incomedel': return apiIncomeDel_(extra.all || {});
++      case 'incomefix': return apiIncomeFix_(extra.all || {});   // v46 (Vault category): change category / notes of one Income / Personal Training / Land & Structure Pay row
+       case 'spenddel':  return apiSpendDel_(extra.all || {});
+       case 'receiptsave': return apiReceiptSave_(extra.all || {});
+       case 'receipts':  return apiReceipts_(extra.all || {});
+@@ -166,6 +167,7 @@
+   });
+   d.items = apiSpendItems_(off);
+   d.paidFromColumn = !!d.items.hasPaidFrom;
++  d.categoryApi = 1;   // v46: incomeadd/incomefix take category= (Category column, created on first use); spendadd takes allow_new_category=1
+   try { d.income = apiIncome_(off); } catch (err) {
+     console.error('CC API income error: ' + (err && err.stack || err));
+     d.income = [];
+@@ -202,7 +204,8 @@
+     client: ['client', 'name'],
+     amount: ['amount', '$'],
+     method: ['method', 'payment', 'paid via'],
+-    notes: ['notes', 'note']
++    notes: ['notes', 'note'],
++    category: ['category']
+   });
+   if (col.date < 0 || col.amount < 0) return [];
+ 
+@@ -226,6 +229,7 @@
+       amount: round2_(amt),
+       method: str(v, col.method),
+       notes: str(v, col.notes),
++      category: str(v, col.category),
+       row: r + 1,
+       tab: 'pt',
+       _r: r
+@@ -255,7 +259,8 @@
+     desc: ['description', 'desc', 'client', 'name'],
+     amount: ['amount', '$'],
+     method: ['method', 'payment', 'paid via'],
+-    notes: ['notes', 'note']
++    notes: ['notes', 'note'],
++    category: ['category']
+   });
+   if (col.date < 0 || col.amount < 0) return [];
+ 
+@@ -282,6 +287,7 @@
+       amount: round2_(amt),
+       method: str(v, col.method),
+       notes: str(v, col.notes),
++      category: str(v, col.category),
+       row: r + 1,
+       tab: 'ls',
+       _r: r
+@@ -309,7 +315,8 @@
+     date: ['week ending', 'week end', 'week', 'date'],
+     source: ['source'],
+     amount: ['amount', '$'],
+-    notes: ['notes', 'note']
++    notes: ['notes', 'note'],
++    category: ['category']
+   });
+   if (col.date < 0 || col.amount < 0) return [];
+ 
+@@ -331,6 +338,7 @@
+       source: str(v, col.source) || 'Other',
+       amount: round2_(amt),
+       notes: str(v, col.notes),
++      category: str(v, col.category),
+       row: r + 1,
+       tab: 'income',
+       _r: r
+@@ -4046,6 +4054,7 @@
+     changes.forEach(function (c) {
+       var ci = c.field === 'Paid from' ? paidIdx : c.field === 'Notes' ? col.notes : col.category;
+       if (ci < 0) { c.skipped = 'column not found'; return; }
++      if (c.field === 'Category') { apiAdminSetCell_(sh, m.rowNum, ci, c.after, true, null); apiSpendJournal_(ss, [new Date(), 'spendfix', m.rowNum, c.field, c.before, c.after, '']); return; }   // v46
+       var cell = sh.getRange(m.rowNum, ci + 1);
+       cell.setNumberFormat('@');      // text: a value starting with = + - @ can never become a formula
+       cell.setValue(c.after);
+@@ -4228,6 +4237,7 @@
+   if (!date) return { error: 'bad_value', message: 'date must be yyyy-mm-dd.' };
+   if (amt === null || !(amt > 0)) return { error: 'bad_value', message: 'amount must be a positive number (dollars, up to 2 decimals).' };
+   var notes = apiAdminClean_(p.notes, 300), cid = apiAdminClean_(p.cid, 80), dry = apiAdminBool_(p.dry);
++  var category = apiCatClean_(p.category);   // v46: optional; written to the tab's Category column (created on first use)
+   var label, method = '';
+   var strict = tabKey === 'income' && apiAdminBool_(p.strict);
+   if (tabKey === 'income') {
+@@ -4261,9 +4271,16 @@
+     if (!values.length) return { error: 'no_columns', message: 'Tab has no header row.' };
+     var col = apiIncomeCols_(tabKey, values[0]);
+     if (col.date < 0 || col.label < 0 || col.amount < 0) return { error: 'no_columns', message: 'Date, ' + (tabKey === 'income' ? 'Source' : tabKey === 'pt' ? 'Client' : 'Description') + ' and Amount columns are required.' };
+-    var width = Math.max(col.date, col.label, col.amount, col.method, col.notes) + 1;
++    var catCreated = false;
++    if (category && col.category < 0 && !dry && !apiAdminSeenCid_(ss, 'incomeadd', cid)) {      // v46: first categorised entry on this tab -> add the Category column, then re-read
++      var cc = apiIncomeCatCol_(sh, tabKey); catCreated = cc.created;
++      if (cc.created) apiSpendJournal_(ss, [new Date(), 'incomeadd', 1, sh.getName() + ': header', '', 'Category (column ' + apiColLetter_(cc.col + 1) + ')', '']);
++      values = sh.getDataRange().getValues(); col = apiIncomeCols_(tabKey, values[0]);
++    }
++    var width = Math.max(col.date, col.label, col.amount, col.method, col.notes, col.category) + 1;
+     var tabName = sh.getName();
+     var summary = { tab: tabName, date: date, label: label, amount: round2_(amt), method: method, notes: notes, cid: cid, dry: dry };
++    if (category) { summary.category = category; if (col.category < 0) summary.categoryColumn = dry ? 'would_create' : 'missing'; else if (catCreated) summary.categoryColumn = 'created'; }
+     if (tabKey === 'income' && method && col.method < 0) { summary.methodNote = 'method_not_saved'; summary.methodRequested = method; summary.method = ''; method = ''; }   // no Method column on this tab: never created silently
+ 
+     if (apiAdminSeenCid_(ss, 'incomeadd', cid)) { summary.duplicate = 'cid'; return { ok: true, data: summary }; }
+@@ -4319,6 +4336,7 @@
+       if (sh.getRange(pos.row, col.amount + 1).getNumberFormat() === 'General') sh.getRange(pos.row, col.amount + 1).setNumberFormat('$#,##0.00');
+       if (col.method >= 0) apiAdminSetCell_(sh, pos.row, col.method, method, true, vnotes);
+       if (col.notes >= 0) apiAdminSetCell_(sh, pos.row, col.notes, notes, true, vnotes);
++      if (col.category >= 0 && category) apiAdminSetCell_(sh, pos.row, col.category, category, true, vnotes);
+       SpreadsheetApp.flush();
+     } catch (werr) {
+       var uerr = apiAdminUndo_(undo);
+@@ -4326,7 +4344,7 @@
+       return { error: 'write_failed', message: String(werr && werr.message || werr), rolledBack: !uerr.length, undoErrors: uerr };
+     }
+     if (vnotes.length) summary.validation = vnotes;
+-    apiSpendJournal_(ss, [new Date(), 'incomeadd', pos.row, tabName + ': ' + summary.action, before, date + ' | ' + label + ' | ' + round2_(amt) + (method ? ' | ' + method : '') + (notes ? ' | ' + notes : '') + (vnotes.length ? ' [' + vnotes.join('; ') + ']' : ''), cid]);
++    apiSpendJournal_(ss, [new Date(), 'incomeadd', pos.row, tabName + ': ' + summary.action, before, date + ' | ' + label + ' | ' + round2_(amt) + (method ? ' | ' + method : '') + (notes ? ' | ' + notes : '') + (category ? ' | [' + category + ']' : '') + (vnotes.length ? ' [' + vnotes.join('; ') + ']' : ''), cid]);
+     return { ok: true, data: summary };
+   } finally {
+     lock.releaseLock();
+@@ -5472,8 +5490,10 @@
+       var wl = lists(col.who, API_SPENDADD_WHO); who = apiSpendAddPick_(wl, gv('who') || 'Zac');
+       if (!who) return { error: 'bad_value', message: 'who must be one of: ' + wl.join(' | ') };
+     }
++    var catNew = false;
+     if (col.category >= 0) {
+       var cl = lists(col.category, API_SPENDADD_CATS); category = apiSpendAddPick_(cl, gv('category') || 'Other');
++      if (!category && apiAdminBool_(p.allow_new_category) && apiCatClean_(p.category)) { category = apiCatClean_(p.category); catNew = true; }   // v46: typed category, added to the dropdown
+       if (!category) return { error: 'bad_value', message: 'category must be one of: ' + cl.join(' | ') };
+     }
+     if (col.account >= 0) {
+@@ -5496,6 +5516,7 @@
+     var summary = { tab: sh.getName(), date: date, who: who, amount: round2_(amt), category: category, merchant: merchant, method: method,
+                     notes: notes, account: account, paidFrom: paidFrom, cid: cid, dry: dry };
+     if (!gv('category')) summary.categoryDefaulted = true;
++    if (catNew) summary.categoryNew = true;
+     if (apiAdminSeenCid_(ss, 'spendadd', cid)) { summary.duplicate = 'cid'; return { ok: true, data: summary }; }
+     for (var r = 1; r < values.length; r++) {
+       var a = toNum_(values[r][col.amount]);
+@@ -5529,7 +5550,7 @@
+       put(col.who, who);
+       var ac = sh.getRange(rowNo, col.amount + 1); ac.setValue(round2_(amt));
+       if (ac.getNumberFormat() === 'General') ac.setNumberFormat('$#,##0.00');
+-      put(col.category, category);
++      if (catNew) apiAdminSetCell_(sh, rowNo, col.category, category, true, vnotes); else put(col.category, category);
+       apiAdminSetCell_(sh, rowNo, col.merchant, merchant, true, vnotes);              // free text: stored as text, never a formula
+       if (col.method >= 0 && method) apiAdminSetCell_(sh, rowNo, col.method, method, true, vnotes);   // v42: extends the Method dropdown when the type is new to it
+       if (col.notes >= 0 && notes) apiAdminSetCell_(sh, rowNo, col.notes, notes, true, vnotes);
+@@ -5802,9 +5823,27 @@
+ function apiIncomeTabName_(tabKey) { return tabKey === 'income' ? API_INCOME_TAB : tabKey === 'pt' ? API_PT_TAB : API_LSPAY_TAB; }
+ /** Header -> column map for the three income-style tabs (0-based; -1 = missing). label = Source (income) / Description (ls) / Client (pt). */
+ function apiIncomeCols_(tabKey, headRow) {
+-  if (tabKey === 'income') return mapHeaders_(headRow, { date: ['week ending', 'week end', 'week', 'date'], label: ['source'], amount: ['amount', '$'], method: ['method', 'payment', 'paid via'], notes: ['notes', 'note'] });   // v42: used only if the Income tab has such a column (none is created)
+-  if (tabKey === 'pt') return mapHeaders_(headRow, { date: ['date', 'week ending'], label: ['client', 'name', 'description', 'desc'], amount: ['amount', '$'], method: ['method', 'payment', 'paid via'], notes: ['notes', 'note'] });
+-  return mapHeaders_(headRow, { date: ['date', 'pay date', 'week ending'], label: ['description', 'desc', 'client', 'name'], amount: ['amount', '$'], method: ['method', 'payment', 'paid via'], notes: ['notes', 'note'] });
++  if (tabKey === 'income') return mapHeaders_(headRow, { date: ['week ending', 'week end', 'week', 'date'], label: ['source'], amount: ['amount', '$'], method: ['method', 'payment', 'paid via'], notes: ['notes', 'note'], category: ['category'] });   // v42: Method used only if the Income tab has such a column (none is created); v46: Category is created on first use
++  if (tabKey === 'pt') return mapHeaders_(headRow, { date: ['date', 'week ending'], label: ['client', 'name', 'description', 'desc'], amount: ['amount', '$'], method: ['method', 'payment', 'paid via'], notes: ['notes', 'note'], category: ['category'] });
++  return mapHeaders_(headRow, { date: ['date', 'pay date', 'week ending'], label: ['description', 'desc', 'client', 'name'], amount: ['amount', '$'], method: ['method', 'payment', 'paid via'], notes: ['notes', 'note'], category: ['category'] });
++}
++/* v46 (Vault category): category text as stored (no brackets / control characters, max 60). */
++function apiCatClean_(v) { return String(v == null ? '' : v).replace(/[\[\]\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 60); }
++/**
++ * v46: the "Category" column of an income tab: found by header, else created in the first column right of the last header cell
++ * (existing columns are never moved or edited). Returns { col (0-based), created }. Journaled by the caller.
++ */
++function apiIncomeCatCol_(sh, tabKey) {
++  var lastCol = Math.max(sh.getLastColumn(), 1), head = sh.getRange(1, 1, 1, lastCol).getValues()[0];
++  var c = apiIncomeCols_(tabKey, head).category;
++  if (c >= 0) return { col: c, created: false };
++  var last = 0;
++  for (var i = 0; i < head.length; i++) if (String(head[i] == null ? '' : head[i]).trim() !== '') last = i + 1;
++  var cell = sh.getRange(1, last + 1);
++  if (last > 0) sh.getRange(1, last).copyTo(cell, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
++  cell.setNumberFormat('@'); cell.setValue('Category');
++  SpreadsheetApp.flush();
++  return { col: last, created: true };
+ }
+ /** Every Source the Income tab knows: the values of the Source column's dropdown list(s) plus the Source of every existing row (exact spellings, first seen first). */
+ function apiIncomeKnownSources_(sh, values, labelCol) {
+@@ -6066,6 +6105,84 @@
+  * Total row: never matched (it has no date) and never deleted; sh.deleteRow shrinks the SUM range by exactly this row, so the total drops by the amount and no blank row is left.
+  * Response {ok:true,data:{deleted:{tab,row,date,amount,label,method,notes}, mode, totals:{before,after}, prune?}}.
+  */
++/**
++ * v46 action=incomefix (GET params or POST body): change the Category and/or Notes of ONE row of the Income / Personal Training /
++ * Land & Structure Pay tab. The row is found like incomedel: date + amount + label (Source / Client / Description), row= must be that row.
++ *   tab        income | pt | ls          row  1-based sheet row      date yyyy-mm-dd      amount  dollars      label  Source / Client / Description
++ *   category   optional; written to the tab's "Category" column (created right of the last header the first time)
++ *   notes      optional, max 300; notes_mode=set replaces (may be ''), otherwise appended with " | " unless already there
++ *   cid        required when writing (same cid never applied twice)     dry=1  preview only
++ * Backup tab + "CC write log" like every other write. Nothing else in the row is touched.
++ */
++function apiIncomeFix_(p) {
++  p = p || {};
++  var tabKey = String(p.tab || '').toLowerCase();
++  if (tabKey !== 'income' && tabKey !== 'ls' && tabKey !== 'pt') return { error: 'bad_value', message: 'tab must be income, ls or pt.' };
++  var date = apiAdminDate_(p.date), amt = apiAdminAmount_(p.amount);
++  var label = apiAdminClean_(p.label, 80) || apiAdminClean_(p.source, 80) || apiAdminClean_(p.client, 80) || apiAdminClean_(p.description, 80);
++  var cid = apiAdminClean_(p.cid, 80), dry = apiAdminBool_(p.dry), setNotes = String(p.notes_mode || '').toLowerCase() === 'set';
++  if (!date) return { error: 'bad_value', message: 'date must be yyyy-mm-dd.' };
++  if (amt === null) return { error: 'bad_value', message: 'amount must be a number (dollars, up to 2 decimals).' };
++  if (!label) return { error: 'bad_value', message: 'label is required (Source / Description / Client).' };
++  var rowIn = Number(p.row);
++  if (!(rowIn >= 2) || rowIn !== Math.floor(rowIn)) return { error: 'bad_value', message: 'row must be a sheet row number (2 or more).' };
++  var want = {};
++  if (p.category != null && apiCatClean_(p.category)) want.category = apiCatClean_(p.category);
++  if (p.notes != null && (setNotes || String(p.notes).trim() !== '')) {
++    if (String(p.notes).length > 300) return { error: 'too_long', message: 'notes max 300 characters.' };
++    want.notes = apiAdminClean_(p.notes, 300);
++  }
++  if (!Object.keys(want).length) return { error: 'bad_value', message: 'Nothing to change: send category and/or notes.' };
++  if (apiAdminHasAcctNo_((want.notes || '') + ' ' + (want.category || ''))) return { error: 'no_account_numbers', message: 'Do not send account numbers.' };
++  if (apiAcctExcluded_((want.notes || '') + ' ' + (want.category || ''))) return { error: 'excluded', message: 'Sierra Consultants is deliberately not kept in the Command Center.' };
++  if (!dry && !cid) return { error: 'bad_value', message: 'cid is required when writing (idempotency key).' };
++
++  var lock = LockService.getScriptLock();
++  try { lock.waitLock(20000); } catch (e) { return { error: 'busy', message: 'Another update is running. Try again.' }; }
++  try {
++    var ss = SpreadsheetApp.openById(CONFIG.SPEND.SHEET_ID), tabConst = apiIncomeTabName_(tabKey), sh = ss.getSheetByName(tabConst);
++    if (!sh) return { error: 'no_tab', message: tabConst + ' tab not found.' };
++    var values = sh.getDataRange().getValues();
++    if (!values.length) return { error: 'no_columns', message: 'Tab has no header row.' };
++    var col = apiIncomeCols_(tabKey, values[0]);
++    if (col.date < 0 || col.label < 0 || col.amount < 0) return { error: 'no_columns', message: 'Date, ' + (tabKey === 'income' ? 'Source' : tabKey === 'pt' ? 'Client' : 'Description') + ' and Amount columns are required.' };
++    if (want.notes !== undefined && col.notes < 0) return { error: 'no_columns', message: 'That tab has no Notes column.' };
++    var out = { tab: sh.getName(), tabKey: tabKey, dry: dry, cid: cid, changes: [] };
++    if (apiAdminSeenCid_(ss, 'incomefix', cid)) { out.duplicate = 'cid'; return { ok: true, data: out }; }
++    var info = function (i) { var v = values[i], a = toNum_(v[col.amount]); return { row: i + 1, date: toKey_(v[col.date]), amount: a === null ? null : round2_(a), label: apiDelShow_(v[col.label]) }; };
++    var f = apiDelFind_(values, col, { date: date, amt: amt, label: label, what: tabKey === 'income' ? 'source' : tabKey === 'pt' ? 'client' : 'description' }, rowIn, info);
++    if (f.err) { if (f.err.message) f.err.message = f.err.message.replace(/to delete/g, 'to change').replace(/Nothing deleted\./g, 'Nothing changed.'); return f.err; }
++    if (f.corrected) return { error: 'row_mismatch', message: 'Row ' + rowIn + ' is not that entry any more (it moved). Refresh and try again. Nothing changed.' };
++    var r0 = f.idx, rowNum = r0 + 1, str = function (c) { return c >= 0 ? String(values[r0][c] == null ? '' : values[r0][c]).trim() : ''; };
++    var curNotes = str(col.notes), curCat = str(col.category);
++    if (want.category !== undefined && want.category !== curCat) out.changes.push({ field: 'Category', before: curCat, after: want.category });
++    if (want.notes !== undefined) {
++      var after = setNotes ? want.notes : (norm_(curNotes).indexOf(norm_(want.notes)) >= 0 ? curNotes : (curNotes ? curNotes + ' | ' : '') + want.notes);
++      if (after !== curNotes) out.changes.push({ field: 'Notes', before: curNotes, after: after });
++    }
++    out.row = rowNum; out.unchanged = !out.changes.length;
++    if (col.category < 0 && want.category !== undefined) out.categoryColumn = dry ? 'would_create' : 'created';
++    if (dry || !out.changes.length) return { ok: true, data: out };
++
++    apiTabBackup_(ss, sh);
++    var catIdx = col.category;
++    if (catIdx < 0 && out.changes.some(function (c) { return c.field === 'Category'; })) {
++      var cc = apiIncomeCatCol_(sh, tabKey); catIdx = cc.col;
++      if (cc.created) apiSpendJournal_(ss, [new Date(), 'incomefix', 1, sh.getName() + ': header', '', 'Category (column ' + apiColLetter_(cc.col + 1) + ')', '']);
++    }
++    var vnotes = [];
++    out.changes.forEach(function (c) {
++      apiAdminSetCell_(sh, rowNum, c.field === 'Category' ? catIdx : col.notes, c.after, true, vnotes);
++      apiSpendJournal_(ss, [new Date(), 'incomefix', rowNum, sh.getName() + ': ' + c.field, c.before, c.after, cid]);
++    });
++    SpreadsheetApp.flush();
++    if (vnotes.length) out.validation = vnotes;
++    return { ok: true, data: out };
++  } finally {
++    lock.releaseLock();
++  }
++}
++
+ function apiIncomeDel_(p) {
+   p = p || {};
+   var tabKey = String(p.tab || '').toLowerCase();

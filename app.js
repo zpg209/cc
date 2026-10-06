@@ -119,7 +119,7 @@
   var RC_WRITES = {
     logadd: ['log'], logset: ['log'], logday: ['log'], lognote: ['lognotes'],
     addnote: ['notes'], delnote: ['notes'], punchset: ['punch'], punchnote: ['punch'],
-    spendadd: RC_MONEY, spenddel: RC_MONEY, spendfix: RC_MONEY, spendcol: RC_MONEY, incomeadd: RC_MONEY, incomedel: RC_MONEY,
+    spendadd: RC_MONEY, spenddel: RC_MONEY, spendfix: RC_MONEY, spendcol: RC_MONEY, incomeadd: RC_MONEY, incomedel: RC_MONEY, incomefix: RC_MONEY,
     balset: RC_MONEY, acctadd: RC_MONEY, receiptsave: RC_MONEY,
     debttabs: RC_DEBT, debtset: RC_DEBT, billadd: RC_DEBT, billpaid: RC_DEBT, billdel: RC_DEBT, debtdel: RC_DEBT,
     ltmacroset: ['ltmacros', 'orders'], ltpriceset: ['ltmacros', 'orders'], menuitemadd: ['ltmacros', 'orders', 'folder'],
@@ -459,7 +459,8 @@
       if (cur === 'fin') { var ovk = state.finKind === 'overview' && state.ovKey ? '/' + state.ovKey : ''; state.spendFrom = state.finKind === 'laundromat' ? 'fin/laundromat' : state.finKind === 'ledger' ? 'fin/ledger' : state.finKind === 'overview' ? 'fin/overview' + ovk : ''; if (state.finKind) state.scrollMem['fin/' + state.finKind + ovk] = window.scrollY || 0; }
       else if (cur === 'ent' && R.kind === 'debt') state.spendFrom = 'ent/' + state.entRoute.key;
       else if (cur !== 'spend' && cur !== 'doc') state.spendFrom = '';
-      var okKind = R.kind === 'all' || (/^(cat|acct|income|cash|who|calc|bal|debt)$/.test(R.kind) && R.val);
+      var okKind = R.kind === 'all' || (/^(cat|acct|income|icat|cash|who|calc|bal|debt)$/.test(R.kind) && R.val);
+      if (cur !== 'spend' && cur !== 'doc' && state.spendFrom) state.spendAll = false;      // v114: arriving from the Overview / Ledger / Laundromat / entity books = that month, not the year-to-date view
       state.spendRoute = okKind ? { kind: R.kind, val: R.kind === 'all' ? '' : R.val, acct: (R.kind === 'cat' || R.kind === 'cash' || R.kind === 'debt') ? R.acct : '' }
         : { kind: '', val: '', acct: '' };
     }
@@ -1500,6 +1501,12 @@
   var DETAIL_SRC = {};
   DETAIL_SRC[PT_SOURCE] = { label: PT_LABEL, title: 'Personal Training', unit: 'payment', tab: 'pt', tabName: 'Personal Training', what: 'client payments' };
   DETAIL_SRC[LS_SOURCE] = { label: LS_SOURCE, title: LS_SOURCE, unit: 'payment', tab: 'ls', tabName: LS_SOURCE, what: 'pay' };
+  // v114: DISPLAY labels of the income buttons (Vault Income section cards + the Add-income source chips). Display only: the data keeps the
+  // sheet's Source values (routes, matching, totals, what is written to the Income tab are unchanged).
+  var SRC_LABEL = {};
+  SRC_LABEL['Mono Village Laundromat'] = 'TiwiK (MVL)';
+  SRC_LABEL["Lisa's Table"] = 'KiwiT';
+  function srcLabel(s) { return Object.prototype.hasOwnProperty.call(SRC_LABEL, s) ? SRC_LABEL[s] : s; }
 
   function loadSpend(force) {
     ordLiveFetch(!!force);
@@ -1508,15 +1515,89 @@
       if (!sr0.kind || sr0.kind === 'bal') loadAccounts(false);
       if (!sr0.kind || sr0.kind === 'debt') loadDebt(false);
     }
+    if (state.spendAll) return loadSpendYtd(force);
     if (!force && state.spendData && state.spendDataOff === state.monthOffset) return renderSpend();
     var seq = ++state.spendSeq, off = state.monthOffset;
-    paintSpendChrome();
+    paintSpendChrome(); paintMonthBar();
     $('spend-body').innerHTML = '<div class="loading">Loading…</div>';
-    $('spend-month').textContent = '…';
     api('spend', off).then(function (d) {
       if (seq !== state.spendSeq) return;
       state.spendData = d; state.spendDataOff = off; renderSpend();
-    }, function (err) { if (seq === state.spendSeq) { $('spend-month').textContent = ''; onFail(['spend-body'], function () { loadSpend(true); })(err); } });
+    }, function (err) { if (seq === state.spendSeq) { paintMonthBar(); onFail(['spend-body'], function () { loadSpend(true); })(err); } });
+  }
+
+  /* ---- v114: month selector (Prev month | this month | Next month | All) + the All = year-to-date view ----
+     Four identical buttons. The middle one is the month on screen (selected unless All is); Prev / Next step one month; tapping the middle
+     one from All goes back to that month, and from another month jumps back to the current month. All = January 1 to today of the current
+     year: every month's `spend` read (cached like any month, 3 at a time, one retry each) merged into one response, so every section,
+     total, average and tap-through (rows, detail sheet, Delete) works exactly like a month. Nothing is computed on the server. */
+  var VM_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function vTodayIso() { var t = new Date(); return t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2); }
+  function ytdDays() { var t = new Date(); return Math.round((new Date(t.getFullYear(), t.getMonth(), t.getDate(), 12) - new Date(t.getFullYear(), 0, 1, 12)) / 864e5) + 1; }
+  function vmMonth(off) { var t = new Date(); return new Date(t.getFullYear(), t.getMonth() + off, 1, 12); }
+  function paintMonthBar() {
+    var off = Number(state.monthOffset) || 0, all = !!state.spendAll, cur = vmMonth(off), pv = vmMonth(off - 1), nx = vmMonth(off + 1);
+    var set = function (id, t) { var el = $(id); if (el) el.textContent = t; };
+    set('spend-prev-l', VM_SHORT[pv.getMonth()] + (pv.getFullYear() !== cur.getFullYear() ? ' ' + String(pv.getFullYear()).slice(2) : ''));
+    set('spend-next-l', VM_SHORT[nx.getMonth()] + (nx.getFullYear() !== cur.getFullYear() ? ' ' + String(nx.getFullYear()).slice(2) : ''));
+    set('spend-month', VM_SHORT[cur.getMonth()]);
+    set('spend-cur-s', off === 0 ? 'This month' : String(cur.getFullYear()));
+    set('spend-all-s', 'YTD ' + new Date().getFullYear());
+    var c = $('spend-cur'), a = $('spend-all');
+    if (c) { c.classList.toggle('on', !all); c.setAttribute('aria-pressed', String(!all)); c.title = all ? 'Show ' + OL_MONTHS[cur.getMonth()] : off ? 'Back to this month' : OL_MONTHS[cur.getMonth()] + ' ' + cur.getFullYear(); }
+    if (a) { a.classList.toggle('on', all); a.setAttribute('aria-pressed', String(all)); }
+  }
+  function ytdOffsets() { var m = new Date().getMonth(), out = []; for (var o = -m; o <= 0; o++) out.push(o); return out; }
+  function ytdMerge(list, year) {
+    var d = { ytd: true, year: year, monthLabel: year + ' year to date', monthOffset: null, items: [], income: [], recent: [], byCategory: [], byWho: [],
+      total: 0, entryCount: 0, daysLogged: 0, missingColumns: [], paidFromColumn: false, months: list.length };
+    var t = function (x) { return String(x && x.date || ''); };
+    list.forEach(function (m) {
+      if (!m) return;
+      if (m.categoryApi != null) d.categoryApi = Math.max(Number(d.categoryApi) || 0, Number(m.categoryApi) || 0);
+      d.items = d.items.concat(Array.isArray(m.items) ? m.items : (m.recent || []));
+      d.income = d.income.concat(Array.isArray(m.income) ? m.income : []);
+      d.daysLogged += Number(m.daysLogged) || 0;
+      if (m.paidFromColumn) d.paidFromColumn = true;
+      (m.missingColumns || []).forEach(function (c) { if (d.missingColumns.indexOf(c) < 0) d.missingColumns.push(c); });
+    });
+    d.items.sort(function (a, b) { return t(b) < t(a) ? -1 : t(b) > t(a) ? 1 : 0; });
+    d.income.sort(function (a, b) { return t(b) < t(a) ? -1 : t(b) > t(a) ? 1 : 0; });
+    d.total = r2(d.items.reduce(function (s2, x) { return s2 + (Number(x.amount) || 0); }, 0));
+    d.entryCount = d.items.length;
+    return d;
+  }
+  function loadSpendYtd(force) {
+    if (!force && state.spendData && state.spendDataOff === 'all') return renderSpend();
+    var seq = ++state.spendSeq, offs = ytdOffsets(), got = {}, queue = offs.slice(), running = 0, done = 0, failed = false, year = new Date().getFullYear();
+    paintSpendChrome(); paintMonthBar();
+    var prog = function () { var el = $('spend-body'); if (el && seq === state.spendSeq) el.innerHTML = '<div class="loading">Loading ' + year + ' year to date\u2026 ' + done + ' of ' + offs.length + ' months</div>'; };
+    prog();
+    var pump = function () {
+      if (seq !== state.spendSeq || failed) return;
+      if (!queue.length && !running) {
+        state.spendData = ytdMerge(offs.map(function (o) { return got[o]; }), year); state.spendDataOff = 'all';
+        return renderSpend();
+      }
+      while (running < 3 && queue.length) {
+        (function (o) {
+          var tries = 0; running++;
+          var go = function () {
+            api('spend', o).then(function (d) {
+              if (seq !== state.spendSeq) return;
+              got[o] = d; running--; done++; prog(); pump();
+            }, function (err) {
+              if (seq !== state.spendSeq || failed) return;
+              if (!(err instanceof AuthError) && ++tries < 2) return setTimeout(go, 900);
+              failed = true; running--;
+              onFail(['spend-body'], function () { loadSpend(true); })(err);
+            });
+          };
+          go();
+        })(queue.shift());
+      }
+    };
+    pump();
   }
 
   function loose(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
@@ -1560,6 +1641,89 @@
     return Object.keys(m).map(function (k) { return { name: k, amount: r2(m[k]) }; })
       .filter(function (c) { return c.amount !== 0; })
       .sort(function (a, b) { return b.amount - a.amount; });
+  }
+
+  /* ---- v114: Category on every Vault entry (year-end tax ledger) ----
+     WHERE IT IS STORED
+       Spend (Daily Spend tab): the real Category column (D). Its dropdown is warning-only, so any text is kept. spendadd only accepts the
+         dropdown's values, so a NEW category is saved as Category=Other + "[New category] " at the start of Notes (nothing can be lost), then
+         one spendfix call moves it into the Category column (and takes the prefix back out of Notes when there are other notes).
+         Editing a saved expense = spendfix (category -> Category column, notes).
+       Income (Income / Personal Training / Land & Structure Pay tabs): no Category column and the deployed API has no field for it, so the
+         category is kept as a "[Category] " prefix at the start of Notes. The Api.gs patch (backend/vault-category.patch) adds a real
+         Category column + incomefix (edit) + allow_new_category; once deployed the server reports categoryApi >= 1 in the spend read and this
+         code switches by itself: category= is sent to its own column and no prefix is written. Old "[x] " prefixes keep being read.
+     READING: column first (when it is not blank / Other), else the Notes prefix. The prefix is hidden from the notes shown in the app. */
+  var VCAT_RX = /^\s*\[([^\[\]]{1,60})\]\s*/;
+  var VCAT_KEY = 'cc_vault_cats', VCAT_API_KEY = 'cc_vault_catapi';
+  var VCAT_START = {
+    exp: ['Groceries', 'Dining', 'Gas', 'Fuel', 'Home goods', 'Home/Property', 'Kids/Education', 'Health', 'Medical', 'Entertainment', 'Travel', 'Personal',
+      'Plumbing', 'Insurance', 'Property Taxes', 'Utilities', 'Subscriptions', 'Supplies', 'Repairs & maintenance', 'Credit card fees', 'Bank fees',
+      'Phone & internet', 'Software', 'Advertising', 'Car & truck', 'Commissions & fees', 'Contract labor', 'Depreciation', 'Employee benefits',
+      'Interest (mortgage)', 'Interest (other)', 'Legal & professional', 'Office expense', 'Rent (property)', 'Rent (equipment)', 'Taxes & licenses',
+      'Meals (business)', 'Wages', 'Postage & shipping', 'Equipment', 'Laundry supplies', 'Mortgage', 'HOA', 'Clothing', 'Gifts', 'Charity', 'Pets', 'Education', 'Other'],
+    inc: ['Gross receipts', 'Sales', 'Catering', 'Personal training', 'Laundry revenue', 'Wash & fold', 'Rental income', 'Wages', 'Salary',
+      'Interest income', 'Dividends', 'Refunds', 'Reimbursement', 'Tips', 'Other income']
+  };
+  // default category per income button (prefilled, editable)
+  var VCAT_INC_DEF = { "Lisa's Table": 'Gross receipts', 'Mono Village Laundromat': 'Gross receipts', 'KiwiT rent': 'Rental income', 'Land & Structure': 'Wages', 'Personal Training': 'Personal training' };
+  function vCatClean(c) { return String(c == null ? '' : c).replace(/[\[\]\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60); }
+  function vCatSplit(notes) { var t = String(notes == null ? '' : notes), m = VCAT_RX.exec(t); return m ? { cat: vCatClean(m[1]), rest: t.slice(m[0].length) } : { cat: '', rest: t }; }
+  function vCatJoin(cat, notes) { cat = vCatClean(cat); notes = String(notes == null ? '' : notes).trim(); return cat ? ('[' + cat + ']' + (notes ? ' ' + notes : '')).slice(0, 300) : notes; }
+  var vcatMem = null;
+  function vCatStore() {
+    if (!vcatMem) { try { vcatMem = JSON.parse(localStorage.getItem(VCAT_KEY) || 'null'); } catch (e) { vcatMem = null; } }
+    if (!vcatMem || typeof vcatMem !== 'object') vcatMem = {};
+    if (!vcatMem.exp || typeof vcatMem.exp !== 'object') vcatMem.exp = {};
+    if (!vcatMem.inc || typeof vcatMem.inc !== 'object') vcatMem.inc = {};
+    return vcatMem;
+  }
+  var vcatT = 0;
+  function vCatPersist() { clearTimeout(vcatT); vcatT = setTimeout(function () { try { localStorage.setItem(VCAT_KEY, JSON.stringify(vCatStore())); } catch (e) {} }, 400); }
+  // remember a category seen on an entry (n = 1 per entry) or typed and saved (n = 1). Keys are loose so "utilities" and "Utilities" are one.
+  function vCatLearn(kind, cat, typed) {
+    cat = vCatClean(cat); if (!cat) return;
+    var m = vCatStore()[kind === 'inc' ? 'inc' : 'exp'], k = loose(cat); if (!k) return;
+    var o = m[k];
+    if (!o || typeof o !== 'object') o = m[k] = { name: cat, n: 0, at: 0 };
+    if (typed) o.name = cat;
+    o.n = Math.min(99999, (Number(o.n) || 0) + 1); o.at = Date.now();
+    vCatPersist();
+  }
+  var vcatSeenRows = {};
+  function vCatSeen(kind, e) {          // count each sheet entry once per session
+    var id = kind + '|' + (e.tab || '') + '|' + (e.row || '') + '|' + e.date + '|' + e.amount + '|' + e.category;
+    if (vcatSeenRows[id]) return; vcatSeenRows[id] = 1; vCatLearn(kind, e.category, false);
+  }
+  // server capability: categoryApi >= 1 (Api.gs category patch deployed) -> income category= has a column, spendadd takes new categories
+  function vCatApiOn() {
+    var d = state.spendData;
+    if (d && d.categoryApi != null) return Number(d.categoryApi) >= 1;
+    try { return Number(localStorage.getItem(VCAT_API_KEY) || 0) >= 1; } catch (e) { return false; }
+  }
+  function vCatApiNote(d) { try { if (d && !d.ytd) localStorage.setItem(VCAT_API_KEY, String(Number(d.categoryApi) || 0)); } catch (e) {} }
+  function vCatCanon(cat) {        // the sheet dropdown's spelling when the category is one of them
+    var hit = ''; VP.CATS.forEach(function (c) { if (loose(c) === loose(cat)) hit = c; });
+    return hit;
+  }
+  // suggestions for the type-ahead: categories already used (most used first) merged with the starter list; q filters (prefix, word start, substring)
+  function vCatSuggest(kind, q, max) {
+    kind = kind === 'inc' ? 'inc' : 'exp'; max = max || 8;
+    var m = vCatStore()[kind], seen = {}, pool = [];
+    Object.keys(m).map(function (k) { return m[k]; }).filter(function (o) { return o && o.name; })
+      .sort(function (a, b) { return (b.n - a.n) || (b.at - a.at); })
+      .forEach(function (o) { var k = loose(o.name); if (k && !seen[k]) { seen[k] = 1; pool.push({ name: o.name, used: true }); } });
+    VCAT_START[kind].forEach(function (c) { var k = loose(c); if (!seen[k]) { seen[k] = 1; pool.push({ name: c, used: false }); } });
+    var lq = String(q || '').toLowerCase().trim();
+    if (!lq) return pool.slice(0, max);
+    var a = [], b = [], c2 = [], lk = loose(lq);
+    pool.forEach(function (o) {
+      var n = o.name.toLowerCase();
+      if (n.indexOf(lq) === 0 || (lk && loose(n).indexOf(lk) === 0)) a.push(o);
+      else if ((' ' + n.replace(/[^a-z0-9]+/g, ' ')).indexOf(' ' + lq) >= 0) b.push(o);
+      else if (lk && loose(n).indexOf(lk) >= 0) c2.push(o);
+    });
+    return a.concat(b, c2).slice(0, max);
   }
 
   /* ---- Lisa's Table income, LIVE from the Orders summary ----
@@ -1622,7 +1786,8 @@
       else if (on('screen-fin') && state.finKind === 'overview') renderOv();
     } catch (e) {}
   }
-  function olMonthKey(d) {          // 'yyyy-mm' of the month a spend response covers
+  function olMonthKey(d) {          // 'yyyy-mm' of the month a spend response covers ('yyyy' for the v114 year-to-date view)
+    if (d && d.ytd) return String(d.year);
     var m = /^([A-Za-z]+)\s+(\d{4})$/.exec(String((d && d.monthLabel) || '').trim());
     if (m) { var i = -1; OL_MONTHS.forEach(function (n, k) { if (n.toLowerCase() === m[1].toLowerCase()) i = k; }); if (i >= 0) return m[2] + '-' + ('0' + (i + 1)).slice(-2); }
     var off = d && d.monthOffset != null ? Number(d.monthOffset) : Number(state.monthOffset) || 0, t = new Date(), x = new Date(t.getFullYear(), t.getMonth() + (isFinite(off) ? off : 0), 1);
@@ -1649,7 +1814,7 @@
       if (wk) { m.supersededBy = wk.week; out.superseded.push(m); } else out.income.push(m);
     });
     ordLive.weeks.forEach(function (w) {
-      if (w.week.slice(0, 7) !== monthKey) return;
+      if (w.week.slice(0, monthKey.length) !== monthKey || (monthKey.length === 4 && w.week > vTodayIso())) return;   // YTD: weeks of the year that have started
       out.live++;
       out.income.push({ date: w.week, label: olShort(w.week), source: LT, amount: w.paid, notes: '', client: '', method: '', gid: '', row: 0, tab: '', rawSource: LT, cid: '',
         _v: 0, live: true, week: w.week, unpaid: w.unpaid, trade: w.trade, clients: w.clients, go: 'lt/orders?tab=summary&week=' + w.week });
@@ -1667,16 +1832,26 @@
   // Works with the new API (items[] with account, income[]) and older shapes (recent[] only / no income).
   function spendModel(d) {
     var full = Array.isArray(d.items);
+    vCatApiNote(d);
     var items = (full ? d.items : (d.recent || [])).map(function (x) {
-      return { date: x.date, label: x.label || x.date, who: x.who || '', amount: Number(x.amount) || 0,
-        category: normCat(x.category), merchant: x.merchant || '', method: x.method || '',
-        notes: x.notes || '', account: normAcct(x.account), paidFrom: x.paidFrom || '',
+      // v114 category: the Category column, or (column blank / Other) the "[Category] " prefix in Notes; the prefix is hidden from the notes shown
+      var col = String(x.category == null ? '' : x.category).trim(), cs = vCatSplit(x.notes), useNote = !!cs.cat && (!col || loose(col) === 'other' || loose(col) === loose(cs.cat));
+      var e = { date: x.date, label: x.label || x.date, who: x.who || '', amount: Number(x.amount) || 0,
+        category: useNote ? cs.cat : normCat(col), merchant: x.merchant || '', method: x.method || '',
+        notes: useNote ? cs.rest : (x.notes || ''), account: normAcct(x.account), paidFrom: x.paidFrom || '',
+        rawCat: col, rawNotes: x.notes || '', catInNotes: useNote && loose(col) !== loose(cs.cat),
         row: vRowNum(x.row), cid: x.cid || '', _v: 1 };      // row/cid: exposed by the server for Delete (v57); _v = a Vault entry (tap -> detail sheet)
+      vCatSeen('exp', e);
+      return e;
     });
     var income = (Array.isArray(d.income) ? d.income : []).map(function (x) {
-      return { date: x.date, label: x.label || x.date, source: normSource(x.source), amount: Number(x.amount) || 0, notes: x.notes || '',
+      var col = vCatClean(x.category), cs = vCatSplit(x.notes), useNote = !!cs.cat && (!col || loose(col) === loose(cs.cat));
+      var e = { date: x.date, label: x.label || x.date, source: normSource(x.source), amount: Number(x.amount) || 0, notes: useNote ? cs.rest : (x.notes || ''),
+        category: col || cs.cat, rawCat: col, rawNotes: x.notes || '', catInNotes: !col && !!cs.cat,
         client: x.client || x.description || '', method: x.method || '', gid: x.gid != null ? String(x.gid) : '',
         row: vRowNum(x.row), tab: x.tab || '', rawSource: x.source || '', cid: x.cid || '', _v: 1 };
+      if (e.category) vCatSeen('inc', e);
+      return e;
     });
     var olA = ordLiveApply(income, olMonthKey(d));      // Lisa's Table income is live from Orders; superseded manual rows leave the totals
     income = olA.income;
@@ -1705,7 +1880,7 @@
       accounts: accounts, who: who, income: income,
       sources: srcNames.map(function (sname) {
         var l = income.filter(function (x) { return x.source === sname; });
-        return { name: sname, label: DETAIL_SRC[sname] ? DETAIL_SRC[sname].label : sname, amount: sum(l), count: l.length };
+        return { name: sname, label: DETAIL_SRC[sname] ? DETAIL_SRC[sname].label : srcLabel(sname), amount: sum(l), count: l.length };
       }),
       lsGid: lsGid, superseded: olA.superseded, liveNote: olA.note, liveCount: olA.live,
       incomeTotal: sum(income),   // all income sources, incl. Personal Training (Income total + Summary math)
@@ -1718,6 +1893,7 @@
   function catRoute(c, a) { return 'spend/cat/' + encodeURIComponent(c) + (a ? '/' + encodeURIComponent(a) : ''); }
   function acctRoute(a) { return 'spend/acct/' + encodeURIComponent(a); }
   function incomeRoute(s) { return 'spend/income/' + encodeURIComponent(s); }
+  function icatRoute(c) { return 'spend/icat/' + encodeURIComponent(c || '-'); }
 
   // Spend sheet (Daily Spend tab). Every number on the Vault drills down to the rows behind it and
   // links here ("Open in spend sheet" -> in-app doc viewer). gid = Daily Spend tab.
@@ -1743,6 +1919,8 @@
     if (sr.kind === 'debt') return debtDrillTitle(sr);
     if (sr.kind === 'bal') return sr.val === 'All' ? 'Account balances' : /^g:/.test(sr.val) ? sr.val.slice(2) + ' balances' : sr.val;
     if (sr.kind === 'income' && sr.val === 'All') return 'Income';
+    if (sr.kind === 'income') return srcLabel(sr.val);
+    if (sr.kind === 'icat') return (sr.val === '-' ? 'No category' : sr.val) + ' \u00b7 income';
     return sr.val;
   }
   function paintSpendChrome() {
@@ -1753,10 +1931,13 @@
     $('spend-title').classList.toggle('sub', sub);
   }
 
+  function vPer() { return state.spendData && state.spendData.ytd ? 'year to date' : 'this month'; }
+  function catTag(c) { return c ? '<span class="cattag">' + esc(c) + '</span>' : ''; }
   function itemRows(list, opt) {
-    if (!list.length) return '<div class="foot">No items this month.</div>';
+    if (!list.length) return '<div class="foot">No items ' + vPer() + '.</div>';
     return list.map(function (e) {
       var meta = [];
+      if (!opt.chip && !opt.catPage && e.category) meta.push(catTag(e.category));      // v114: the category shows on every row (the chip shows it otherwise)
       if (e.method) meta.push(isCash(e) ? '<span class="cashtag">' + esc(e.method) + '</span>' : esc(e.method));
       if (opt.acct && e.account !== 'Household') meta.push('<span class="acct-tag">' + esc(e.account) + '</span>');
       if (opt.paid) meta.push(e.paidFrom ? '<span class="pf-tag' + (e.paidFrom === 'Household card/account' ? ' pf-hh' : '') + '">Paid from: ' + esc(e.paidFrom) + '</span>' : (opt.paid === 'need' ? '<span class="pf-tag pf-none">Paid from: not set</span>' : ''));
@@ -1769,14 +1950,15 @@
     }).join('');
   }
   function incomeRows(list, showSrc) {
-    if (!list.length) return '<div class="foot">No income entries this month.</div>';
+    if (!list.length) return '<div class="foot">No income entries ' + vPer() + '.</div>';
     return list.map(function (e) {
       if (e.live) return '<div class="entry item inc liveent" role="button" tabindex="0" data-go="' + esc(e.go) + '"><div class="d">Week of<br><b>' + esc(e.label) + '</b></div><div class="m">' +
-        '<div class="meta"><small><span class="livetag">Live</span> ' + esc(showSrc ? e.source : 'from Orders') + '</small></div><div class="notes">' + esc(olSub(e)) + '</div></div>' +
+        '<div class="meta"><small><span class="livetag">Live</span> ' + esc(showSrc ? srcLabel(e.source) : 'from Orders') + '</small></div><div class="notes">' + esc(olSub(e)) + '</div></div>' +
         '<div class="a amt-in">' + money(e.amount) + '</div></div>';
       var ds = DETAIL_SRC[e.source], pt = !!ds, meta = [];
-      if (showSrc) meta.push(esc(ds ? ds.label : e.source));
+      if (showSrc) meta.push(esc(ds ? ds.label : srcLabel(e.source)));
       if (pt && e.method) meta.push(isCash(e) ? '<span class="cashtag">' + esc(e.method) + '</span>' : esc(e.method));
+      if (e.category) meta.push(catTag(e.category));
       return '<div class="entry item inc' + (pt ? ' ptitem' : '') + vEntCls(e) + '"' + vEntAttr('inc', e) + '><div class="d">' +
         (pt ? esc(e.label) : 'Week ending<br><b>' + esc(e.label) + '</b>') + '</div><div class="m">' +
         (pt ? '<div class="mer">' + esc(e.client || '—') + '</div>' : '') +
@@ -1787,7 +1969,7 @@
   }
   // Compact per-source entry list for the expanded Income cards: most recent first, date + (client) + amount.
   function incCompact(list, detail, sup) {
-    if (!list.length) return '<div class="foot empty">No entries this month</div>' + olSupRows(sup);
+    if (!list.length) return '<div class="foot empty">No entries ' + vPer() + '</div>' + olSupRows(sup);
     var t = function (x) { var v = Date.parse(x.date); return isNaN(v) ? 0 : v; };
     var rows = list.map(function (e, i) { return { e: e, i: i }; }).sort(function (a, b) { return (t(b.e) - t(a.e)) || (a.i - b.i); });
     return '<div class="inccompact">' + rows.map(function (r) {
@@ -1795,7 +1977,7 @@
       if (e.live) return '<div class="icrow live liverow" role="button" tabindex="0" data-go="' + esc(e.go) + '"><span class="icd">Wk of ' + esc(e.label) + '</span>' +
         '<span class="icc"><span class="livetag">Live</span></span><span class="amt amt-in">' + money(e.amount) + '</span></div><div class="livesub">' + esc(olSub(e)) + '</div>';
       return '<div class="icrow' + vEntCls(e) + '"' + vEntAttr('inc', e) + '><span class="icd">' + (detail ? esc(e.label) : 'Wk ending ' + esc(e.label)) + '</span>' +
-        '<span class="icc">' + (detail ? esc(what) : '') + '</span><span class="amt amt-in">' + money(e.amount) + '</span></div>';
+        '<span class="icc">' + (detail ? esc(what) : '') + (e.category ? (detail && what ? ' ' : '') + catTag(e.category) : '') + '</span><span class="amt amt-in">' + money(e.amount) + '</span></div>';
     }).join('') + '</div>' + olSupRows(sup);
   }
   function truncNote(M) {
@@ -2325,9 +2507,9 @@
     var d = state.spendData, M = spendModel(d), sr = state.spendRoute;
     VENT = {}; ventN = 0;
     paintSpendChrome();
-    $('spend-month').textContent = d.monthLabel;
-    var h = '';
-    var days = periodDays(d.monthOffset != null ? Number(d.monthOffset) : state.spendDataOff);
+    paintMonthBar();
+    var h = '', per = d.ytd ? 'year to date' : 'this month';
+    var days = d.ytd ? ytdDays() : periodDays(d.monthOffset != null ? Number(d.monthOffset) : state.spendDataOff);
     var perDay = function (v) { return days > 0 ? money(v / days) : '—'; };
     var acctTot = function (n) { var a = M.accounts.filter(function (x) { return x.name === n; })[0]; return a ? a.amount : 0; };
     var srcTot = function (n) { var x = M.sources.filter(function (y) { return y.name === n; })[0]; return x ? x.amount : 0; };
@@ -2352,14 +2534,17 @@
           sheetLink('Open in spend sheet', ds ? ds.tab : 'income', ds && ds.tab === 'ls' ? M.lsGid : '');
         h += vSec('inc-' + sx.name, 'income incsrc', esc(sx.label), '<span class="amt-in">' + money(sx.amount) + '</span>', incomeRoute(sx.name), b);
       });
-      h += vSec('inc-total', 'income', 'Total income', '<span class="amt-in">' + money(M.incomeTotal) + '</span>', incomeRoute('All'), '<div class="foot">Sum of the income sources above.</div>');
+      var icats = sortedPairs(sumBy(M.income.map(function (x) { return { category: x.category || '-', amount: x.amount }; }), 'category'))
+        .map(function (c) { return { name: c.name, label: c.name === '-' ? 'No category' : c.name, amount: c.amount }; });
+      h += vSec('inc-total', 'income', 'Total income', '<span class="amt-in">' + money(M.incomeTotal) + '</span>', incomeRoute('All'), '<div class="foot">Sum of the income sources above.</div>' +
+        (icats.length ? '<div class="foot bycat">By category</div>' + barRows(icats, icatRoute, ' inc') : ''));
       h += '</div>';
       h += vgEnd();
 
       h += vgHead('exp', 'Expenses', 'exp', '<span>Total spent</span><b class="amt-out">' + money(M.total) + '</b>');
       M.accounts.forEach(function (a) {
         var b = '';
-        if (!a.cats.length) b += '<div class="foot empty">No entries this month</div>';
+        if (!a.cats.length) b += '<div class="foot empty">No entries ' + per + '</div>';
         var mine = inAcct(a.name);
         b += barRows(a.cats, function (c) { return catRoute(c, a.name); }, '',
           cashOK ? function (c) { return { v: cashOf(mine.filter(function (x) { return x.category === c; })), route: cashRoute(a.name, c) }; } : null);
@@ -2368,7 +2553,9 @@
         h += vSec('acct-' + a.name, 'acctsec', esc(a.name), '<span class="amt-out">' + money(a.amount) + '</span>', acctRoute(a.name), b);
       });
 
+      var allCats = sortedPairs(sumBy(M.items, 'category'));
       h += vSec('total', 'grand', 'Total spent', '<span class="amt-out">' + money(M.total) + '</span>', 'spend/all',
+        (allCats.length ? '<div class="foot bycat">By category \u00b7 all accounts</div>' + barRows(allCats, function (c) { return catRoute(c); }, '') : '') +
         (cashOK ? '<div class="cashtot">' + cashBtn(cashOf(M.items), cashRoute('All')) + '</div>' : '') +
         '<button class="footbtn"' + goAttr('spend/all') + '>' + M.entryCount + ' entries' +
         (M.daysLogged != null ? ' \u00b7 ' + M.daysLogged + ' days logged' : '') + ' &rsaquo;</button>');
@@ -2389,7 +2576,7 @@
         netLine('lt-net', "Lisa's Table net", srcTot("Lisa's Table"), groc, 'Groceries') +
         sumBtn('net cmp', calcRoute('hh-spend'), 'Household spend<small>Running month total · excludes groceries (counted in Lisa\'s Table net)</small>',
           '<span class="amt neg">\u2212' + money(Math.abs(r2(hhTot - groc))) + '</span>');
-      h += vgHead('sum', 'Summary', '', '<span>Net this month</span><b class="amt ' + (monthNet >= 0 ? 'pos' : 'neg') + '">' + signedMoney(monthNet) + '</b>');
+      h += vgHead('sum', 'Summary', '', '<span>Net ' + per + '</span><b class="amt ' + (monthNet >= 0 ? 'pos' : 'neg') + '">' + signedMoney(monthNet) + '</b>');
       h += vSec('summary', 'summary', 'Summary', '<span class="amt ' + (monthNet >= 0 ? 'pos' : 'neg') + '">' + signedMoney(monthNet) + '</span>', calcRoute('month-net'), sumBody);
       h += vgEnd();
 
@@ -2422,10 +2609,17 @@
       h += '<div class="card income">' + incomeRows(inc, all) + '</div>';
       if (all || src === INCOME_SOURCES[0]) h += olNoteHtml(M) + (M.superseded.length ? '<div class="card income">' + olSupRows(M.superseded) + '</div>' : '');
 
+    } else if (sr.kind === 'icat') {
+      var icl = M.income.filter(function (x) { return (x.category || '-') === sr.val; });
+      h += '<div class="card income"><h3>Income \u00b7 category</h3><div class="big amt-in">' + money(sum(icl)) + '</div>' +
+        '<div class="foot">' + icl.length + ' entr' + (icl.length === 1 ? 'y' : 'ies') + ' \u00b7 ' + esc(per) + '</div>' +
+        '<div class="foot how">The category is kept at the start of each entry\u2019s Notes ("[Category] ") until the Income tab has a Category column. Tap an entry to change its category.</div></div>';
+      h += '<div class="card income">' + incomeRows(icl, true) + '</div>';
+
     } else if (sr.kind === 'calc') {
       var key = sr.val, c = null;
       var allInc = M.income;
-      var daysNote = 'days = ' + days + ' (day of the month so far for the current month; whole month for past months)';
+      var daysNote = d.ytd ? 'days = ' + days + ' (days of ' + d.year + ' so far, Jan 1 to today)' : 'days = ' + days + ' (day of the month so far for the current month; whole month for past months)';
       var part = function (label, valHtml, route, kind) {
         var inner = '<span>' + label + '</span><span class="amt' + (kind ? ' amt-' + kind : '') + '">' + valHtml + '</span>' + (route ? '<span class="chev">&rsaquo;</span>' : '');
         return route ? '<button class="calcpart"' + goAttr(route) + '>' + inner + '</button>' : '<div class="calcpart">' + inner + '</div>';
@@ -2500,7 +2694,7 @@
       if (sr.kind === 'cat') {
         list = M.items.filter(function (x) { return x.category === sr.val && (!sr.acct || x.account === sr.acct); });
         label = sr.acct ? sr.acct + ' · category' : 'Category';
-        opt = { chip: false, acct: !sr.acct };
+        opt = { chip: false, acct: !sr.acct, catPage: true };
         total = sum(list);
         if (M.truncated) {
           var ac = M.accounts.filter(function (a) { return a.name === (sr.acct || 'Household'); })[0];
@@ -2540,8 +2734,13 @@
     var tg = c.querySelector('.vtoggle'); if (tg) tg.setAttribute('aria-expanded', open);
     vOpenMap()[key] = open;
   });
-  $('spend-prev').addEventListener('click', function () { state.monthOffset--; loadSpend(true); });
-  $('spend-next').addEventListener('click', function () { state.monthOffset++; loadSpend(true); });
+  $('spend-prev').addEventListener('click', function () { state.spendAll = false; state.monthOffset--; loadSpend(true); });
+  $('spend-next').addEventListener('click', function () { state.spendAll = false; state.monthOffset++; loadSpend(true); });
+  $('spend-cur').addEventListener('click', function () {
+    if (state.spendAll) { state.spendAll = false; return loadSpend(false); }
+    if (state.monthOffset) { state.monthOffset = 0; loadSpend(true); }
+  });
+  $('spend-all').addEventListener('click', function () { if (!state.spendAll) { state.spendAll = true; loadSpend(false); } });
 
   /* ---------------- Entity books: KiwiT LLC + TiwiK LLC (API actions `entity`, `entitytax`) ---------------- */
   // Two SEPARATE sets of books for tax separation. The Vault above stays the combined view and is not touched.
@@ -7780,6 +7979,66 @@
     return l.map(function (o) { return '<option value="' + esc(o) + '"' + (o === sel ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('');
   }
   function vField(label, inner, cls) { return '<label class="vfield' + (cls ? ' ' + cls : '') + '"><span>' + esc(label) + '</span>' + inner + '</label>'; }
+  /* ---- v114: Category type-ahead (Add expense / Add income forms + Edit on the entry sheet). A plain text input, so typing, the keyboard's
+     mic key and pasting all work; as you type it lists matching categories already used on entries (most used first) merged with a starter
+     list of common IRS Schedule C + household categories. Anything typed is accepted as a new category and joins the suggestions once saved. */
+  function vCatHtml(id, val, kind) {
+    return '<div class="vfield vcatf"><span>Category <i class="vcathint">type or pick \u00b7 for the tax ledger</i></span><div class="vcatbox">' +
+      '<input id="' + id + '" class="vcatin" data-vcat="' + (kind === 'inc' ? 'inc' : 'exp') + '" type="text" maxlength="60" autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false" enterkeyhint="done"' +
+      ' role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="' + id + '-list" value="' + esc(val || '') + '" placeholder="' + (kind === 'inc' ? 'e.g. Gross receipts' : 'e.g. Utilities') + '">' +
+      '<div class="vcatlist" id="' + id + '-list" role="listbox" hidden></div></div></div>';
+  }
+  var vcat = { idx: -1, picking: false, t: 0 };
+  function vCatHl(name, q) {
+    var lq = String(q || '').trim().toLowerCase(), i = lq ? name.toLowerCase().indexOf(lq) : -1;
+    return i < 0 ? esc(name) : esc(name.slice(0, i)) + '<b>' + esc(name.slice(i, i + lq.length)) + '</b>' + esc(name.slice(i + lq.length));
+  }
+  function vCatOpen(inp) {
+    var list = $(inp.id + '-list'); if (!list) return;
+    var q = inp.value, lq = loose(q), sug = vCatSuggest(inp.getAttribute('data-vcat'), q, 8);
+    var exact = sug.some(function (o) { return loose(o.name) === lq; });
+    var h = sug.map(function (o) {
+      return '<button type="button" class="vcatopt' + (o.used ? ' used' : '') + '" role="option" tabindex="-1" data-vcatv="' + esc(o.name) + '"><span>' + vCatHl(o.name, q) + '</span>' +
+        (o.used ? '<small>used</small>' : '') + '</button>';
+    }).join('');
+    if (vCatClean(q) && !exact) h += '<div class="vcatnew">Or keep \u201c<b>' + esc(vCatClean(q)) + '</b>\u201d as a new category</div>';
+    list.innerHTML = h; list.hidden = !h; inp.setAttribute('aria-expanded', String(!!h)); vcat.idx = -1;
+  }
+  function vCatClose(inp) { var list = inp && $(inp.id + '-list'); if (list) { list.hidden = true; list.innerHTML = ''; } if (inp) inp.setAttribute('aria-expanded', 'false'); vcat.idx = -1; }
+  function vCatPick(inp, v) {
+    inp.value = v; vcat.picking = true;
+    try { inp.dispatchEvent(new Event('input', { bubbles: true })); inp.dispatchEvent(new Event('change', { bubbles: true })); } catch (e) {}
+    vcat.picking = false; vCatClose(inp);
+  }
+  function vCatSaid(text) {      // dictation: "... category utilities" / "tax category: office supplies" at the end -> { cat, text without it }
+    var t = String(text || ''), m = /[,.;]?\s*\b(?:tax\s+)?categor(?:y|ies)\s*(?:is|:|-)?\s+([A-Za-z][A-Za-z0-9&\/'\u2019 .-]{1,58}?)\s*[.!]?\s*$/i.exec(t);
+    if (!m) return { cat: '', text: t };
+    var c = vCatClean(m[1].replace(/\s+and\s+/gi, ' & ')), hit = '';
+    vCatSuggest(vm.kind, c, 99).forEach(function (o) { if (!hit && loose(o.name) === loose(c)) hit = o.name; });
+    if (!hit) hit = c.replace(/(^|\s)([a-z])/g, function (x, a, b) { return a + b.toUpperCase(); });
+    return { cat: hit, text: t.slice(0, m.index).replace(/[\s,.;]+$/, '') };
+  }
+  document.addEventListener('focusin', function (e) { var t = e.target; if (t && t.classList && t.classList.contains('vcatin')) { clearTimeout(vcat.t); vCatOpen(t); } });
+  document.addEventListener('input', function (e) { var t = e.target; if (t && t.classList && t.classList.contains('vcatin') && !vcat.picking) vCatOpen(t); });
+  document.addEventListener('focusout', function (e) { var t = e.target; if (t && t.classList && t.classList.contains('vcatin')) { clearTimeout(vcat.t); vcat.t = setTimeout(function () { if (document.activeElement !== t) vCatClose(t); }, 180); } });
+  document.addEventListener('keydown', function (e) {
+    var t = e.target; if (!t || !t.classList || !t.classList.contains('vcatin')) return;
+    var list = $(t.id + '-list'), opts = list && !list.hidden ? list.querySelectorAll('.vcatopt') : [];
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      if (!opts.length) { vCatOpen(t); return; }
+      e.preventDefault(); vcat.idx = (vcat.idx + (e.key === 'ArrowDown' ? 1 : -1) + opts.length) % opts.length;
+      [].forEach.call(opts, function (o, i) { o.classList.toggle('hi', i === vcat.idx); o.setAttribute('aria-selected', String(i === vcat.idx)); });
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (vcat.idx >= 0 && opts[vcat.idx]) vCatPick(t, opts[vcat.idx].getAttribute('data-vcatv')); else { vCatClose(t); t.blur(); }
+    } else if (e.key === 'Escape' && list && !list.hidden) { e.preventDefault(); e.stopPropagation(); vCatClose(t); }
+  }, true);
+  document.addEventListener('mousedown', function (e) { if (e.target.closest && e.target.closest('.vcatlist')) e.preventDefault(); });      // keep the keyboard up while picking
+  document.addEventListener('click', function (e) {
+    var o = e.target.closest && e.target.closest('.vcatopt'); if (!o) return;
+    var box = o.closest('.vcatbox'), inp = box && box.querySelector('.vcatin');
+    if (inp) { vCatPick(inp, o.getAttribute('data-vcatv')); }
+  });
   function vApiMsg(j) {          // server error -> plain sentence
     if (!j || !j.error) return 'Something went wrong.';
     if (j.error === 'bad_action') return 'This needs the server update (not deployed yet). Nothing was saved.';
@@ -7859,8 +8118,9 @@
   function vdClear(k) { try { localStorage.removeItem(vdKey(k)); } catch (e) {} }
   function vFrom(p, kind) {        // parser output -> form values (strings)
     var amt = p.amount != null ? p.amount.toFixed(2) : '';
-    if (kind === 'inc') return { source: p.source || '', client: p.client || '', amount: amt, date: p.date, notes: p.notes || '', method: p.method || '' };
-    return { amount: amt, merchant: p.merchant || '', category: p.category, account: p.account, date: p.date, who: p.who || 'Zac', notes: p.notes || '', method: p.method || '' };
+    if (kind === 'inc') return { source: p.source || '', client: p.client || '', amount: amt, date: p.date, notes: p.notes || '', method: p.method || '',
+      category: p.saidCat || VCAT_INC_DEF[p.source] || '' };
+    return { amount: amt, merchant: p.merchant || '', category: p.saidCat || p.category, account: p.account, date: p.date, who: p.who || 'Zac', notes: p.notes || '', method: p.method || '' };
   }
   function openVmic(kind) {
     vmicStop(true);
@@ -7919,7 +8179,8 @@
     if (r) { try { r.stop(); } catch (e2) { vm.rec = null; vm.on = false; vmicUi(); } }
   }
   function vFill() {          // parse the text box -> a NEW draft (fresh cid) -> form
-    var text = $('vmic-text').value, p = VP.parse(text, vm.kind, vToday());
+    var text = $('vmic-text').value, said = vCatSaid(text), p = VP.parse(said.text, vm.kind, vToday());
+    if (said.cat) p.saidCat = said.cat;
     vm.draft = { cid: vNewCid(), kind: vm.kind, text: text, f: vFrom(p, vm.kind), tried: false, at: Date.now() };
     vm.done = null; vdSave(); vmicUi();
     vFormRender(text.trim() ? '' : 'Blank form. Fill it in by hand, then Save.');
@@ -7939,8 +8200,9 @@
       h += '<div class="vfield"><span>Which income is this?</span><div class="vchips" id="vf-chips" role="group" aria-label="Income source">' +
         VP.SOURCES.map(function (n) {
           var on = f.source === n;
-          return '<button type="button" class="vchip' + (on ? ' on' : '') + '" data-vsrc="' + esc(n) + '" aria-pressed="' + on + '">' + esc(n) + '</button>';
+          return '<button type="button" class="vchip' + (on ? ' on' : '') + '" data-vsrc="' + esc(n) + '" aria-pressed="' + on + '">' + esc(srcLabel(n)) + '</button>';
         }).join('') + '</div></div>';
+      h += vCatHtml('vf-cat', f.category, 'inc');
       h += vField('Client (optional)', '<input id="vf-client" type="text" maxlength="60" autocomplete="off" value="' + esc(f.client || '') + '" placeholder="Leave blank for Personal Training">', 'vclient' + (f.source === 'Personal Training' ? '' : ' off'));
       h += '<div class="vrow2">' + vField('Amount', '<input id="vf-amount" type="text" inputmode="decimal" autocomplete="off" value="' + esc(f.amount) + '" placeholder="0.00">') +
         vField('Date', '<input id="vf-date" type="date" value="' + esc(f.date) + '">') + '</div>';
@@ -7950,9 +8212,9 @@
       h += '<div class="vrow2">' + vField('Amount', '<input id="vf-amount" type="text" inputmode="decimal" autocomplete="off" value="' + esc(f.amount) + '" placeholder="0.00">') +
         vField('Date', '<input id="vf-date" type="date" value="' + esc(f.date) + '">') + '</div>';
       h += vField('Merchant', '<input id="vf-merchant" type="text" maxlength="120" autocomplete="off" value="' + esc(f.merchant) + '" placeholder="Where / what">');
-      h += '<div class="vrow2">' + vField('Category', '<select id="vf-cat">' + vOpts(VP.CATS, f.category) + '</select>') +
-        vField('Account', '<select id="vf-acct">' + vOpts(VP.ACCTS, f.account) + '</select>') + '</div>';
-      h += vField('Paid by', '<select id="vf-who">' + vOpts(VP.WHO, f.who) + '</select>');
+      h += vCatHtml('vf-cat', f.category, 'exp');
+      h += '<div class="vrow2">' + vField('Account', '<select id="vf-acct">' + vOpts(VP.ACCTS, f.account) + '</select>') +
+        vField('Paid by', '<select id="vf-who">' + vOpts(VP.WHO, f.who) + '</select>') + '</div>';
       h += vPayHtml(f);
       h += vField('Notes', '<textarea id="vf-notes" rows="2" maxlength="300">' + esc(f.notes) + '</textarea>');
     }
@@ -7967,8 +8229,9 @@
     if ((v = g('vf-amount')) != null) f.amount = v;
     if ((v = g('vf-date')) != null) f.date = v;
     if ((v = g('vf-notes')) != null) f.notes = v;
+    if ((v = g('vf-cat')) != null) f.category = v;
     if (vm.kind === 'inc') { if ((v = g('vf-client')) != null) f.client = v; }
-    else { if ((v = g('vf-merchant')) != null) f.merchant = v; if ((v = g('vf-cat')) != null) f.category = v; if ((v = g('vf-acct')) != null) f.account = v; if ((v = g('vf-who')) != null) f.who = v; }
+    else { if ((v = g('vf-merchant')) != null) f.merchant = v; if ((v = g('vf-acct')) != null) f.account = v; if ((v = g('vf-who')) != null) f.who = v; }
     vdSave();
   }
   function vSaveParams() {      // -> { action, params } or { error }
@@ -7984,13 +8247,24 @@
       else p = { tab: 'income', source: src };
       p.date = f.date; p.amount = amt.toFixed(2); p.notes = String(f.notes || '').trim(); p.cid = d.cid; p.strict = '1';
       if (f.method) p.method = vPayServer(f.method);
-      return { action: 'incomeadd', params: p, amt: amt, label: label };
+      var icat = vCatClean(f.category);
+      if (icat) { if (vCatApiOn()) p.category = icat; else p.notes = vCatJoin(icat, p.notes); }     // v114: no Category column on the income tabs yet -> "[Category] " prefix in Notes
+      if (p.notes.length > 300) return { error: 'Notes are too long with the category in front (300 characters max). Shorten the notes.' };
+      return { action: 'incomeadd', params: p, amt: amt, label: label, cat: icat };
     }
     var m = String(f.merchant || '').trim();
     if (!m) return { error: 'Enter the merchant or what it was for.' };
-    var sp = { date: f.date, amount: amt.toFixed(2), merchant: m, category: f.category, account: f.account, who: f.who, notes: String(f.notes || '').trim(), cid: d.cid };
+    var notes = String(f.notes || '').trim(), cat = vCatClean(f.category), canon = cat ? vCatCanon(cat) : '', fix = null;
+    var sp = { date: f.date, amount: amt.toFixed(2), merchant: m, account: f.account, who: f.who, notes: notes, cid: d.cid };
+    // v114 category: a dropdown category goes straight into the Category column. A new one: (patched server) category= + allow_new_category=1;
+    // (deployed server) Category=Other + "[New] " in Notes (never lost), then spendfix moves it into the Category column.
+    if (!cat) sp.category = 'Other';
+    else if (canon) sp.category = canon;
+    else if (vCatApiOn()) { sp.category = cat; sp.allow_new_category = '1'; }
+    else { sp.category = 'Other'; sp.notes = vCatJoin(cat, notes); fix = { category: cat, notes: notes }; }
+    if (sp.notes.length > 300) return { error: 'Notes are too long with the category in front (300 characters max). Shorten the notes.' };
     if (f.method) sp.method = vPayServer(f.method);
-    return { action: 'spendadd', params: sp, amt: amt, label: m };
+    return { action: 'spendadd', params: sp, amt: amt, label: m, cat: canon || cat || 'Other', fix: fix };
   }
   function vSave() {
     var d = vm.draft; if (!d || vm.busy) return;
@@ -8001,6 +8275,12 @@
     var btn = $('vf-save'); btn.disabled = true; btn.textContent = 'Saving\u2026'; vMsg('vf-msg', '', false);
     apiRaw(s.action, s.params).then(function (j) {
       vm.busy = false;
+      if (j.error === 'bad_value' && s.params.allow_new_category && /categor/i.test(String(j.message || ''))) {   // server without the category patch after all: park it in Notes + spendfix
+        try { localStorage.setItem(VCAT_API_KEY, '0'); } catch (e0) {}
+        if (state.spendData) state.spendData.categoryApi = 0;
+        vm.busy = false; btn.disabled = false;
+        return vSave();
+      }
       if (j.error) {
         btn.disabled = false; btn.textContent = vm.kind === 'inc' ? 'Save income' : 'Save expense';
         if (j.error === 'bad_value' && d.f.method && /method/i.test(String(j.message || ''))) {      // an older server only knows Cash / Debit / Credit / ACH/Transfer / Other
@@ -8008,26 +8288,46 @@
         }
         return vMsg('vf-msg', vApiMsg(j), true);
       }
-      var r = j.data || {}, where = (vm.kind === 'inc' ? (r.tab || 'Income') : 'Daily Spend') + (r.row ? ' \u00b7 row ' + r.row : '');
-      var head = r.duplicate === 'cid' ? 'Already saved earlier' : r.duplicate === 'row' ? 'Already in the sheet' : 'Saved';
-      var payTxt = '';
-      if (d.f.method && !r.duplicate) payTxt = ' \u00b7 ' + esc(d.f.method) + (r.method ? '' : ' (payment type not saved: that sheet has no Method column)');
-      var sub = r.duplicate ? 'Nothing was added again.' : (vm.kind === 'exp' ? esc(d.f.category) + ' \u00b7 ' + esc(d.f.account) + ' \u00b7 ' : '') + esc(d.f.date) + payTxt;
-      var ent = null, rowN = vRowNum(r.row);
-      if (rowN) {                // Delete needs the sheet row from the save result (data.row) and, for income, the tab (data.tab)
-        ent = vm.kind === 'inc'
-          ? { kind: 'inc', tab: vTabNorm(r.tab) || s.params.tab, row: rowN, date: d.f.date, amount: s.amt, label: s.label, cid: d.cid }
-          : { kind: 'exp', row: rowN, date: d.f.date, amount: s.amt, label: s.label, cid: d.cid };
+      var r = j.data || {};
+      if (s.fix && !r.duplicate && vRowNum(r.row)) {         // v114: move the new category from the Notes prefix into the Category column (one more call)
+        btn.textContent = 'Saving category\u2026'; vm.busy = true;
+        return vCatFixRun(s, r).then(function (fx) { vm.busy = false; vSaveDone(d, s, r, fx); });
       }
-      vm.dn = { head: head, amt: money(s.amt), cls: vm.kind === 'inc' ? 'amt-in' : 'amt-out', label: s.label, where: where, sub: sub, ent: ent, stage: '', err: '' };
-      vm.done = vDoneHtml();
-      vdClear(vm.kind); vm.draft = null; state.spendData = null; vFormRender('');
+      vSaveDone(d, s, r, null);
     }, function (err) {
       vm.busy = false;
       if (vAuth(err)) return;
       btn.disabled = false; btn.textContent = vm.kind === 'inc' ? 'Save income' : 'Save expense';
       vMsg('vf-msg', friendly(err) + ' Nothing is confirmed yet: tap Save again to retry (same entry id, it will not double).', true);
     });
+  }
+  // spendfix after a spendadd that parked a new category in Notes -> { ok } | { err } (the entry is saved either way; on err the category stays in Notes)
+  function vCatFixRun(s, r) {
+    var p = { row: String(vRowNum(r.row)), date: s.params.date, amount: s.params.amount, merchant: s.params.merchant, category: s.fix.category };
+    if (s.fix.notes) { p.notes = s.fix.notes; p.notes_mode = 'set'; }
+    return apiRaw('spendfix', p).then(function (j) { return j && j.error ? { err: vApiMsg(j) } : { ok: true }; }, function (err) { return vAuth(err) ? { err: 'auth' } : { err: friendly(err) }; });
+  }
+  function vSaveDone(d, s, r, fx) {
+      var where = (vm.kind === 'inc' ? (r.tab || 'Income') : 'Daily Spend') + (r.row ? ' \u00b7 row ' + r.row : '');
+      var head = r.duplicate === 'cid' ? 'Already saved earlier' : r.duplicate === 'row' ? 'Already in the sheet' : 'Saved';
+      var payTxt = '';
+      if (d.f.method && !r.duplicate) payTxt = ' \u00b7 ' + esc(d.f.method) + (r.method ? '' : ' (payment type not saved: that sheet has no Method column)');
+      var catTxt = '';
+      if (!r.duplicate && s.cat) {
+        if (vm.kind === 'inc') catTxt = esc(s.cat) + (s.params.category ? '' : ' (kept in the notes)') + ' \u00b7 ';
+        else catTxt = esc(s.cat) + (fx && fx.err ? ' (kept in the notes: the Category column could not be set)' : '') + ' \u00b7 ';
+        vCatLearn(vm.kind, s.cat, true);
+      }
+      var sub = r.duplicate ? 'Nothing was added again.' : catTxt + (vm.kind === 'exp' ? esc(d.f.account) + ' \u00b7 ' : '') + esc(d.f.date) + payTxt;
+      var ent = null, rowN = vRowNum(r.row);
+      if (rowN) {                // Delete needs the sheet row from the save result (data.row) and, for income, the tab (data.tab)
+        ent = vm.kind === 'inc'
+          ? { kind: 'inc', tab: vTabNorm(r.tab) || s.params.tab, row: rowN, date: d.f.date, amount: s.amt, label: s.label, cid: d.cid }
+          : { kind: 'exp', row: rowN, date: d.f.date, amount: s.amt, label: s.label, cid: d.cid };
+      }
+      vm.dn = { head: head, amt: money(s.amt), cls: vm.kind === 'inc' ? 'amt-in' : 'amt-out', label: vm.kind === 'inc' ? srcLabel(s.label) : s.label, where: where, sub: sub, ent: ent, stage: '', err: '' };
+      vm.done = vDoneHtml();
+      vdClear(vm.kind); vm.draft = null; state.spendData = null; vFormRender('');
   }
   $('vmic-btn').addEventListener('click', function () { if (vm.on) vmicStop(); else vmicStart(); });
   $('vmic-fill').addEventListener('click', function () { vmicStop(true); vmicUi(); vFill(); });
@@ -8047,7 +8347,13 @@
     }
     var chip = e.target.closest('#vf-chips .vchip');
     if (chip && vm.draft && vm.kind === 'inc') {            // pick one of the existing income sources
-      vRead(); vm.draft.f.source = chip.getAttribute('data-vsrc'); vdSave();
+      vRead();
+      var oldSrc = vm.draft.f.source, newSrc = chip.getAttribute('data-vsrc'), fc = vCatClean(vm.draft.f.category);
+      vm.draft.f.source = newSrc;
+      if (!fc || (VCAT_INC_DEF[oldSrc] && loose(fc) === loose(VCAT_INC_DEF[oldSrc]))) {      // v114: default category follows the income button until one is typed
+        vm.draft.f.category = VCAT_INC_DEF[newSrc] || ''; var ci = $('vf-cat'); if (ci) ci.value = vm.draft.f.category;
+      }
+      vdSave();
       [].forEach.call($('vf-chips').querySelectorAll('.vchip'), function (b) { var on = b === chip; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
       var cw = $('vmic-form').querySelector('.vclient'); if (cw) cw.classList.toggle('off', vm.draft.f.source !== 'Personal Training');
       vMsg('vf-msg', '', false);
@@ -11524,7 +11830,7 @@
     var lines = [], ent = null, tab;
     lines.push(['Date', e.label || e.date || '']);
     if (kind === 'exp') {
-      lines.push(['Merchant', e.merchant || '\u2014'], ['Category', e.category || '']);
+      lines.push(['Merchant', e.merchant || '\u2014'], ['Category', (e.category || '') + (e.catInNotes ? ' (kept in Notes)' : '')]);
       if (e.account) lines.push(['Account', e.account]);
       if (e.who) lines.push(['Paid by', e.who]);
       if (e.method) lines.push(['Method', e.method]);
@@ -11534,14 +11840,61 @@
     } else {
       tab = vIncTab(e);
       var ds = DETAIL_SRC[e.source];
-      lines.push(['Source', ds ? ds.label : e.source]);
+      lines.push(['Source', ds ? ds.label : srcLabel(e.source)]);
+      lines.push(['Category', e.category ? e.category + (e.catInNotes ? ' (kept in Notes)' : '') : '\u2014']);
       if (e.client) lines.push([tab === 'ls' ? 'Description' : 'Client', e.client]);
       if (e.method) lines.push(['Method', e.method]);
       if (e.notes) lines.push(['Notes', e.notes]);
       var lbl = tab === 'pt' ? (e.client || 'Personal Training') : tab === 'ls' ? (e.client || 'Land & Structure pay') : (e.rawSource || e.source);
       if (e.row) ent = { kind: 'inc', tab: tab, row: e.row, date: e.date, amount: e.amount, label: lbl, cid: e.cid || '' };
     }
-    return { kind: kind, lines: lines, ent: ent, amount: e.amount };
+    return { kind: kind, lines: lines, ent: ent, amount: e.amount, e: e, edit: !!e.row };
+  }
+  /* ---- v114: Edit an entry's category (+ notes) from the entry sheet ----
+     Expense -> spendfix (deployed): the category goes into the Category column (warning-only dropdown, any text kept); a "[x] " prefix left
+     in Notes by an earlier save is taken out (or rewritten to the new category when Notes held nothing else, since spendfix cannot blank Notes).
+     Income -> incomefix: needs the Api.gs category patch; until it is deployed the server answers bad_action and nothing changes. */
+  function vEditPlan(kind, e, catIn, notesIn) {
+    var cat = vCatClean(catIn), notes = String(notesIn == null ? '' : notesIn).replace(/[\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!cat) return { error: 'Type a category.' };
+    if (!e.row) return { error: 'This entry has no sheet row, so it can\u2019t be changed here. Change it in the spend sheet.' };
+    var raw = String(e.rawNotes || ''), rc = vCatSplit(raw), store, amt = (Number(e.amount) || 0).toFixed(2);
+    var keepCatInNotes = kind === 'inc' && !vCatApiOn();
+    if (keepCatInNotes) store = vCatJoin(cat, notes);
+    else if (notes) store = notes;
+    else if (!raw.trim()) store = '';
+    else if (rc.cat && !rc.rest.trim()) store = loose(rc.cat) === loose(cat) ? raw : '[' + cat + ']';    // Notes held only the old prefix
+    else return { error: 'Notes can\u2019t be emptied from here. Leave a word in Notes or clear them in the spend sheet.' };
+    if (store.length > 300) return { error: 'Notes are too long (300 characters max with the category).' };
+    var notesChange = store !== raw.trim() && store !== raw;
+    if (kind === 'exp') {
+      if (!e.merchant) return { error: 'This entry has no merchant, so it can\u2019t be matched safely. Change it in the spend sheet.' };
+      var canon = vCatCanon(cat) || cat, p = { row: String(e.row), date: e.date, amount: amt, merchant: e.merchant };
+      if (canon !== e.rawCat) p.category = canon;
+      if (notesChange) { p.notes = store; p.notes_mode = 'set'; }
+      if (!p.category && !p.notes) return { none: true };
+      return { action: 'spendfix', params: p, cat: canon, fallback: { row: p.row, date: p.date, amount: amt, merchant: e.merchant, notes: vCatJoin(cat, notes), notes_mode: 'set' } };
+    }
+    var tab = vIncTab(e), lbl = tab === 'pt' ? (e.client || 'Personal Training') : tab === 'ls' ? (e.client || 'Land & Structure pay') : (e.rawSource || e.source);
+    var ip = { tab: tab, row: String(e.row), date: e.date, amount: amt, label: lbl, cid: vNewCid() };
+    if (!keepCatInNotes && loose(cat) !== loose(e.rawCat)) ip.category = cat;
+    if (notesChange) { ip.notes = store; ip.notes_mode = 'set'; }
+    if (!ip.category && ip.notes == null) return { none: true };
+    return { action: 'incomefix', params: ip, cat: cat };
+  }
+  function vEditRun(plan) {
+    var done = function (j) { state.spendData = null; vCatLearn(vds.d.kind, plan.cat, true); return { ok: true, data: (j && j.data) || {} }; };
+    return apiRaw(plan.action, plan.params).then(function (j) {
+      if (j && j.error === 'bad_action') return { err: plan.action === 'incomefix' ? 'Changing a saved income entry needs the server update (Zac redeploys the Apps Script). Nothing was changed. New income entries already save their category.' : vApiMsg(j) };
+      if (j && j.error && plan.fallback && /valid/i.test(String(j.message || ''))) {      // a strict Category dropdown: keep the category in Notes instead
+        return apiRaw(plan.action, plan.fallback).then(function (j2) { return j2 && j2.error ? { err: vApiMsg(j2) } : done(j2); });
+      }
+      if (j && j.error) return { err: j.error === 'no_match' || j.error === 'not_found' || j.error === 'row_mismatch' || j.error === 'ambiguous' ? 'That entry has changed in the sheet, so nothing was changed. Refresh the Vault and try again.' : vApiMsg(j) };
+      return done(j);
+    }, function (err) {
+      if (vAuth(err)) return { auth: true };
+      return { err: friendly(err) + ' Not confirmed: check the entry before trying again.' };
+    });
   }
   function vDelParams(ent) {      // -> { action, params } : the exact request the UI sends
     var amt = (Number(ent.amount) || 0).toFixed(2);
@@ -11578,18 +11931,21 @@
       if (e.target.closest('#vs-del')) { vds.stage = 'ask'; vds.err = ''; return vSheetPaint(); }
       if (e.target.closest('#vs-no')) { vds.stage = 'view'; vds.err = ''; return vSheetPaint(); }
       if (e.target.closest('#vs-yes')) return vSheetDelete();
+      if (e.target.closest('#vs-edit')) { vds.stage = 'edit'; vds.err = ''; vSheetPaint(); var ci = $('vs-cat'); if (ci) { try { ci.focus(); } catch (x) {} } return; }
+      if (e.target.closest('#vs-cancel')) { vds.stage = 'view'; vds.err = ''; return vSheetPaint(); }
+      if (e.target.closest('#vs-save')) return vSheetSave();
     });
     return el;
   }
   function vSheetOpen(kind, e, from) {
     var d = vEntDesc(kind, e);
-    vds.d = d; vds.stage = 'view'; vds.err = ''; vds.from = from || null;
+    vds.d = d; vds.stage = 'view'; vds.err = ''; vds.from = from || null; vds.f = null;
     vSheetEl().hidden = false; document.body.classList.add('vsheet-open'); vSheetPaint();
     var b = vds.el.querySelector('button'); if (b) b.focus();
   }
   function vSheetClose() {
-    if (vds.stage === 'busy') return;
-    var was = vds.stage === 'done', from = vds.from;
+    if (vds.stage === 'busy' || vds.stage === 'saving') return;
+    var was = vds.stage === 'done' || vds.stage === 'saved', from = vds.from;
     if (vds.el) { vds.el.hidden = true; vds.el.innerHTML = ''; }
     document.body.classList.remove('vsheet-open'); vds.d = null;
     if (from && from.focus) { try { from.focus(); } catch (x) {} }
@@ -11598,14 +11954,50 @@
   function vVaultRefresh() { if (!state.spendData && $('screen-spend').classList.contains('active')) loadSpend(true); }
   function vSheetPaint() {
     var d = vds.d, el = vds.el; if (!d || !el) return;
-    var st = vds.stage, h = '<div class="vsbox"><h3>' + (st === 'done' ? 'Deleted' : d.kind === 'inc' ? 'Income entry' : 'Expense entry') + '</h3>' +
+    var st = vds.stage;
+    if (st === 'edit' || st === 'saving') return vSheetEditPaint();
+    var h = '<div class="vsbox"><h3>' + (st === 'done' ? 'Deleted' : st === 'saved' ? 'Saved' : d.kind === 'inc' ? 'Income entry' : 'Expense entry') + '</h3>' +
       '<div class="big ' + (d.kind === 'inc' ? 'amt-in' : 'amt-out') + (st === 'done' ? ' vgone' : '') + '">' + money(d.amount) + '</div><div class="vslines">' +
       d.lines.map(function (l) { return '<div class="vsl"><span>' + esc(l[0]) + '</span><b>' + esc(l[1]) + '</b></div>'; }).join('') + '</div>';
     if (vds.err) h += '<div class="noteflash show bad">' + esc(vds.err) + '</div>';
     if (st === 'done') h += '<div class="noteflash show">Entry deleted. A backup is kept.</div><div class="draftbtns vback"><button type="button" class="navbtn" id="vs-close">Done</button></div>';
     else if (st === 'ask' || st === 'busy') h += '<div class="foot vdelq">Delete this entry? A backup is kept.</div><div class="draftbtns"><button type="button" class="bigsave vdelbtn" id="vs-yes"' + (st === 'busy' ? ' disabled' : '') + '>' + (st === 'busy' ? 'Deleting\u2026' : 'Yes, delete') + '</button><button type="button" class="navbtn" id="vs-no"' + (st === 'busy' ? ' disabled' : '') + '>Keep it</button></div>';
-    else h += '<div class="draftbtns">' + (d.ent ? '<button type="button" class="navbtn vdelbtn" id="vs-del">Delete</button>' : '') + '<button type="button" class="navbtn" id="vs-close">Close</button></div>';
+    else if (st === 'saved') h += '<div class="noteflash show">Category saved. The Vault refreshes when you close this.</div><div class="draftbtns vback"><button type="button" class="navbtn" id="vs-close">Done</button></div>';
+    else h += '<div class="draftbtns vsacts">' + (d.edit ? '<button type="button" class="navbtn vsedit" id="vs-edit">Edit category</button>' : '') + (d.ent ? '<button type="button" class="navbtn vdelbtn" id="vs-del">Delete</button>' : '') + '<button type="button" class="navbtn" id="vs-close">Close</button></div>';
     el.innerHTML = h + '</div>';
+  }
+  function vSheetEditPaint() {
+    var d = vds.d, el = vds.el, e = d.e, busy = vds.stage === 'saving', inc = d.kind === 'inc';
+    var title = inc ? (DETAIL_SRC[e.source] ? DETAIL_SRC[e.source].label : srcLabel(e.source)) + (e.client ? ' \u00b7 ' + e.client : '') : (e.merchant || '');
+    var h = '<div class="vsbox vform vsedit"><h3>Edit ' + (inc ? 'income' : 'expense') + ' <small>' + esc(e.label || e.date) + ' \u00b7 ' + money(e.amount) + '</small></h3>' +
+      '<div class="foot vsedtitle">' + esc(title) + '</div>' +
+      vCatHtml('vs-cat', vds.f ? vds.f.cat : e.category, inc ? 'inc' : 'exp') +
+      vField('Notes', '<textarea id="vs-notes" rows="2" maxlength="300">' + esc(vds.f ? vds.f.notes : e.notes) + '</textarea>');
+    if (inc && !vCatApiOn()) h += '<div class="foot how">Saving a change to an income entry needs the server update (not deployed yet). New income entries save their category in Notes as \u201c[Category] \u2026\u201d.</div>';
+    else if (!inc) h += '<div class="foot how">Saved to the Category column of the Daily Spend tab.</div>';
+    if (vds.err) h += '<div class="noteflash show bad">' + esc(vds.err) + '</div>';
+    h += '<div class="draftbtns"><button type="button" class="bigsave" id="vs-save"' + (busy ? ' disabled' : '') + '>' + (busy ? 'Saving\u2026' : 'Save') + '</button>' +
+      '<button type="button" class="navbtn" id="vs-cancel"' + (busy ? ' disabled' : '') + '>Cancel</button></div>';
+    el.innerHTML = h + '</div>';
+  }
+  function vSheetSave() {
+    var d = vds.d; if (!d || vds.stage === 'saving') return;
+    var ci = $('vs-cat'), ni = $('vs-notes');
+    vds.f = { cat: ci ? ci.value : '', notes: ni ? ni.value : '' };
+    var plan = vEditPlan(d.kind, d.e, vds.f.cat, vds.f.notes);
+    if (plan.error) { vds.err = plan.error; return vSheetEditPaint(); }
+    if (plan.none) { vds.stage = 'view'; vds.err = ''; vds.f = null; return vSheetPaint(); }
+    vds.stage = 'saving'; vds.err = ''; vSheetEditPaint();
+    vEditRun(plan).then(function (res) {
+      if (vds.d !== d) return;
+      if (res.auth) { vds.stage = 'view'; return vSheetClose(); }
+      if (res.ok) {
+        d.e.category = plan.cat; d.e.notes = String(vds.f.notes || '').trim(); vds.f = null;
+        d.lines.forEach(function (l) { if (l[0] === 'Category') l[1] = plan.cat; if (l[0] === 'Notes') l[1] = d.e.notes; });
+        vds.stage = 'saved'; return vSheetPaint();
+      }
+      vds.stage = 'edit'; vds.err = res.err; vSheetEditPaint();
+    });
   }
   function vSheetDelete() {
     var d = vds.d; if (!d || !d.ent || vds.stage === 'busy') return;

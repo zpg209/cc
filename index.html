@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lora:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=114">
+<link rel="stylesheet" href="app.css?v=115">
 </head>
 <body>
   <div class="bg"></div>
@@ -251,10 +251,11 @@
   <!-- ============ VAULT (daily spend + income) ============ -->
   <section id="screen-spend" class="screen">
     <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="spend-back" data-go="spend" hidden>&lsaquo; Back</button><h2 id="spend-title">Vault</h2></div>
-    <div class="weeknav">
-      <button class="navbtn" id="spend-prev">&lsaquo; Prev month</button>
-      <div class="navlabel" id="spend-month">&nbsp;</div>
-      <button class="navbtn" id="spend-next">Next month &rsaquo;</button>
+    <div class="vmbar" id="spend-mbar" role="group" aria-label="Period">
+      <button type="button" class="vmb" id="spend-prev" aria-label="Previous month"><small>&lsaquo; Prev</small><b id="spend-prev-l">&nbsp;</b></button>
+      <button type="button" class="vmb on" id="spend-cur" aria-pressed="true"><small id="spend-cur-s">This month</small><b id="spend-month">&nbsp;</b></button>
+      <button type="button" class="vmb" id="spend-next" aria-label="Next month"><small>Next &rsaquo;</small><b id="spend-next-l">&nbsp;</b></button>
+      <button type="button" class="vmb" id="spend-all" aria-pressed="false" aria-label="All: year to date"><small id="spend-all-s">YTD</small><b>All</b></button>
     </div>
     <div id="spend-body"><div class="loading">Loading…</div></div>
   </section>
@@ -302,6 +303,6 @@
     <div id="vcam-body"></div>
   </section>
 
-  <script src="app.js?v=114"></script>
+  <script src="app.js?v=115"></script>
 </body>
 </html>
