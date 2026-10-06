@@ -1,0 +1,80 @@
+# Vault payment type (API v47). Apply AFTER vault-category.patch (v46); context lines are v46 code from that patch.
+# Hunks marked "(anchor)" sit next to v45 code that is not in this repo: find the quoted line in Api.gs and insert there.
+--- a/Api.gs
++++ b/Api.gs
+@@ spend read (after the v46 categoryApi line) @@
+   d.categoryApi = 1;   // v46: incomeadd/incomefix take category= (Category column, created on first use); spendadd takes allow_new_category=1
++  d.paymentApi = 1;    // v47: incomeadd writes method= to a "Payment type" column (created on first use); spendfix / incomefix take method=
+@@ apiIncome_ (Income tab read): header map (anchor: "source: ['source']," in the Income read) @@
+     source: ['source'],
+     amount: ['amount', '$'],
++    method: ['payment type', 'method', 'payment', 'paid via'],   // v47
+     notes: ['notes', 'note'],
+     category: ['category']
+@@ apiIncome_ (Income tab read): row object (anchor: "tab: 'income'," in the Income read) @@
+       notes: str(v, col.notes),
+       category: str(v, col.category),
++      method: str(v, col.method),   // v47
+       row: r + 1,
+       tab: 'income',
+@@ apiIncomeCols_ @@
+-  if (tabKey === 'income') return mapHeaders_(headRow, { date: ['week ending', 'week end', 'week', 'date'], label: ['source'], amount: ['amount', '$'], method: ['method', 'payment', 'paid via'], notes: ['notes', 'note'], category: ['category'] });   // v42: Method used only if the Income tab has such a column (none is created); v46: Category is created on first use
++  if (tabKey === 'income') return mapHeaders_(headRow, { date: ['week ending', 'week end', 'week', 'date'], label: ['source'], amount: ['amount', '$'], method: ['payment type', 'method', 'payment', 'paid via'], notes: ['notes', 'note'], category: ['category'] });   // v46: Category created on first use; v47: "Payment type" created on first use
+@@ apiIncomeCatCol_ -> generic helper (add below it) @@
++/** v47: like apiIncomeCatCol_ for the "Payment type" column (pt / ls tabs already have Method). Returns { col, created }. */
++function apiIncomePayCol_(sh, tabKey) {
++  var lastCol = Math.max(sh.getLastColumn(), 1), head = sh.getRange(1, 1, 1, lastCol).getValues()[0];
++  var c = apiIncomeCols_(tabKey, head).method;
++  if (c >= 0) return { col: c, created: false };
++  var last = 0;
++  for (var i = 0; i < head.length; i++) if (String(head[i] == null ? '' : head[i]).trim() !== '') last = i + 1;
++  var cell = sh.getRange(1, last + 1);
++  if (last > 0) sh.getRange(1, last).copyTo(cell, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
++  cell.setNumberFormat('@'); cell.setValue('Payment type');
++  SpreadsheetApp.flush();
++  return { col: last, created: true };
++}
+@@ apiIncomeAdd_: create the column instead of dropping the method @@
++    if (method && col.method < 0 && !dry && !apiAdminSeenCid_(ss, 'incomeadd', cid)) {      // v47: first entry with a payment type -> add "Payment type", then re-read
++      var pc = apiIncomePayCol_(sh, tabKey);
++      if (pc.created) apiSpendJournal_(ss, [new Date(), 'incomeadd', 1, sh.getName() + ': header', '', 'Payment type (column ' + apiColLetter_(pc.col + 1) + ')', '']);
++      values = sh.getDataRange().getValues(); col = apiIncomeCols_(tabKey, values[0]);
++    }
+     var width = Math.max(col.date, col.label, col.amount, col.method, col.notes, col.category) + 1;
+@@
+-    if (tabKey === 'income' && method && col.method < 0) { summary.methodNote = 'method_not_saved'; summary.methodRequested = method; summary.method = ''; method = ''; }   // no Method column on this tab: never created silently
++    if (method && col.method < 0) { summary.methodNote = dry ? 'would_create' : 'method_not_saved'; summary.methodRequested = method; summary.method = ''; method = ''; }   // v47: only when dry (the column is created above)
+@@ apiIncomeFix_: accept method= @@
+   if (p.category != null && apiCatClean_(p.category)) want.category = apiCatClean_(p.category);
++  if (p.method != null) want.method = apiAdminClean_(p.method, 30);   // v47: '' clears it
+@@
+-  if (!Object.keys(want).length) return { error: 'bad_value', message: 'Nothing to change: send category and/or notes.' };
++  if (!Object.keys(want).length) return { error: 'bad_value', message: 'Nothing to change: send category, method and/or notes.' };
+@@
+     var curNotes = str(col.notes), curCat = str(col.category);
+     if (want.category !== undefined && want.category !== curCat) out.changes.push({ field: 'Category', before: curCat, after: want.category });
++    var curPay = str(col.method);
++    if (want.method !== undefined && want.method !== curPay) out.changes.push({ field: 'Payment type', before: curPay, after: want.method });
+@@
++    var payIdx = col.method;
++    if (payIdx < 0 && out.changes.some(function (c) { return c.field === 'Payment type'; })) {
++      var pc2 = apiIncomePayCol_(sh, tabKey); payIdx = pc2.col;
++      if (pc2.created) apiSpendJournal_(ss, [new Date(), 'incomefix', 1, sh.getName() + ': header', '', 'Payment type (column ' + apiColLetter_(pc2.col + 1) + ')', '']);
++    }
+     var vnotes = [];
+     out.changes.forEach(function (c) {
+-      apiAdminSetCell_(sh, rowNum, c.field === 'Category' ? catIdx : col.notes, c.after, true, vnotes);
++      apiAdminSetCell_(sh, rowNum, c.field === 'Category' ? catIdx : c.field === 'Payment type' ? payIdx : col.notes, c.after, true, vnotes);
+@@ apiSpendFix_: accept method= (anchor: where spendfix pushes its 'Notes' change) @@
++    if (p.method != null && col.method >= 0) {      // v47: Edit payment type; '' clears it
++      var curM = String(values[m.rowNum - 1][col.method] == null ? '' : values[m.rowNum - 1][col.method]).trim(), wantM = apiAdminClean_(p.method, 30);
++      if (wantM !== curM) changes.push({ field: 'Method', before: curM, after: wantM });
++    }
+@@ apiSpendFix_: write loop (v46 code) @@
+-      var ci = c.field === 'Paid from' ? paidIdx : c.field === 'Notes' ? col.notes : col.category;
++      var ci = c.field === 'Paid from' ? paidIdx : c.field === 'Notes' ? col.notes : c.field === 'Method' ? col.method : col.category;
+       if (ci < 0) { c.skipped = 'column not found'; return; }
+-      if (c.field === 'Category') { apiAdminSetCell_(sh, m.rowNum, ci, c.after, true, null); apiSpendJournal_(ss, [new Date(), 'spendfix', m.rowNum, c.field, c.before, c.after, '']); return; }   // v46
++      if (c.field === 'Category' || c.field === 'Method') { apiAdminSetCell_(sh, m.rowNum, ci, c.after, true, null); apiSpendJournal_(ss, [new Date(), 'spendfix', m.rowNum, c.field, c.before, c.after, '']); return; }   // v46 / v47: extends a strict dropdown
+# Also allow notes_mode=set with an empty value in spendfix (so a "[Pay: X]" tag written by v119 can be removed once the column is used),
+# and relax its "nothing to change" check to count method=.

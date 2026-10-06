@@ -1496,6 +1496,7 @@ body.macopen { overflow: hidden; }
 /* v80: Vault mic forms: optional Payment type chips (compact, wrap) */
 .vchips.vpays { gap: 6px; }
 .vchips.vpays .vchip { min-height: 40px; padding: 7px 12px; font-size: 14px; }
+.vfield input.vpaytxt { margin-top: 8px; }
 
 /* Daily Tracker: log for another day */
 .seg.seg3 { grid-template-columns: 1fr 1fr 1fr; }
