@@ -1,0 +1,123 @@
+--- a/Api.gs
++++ b/Api.gs
+@@ -41,6 +41,8 @@
+  *   GET  <exec>?api=1&pc=123456&action=logday&date=2026-10-01&calories=2935&protein=217&carbs=115&fat=167&workout=Strength&workout_min=30&hike_miles=2&notes=...&cid=abc   (Daily log: upsert one day's Phone Log row; mode=add|set for macros)
+  *   GET  <exec>?api=1&pc=123456&action=lognote&text=...&cid=abc   (Daily log > Dictate: appends a voice/typed note to the "Voice notes" tab of the fitness sheet)
+  *   GET  <exec>?api=1&pc=123456&action=lognotes          (recent voice notes, newest first; read-only)
++ *        (v50 fh-fiber-notes: log ext.history[] items also carry fiber/sugar/sodium and notes; ext.notesInHistory, ext.write.fiber, ext.columns.fiber/sugar/sodium;
++ *         logday also takes fiber= (g), sugar= (g), sodium= (mg) with mode=add|set; a missing "Fiber (g)" / "Sugar (g)" / "Sodium (mg)" column is added at the END on its first value)
+  *   GET  <exec>?api=1&pc=123456&action=vaultdebt         (Vault > Debt + Upcoming bills (next 30 days); v30: from the "Debts" + "Bills" tabs of the Daily Spend sheet, falls back to the Overview Doc until the tabs are seeded)
+  *   GET  <exec>?api=1&pc=123456&action=debttabs&dry=1    (admin v30: create + seed the Debts and Bills tabs from the current Overview Doc values; idempotent; also debtset, billadd, billpaid, billdel, debtdel, see DEBTTABS_CHANGE.md)
+  *   POST <exec>  body (Content-Type text/plain): {"pc":"123456","action":"log","offset":0}
+@@ -2982,6 +2984,16 @@
+   journalTab: 'CC write log'
+ };
+ 
++/* v50 (fh-fiber-notes): extra nutrients. Header candidates, the header added at the END of the Phone Log on the first
++   value written (like Hike miles / Steps), and the logday range. Targets: add e.g. fiber: 30 to CONFIG.TARGETS (Code.gs)
++   and it shows up in ext.targets; until then the phone keeps its own (optional) fiber target. */
++var API_LOG_NUT = {
++  fiber:  { heads: ['fiber (g)', 'fiber', 'fibre (g)', 'fibre', 'dietary fiber'], col: 'Fiber (g)', max: 500 },
++  sugar:  { heads: ['sugar (g)', 'sugar', 'sugars'], col: 'Sugar (g)', max: 2000 },
++  sodium: { heads: ['sodium (mg)', 'sodium'], col: 'Sodium (mg)', max: 50000 }
++};
++var API_LOG_NOTES_MAX = 1500;   // chars of a day's Notes returned per history item
++
+ function apiLog_(off) {
+   var d = getDailyLog(off);          // unchanged legacy payload (Code.gs)
+   try { d.ext = apiLogExt_(); } catch (err) {
+@@ -2996,6 +3008,7 @@
+   var base = CONFIG.FITNESS.HEADERS;
+   Object.keys(base).forEach(function (k) { spec[k] = base[k]; });
+   Object.keys(API_LOG_CFG.fields).forEach(function (k) { spec[k] = API_LOG_CFG.fields[k].heads; });
++  Object.keys(API_LOG_NUT).forEach(function (k) { spec[k] = API_LOG_NUT[k].heads; });   // v50: fiber / sugar / sodium
+   spec.notes = ['notes', 'note', 'comments'];   // last, so it never steals another field's header
+   return mapHeaders_(headerRow, spec);
+ }
+@@ -3023,9 +3036,13 @@
+     var v = values[it.r], dv = display[it.r];
+     var rec = byDay[it.key] || (byDay[it.key] = { date: it.key });
+     rec.row = it.r + 1;              // 1-based sheet row of the newest row for this date
+-    ['calories', 'protein', 'carbs', 'fat', 'weight', 'sleep', 'steps', 'hike'].forEach(function (f) {
++    ['calories', 'protein', 'carbs', 'fat', 'weight', 'sleep', 'steps', 'hike', 'fiber', 'sugar', 'sodium'].forEach(function (f) {
+       if (col[f] >= 0) { var n = toNum_(v[col[f]]); if (n !== null) rec[f] = n; }
+     });
++    if (col.notes >= 0) {             // v50: every row's Notes for the day, oldest first, joined like logday appends them
++      var nt = String(v[col.notes] == null ? '' : v[col.notes]).trim();
++      if (nt && (!rec.notes || rec.notes.indexOf(nt) < 0)) rec.notes = rec.notes ? rec.notes + ' | ' + nt : nt;
++    }
+     if (col.water >= 0) {
+       var w = waterToOz_(v[col.water], dv[col.water], waterHeader);
+       if (w !== null) rec.water = w;
+@@ -3045,9 +3062,10 @@
+ function apiLogDayOut_(rec, key) {
+   var did = apiLogDid_(rec);
+   var o = { date: key, label: Utilities.formatDate(keyToDate_(key), CONFIG.TIME_ZONE, 'EEE M/d'), logged: !!rec, did: did };
+-  ['calories', 'protein', 'carbs', 'fat', 'water', 'weight', 'sleep', 'steps', 'hike'].forEach(function (f) { o[f] = rec ? num_(rec[f]) : null; });
++  ['calories', 'protein', 'carbs', 'fat', 'water', 'weight', 'sleep', 'steps', 'hike', 'fiber', 'sugar', 'sodium'].forEach(function (f) { o[f] = rec ? num_(rec[f]) : null; });
+   o.workout = rec ? workoutLabel_(rec, did) : '';
+   o.minutes = rec ? num_(rec.workoutMinutes) : null;
++  o.notes = rec && rec.notes ? (rec.notes.length > API_LOG_NOTES_MAX ? rec.notes.slice(-API_LOG_NOTES_MAX) : rec.notes) : '';   // v50 (newest text kept)
+   return o;
+ }
+ 
+@@ -3178,8 +3196,9 @@
+ 
+   var setFields = Object.keys(C.fields).filter(function (f) { return col[f] >= 0; });
+   var t = {}; Object.keys(T).forEach(function (k) { t[k] = T[k]; }); t.workoutsPerWeek = C.workoutsPerWeek;
+-  return {
+-    version: 21,
++  var out = {
++    version: 22,                     // v50 (fh-fiber-notes)
++    notesInHistory: true,
+     today: apiLogDayOut_(rd.byDay[today], today),
+     targets: t,
+     history: hist,
+@@ -3190,6 +3209,12 @@
+     columns: { weight: col.weight >= 0, sleep: col.sleep >= 0, steps: col.steps >= 0, hike: col.hike >= 0 },
+     write: { water: col.water >= 0, waterStepOz: 8, set: setFields, logday: true }
+   };
++  // v50 (fh-fiber-notes): which nutrient / notes columns exist; logday takes fiber= (and sugar= / sodium=), adding the column on first use.
++  Object.keys(API_LOG_NUT).forEach(function (k) { out.columns[k] = col[k] >= 0; });
++  out.columns.notes = col.notes >= 0;
++  out.write.fiber = true;
++  out.write.nutrients = Object.keys(API_LOG_NUT);
++  return out;
+ }
+ 
+ /**
+@@ -3277,9 +3302,10 @@
+ /*   Writing `workout` also sets "Workout today?" to Y (N for rest/none).    */
+ /* ======================================================================== */
+ var API_LOGDAY_CFG = {
+-  macros:  { calories: [0, 20000], protein: [0, 2000], carbs: [0, 3000], fat: [0, 2000] },
++  macros:  { calories: [0, 20000], protein: [0, 2000], carbs: [0, 3000], fat: [0, 2000],
++             fiber: [0, API_LOG_NUT.fiber.max], sugar: [0, API_LOG_NUT.sugar.max], sodium: [0, API_LOG_NUT.sodium.max] },   // v50: + fiber/sugar/sodium (mode add|set like the macros)
+   numeric: { workout_min: [0, 1000, 'workoutMinutes'], hike_miles: [0, 100, 'hike'], steps: [0, 100000, 'steps'] },
+-  newCols: { hike: 'Hike miles', steps: 'Steps' },   // appended at the end if absent
++  newCols: { hike: 'Hike miles', steps: 'Steps', fiber: API_LOG_NUT.fiber.col, sugar: API_LOG_NUT.sugar.col, sodium: API_LOG_NUT.sodium.col },   // appended at the end if absent
+   maxNotesLen: 2000,
+   maxDaysBack: 400
+ };
+@@ -3316,7 +3342,7 @@
+   if (has('workout')) writes.push({ field: 'workoutType', kind: 'text', value: String(p.workout).trim().slice(0, 200) });
+   if (has('notes')) writes.push({ field: 'notes', kind: 'notes', value: String(p.notes).trim().slice(0, C.maxNotesLen) });
+   if (bad) return { error: 'bad_value', message: bad };
+-  if (!writes.length) return { error: 'bad_value', message: 'Nothing to write. Send calories, protein, carbs, fat, workout, workout_min, hike_miles, steps and/or notes.' };
++  if (!writes.length) return { error: 'bad_value', message: 'Nothing to write. Send calories, protein, carbs, fat, fiber, sugar, sodium, workout, workout_min, hike_miles, steps and/or notes.' };
+ 
+   var cid = String(p.cid || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);
+   var cache = CacheService.getScriptCache(), ck = cid ? 'cc_logday_' + cid : '';
+@@ -3333,10 +3359,10 @@
+ 
+     apiLogBackup_(ss, sh);           // throws on failure -> nothing is written
+ 
+-    // Add Hike miles / Steps columns at the end if a value for them is being written and the header is missing.
++    // Add Hike miles / Steps (v50: + Fiber (g) / Sugar (g) / Sodium (mg)) columns at the end if a value for them is being written and the header is missing.
+     var rd = apiLogRead_(), addedCols = [];
+     writes.forEach(function (w) {
+-      if ((w.field === 'hike' || w.field === 'steps') && rd.col[w.field] < 0 && addedCols.indexOf(w.field) < 0) {
++      if (C.newCols[w.field] && rd.col[w.field] < 0 && addedCols.indexOf(w.field) < 0) {
+         var lastCol = sh.getLastColumn();
+         var hc = sh.getRange(1, lastCol + 1);
+         sh.getRange(1, lastCol).copyTo(hc, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);

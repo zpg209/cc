@@ -14,7 +14,7 @@
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', ovKey: '', invAcct: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
-  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf'];
+  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -112,12 +112,13 @@
   var RC_FRESH_MS = 30000;          // younger than this: served from the cache without asking the server again
   var RC_MAX_AGE = 3 * 864e5;       // older than this: ignored (the screen waits for the server like before)
   var RC_READS = { links: 1, log: 1, spend: 1, accounts: 1, vaultdebt: 1, biz: 1, re: 1, ins: 1, ltmacros: 1, notes: 1, punch: 1, lognotes: 1,
-    fin: 1, insnotes: 1, wishlist: 1, orders: 1, ptclients: 1, receipts: 1, entity: 1, entitytax: 1, folder: 1 };
+    fin: 1, insnotes: 1, wishlist: 1, orders: 1, ptclients: 1, receipts: 1, entity: 1, entitytax: 1, folder: 1, healthmetrics: 1 };
   var RC_NOCACHE = { ping: 1, file: 1, filebytes: 1, invest: 1 };      // reads that are never stored (passcode check; file bytes are big)
   var RC_MONEY = ['spend', 'accounts', 'vaultdebt', 'entity', 'entitytax', 'receipts', 'fin', 'insnotes'];
   var RC_DEBT = ['vaultdebt', 'spend', 'entity', 'entitytax', 'fin'];
   var RC_WRITES = {
     logadd: ['log'], logset: ['log'], logday: ['log'], lognote: ['lognotes'],
+    healthmetricset: ['healthmetrics'],   // v122 (Medical > Health Metrics, server patch v51)
     addnote: ['notes'], delnote: ['notes'], punchset: ['punch'], punchnote: ['punch'],
     spendadd: RC_MONEY, spenddel: RC_MONEY, spendfix: RC_MONEY, spendcol: RC_MONEY, incomeadd: RC_MONEY, incomedel: RC_MONEY, incomefix: RC_MONEY,
     balset: RC_MONEY, acctadd: RC_MONEY, receiptsave: RC_MONEY,
@@ -297,7 +298,10 @@
     pt: function () { ptLoad(false); },
     notes: function () { loadNotes(true); },
     punch: function () { loadPunch(); },
-    docs: function () { loadDocs(); }
+    docs: function () { loadDocs(); },
+    food: function () { fhOpenFood(); },
+    workouts: function () { fhOpenWo(); },
+    health: function () { fhHmRender(); }
   };
   function rcChanged(key, scr) {
     try { var mem = RC_MEM[rcAction(key)]; if (mem) mem(key); } catch (e) {}
@@ -508,6 +512,7 @@
     if (!(name === 'lt' && R.kind === 'menu-add')) maMicStop(true);
     if (name !== 'punch') pmicStop();
     if (name !== 'doc') { state.docPushed = false; state.docSeq++; closeDoc(); }
+    if (FH.sheet) fhSheetClose();               // v122: the Food / Workout / Health Metrics entry sheet never outlives its screen
     activate(name);
     rcPill();                                  // v107: the Updating… pill only shows for the screen on view
     if (name === 'home') rcWarmSoon();         // v107: warm the most-used screens while Home is idle
@@ -531,7 +536,10 @@
       if (location.hash !== h) history.pushState({ screen: name }, '', h || location.pathname + location.search);
     }
     if (name === 'projects') loadLinks();
-    if (name === 'log') loadLog();
+    if (name === 'log') { fhBack('log', 'log-back'); loadLog(); }
+    if (name === 'food') fhOpenFood();
+    if (name === 'workouts') fhOpenWo();
+    if (name === 'health') fhHmOpen();
     if (name === 'track') loadTrack();
     if (name === 'spend') loadSpend(false);
     if (name === 'ent') loadEnt(false);
@@ -1541,7 +1549,8 @@
     }).join('') + '</div><div class="foot">Calories count finished days (today can still change); water and workouts count today once met. A day with no entry breaks a streak.</div></div>';
   }
   function renderLogTop(d) {   // Daily Log screen, top: totals, weight, streaks
-    $('log-top').innerHTML = totalsCardHtml(d) + weightCardHtml(d) + streaksCardHtml(d);
+    var ov = ''; try { ov = fhOverviewHtml(d); } catch (e) { if (window.console) console.error('[cc] F&H overview failed', e); }   // v122: overview of Food / Workouts / Health Metrics first
+    $('log-top').innerHTML = ov + totalsCardHtml(d) + weightCardHtml(d) + streaksCardHtml(d);
   }
   $('log-top').addEventListener('click', function (ev) {
     var g = ev.target.closest ? ev.target.closest('[data-logday]') : null;
@@ -1818,6 +1827,748 @@
 
   $('log-prev').addEventListener('click', function () { state.weekOffset--; loadLog(); });
   $('log-next').addEventListener('click', function () { state.weekOffset++; loadLog(); });
+
+  /* ---------------- Fitness & Health (v122): Food Log (#food), Workout Log (#workouts), Medical > Health Metrics (#health) ----------------
+   * Home > Fitness & Health is a layout folder (f:fh) holding Daily Log (now the OVERVIEW of everything below), Food Log, Workout Log and
+   * the Medical folder (f:medical) with Health Metrics. Food and workouts read the same `log` payload as the Daily Log (ext.today +
+   * ext.history, the last ~120 days) and write through the same logday action (the Phone Log tab), so nothing new is needed on the server.
+   * What the current server can't do yet, and what the phone does meanwhile (see backend/README.md):
+   *   - Fiber: the Phone Log has no Fiber column and logday has no fiber=. A meal's fiber goes into its Notes text as "[Fiber: 8 g]" (like the
+   *     Vault's "[Category] " / "[Pay: X] " tags) and this phone keeps its own copy of the meals it added (cc_fh_meals) so the numbers show at
+   *     once. backend/fh-fiber-notes.patch (API v50) adds the column, fiber= on logday, and day Notes in ext.history; the phone switches on
+   *     its own (ext.write.fiber / ext.columns.fiber), and old "[Fiber: …]" tags still count.
+   *   - Meals in Notes: ext.history has no Notes today, so the meal list shows meals added on this phone plus the meals in recent voice notes
+   *     (lognotes, read with the same smart fill parser). With v50 the day's Notes ("Breakfast: …; Lunch: …") are listed too.
+   *   - Health Metrics: the sheet (Second Brain > Fitness & Health > Medical > Health Metrics) exists but the server can't read or write it
+   *     until backend/health-metrics.patch (API v51, actions healthmetrics / healthmetricset). Until then the screen is empty with a note and
+   *     opens the sheet; add / edit switch on by themselves once the actions answer.
+   * Day totals always come from the Phone Log; meal rows are the itemized part (the rest shows as "not itemized"). */
+  var FH = { data: null, seq: 0, date: '', foodOff: 0, woOff: 0, open: {}, hm: null, hmState: 'idle', hmMsg: '', hmSeq: 0, hmAt: 0, sheet: null, mic: null, busy: false, vnAsked: 0 };
+  var FH_TGT_KEY = 'cc_fh_targets', FH_MEALS_KEY = 'cc_fh_meals';
+  var FH_SHEET_ID = '1NMxPbmskd-yfP3PNg5qgFiivwZFWmyGF2dEL-CIxTgQ';
+  var FH_SHEET_URL = 'https://docs.google.com/spreadsheets/d/' + FH_SHEET_ID + '/edit';
+  var FH_DRIVE_PATH = 'Second Brain \u203a Fitness & Health \u203a Medical';
+  var FH_NUT = [
+    { key: 'calories', name: 'Calories', short: 'Cal', unit: 'kcal', rule: 'cap' },
+    { key: 'protein',  name: 'Protein',  short: 'Protein', unit: 'g', rule: 'floor' },
+    { key: 'carbs',    name: 'Carbs',    short: 'Carbs', unit: 'g', rule: 'band' },
+    { key: 'fat',      name: 'Fat',      short: 'Fat', unit: 'g', rule: 'band' },
+    { key: 'fiber',    name: 'Fiber',    short: 'Fiber', unit: 'g', rule: 'floor' },
+    { key: 'sugar',    name: 'Sugar',    short: 'Sugar', unit: 'g', rule: 'cap', later: true },     // shown once the sheet has the column
+    { key: 'sodium',   name: 'Sodium',   short: 'Sodium', unit: 'mg', rule: 'cap', later: true }
+  ];
+  var FH_MACROS = ['calories', 'protein', 'carbs', 'fat'];
+  var FH_MEAL_ORDER = ['breakfast', 'lunch', 'dinner', 'snacks', 'drinks'];
+  var FH_MEAL_LBL = { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snacks: 'Snacks', drinks: 'Drinks' };
+  var HM_COLS = [['metric', 'Metric'], ['value', 'Current value'], ['unit', 'Unit'], ['range', 'Optimal/target range'], ['date', 'Date measured'],
+    ['source', 'Measurement standard/source'], ['levers', 'Levers (diet/supplement)'], ['notes', 'Notes']];
+
+  function fhLS(k, dflt) { try { var v = JSON.parse(localStorage.getItem(k) || 'null'); return v == null ? dflt : v; } catch (e) { return dflt; } }
+  function fhLSset(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  function fhIsNum(v) { return typeof v === 'number' && isFinite(v); }
+  function fhR1(v) { return Math.round(v * 10) / 10; }
+  // Targets: calories / protein / carbs / fat / water from the Daily Log (server); fiber, sugar, sodium only when set (server target, else this phone's own).
+  function fhTargets(d) {
+    var T = fitTargets(d || {}), loc = fhLS(FH_TGT_KEY, {}) || {};
+    ['fiber', 'sugar', 'sodium'].forEach(function (k) {
+      var s = d && d.ext && d.ext.targets ? d.ext.targets[k] : null;
+      T[k] = fhIsNum(s) && s > 0 ? s : (fhIsNum(loc[k]) && loc[k] > 0 ? loc[k] : null);
+    });
+    return T;
+  }
+  function fhCanFiber(d) { var w = d && d.ext && d.ext.write; return !!(w && w.fiber); }        // v50: logday takes fiber=
+  function fhHasNotes(d) { return !!(d && d.ext && d.ext.notesInHistory); }                       // v50: history[].notes
+  function fhNutsShown(d) { var c = (d && d.ext && d.ext.columns) || {}; return FH_NUT.filter(function (n) { return !n.later || c[n.key]; }); }
+  function fhToday(d) { return trkTodayKey(d || FH.data); }
+  function fhDayRow(d, key) {
+    var e = d && d.ext; if (!e) return null;
+    if (e.today && e.today.date === key && e.today.logged) return e.today;
+    return (e.history || []).filter(function (x) { return x.date === key; })[0] || null;
+  }
+  function fhWhen(key, d) { var t = fhToday(d); return key === t ? 'Today' : key === trkAddDays(t, -1) ? 'Yesterday' : trkDayLabel(key); }
+
+  /* ---- meals: this phone's journal, the day's Notes (v50), recent voice notes ---- */
+  function fhJournal() { var j = fhLS(FH_MEALS_KEY, {}); return j && typeof j === 'object' ? j : {}; }
+  function fhJournalSave(j) {
+    var keys = Object.keys(j).sort(), cut = trkAddDays(trkTodayKey(), -400);
+    keys.forEach(function (k) { if (k < cut || !Array.isArray(j[k]) || !j[k].length) delete j[k]; });
+    fhLSset(FH_MEALS_KEY, j);
+  }
+  function fhNumIn(rx, s) { var m = rx.exec(s); return m ? Number(m[1]) : null; }
+  function fhMealNums(s) {
+    var o = {
+      calories: fhNumIn(/(\d+(?:\.\d+)?)\s*(?:kcal|cals?|calories)\b/i, s),
+      protein: fhNumIn(/(\d+(?:\.\d+)?)\s*g(?:rams?)?\s*(?:of\s+)?protein\b/i, s),
+      carbs: fhNumIn(/(\d+(?:\.\d+)?)\s*g(?:rams?)?\s*(?:of\s+)?carb(?:s|ohydrates?)?\b/i, s),
+      fat: fhNumIn(/(\d+(?:\.\d+)?)\s*g(?:rams?)?\s*(?:of\s+)?fats?\b/i, s),
+      fiber: fhNumIn(/\[Fiber:?\s*(\d+(?:\.\d+)?)\s*g?\s*\]/i, s)
+    };
+    if (o.fiber == null) o.fiber = fhNumIn(/(\d+(?:\.\d+)?)\s*g(?:rams?)?\s*(?:of\s+)?fib(?:er|re)\b/i, s);
+    return o;
+  }
+  function fhFiberTags(s) { var t = 0, n = 0, m, rx = /\[Fiber:?\s*(\d+(?:\.\d+)?)\s*g?\s*\]/gi; while ((m = rx.exec(String(s || '')))) { t += Number(m[1]); n++; } return n ? fhR1(t) : null; }
+  // "Breakfast: eggs (420 kcal, 30 g protein) [Fiber: 3 g]; Lunch (edited): salad … | Dinner: …" -> meals. "(edited)" replaces the latest earlier
+  // meal of that kind, "(removed)" drops it (Notes are append-only, so a fix is written as a new line).
+  var FH_MEAL_RX = /\b(Breakfast|Brunch|Lunch|Dinner|Supper|Snacks?|Dessert|Drinks)\s*(\((?:edited|removed)\))?\s*:\s*/gi;
+  function fhParseNotes(notes) {
+    var out = [];
+    String(notes || '').split(/\s*\|\s*/).forEach(function (seg) {
+      var marks = [], m; FH_MEAL_RX.lastIndex = 0;
+      while ((m = FH_MEAL_RX.exec(seg))) marks.push({ i: m.index, end: FH_MEAL_RX.lastIndex, w: m[1].toLowerCase(), fix: (m[2] || '').toLowerCase() });
+      marks.forEach(function (k, j) {
+        var body = seg.slice(k.end, j + 1 < marks.length ? marks[j + 1].i : seg.length).replace(/[\s;,.]+$/, '');
+        var meal = k.w === 'drinks' ? 'drinks' : (SF_MEALS[k.w] || 'snacks');
+        var food = body.replace(/\s*\([^)]*\b(?:kcal|cals?|calories|protein|carbs?|fat|fiber)\b[^)]*\)/ig, '').replace(/\s*\[Fiber:?[^\]]*\]/ig, '').trim();
+        var x = fhMealNums(body); x.meal = meal; x.food = food; x.src = 'notes'; x.raw = body;
+        var prev = -1; for (var p = out.length - 1; p >= 0; p--) if (out[p].meal === meal) { prev = p; break; }
+        if (k.fix === '(removed)') { if (prev >= 0) out.splice(prev, 1); return; }
+        if (k.fix === '(edited)' && prev >= 0) { out[prev] = x; return; }
+        out.push(x);
+      });
+    });
+    return out;
+  }
+  function fhKeyFromStamp(t, today) {
+    var m = /^\w{3}\s+(\d{1,2})\/(\d{1,2})/.exec(String(t || '')); if (!m || !today) return '';
+    var y = +today.slice(0, 4), k = y + '-' + ('0' + m[1]).slice(-2) + '-' + ('0' + m[2]).slice(-2);
+    return k > today ? (y - 1) + k.slice(4) : k;
+  }
+  function fhVoiceMeals(today) {
+    var out = {};
+    ((vn.data && vn.data.notes) || []).forEach(function (n) {
+      var text = String(n.text || ''), key = '', tg = /^\[Filled into Daily Log(?: (\d{4}-\d{2}-\d{2}))?:[^\]]*\]\s*/.exec(text);
+      if (tg) { key = tg[1] || ''; text = text.slice(tg[0].length); }
+      if (!key) key = fhKeyFromStamp(n.time, today);
+      if (!key) return;
+      var r; try { r = sfParse(text); } catch (e) { return; }
+      FH_MEAL_ORDER.forEach(function (m) { if (r.meals[m]) (out[key] = out[key] || []).push({ meal: m, food: r.meals[m], src: 'voice', time: n.time, filled: !!tg }); });
+    });
+    return out;
+  }
+  function fhNorm(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim(); }
+  // One day of food: Phone Log totals + the meal list (itemized part) + fiber.
+  function fhFoodDay(d, key, vm) {
+    var row = fhDayRow(d, key) || { date: key, label: logLbl(key), logged: false }, notes = String(row.notes || ''), hasN = fhHasNotes(d);
+    var meals = hasN ? fhParseNotes(notes) : [], nn = fhNorm(notes);
+    (fhJournal()[key] || []).forEach(function (x) {
+      if (hasN && x.note && notes.indexOf(x.note) >= 0) return;        // already listed from the day's Notes
+      var y = {}; for (var k in x) y[k] = x[k]; y.src = 'phone'; meals.push(y);
+    });
+    ((vm || {})[key] || []).forEach(function (x) {
+      var f = fhNorm(x.food); if (!f) return;
+      if (hasN && nn.indexOf(f) >= 0) return;
+      if (meals.some(function (y) { var g = fhNorm(y.food); return g && (g.indexOf(f) >= 0 || f.indexOf(g) >= 0); })) return;
+      meals.push(x);
+    });
+    meals.sort(function (a, b) { return FH_MEAL_ORDER.indexOf(a.meal) - FH_MEAL_ORDER.indexOf(b.meal); });
+    var o = { date: key, label: row.label || logLbl(key), logged: !!row.logged, notes: notes, meals: meals, row: row };
+    FH_MACROS.forEach(function (k) { o[k] = fhIsNum(row[k]) ? row[k] : null; });
+    ['sugar', 'sodium'].forEach(function (k) { o[k] = fhIsNum(row[k]) ? row[k] : null; });
+    var mf = 0, mfn = 0; meals.forEach(function (x) { if (fhIsNum(x.fiber) && x.src !== 'voice') { mf += x.fiber; mfn++; } });
+    if (fhIsNum(row.fiber)) { o.fiber = row.fiber; o.fiberSrc = 'sheet'; }
+    else if (hasN && fhFiberTags(notes) != null) { o.fiber = fhFiberTags(notes); o.fiberSrc = 'notes'; }
+    else if (mfn) { o.fiber = fhR1(mf); o.fiberSrc = 'phone'; }
+    else o.fiber = null;
+    o.item = {}; FH_MACROS.concat(['fiber']).forEach(function (k) { var s = 0, n = 0; meals.forEach(function (x) { if (fhIsNum(x[k])) { s += x[k]; n++; } }); o.item[k] = n ? fhR1(s) : null; });
+    return o;
+  }
+  function fhAvg(days, k) { var s = 0, c = 0; days.forEach(function (x) { if (fhIsNum(x[k]) && x[k] > 0) { s += x[k]; c++; } }); return { avg: c ? fhR1(s / c) : null, days: c, total: fhR1(s) }; }
+
+  /* ---- loading ---- */
+  function fhLoad(render, errBox) {
+    var seq = ++FH.seq;
+    if (FH.data) render(FH.data);
+    api('log', 0).then(function (d) { if (seq !== FH.seq) return; FH.data = d; if (!(d && d.ext && d.ext.history)) return render(null); render(d); },
+      function (err) { if (seq === FH.seq && !FH.data) onFail([errBox], function () { fhLoad(render, errBox); })(err); });
+    if (!vn.data && Date.now() - FH.vnAsked > 60000) {       // recent voice notes (meals said into the Tracker's mic)
+      FH.vnAsked = Date.now();
+      apiRaw('lognotes', {}).then(function (j) { if (!j.error && j.data) { vn.data = j.data; vn.state = 'ok'; vn.at = Date.now(); if (FH.data && seq === FH.seq) render(FH.data); } }, function () {});
+    }
+  }
+  function fhFresh() {
+    return apiGet(rcUrl('log', {})).then(function (t) {
+      var j; try { j = JSON.parse(t); } catch (e) { throw new Error('Unexpected response from server.'); }
+      if (j.error === 'auth') throw new AuthError();
+      if (j.error || !j.data || !j.data.ext || !j.data.ext.write || !j.data.ext.write.logday) throw new Error(j.message || 'The Daily Log can\u2019t take entries yet (server update pending).');
+      FH.data = j.data; return j.data;
+    });
+  }
+  function fhBack(id, el) { var b = $(el); if (!b) return; var to = hlItemBack(id, 'home'); b.setAttribute('data-go', to); b.hidden = to === 'home'; }
+  function fhNoExt() { return '<div class="card fitcard"><div class="foot hint2">This needs the Daily Log server read with history (ext). Open the Daily Log meanwhile.</div></div>'; }
+
+  /* ---- shared bits ---- */
+  function fhMini(n, val, target) {      // one compact tile: value / target + bar
+    var st = target ? fitStatus(n.rule, val, target) : '';
+    return '<div class="fhmt"><span>' + n.short + '</span><b class="t-' + (st || 'none') + '">' + (val == null ? '\u2014' : fmt(val)) + '</b>' +
+      '<small>' + (target ? '/ ' + fmt(target) + (n.unit === 'kcal' ? '' : ' ' + n.unit) : (n.key === 'fiber' ? 'no target' : n.unit)) + '</small>' + fitBar(val, target, st) + '</div>';
+  }
+  function fhDayChips(sel, d, attr) {
+    var t = fhToday(d), y = trkAddDays(t, -1), other = sel && sel !== t && sel !== y;
+    return '<div class="seg seg3 small fhdays">' +
+      '<button type="button" ' + attr + '="today" class="' + (sel === t ? 'on' : '') + '">Today</button>' +
+      '<button type="button" ' + attr + '="yesterday" class="' + (sel === y ? 'on' : '') + '">Yesterday</button>' +
+      '<button type="button" ' + attr + '="pick" class="' + (other ? 'on' : '') + '">' + (other ? esc(trkDayLabel(sel)) : 'Other day') + '</button></div>';
+  }
+
+  /* ================= Food Log ================= */
+  function fhOpenFood() { fhBack('food', 'food-back'); fhLoad(fhRenderFood, 'food-body'); }
+  function fhRenderFood(d) {
+    var el = $('food-body'); if (!el) return;
+    if (!d) { el.innerHTML = fhNoExt(); return; }
+    var T = fhTargets(d), today = fhToday(d), vm = fhVoiceMeals(today), nuts = fhNutsShown(d);
+    if (!FH.date || FH.date > today) FH.date = today;
+    var day = fhFoodDay(d, FH.date, vm), h = '';
+    // 1. the selected day vs targets, its meals
+    h += '<div class="card fitcard"><h3>' + esc(fhWhen(FH.date, d)) + (FH.date === today ? ' \u00b7 ' + esc(day.label) : '') + ' \u00b7 targets vs actual</h3>' + fhDayChips(FH.date, d, 'data-fday') +
+      '<input type="date" class="fhdate" id="food-date" max="' + today + '" value="' + FH.date + '" aria-label="Pick a day">';
+    nuts.forEach(function (n) {
+      var v = day[n.key], tg = T[n.key];
+      if (tg) { h += fitRow({ key: n.key, name: n.name, unit: n.unit, rule: n.rule }, v, tg); return; }
+      h += '<div class="fitrow" data-key="' + n.key + '"><div class="fl">' + n.name + '</div><div class="fv t-none"><b>' + (v == null ? '\u2014' : fmt(v)) + '</b> ' + n.unit + '</div>' +
+        '<div class="fn">' + (n.key === 'fiber' ? 'No fiber target yet \u00b7 <button type="button" class="fhlink" data-fh-act="fibertgt">Set one</button>' + (day.fiberSrc === 'phone' ? ' \u00b7 from meals added on this phone' : '') : 'no target') + '</div></div>';
+    });
+    h += '<div class="fhbtns"><button type="button" class="fitbtn" data-fh-act="addmeal">+ Add meal</button><button type="button" class="fitbtn" data-fh-act="micmeal">&#127908; Say a meal</button></div>';
+    h += '<h4 class="fhsub">Meals</h4>' + fhMealsHtml(day, d, true);
+    h += '<button type="button" class="fhlink fhdayedit" data-fh-act="dayedit">Edit ' + esc(fhWhen(FH.date, d).toLowerCase() === 'today' ? 'today\u2019s' : trkDayLabel(FH.date) + '\u2019s') + ' totals</button>';
+    if (FH.date === today && T.fiber) h += '<div class="foot">Fiber target ' + fmt(T.fiber) + ' g (set on this phone) \u00b7 <button type="button" class="fhlink" data-fh-act="fibertgt">Change</button></div>';
+    h += '</div>';
+    // 2. the week (Sun..Sat): daily totals, averages vs targets
+    h += fhFoodWeekHtml(d, T, vm, nuts);
+    // 3. notes on where the numbers come from
+    var fn = [];
+    if (!fhHasNotes(d)) fn.push('Meals listed: added here on this phone, plus meals in recent voice notes. Meals typed into the sheet\u2019s Notes show here after the server update (fh-fiber-notes).');
+    if (!fhCanFiber(d)) fn.push('Fiber is saved in the meal\u2019s Notes text ("[Fiber: 8 g]") until the sheet gets a Fiber column.');
+    fn.push('Sugar and sodium get their own rows once the sheet has those columns.');
+    h += '<div class="card fitcard"><div class="foot hint2">' + fn.map(esc).join('<br>') + '</div></div>';
+    el.innerHTML = h;
+  }
+  function fhMealsHtml(day, d, editable) {
+    var h = '';
+    if (!day.meals.length) h += '<div class="foot">' + (day.logged && day.calories ? 'No meals itemized for this day (the totals above are from the Daily Log).' : 'Nothing logged yet.') + '</div>';
+    day.meals.forEach(function (x, i) {
+      var nums = [];
+      if (fhIsNum(x.calories)) nums.push(fmt(x.calories) + ' kcal');
+      if (fhIsNum(x.protein)) nums.push(fmt(x.protein) + 'P');
+      if (fhIsNum(x.carbs)) nums.push(fmt(x.carbs) + 'C');
+      if (fhIsNum(x.fat)) nums.push(fmt(x.fat) + 'F');
+      if (fhIsNum(x.fiber)) nums.push(fmt(x.fiber, 1) + ' fib');
+      var src = x.src === 'voice' ? 'voice note' : x.src === 'notes' ? 'sheet notes' : 'added on this phone';
+      var tap = editable && x.src === 'phone' && x.id;
+      h += '<' + (tap ? 'button type="button" data-fh-meal="' + esc(x.id) + '"' : 'div') + ' class="fhmeal' + (tap ? ' tap' : '') + '"><span class="fhml">' + esc(FH_MEAL_LBL[x.meal] || 'Meal') + '</span>' +
+        '<span class="fhmf">' + esc(x.food || '\u2014') + '</span><span class="fhmn">' + (nums.length ? esc(nums.join(' \u00b7 ')) : '<i>no numbers</i>') + ' <small>' + src + '</small></span>' + (tap ? '<i class="chev">&rsaquo;</i>' : '') + '</' + (tap ? 'button' : 'div') + '>';
+    });
+    var it = day.item, rest = [];
+    if (day.meals.length) {
+      if (fhIsNum(day.calories) && fhIsNum(it.calories) && day.calories - it.calories >= 1) rest.push(fmt(day.calories - it.calories) + ' kcal');
+      if (fhIsNum(day.protein) && fhIsNum(it.protein) && day.protein - it.protein >= 1) rest.push(fmt(day.protein - it.protein) + ' g protein');
+      if (rest.length) h += '<div class="foot">Not itemized: ' + esc(rest.join(' \u00b7 ')) + ' (in the day\u2019s totals, no meal row).</div>';
+      if (fhIsNum(it.calories) || fhIsNum(it.protein)) h += '<div class="foot">Meals listed: ' + [fhIsNum(it.calories) ? fmt(it.calories) + ' kcal' : '', fhIsNum(it.protein) ? fmt(it.protein) + ' g protein' : '', fhIsNum(it.carbs) ? fmt(it.carbs) + ' g carbs' : '', fhIsNum(it.fat) ? fmt(it.fat) + ' g fat' : '', fhIsNum(it.fiber) ? fmt(it.fiber, 1) + ' g fiber' : ''].filter(Boolean).join(' \u00b7 ') + '</div>';
+    }
+    return h;
+  }
+  function fhFoodWeekHtml(d, T, vm, nuts) {
+    var today = fhToday(d), W = logSunWeek(today, FH.foodOff), cut = trkAddDays(today, -((d.ext.historyDays > 1 ? d.ext.historyDays : LOG_HIST_DAYS + 1) - 1));
+    var days = W.keys.filter(function (k) { return k <= today; }).map(function (k) { return fhFoodDay(d, k, vm); });
+    var h = '<div class="card fitcard"><h3>' + (FH.foodOff ? 'Week' : 'This week') + ' \u00b7 meals by day</h3>' +
+      '<div class="weeknav fhwn"><button type="button" class="navbtn" data-fh-act="fprev"' + (W.start <= cut ? ' disabled' : '') + '>&lsaquo; Prev</button><div class="navlabel">' + esc(logRangeLabel(W)) + '</div>' +
+      '<button type="button" class="navbtn" data-fh-act="fnext"' + (FH.foodOff >= 0 ? ' disabled' : '') + '>Next &rsaquo;</button></div>';
+    if (!days.length) return h + '<div class="foot">This week hasn\u2019t started yet.</div></div>';
+    h += '<div class="fhavg">' + nuts.map(function (n) { var a = fhAvg(days, n.key); return fhMini(n, a.avg, T[n.key]); }).join('') + '</div>';
+    var withN = days.filter(function (x) { return fhIsNum(x.calories) && x.calories > 0; }).length;
+    h += '<div class="foot">Daily averages over days with numbers (' + withN + ' of ' + days.length + ' so far) \u00b7 Sun ' + logMD(W.start) + ' \u2013 Sat ' + logMD(W.end) + '.</div>';
+    h += '<div class="fhtbl"><div class="fhtr fhth"><span>Day</span>' + nuts.map(function (n) { return '<span>' + n.short + '</span>'; }).join('') + '</div>';
+    days.slice().reverse().forEach(function (x) {
+      var open = !!FH.open['f' + x.date], parts = x.label.split(' ');
+      h += '<div class="fhday' + (open ? ' open' : '') + (x.logged ? '' : ' none') + '"><button type="button" class="fhtr" data-fh-open="f' + x.date + '"><span><b>' + esc(parts[0]) + '</b> ' + esc(parts[1] || '') + '</span>' +
+        nuts.map(function (n) { var v = x[n.key], st = T[n.key] ? fitStatus(n.rule, v, T[n.key]) : ''; return '<span class="t-' + (st || 'none') + '">' + (v == null ? '\u2014' : fmt(v)) + '</span>'; }).join('') + '</button>' +
+        (open ? '<div class="fhdb">' + fhMealsHtml(x, d, true) + '<button type="button" class="fhlink" data-fh-act="seeday" data-day="' + x.date + '">Add or edit ' + esc(trkDayLabel(x.date)) + ' \u203a</button></div>' : '') + '</div>';
+    });
+    return h + '</div></div>';
+  }
+
+  /* ================= Workout Log ================= */
+  function fhWoType(w) { return String(w || '').replace(/\s*\u00b7\s*\d+(?:\.\d+)?\s*min$/, '').trim(); }
+  function fhWoDay(d, key) {
+    var row = fhDayRow(d, key) || { date: key, label: logLbl(key), logged: false, workout: '' }, type = fhWoType(row.workout);
+    var rest = !row.did && (!type || /^(rest|none|rest \/ none)$/i.test(type));
+    var details = rest ? [] : type.split(/\s*;\s*/).filter(Boolean), extra = [];
+    if (fhHasNotes(d)) String(row.notes || '').split(/\s*\|\s*/).forEach(function (s) { var m = /^Workout(?: details)?\s*:\s*(.+)$/i.exec(s.trim()); if (m) extra.push(m[1]); });
+    var min = fhIsNum(row.minutes) ? row.minutes : null;
+    if (min == null && !rest) { var t = 0, any = false; details.forEach(function (p) { var m = /(\d+(?:\.\d+)?)\s*min\b/i.exec(p), hr = /(\d+(?:\.\d+)?)\s*(?:hr|hour)s?\b/i.exec(p); if (m) { t += +m[1]; any = true; } else if (hr) { t += +hr[1] * 60; any = true; } }); if (any) min = Math.round(t); }
+    return { date: key, label: row.label || logLbl(key), logged: !!row.logged, did: !!row.did, rest: rest && !!row.logged, type: rest ? (row.logged && type ? 'Rest' : '') : type, details: details, extra: extra,
+      minutes: min, hike: fhIsNum(row.hike) ? row.hike : null, row: row };
+  }
+  function fhWoWeek(d, off) {
+    var today = fhToday(d), W = logSunWeek(today, off), days = W.keys.map(function (k) { return fhWoDay(d, k); }), sofar = days.filter(function (x) { return x.date <= today; });
+    var t = { W: W, days: days, sofar: sofar, workouts: 0, minutes: 0, hike: 0, hikeDays: 0, logged: 0 };
+    sofar.forEach(function (x) { if (x.logged) t.logged++; if (x.did) t.workouts++; if (x.minutes) t.minutes += x.minutes; if (x.hike) { t.hike += x.hike; t.hikeDays++; } });
+    t.hike = fhR1(t.hike); t.minutes = Math.round(t.minutes);
+    return t;
+  }
+  function fhOpenWo() { fhBack('workouts', 'wo-back'); fhLoad(fhRenderWo, 'wo-body'); }
+  function fhRenderWo(d) {
+    var el = $('wo-body'); if (!el) return;
+    if (!d) { el.innerHTML = fhNoExt(); return; }
+    var T = fitTargets(d), today = fhToday(d), wk = fhWoWeek(d, FH.woOff), W = wk.W, wt = T.workoutsPerWeek || 4, wst = wk.workouts >= wt ? 'ok' : wk.workouts >= wt - 1 ? 'warn' : 'prog';
+    var cut = trkAddDays(today, -((d.ext.historyDays > 1 ? d.ext.historyDays : LOG_HIST_DAYS + 1) - 1)), h = '';
+    h += '<div class="card fitcard"><h3>' + (FH.woOff ? 'Week' : 'This week') + ' \u00b7 Sun\u2013Sat</h3>' +
+      '<div class="weeknav fhwn"><button type="button" class="navbtn" data-fh-act="wprev"' + (W.start <= cut ? ' disabled' : '') + '>&lsaquo; Prev</button><div class="navlabel">' + esc(logRangeLabel(W)) + '</div>' +
+      '<button type="button" class="navbtn" data-fh-act="wnext"' + (FH.woOff >= 0 ? ' disabled' : '') + '>Next &rsaquo;</button></div>';
+    h += '<div class="fitrow"><div class="fl">Workouts</div><div class="fv t-' + wst + '"><b>' + wk.workouts + '</b> / ' + wt + (FH.woOff ? '' : ' this week') + '</div><div class="fn">' + (wk.workouts >= wt ? 'target met' : (wt - wk.workouts) + ' to go') + '</div>' + fitBar(wk.workouts, wt, wst) + '</div>';
+    h += '<div class="btiles tot"><div><span>Workout min</span><b>' + fmt(wk.minutes) + '</b></div><div><span>Hike miles</span><b>' + (wk.hikeDays ? fmt(wk.hike, 1) : '\u2014') + '</b></div><div><span>Days logged</span><b>' + wk.logged + ' of ' + wk.sofar.length + '</b></div></div>';
+    h += '<div class="fhbtns"><button type="button" class="fitbtn" data-fh-act="addwo">+ Add workout</button><button type="button" class="fitbtn" data-fh-act="micwo">&#127908; Say a workout</button></div>';
+    h += '<h4 class="fhsub">Workouts by day</h4>';
+    wk.days.slice().reverse().forEach(function (x) {
+      if (x.date > today) return;
+      var parts = x.label.split(' '), nums = [];
+      if (x.minutes) nums.push(fmt(x.minutes) + ' min'); if (x.hike) nums.push(fmt(x.hike, 1) + ' mi hike');
+      h += '<button type="button" class="fhwo' + (x.did ? ' did' : '') + (x.logged ? '' : ' none') + '" data-fh-wo="' + x.date + '"><span class="fhwd"><b>' + esc(parts[0]) + '</b> ' + esc(parts[1] || '') + '</span>' +
+        '<span class="fhwt">' + (x.did ? esc(x.details.length > 1 ? x.details.map(function (p) { return (/^([A-Za-z][A-Za-z ]*?)(?:\s+\d|$)/.exec(p) || [0, p])[1]; }).join(' + ') : x.type) : (x.rest ? 'Rest' : (x.logged ? 'No workout' : 'not logged'))) +
+        (x.did && x.details.length > 1 ? '<small>' + esc(x.details.join(' \u00b7 ')) + '</small>' : '') + (x.extra.length ? '<small>' + esc(x.extra.join(' \u00b7 ')) + '</small>' : '') + '</span>' +
+        '<span class="fhwn2">' + (nums.length ? esc(nums.join(' \u00b7 ')) : '') + '</span><i class="chev">&rsaquo;</i></button>';
+    });
+    h += '<div class="foot">Tap a day to edit it. Workouts count days marked as a workout; minutes and hike miles are sums. Same Sunday\u2013Saturday weeks as the Daily Log.</div></div>';
+    // recent weeks
+    var rows = '';
+    for (var o = 0; o > -8; o--) {
+      var w2 = fhWoWeek(d, o); if (w2.W.end < cut) break;
+      rows += '<button type="button" class="fhtr fhwk' + (o === FH.woOff ? ' on' : '') + '" data-fh-wk="' + o + '"><span>' + logMD(w2.W.start) + '\u2013' + logMD(w2.W.end) + '</span><span>' + w2.workouts + '</span><span>' + fmt(w2.minutes) + '</span><span>' + (w2.hikeDays ? fmt(w2.hike, 1) : '\u2014') + '</span></button>';
+    }
+    h += '<div class="card fitcard"><h3>Weekly totals</h3><div class="fhtbl fhwks"><div class="fhtr fhth"><span>Week (Sun\u2013Sat)</span><span>Workouts</span><span>Min</span><span>Hike mi</span></div>' + rows + '</div>' +
+      '<div class="foot">Last ' + Math.min(8, Math.ceil((d.ext.historyDays || 120) / 7)) + ' weeks the Daily Log history covers. Tap a week to show its days.</div></div>';
+    el.innerHTML = h;
+  }
+
+  /* ================= Health Metrics (Medical) ================= */
+  function fhHmLoad(force, then) {
+    if (!force && FH.hmState !== 'idle' && Date.now() - FH.hmAt < 60000) { if (then) then(); return; }
+    var seq = ++FH.hmSeq;
+    if (FH.hmState === 'idle') FH.hmState = 'loading';
+    apiGet(rcUrl('healthmetrics', {})).then(function (t) {
+      if (seq !== FH.hmSeq) return;
+      var j; try { j = JSON.parse(t); } catch (e) { j = { error: 'server', message: 'Unexpected response from server.' }; }
+      if (j.error === 'auth') { setPc(''); lock('Passcode changed. Enter the new one.'); return; }
+      FH.hmAt = Date.now();
+      if (j.error === 'bad_action') { FH.hmState = 'na'; FH.hm = null; }
+      else if (j.error || !j.data) { FH.hmState = FH.hm ? 'ok' : 'err'; FH.hmMsg = j.message || ('Server error: ' + j.error); }
+      else { FH.hmState = 'ok'; FH.hm = j.data; }
+      if (then) then();
+    }, function (err) { if (seq !== FH.hmSeq) return; FH.hmAt = Date.now(); FH.hmState = FH.hm ? 'ok' : 'err'; FH.hmMsg = friendly(err); if (then) then(); });
+  }
+  function fhHmOpen() {
+    fhBack('health', 'hm-back');
+    fhHmRender();
+    fhHmLoad(true, fhHmRender);
+  }
+  function fhHmRender() {
+    var el = $('hm-body'); if (!el) return;
+    var h = '<div class="card fitcard hmintro"><div class="stat">The major health metrics to move to optimal levels through diet and supplements.</div>' +
+      '<div class="foot">Columns: ' + HM_COLS.map(function (c) { return esc(c[1]); }).join(' \u00b7 ') + '</div></div>';
+    var list = FH.hm && Array.isArray(FH.hm.metrics) ? FH.hm.metrics : [];
+    if (FH.hmState === 'loading' || FH.hmState === 'idle') h += '<div class="loading">Loading\u2026</div>';
+    else if (FH.hmState === 'err') h += '<div class="error">' + esc(FH.hmMsg || 'Couldn\u2019t load Health Metrics.') + '<div class="retry"><button class="navbtn" data-fh-act="hmretry">Try again</button></div></div>';
+    else {
+      h += '<div class="card fitcard"><h3>Health Metrics' + (list.length ? ' \u00b7 ' + list.length : '') + '</h3>';
+      if (!list.length) h += '<div class="hmempty">No metrics yet. Add the ones you want to track (for example a lab value): its current value and unit, the optimal or target range, the date it was measured, the standard or source, and the diet or supplement levers that move it.</div>';
+      list.forEach(function (m) {
+        var tap = FH.hmState === 'ok';
+        h += '<' + (tap ? 'button type="button" data-fh-hm="' + esc(String(m.row)) + '"' : 'div') + ' class="hmrow"><div class="hmtop"><b>' + esc(m.metric || '\u2014') + '</b><span class="hmval">' + esc([m.value, m.unit].filter(function (x) { return x !== '' && x != null; }).join(' ') || '\u2014') + '</span></div>' +
+          '<div class="hmline">' + [m.range ? 'Optimal ' + m.range : '', m.date ? 'Measured ' + m.date : '', m.source || ''].filter(Boolean).map(esc).join(' \u00b7 ') + '</div>' +
+          (m.levers ? '<div class="hmline">Levers: ' + esc(m.levers) + '</div>' : '') + (m.notes ? '<div class="hmline dim">' + esc(m.notes) + '</div>' : '') + '</' + (tap ? 'button' : 'div') + '>';
+      });
+      if (FH.hmState === 'ok') h += '<button type="button" class="fitbtn wide" data-fh-act="hmadd">+ Add metric</button>';
+      else h += '<button type="button" class="fitbtn wide" disabled>+ Add metric</button><div class="foot hint2">Adding and editing here switch on after the server update (backend/health-metrics.patch). Until then the list lives in the Health Metrics sheet: ' + esc(FH_DRIVE_PATH) + '.</div>';
+      h += '<a class="fhlink fhsheetlink" href="' + FH_SHEET_URL + '" data-title="Health Metrics">Open the Health Metrics sheet \u203a</a></div>';
+    }
+    el.innerHTML = h;
+  }
+
+  /* ================= Daily Log overview (compiles Food, Workouts, Health Metrics) ================= */
+  function fhOverviewHtml(d) {
+    if (!d || !d.ext || !d.ext.today) return '';
+    FH.data = FH.data || d;
+    var T = fhTargets(d), today = fhToday(d), vm = fhVoiceMeals(today), nuts = fhNutsShown(d), day = fhFoodDay(d, today, vm);
+    var W = logSunWeek(today, 0), wdays = W.keys.filter(function (k) { return k <= today; }).map(function (k) { return fhFoodDay(d, k, vm); });
+    var wk = fhWoWeek(d, 0), wt = fitTargets(d).workoutsPerWeek || 4, wst = wk.workouts >= wt ? 'ok' : wk.workouts >= wt - 1 ? 'warn' : 'prog';
+    var h = '<div class="card fitcard fhov" id="fh-ov"><h3>Fitness &amp; Health \u00b7 overview</h3>';
+    h += '<div class="fhovs"><div class="fhovh"><b>Food today</b><span>' + esc(day.label) + (day.meals.length ? ' \u00b7 ' + day.meals.length + ' meal' + (day.meals.length === 1 ? '' : 's') : '') + '</span></div>' +
+      '<div class="fhavg">' + nuts.map(function (n) { return fhMini(n, day[n.key], T[n.key]); }).join('') + '</div></div>';
+    var withN = wdays.filter(function (x) { return fhIsNum(x.calories) && x.calories > 0; }).length;
+    h += '<div class="fhovs"><div class="fhovh"><b>Food this week</b><span>avg/day \u00b7 ' + withN + ' of ' + wdays.length + ' days with numbers</span></div>' +
+      '<div class="fhavg">' + nuts.map(function (n) { return fhMini(n, fhAvg(wdays, n.key).avg, T[n.key]); }).join('') + '</div>' +
+      '<button type="button" class="fhgo" data-go="food">Food Log \u203a</button></div>';
+    h += '<div class="fhovs"><div class="fhovh"><b>Workouts this week</b><span>Sun ' + logMD(W.start) + ' \u2013 Sat ' + logMD(W.end) + '</span></div>' +
+      '<div class="btiles tot"><div><span>Workouts</span><b class="t-' + wst + '">' + wk.workouts + ' / ' + wt + '</b></div><div><span>Minutes</span><b>' + fmt(wk.minutes) + '</b></div><div><span>Hike miles</span><b>' + (wk.hikeDays ? fmt(wk.hike, 1) : '\u2014') + '</b></div></div>' +
+      '<div class="fhwkdots">' + wk.days.map(function (x) { return '<span class="' + (x.date > today ? 'fut' : x.did ? 'did' : x.logged ? 'rest' : 'none') + '" title="' + esc(x.label + ': ' + (x.type || '')) + '">' + LOG_DOW[logKeyDate(x.date).getDay()].charAt(0) + '</span>'; }).join('') + '</div>' +
+      '<button type="button" class="fhgo" data-go="workouts">Workout Log \u203a</button></div>';
+    var hmTxt = FH.hmState === 'ok' ? ((FH.hm.metrics || []).length ? (FH.hm.metrics.length + ' metric' + (FH.hm.metrics.length === 1 ? '' : 's') + ' tracked' + fhHmLatest()) : 'None yet \u00b7 add the first one') :
+      FH.hmState === 'na' ? 'None yet \u00b7 the list starts empty (in-app editing after the server update)' : FH.hmState === 'err' ? 'Couldn\u2019t load' : 'Loading\u2026';
+    h += '<div class="fhovs"><div class="fhovh"><b>Health Metrics</b><span id="fh-ov-hm">' + esc(hmTxt) + '</span></div><button type="button" class="fhgo" data-go="health">Health Metrics \u203a</button></div>';
+    h += '</div>';
+    if (FH.hmState === 'idle' || Date.now() - FH.hmAt > 120000) setTimeout(function () { fhHmLoad(false, function () { if (rcScreenNow() === 'log' && state.logData) { var e = $('fh-ov'); if (e) e.outerHTML = fhOverviewHtml(state.logData); } }); }, 0);
+    return h;
+  }
+  function fhHmLatest() {
+    var ds = (FH.hm.metrics || []).map(function (m) { return String(m.date || ''); }).filter(Boolean).sort();
+    return ds.length ? ' \u00b7 latest ' + ds[ds.length - 1] : '';
+  }
+
+  /* ================= Entry sheet: add / edit meal, day totals, workout, health metric (+ mic smart fill) ================= */
+  function fhSheetClose() { fhMicStop(); var s = $('fh-sheet'); if (s) s.remove(); FH.sheet = null; }
+  function fhSheetOpen(cfg) {
+    fhSheetClose();
+    FH.sheet = cfg; cfg.edited = cfg.edited || {};
+    var s = document.createElement('div'); s.id = 'fh-sheet'; s.className = 'fhsheet';
+    s.innerHTML = '<div class="fhbox" role="dialog" aria-modal="true" aria-label="' + esc(cfg.title) + '"></div>';
+    document.body.appendChild(s);
+    s.addEventListener('click', fhSheetClick);
+    s.addEventListener('input', fhSheetInput);
+    s.addEventListener('change', fhSheetChange);
+    fhSheetRender();
+    if (cfg.mic) setTimeout(fhMicToggle, 50);
+  }
+  function fhInp(id, label, val, type, attrs) {
+    return '<label>' + label + '<input id="' + id + '" type="' + (type || 'number') + '"' + (type && type !== 'number' ? '' : ' inputmode="decimal" step="any" min="0"') + ' value="' + esc(val == null ? '' : val) + '" autocomplete="off"' + (attrs || '') + '></label>';
+  }
+  function fhSheetRender() {
+    var c = FH.sheet, box = document.querySelector('#fh-sheet .fhbox'); if (!c || !box) return;
+    var d = FH.data, today = fhToday(d), v = c.vals || (c.vals = {}), h = '<div class="fhhead"><b>' + esc(c.title) + '</b><button type="button" class="fhx" data-fh="close" aria-label="Close">&#10005;</button></div>';
+    var dated = c.kind !== 'hm';
+    if (dated) {
+      if (c.fixedDate) h += '<div class="fhwhen">For <b>' + esc(trkDayLabel(c.date)) + '</b></div>';
+      else h += '<div class="fhlbl">Day</div>' + fhDayChips(c.date, d, 'data-fhday') + '<input type="date" class="fhdate" id="fhs-date" max="' + today + '" value="' + c.date + '" aria-label="Pick a day">';
+    }
+    if (c.kind === 'food' || c.kind === 'wo') {
+      h += '<div class="fhlbl">Say it or type it</div><div class="fhsay"><textarea id="fhs-say" rows="2" placeholder="' + (c.kind === 'food' ? 'e.g. lunch chicken salad 520 calories 45 grams protein 30 grams carbs 20 grams fat 8 grams fiber' : 'e.g. hiked 3 miles 75 minutes then strength 30 minutes') + '">' + esc(c.say || '') + '</textarea>' +
+        '<button type="button" class="fhmic' + (FH.mic ? ' rec' : '') + '" data-fh="mic" aria-label="' + (FH.mic ? 'Stop' : 'Dictate') + '">&#127908;</button></div><div class="fhmicst" id="fhs-micst">' + esc(c.micMsg || (FH.mic ? 'Listening\u2026 tap the mic to stop' : 'Fields below fill in as you speak (same smart fill as the Tracker). Check them, then Save.')) + '</div>';
+    }
+    if (c.kind === 'food') {
+      h += '<div class="fhlbl">Meal</div><div class="fhchips">' + FH_MEAL_ORDER.map(function (m) { return '<button type="button" data-fhmeal="' + m + '" class="' + (v.meal === m ? 'on' : '') + '">' + FH_MEAL_LBL[m] + '</button>'; }).join('') + '</div>';
+      h += '<div class="bgrid fhone">' + fhInp('fhs-food', 'Food', v.food, 'text', ' maxlength="300" data-fv="food"') + '</div>';
+      h += '<div class="bgrid fhg5">' + [['calories', 'kcal'], ['protein', 'Protein g'], ['carbs', 'Carbs g'], ['fat', 'Fat g'], ['fiber', 'Fiber g']].map(function (f) { return fhInp('fhs-' + f[0], f[1], v[f[0]], 'number', ' data-fv="' + f[0] + '"'); }).join('') + '</div>';
+      if (!fhCanFiber(d)) h += '<div class="foot hint2">Fiber is saved in the meal\u2019s Notes as "[Fiber: N g]" until the sheet has a Fiber column.</div>';
+      if (c.id) h += '<div class="foot">Saving changes the day\u2019s totals by the difference. <button type="button" class="fhlink fhdanger" data-fh="delmeal">Remove this meal</button></div>';
+    } else if (c.kind === 'foodday') {
+      h += '<div class="foot">Sets the day\u2019s totals in the Daily Log (same as the Tracker\u2019s \u201cSet total\u201d). Leave a box empty to keep it.</div>';
+      h += '<div class="bgrid fhg5">' + [['calories', 'kcal'], ['protein', 'Protein g'], ['carbs', 'Carbs g'], ['fat', 'Fat g']].concat(fhCanFiber(d) ? [['fiber', 'Fiber g']] : []).map(function (f) { return fhInp('fhs-' + f[0], f[1], v[f[0]], 'number', ' data-fv="' + f[0] + '"'); }).join('') + '</div>';
+    } else if (c.kind === 'wo' || c.kind === 'woday') {
+      h += '<div class="bgrid fhone">' + fhInp('fhs-type', 'Type', v.type, 'text', ' maxlength="120" data-fv="type" placeholder="Strength, Hike 3 mi, Pickleball\u2026"') + '</div>';
+      h += '<div class="bgrid">' + fhInp('fhs-min', c.kind === 'wo' ? 'Minutes (added)' : 'Minutes (day total)', v.min, 'number', ' data-fv="min"') + fhInp('fhs-hike', c.kind === 'wo' ? 'Hike miles (added)' : 'Hike miles (day total)', v.hike, 'number', ' data-fv="hike"') + '</div>';
+      h += '<div class="bgrid fhone">' + fhInp('fhs-details', 'Details (optional, saved to Notes)', v.details, 'text', ' maxlength="300" data-fv="details"') + '</div>';
+      if (c.kind === 'woday') h += '<div class="foot">Replaces the day\u2019s workout type, minutes and hike miles. To add another workout to the day, use + Add workout.</div>';
+      else h += '<div class="foot">Added to the day: the type joins the day\u2019s workout, minutes and hike miles add to its totals.</div>';
+    } else if (c.kind === 'hm') {
+      h += '<div class="bgrid fhone">' + HM_COLS.map(function (col) { return fhInp('fhs-hm-' + col[0], col[1] + (col[0] === 'metric' ? ' *' : ''), v[col[0]], col[0] === 'date' ? 'date' : 'text', ' maxlength="300" data-fv="' + col[0] + '"'); }).join('') + '</div>';
+    }
+    h += '<button type="button" class="fitbtn wide" data-fh="save"' + (FH.busy ? ' disabled' : '') + '>' + esc(c.saveLbl ? c.saveLbl() : 'Save') + '</button><div class="fitmsg" id="fhs-msg" role="status"></div>';
+    box.innerHTML = h;
+  }
+  function fhSaveLabel() { var c = FH.sheet; if (!c) return 'Save'; if (c.kind === 'hm') return c.row ? 'Save changes' : 'Add metric'; return (c.id || c.kind === 'woday' || c.kind === 'foodday' ? 'Save changes \u00b7 ' : 'Save to ') + trkDayLabel(c.date); }
+  function fhMsg(t, bad) { var m = $('fhs-msg'); if (m) { m.textContent = t || ''; m.className = 'fitmsg' + (bad ? ' bad' : ''); } }
+  function fhSheetInput(e) {
+    var c = FH.sheet; if (!c) return;
+    var t = e.target;
+    if (t.id === 'fhs-say') { c.say = t.value; fhSayParse(); return; }
+    var k = t.getAttribute && t.getAttribute('data-fv'); if (!k) return;
+    c.edited[k] = true; c.vals[k] = t.type === 'number' ? (t.value === '' ? null : Number(t.value)) : t.value;
+  }
+  function fhSheetChange(e) {
+    var c = FH.sheet; if (!c) return;
+    if (e.target.id === 'fhs-date') { var tk = fhToday(); if (!e.target.value || e.target.value > tk) { e.target.value = c.date; return; } c.date = e.target.value; fhSheetRender(); }
+  }
+  function fhSetField(k, v) { var c = FH.sheet; if (!c || c.edited[k]) return; c.vals[k] = v; var map = { food: 'fhs-food', type: 'fhs-type', min: 'fhs-min', hike: 'fhs-hike', details: 'fhs-details' }; var el = $(map[k] || ('fhs-' + k)); if (el && document.activeElement !== el) el.value = v == null ? '' : v; }
+  // Smart fill: the same on-device parser as the Tracker's mic (sfParse), mapped to one meal or one workout entry.
+  function fhSayParse() {
+    var c = FH.sheet; if (!c) return;
+    var r; try { r = sfParse(c.say || ''); } catch (e) { return; }
+    if (c.kind === 'food') {
+      var ms = FH_MEAL_ORDER.filter(function (m) { return r.meals[m]; });
+      var first = ms.filter(function (m) { return m !== 'drinks'; })[0] || ms[0];
+      if (first && !c.edited.meal && c.vals.meal !== first) { c.vals.meal = first; Array.prototype.forEach.call(document.querySelectorAll('#fh-sheet [data-fhmeal]'), function (b) { b.classList.toggle('on', b.getAttribute('data-fhmeal') === first); }); }
+      var food = ms.length === 1 ? r.meals[ms[0]] : ms.map(function (m) { return FH_MEAL_LBL[m] + ': ' + r.meals[m]; }).join('; ');
+      if (!food && r.notes) food = r.notes; else if (food && r.notes && !/^\s*$/.test(r.notes)) food += '; ' + r.notes;
+      fhSetField('food', food || '');
+      FH_MACROS.concat(['fiber']).forEach(function (k) { fhSetField(k, r[k] != null ? r[k] : null); });
+    } else if (c.kind === 'wo') {
+      fhSetField('type', r.workouts.map(function (w) { return w.label; }).join('; '));
+      fhSetField('min', r.workoutMin != null ? r.workoutMin : null);
+      fhSetField('hike', r.hike != null ? r.hike : null);
+      fhSetField('details', r.notes || '');
+    }
+  }
+  function fhMicUi() {
+    var b = document.querySelector('#fh-sheet .fhmic'); if (b) { b.classList.toggle('rec', !!FH.mic); b.setAttribute('aria-label', FH.mic ? 'Stop' : 'Dictate'); }
+    var st = $('fhs-micst'); if (st && FH.sheet) st.textContent = FH.sheet.micMsg || (FH.mic ? 'Listening\u2026 tap the mic to stop' : (FH.sheet.say ? 'Check the fields, then Save.' : 'Fields below fill in as you speak (same smart fill as the Tracker). Check them, then Save.'));
+  }
+  function fhMicStop() { var r = FH.mic; FH.mic = null; if (r) { try { r.stop(); } catch (e) {} } fhMicUi(); }
+  function fhMicToggle() {
+    var c = FH.sheet; if (!c) return;
+    if (FH.mic) return fhMicStop();
+    var ta = $('fhs-say');
+    if (!SR) { c.micMsg = MIC_NA; fhMicUi(); if (ta) ta.focus(); return; }
+    var rec; try { rec = new SR(); } catch (e) { c.micMsg = MIC_NA; fhMicUi(); return; }
+    rec.lang = 'en-US'; rec.interimResults = true; rec.continuous = true; rec.maxAlternatives = 1;
+    var base = ta && ta.value ? ta.value.replace(/\s+$/, '') + ' ' : '', fin = '';
+    rec.onresult = function (ev) {
+      if (FH.mic !== rec || !FH.sheet) return;
+      var interim = '';
+      for (var i = ev.resultIndex; i < ev.results.length; i++) { var r = ev.results[i], t = r[0] ? r[0].transcript : ''; if (r.isFinal) fin += t.trim() + ' '; else interim += t; }
+      FH.sheet.say = (base + fin + interim).replace(/\s+$/, ' ');
+      var x = $('fhs-say'); if (x) x.value = FH.sheet.say;
+      fhSayParse();
+    };
+    rec.onerror = function (ev) { var e = ev && ev.error; if (/not-allowed|service-not-allowed|audio-capture|language-not-supported/.test(e || '')) { if (FH.sheet) FH.sheet.micMsg = MIC_NA; } else if (e === 'network' && FH.sheet) FH.sheet.micMsg = 'The speech service couldn\u2019t be reached. Use the keyboard\u2019s mic key.'; };
+    rec.onend = function () { if (FH.mic === rec) FH.mic = null; if (FH.sheet) { FH.sheet.say = (base + fin).trim(); var x = $('fhs-say'); if (x && FH.sheet.say) x.value = FH.sheet.say; fhSayParse(); } fhMicUi(); };
+    c.micMsg = '';
+    FH.mic = rec;
+    try { rec.start(); } catch (e) { FH.mic = null; c.micMsg = MIC_NA; }
+    fhMicUi();
+  }
+  function fhSheetClick(e) {
+    var c = FH.sheet; if (!c) return;
+    if (e.target.id === 'fh-sheet') return fhSheetClose();
+    var b = e.target.closest ? e.target.closest('button') : null; if (!b) return;
+    var a = b.getAttribute('data-fh');
+    if (a === 'close') return fhSheetClose();
+    if (a === 'mic') return fhMicToggle();
+    if (a === 'save') return fhSave();
+    if (a === 'delmeal') return fhDelMeal();
+    var day = b.getAttribute('data-fhday');
+    if (day) {
+      var tk = fhToday(); c.date = day === 'today' ? tk : day === 'yesterday' ? trkAddDays(tk, -1) : (($('fhs-date') && $('fhs-date').value < tk) ? $('fhs-date').value : trkAddDays(tk, -2));
+      fhSheetRender(); if (day === 'pick') { var p = $('fhs-date'); if (p) try { p.showPicker ? p.showPicker() : p.focus(); } catch (er) { p.focus(); } }
+      return;
+    }
+    var ml = b.getAttribute('data-fhmeal');
+    if (ml) { c.vals.meal = ml; c.edited.meal = true; Array.prototype.forEach.call(document.querySelectorAll('#fh-sheet [data-fhmeal]'), function (x) { x.classList.toggle('on', x === b); }); }
+  }
+  function fhDefaultMeal() { var hr = new Date().getHours(); return hr < 11 ? 'breakfast' : hr < 16 ? 'lunch' : hr < 21 ? 'dinner' : 'snacks'; }
+  function fhMealNote(meal, food, v, canFiber, fix) {
+    var nums = [];
+    if (fhIsNum(v.calories)) nums.push(fmt(v.calories) + ' kcal');
+    if (fhIsNum(v.protein)) nums.push(fmt(v.protein) + ' g protein');
+    if (fhIsNum(v.carbs)) nums.push(fmt(v.carbs) + ' g carbs');
+    if (fhIsNum(v.fat)) nums.push(fmt(v.fat) + ' g fat');
+    if (canFiber && fhIsNum(v.fiber)) nums.push(fmt(v.fiber, 1) + ' g fiber');
+    var s = (FH_MEAL_LBL[meal] || 'Snacks') + (fix ? ' (' + fix + ')' : '') + ': ' + String(food || '').replace(/[|]/g, '/').trim();
+    if (nums.length) s += (food ? ' ' : '') + '(' + nums.join(', ') + ')';
+    if (!canFiber && fhIsNum(v.fiber)) s += ' [Fiber: ' + fmt(v.fiber, 1) + ' g]';
+    return s.replace(/\s+/g, ' ').trim();
+  }
+  function fhAfterWrite(msg) {
+    var c = FH.sheet;
+    state.trackData = null; state.logData = null;
+    fhSheetClose();
+    return api('log', 0).then(function (d) { FH.data = d; }, function () {}).then(function () {
+      var scr = rcScreenNow();
+      if (scr === 'food') fhRenderFood(FH.data); else if (scr === 'workouts') fhRenderWo(FH.data); else if (scr === 'log') loadLog();
+      rcNote(msg);
+    });
+  }
+  function fhWriteErr(err) {
+    if (err instanceof AuthError) { setPc(''); lock('Passcode changed. Enter the new one.'); return; }
+    fhMsg('Not saved: ' + friendly(err) + ' Nothing changed; tap Save to try again.', true);
+  }
+  function fhRun(fn) {
+    if (FH.busy) return;
+    FH.busy = true; var sb = document.querySelector('#fh-sheet [data-fh="save"]'); if (sb) sb.disabled = true; fhMsg('Saving\u2026');
+    Promise.resolve().then(fn).catch(fhWriteErr).then(function () { FH.busy = false; var s2 = document.querySelector('#fh-sheet [data-fh="save"]'); if (s2) s2.disabled = false; });
+  }
+  function fhCheckNums(v, keys) {
+    var lim = { calories: 20000, protein: 2000, carbs: 3000, fat: 2000, fiber: 300, min: 1000, hike: 100 };
+    for (var i = 0; i < keys.length; i++) { var k = keys[i], x = v[k]; if (x == null || x === '') continue; if (!fhIsNum(Number(x)) || Number(x) < 0 || Number(x) > lim[k]) return k; }
+    return '';
+  }
+  function fhSave() {
+    var c = FH.sheet; if (!c) return;
+    fhMicStop();
+    var v = c.vals;
+    if (c.kind === 'hm') return fhHmSave();
+    if (c.kind === 'food') {
+      var bad = fhCheckNums(v, FH_MACROS.concat(['fiber'])); if (bad) return fhMsg('Check ' + bad + ': use a positive number.', true);
+      var anyNum = FH_MACROS.concat(['fiber']).some(function (k) { return fhIsNum(v[k]); }), food = String(v.food || '').trim();
+      if (!food && !anyNum) return fhMsg('Say or type the food and/or its numbers.', true);
+      var meal = v.meal || fhDefaultMeal();
+      return fhRun(function () { return c.id ? fhEditMeal(c, meal, food) : fhAddMeal(c, meal, food); });
+    }
+    if (c.kind === 'foodday') {
+      var bd = fhCheckNums(v, FH_MACROS.concat(['fiber'])); if (bd) return fhMsg('Check ' + bd + ': use a positive number.', true);
+      var p = { date: c.date, mode: 'set', cid: 'fhd' + sfHash(c.date + '|' + JSON.stringify(v) + '|' + Date.now()) }, n = 0;
+      FH_MACROS.concat(fhCanFiber(FH.data) ? ['fiber'] : []).forEach(function (k) { if (fhIsNum(v[k]) && v[k] !== c.orig[k]) { p[k] = v[k]; n++; } });
+      if (!n) return fhMsg('Nothing changed.');
+      return fhRun(function () { return apiRaw('logday', p).then(function (j) { trkRes(j); return fhAfterWrite('Saved ' + trkDayLabel(c.date) + ' totals \u2713'); }); });
+    }
+    if (c.kind === 'wo' || c.kind === 'woday') {
+      var bw = fhCheckNums(v, ['min', 'hike']); if (bw) return fhMsg('Check ' + (bw === 'min' ? 'minutes' : 'hike miles') + ': use a positive number.', true);
+      var type = String(v.type || '').trim(), det = String(v.details || '').trim();
+      if (!type && !fhIsNum(v.min) && !fhIsNum(v.hike) && !det) return fhMsg('Say or type the workout.', true);
+      return fhRun(function () { return c.kind === 'wo' ? fhAddWo(c, type, det) : fhEditWo(c, type, det); });
+    }
+  }
+  function fhAddMeal(c, meal, food) {
+    var v = c.vals, d0 = FH.data, canF = fhCanFiber(d0), key = c.date;
+    var note = fhMealNote(meal, food, v, canF), p = { date: key, mode: 'add', notes: note, cid: 'fhm' + sfHash(key + '|' + note) };
+    FH_MACROS.forEach(function (k) { if (fhIsNum(v[k])) p[k] = v[k]; });
+    if (canF && fhIsNum(v.fiber)) p.fiber = v.fiber;
+    return apiRaw('logday', p).then(function (j) {
+      var r = trkRes(j), jr = fhJournal();
+      if (!r.duplicate || !(jr[key] || []).some(function (x) { return x.note === note; })) {
+        var e = { id: 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), meal: meal, food: food, note: note, at: Date.now() };
+        FH_MACROS.concat(['fiber']).forEach(function (k) { if (fhIsNum(v[k])) e[k] = v[k]; });
+        (jr[key] = jr[key] || []).push(e); fhJournalSave(jr);
+      }
+      FH.date = key;
+      return fhAfterWrite('Saved ' + (FH_MEAL_LBL[meal] || 'meal') + ' to ' + trkDayLabel(key) + ' \u2713');
+    });
+  }
+  function fhEditMeal(c, meal, food) {
+    var v = c.vals, key = c.date, old = c.orig;
+    return fhFresh().then(function (d) {
+      var row = fhDayRow(d, key) || {}, canF = fhCanFiber(d), note = fhMealNote(meal, food, v, canF, 'edited');
+      var p = { date: key, mode: 'set', notes: note, cid: 'fhe' + sfHash(key + '|' + c.id + '|' + note) };
+      FH_MACROS.concat(canF ? ['fiber'] : []).forEach(function (k) {
+        var o = fhIsNum(old[k]) ? old[k] : 0, n = fhIsNum(v[k]) ? v[k] : 0; if (o === n) return;
+        p[k] = Math.max(0, fhR1((fhIsNum(row[k]) ? row[k] : 0) - o + n));
+      });
+      return apiRaw('logday', p).then(function (j) {
+        trkRes(j);
+        var jr = fhJournal(), list = jr[key] || [];
+        list.forEach(function (x) { if (x.id === c.id) { x.meal = meal; x.food = food; x.note = note; FH_MACROS.concat(['fiber']).forEach(function (k) { if (fhIsNum(v[k])) x[k] = v[k]; else delete x[k]; }); x.at = Date.now(); } });
+        fhJournalSave(jr);
+        return fhAfterWrite('Updated ' + (FH_MEAL_LBL[meal] || 'meal') + ' on ' + trkDayLabel(key) + ' \u2713');
+      });
+    });
+  }
+  function fhDelMeal() {
+    var c = FH.sheet; if (!c || !c.id) return;
+    var b = document.querySelector('#fh-sheet [data-fh="delmeal"]');
+    if (b && !b.classList.contains('sure')) { b.classList.add('sure'); b.textContent = 'Tap again to remove it (takes its numbers off the day)'; return; }
+    var key = c.date, old = c.orig;
+    fhRun(function () {
+      return fhFresh().then(function (d) {
+        var row = fhDayRow(d, key) || {}, canF = fhCanFiber(d), note = (FH_MEAL_LBL[old.meal] || 'Snacks') + ' (removed): ' + (old.food || '');
+        var p = { date: key, mode: 'set', notes: note, cid: 'fhr' + sfHash(key + '|' + c.id) };
+        FH_MACROS.concat(canF ? ['fiber'] : []).forEach(function (k) { if (fhIsNum(old[k]) && old[k]) p[k] = Math.max(0, fhR1((fhIsNum(row[k]) ? row[k] : 0) - old[k])); });
+        return apiRaw('logday', p).then(function (j) {
+          trkRes(j);
+          var jr = fhJournal(); jr[key] = (jr[key] || []).filter(function (x) { return x.id !== c.id; }); fhJournalSave(jr);
+          return fhAfterWrite('Removed ' + (FH_MEAL_LBL[old.meal] || 'meal') + ' from ' + trkDayLabel(key));
+        });
+      });
+    });
+  }
+  function fhAddWo(c, type, det) {
+    var v = c.vals, key = c.date;
+    return fhFresh().then(function (d) {
+      var row = fhDayRow(d, key) || {}, p = { date: key, cid: 'fhw' + sfHash(key + '|' + type + '|' + JSON.stringify(v)) };
+      var old = fhWoType(row.workout); if (/^(?:rest|none|rest \/ none)$/i.test(old)) old = '';
+      if (type || fhIsNum(v.min) || fhIsNum(v.hike)) {
+        var add = type.split(/\s*;\s*/).filter(function (x) { return x && old.toLowerCase().indexOf(x.toLowerCase()) < 0; });
+        p.workout = (old ? (add.length ? old + '; ' + add.join('; ') : old) : (add.join('; ') || (fhIsNum(v.hike) ? 'Hike' : 'Workout'))).slice(0, 200);
+      }
+      if (fhIsNum(v.min)) p.workout_min = fhR1((fhIsNum(row.minutes) ? row.minutes : 0) + v.min);
+      if (fhIsNum(v.hike)) p.hike_miles = fhR1((fhIsNum(row.hike) ? row.hike : 0) + v.hike);
+      if (det) p.notes = 'Workout: ' + det.replace(/[|]/g, '/');
+      return apiRaw('logday', p).then(function (j) { trkRes(j); return fhAfterWrite('Saved workout to ' + trkDayLabel(key) + ' \u2713'); });
+    });
+  }
+  function fhEditWo(c, type, det) {
+    var v = c.vals, o = c.orig, key = c.date, p = { date: key, cid: 'fhwe' + sfHash(key + '|' + JSON.stringify(v) + '|' + Date.now()) }, n = 0;
+    if (type && type !== o.type) { p.workout = type.slice(0, 200); n++; }
+    if (fhIsNum(v.min) && v.min !== o.min) { p.workout_min = v.min; n++; }
+    if (fhIsNum(v.hike) && v.hike !== o.hike) { p.hike_miles = v.hike; n++; }
+    if (det) { p.notes = 'Workout: ' + det.replace(/[|]/g, '/'); n++; }
+    if (!n) { fhMsg('Nothing changed.'); return Promise.resolve(); }
+    return apiRaw('logday', p).then(function (j) { trkRes(j); return fhAfterWrite('Updated ' + trkDayLabel(key) + ' workout \u2713'); });
+  }
+  function fhHmSave() {
+    var c = FH.sheet, v = c.vals;
+    if (!String(v.metric || '').trim()) return fhMsg('Name the metric.', true);
+    var p = { cid: 'hm' + sfHash(JSON.stringify(v) + '|' + (c.row || 'new')) }, n = 0;
+    if (c.row) { p.row = c.row; p.was = String(c.orig.metric == null ? '' : c.orig.metric); }   // server refuses if that row no longer holds this metric
+    HM_COLS.forEach(function (col) { var k = col[0], x = v[k] == null ? '' : String(v[k]).trim(); if (!c.row || x !== String(c.orig[k] == null ? '' : c.orig[k])) { p[k] = x; n++; } });
+    if (c.row && !n) return fhMsg('Nothing changed.');
+    fhRun(function () {
+      return apiRaw('healthmetricset', p).then(function (j) {
+        if (j.error === 'bad_action') throw new Error('Health Metrics need the server update first.');
+        trkRes(j);
+        fhSheetClose(); FH.hmAt = 0;
+        fhHmLoad(true, function () { if (rcScreenNow() === 'health') fhHmRender(); });
+        rcNote(c.row ? 'Metric updated \u2713' : 'Metric added \u2713');
+      });
+    });
+  }
+
+  /* ---- screen events ---- */
+  function fhFoodClick(ev) {
+    var b = ev.target.closest ? ev.target.closest('button') : null; if (!b || !FH.data) return;
+    var d = FH.data, tk = fhToday(d), a = b.getAttribute('data-fh-act'), fd = b.getAttribute('data-fday');
+    if (fd) { FH.date = fd === 'today' ? tk : fd === 'yesterday' ? trkAddDays(tk, -1) : (FH.date < trkAddDays(tk, -1) ? FH.date : trkAddDays(tk, -2)); fhRenderFood(d); if (fd === 'pick') { var p = $('food-date'); if (p) try { p.showPicker ? p.showPicker() : p.focus(); } catch (e) { p.focus(); } } return; }
+    var op = b.getAttribute('data-fh-open'); if (op) { FH.open[op] = !FH.open[op]; fhRenderFood(d); return; }
+    var mid = b.getAttribute('data-fh-meal');
+    if (mid) {
+      var found = null, fk = '';
+      var jr = fhJournal(); Object.keys(jr).forEach(function (k) { (jr[k] || []).forEach(function (x) { if (x.id === mid) { found = x; fk = k; } }); });
+      if (!found) return;
+      var vals = { meal: found.meal, food: found.food }; FH_MACROS.concat(['fiber']).forEach(function (k) { vals[k] = fhIsNum(found[k]) ? found[k] : null; });
+      var orig = {}; for (var q in vals) orig[q] = vals[q];
+      return fhSheetOpen({ kind: 'food', title: 'Edit ' + (FH_MEAL_LBL[found.meal] || 'meal'), date: fk, fixedDate: true, id: mid, vals: vals, orig: orig, edited: { meal: true, food: true, calories: true, protein: true, carbs: true, fat: true, fiber: true }, saveLbl: fhSaveLabel });
+    }
+    if (a === 'addmeal' || a === 'micmeal') return fhSheetOpen({ kind: 'food', title: 'Add a meal', date: FH.date || tk, vals: { meal: '' }, mic: a === 'micmeal', saveLbl: fhSaveLabel });
+    if (a === 'dayedit') {
+      var row = fhDayRow(d, FH.date) || {}, dv = {}; FH_MACROS.concat(['fiber']).forEach(function (k) { dv[k] = fhIsNum(row[k]) ? row[k] : null; });
+      var o2 = {}; for (var q2 in dv) o2[q2] = dv[q2];
+      return fhSheetOpen({ kind: 'foodday', title: 'Day totals \u00b7 ' + trkDayLabel(FH.date), date: FH.date, fixedDate: true, vals: dv, orig: o2, saveLbl: fhSaveLabel });
+    }
+    if (a === 'fibertgt') {
+      var loc = fhLS(FH_TGT_KEY, {}) || {}, cur = fhIsNum(loc.fiber) ? String(loc.fiber) : '';
+      var ans = window.prompt('Daily fiber target in grams (leave empty for none). Saved on this phone.', cur);
+      if (ans === null) return;
+      var nv = Number(String(ans).replace(/[^\d.]/g, ''));
+      if (String(ans).trim() === '' || !(nv > 0)) delete loc.fiber; else loc.fiber = Math.round(nv);
+      fhLSset(FH_TGT_KEY, loc); fhRenderFood(d); return;
+    }
+    if (a === 'fprev') { FH.foodOff--; fhRenderFood(d); return; }
+    if (a === 'fnext') { if (FH.foodOff < 0) FH.foodOff++; fhRenderFood(d); return; }
+    if (a === 'seeday') { FH.date = b.getAttribute('data-day'); fhRenderFood(d); window.scrollTo(0, 0); return; }
+  }
+  function fhWoClick(ev) {
+    var b = ev.target.closest ? ev.target.closest('button') : null; if (!b || !FH.data) return;
+    var d = FH.data, tk = fhToday(d), a = b.getAttribute('data-fh-act');
+    if (a === 'addwo' || a === 'micwo') return fhSheetOpen({ kind: 'wo', title: 'Add a workout', date: tk, vals: {}, mic: a === 'micwo', saveLbl: fhSaveLabel });
+    var dk = b.getAttribute('data-fh-wo');
+    if (dk) {
+      var x = fhWoDay(d, dk), vals = { type: x.did ? x.type : (x.rest ? 'Rest / none' : ''), min: x.minutes, hike: x.hike, details: '' }, orig = {};
+      for (var q in vals) orig[q] = vals[q];
+      return fhSheetOpen({ kind: 'woday', title: 'Workout \u00b7 ' + trkDayLabel(dk), date: dk, fixedDate: true, vals: vals, orig: orig, saveLbl: fhSaveLabel });
+    }
+    var wkb = b.getAttribute('data-fh-wk'); if (wkb != null) { FH.woOff = Number(wkb); fhRenderWo(d); window.scrollTo(0, 0); return; }
+    if (a === 'wprev') { FH.woOff--; fhRenderWo(d); return; }
+    if (a === 'wnext') { if (FH.woOff < 0) FH.woOff++; fhRenderWo(d); return; }
+  }
+  function fhHmClick(ev) {
+    var b = ev.target.closest ? ev.target.closest('button') : null; if (!b) return;
+    var a = b.getAttribute('data-fh-act');
+    if (a === 'hmretry') { FH.hmState = 'loading'; fhHmRender(); return fhHmLoad(true, fhHmRender); }
+    if (a === 'hmadd' && FH.hmState === 'ok') return fhSheetOpen({ kind: 'hm', title: 'Add a health metric', vals: {}, orig: {}, saveLbl: fhSaveLabel });
+    var r = b.getAttribute('data-fh-hm');
+    if (r && FH.hmState === 'ok') {
+      var m = (FH.hm.metrics || []).filter(function (x) { return String(x.row) === r; })[0]; if (!m) return;
+      var vals = {}; HM_COLS.forEach(function (c) { vals[c[0]] = m[c[0]] == null ? '' : String(m[c[0]]); });
+      var orig = {}; for (var q in vals) orig[q] = vals[q];
+      return fhSheetOpen({ kind: 'hm', title: 'Edit \u00b7 ' + (m.metric || 'metric'), row: m.row, vals: vals, orig: orig, saveLbl: fhSaveLabel });
+    }
+  }
+  (function () {
+    var f = $('food-body'), w = $('wo-body'), hm = $('hm-body');
+    if (f) {
+      f.addEventListener('click', fhFoodClick);
+      f.addEventListener('change', function (e) { if (e.target.id !== 'food-date' || !FH.data) return; var tk = fhToday(); if (!e.target.value || e.target.value > tk) { e.target.value = FH.date; return; } FH.date = e.target.value; fhRenderFood(FH.data); });
+    }
+    if (w) w.addEventListener('click', fhWoClick);
+    if (hm) hm.addEventListener('click', fhHmClick);
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && FH.sheet) fhSheetClose(); });
+  })();
 
   /* ---------------- Vault (daily spend + income) ---------------- */
   // Main screen = account tiles, then a category section per account (Household, TiwiK, KiwiT),
@@ -5369,7 +6120,7 @@
         var stv = Number(m[1]); if (stv > 0 && stv <= 100000) { R.steps = Math.round(stv); any = true; measured = true; used = used.replace(m[0], ' '); }
       }
       // calories / macros (only when a number is said)
-      [['calories', '(?:calories|cals?|kcal)'], ['protein', '(?:g|grams?)\\s*(?:of\\s+)?protein'], ['carbs', '(?:g|grams?)\\s*(?:of\\s+)?(?:carbs?|carbohydrates?)'], ['fat', '(?:g|grams?)\\s*(?:of\\s+)?fats?']].forEach(function (k) {
+      [['calories', '(?:calories|cals?|kcal)'], ['protein', '(?:g|grams?)\\s*(?:of\\s+)?protein'], ['carbs', '(?:g|grams?)\\s*(?:of\\s+)?(?:carbs?|carbohydrates?)'], ['fat', '(?:g|grams?)\\s*(?:of\\s+)?fats?'], ['fiber', '(?:g|grams?)\\s*(?:of\\s+)?fib(?:er|re)']].forEach(function (k) {   // v122: + fiber (Food Log)
         var rx = new RegExp(SF_Q + '\\s*' + k[1] + '\\b'), rx2 = new RegExp('\\b' + k[1].replace(/^\(\?:g\|grams\?\)\\s\*\(\?:of\\s\+\)\?/, '') + '\\s*(?:was|of|:)?\\s*' + SF_Q + '\\s*(?:g|grams?)?\\b'), mt = rx.exec(n);
         if (!mt && k[0] !== 'calories') mt = rx2.exec(n);
         if (!mt && k[0] === 'calories') mt = new RegExp('\\b(?:calories|cals)\\s*(?:was|were|:)?\\s*' + SF_Q).exec(n);
@@ -5430,6 +6181,7 @@
     if (r.workouts.length) v.workout = r.workouts.map(function (w) { return w.label; }).join('; ');
     ['workoutMin', 'hike', 'steps', 'weight', 'sleep', 'calories', 'protein', 'carbs', 'fat'].forEach(function (k) { if (r[k] != null && r[k] !== '') v[k] = r[k]; });
     if (r.notes) v.notes = r.notes;
+    if (r.fiber != null) v.notes = (v.notes ? v.notes + '; ' : '') + '[Fiber: ' + r.fiber + ' g]';   // v122: no Fiber column yet: kept in Notes like the Food Log does
     return v;
   }
   function sfReset() { sf.auto = true; sf.vals = {}; sf.edited = {}; sf.lastText = null; sf.waterMode = 'add'; sf.sig = ''; clearTimeout(sf.t); sfRender(); }
@@ -15552,7 +16304,11 @@
   // later defaults to Business. Saved layouts from v110 and earlier (v:1) get a one-time move of the three into Archive.
   // v113: new empty Home folder 'Lisa' (f:lisa, #hf/lisa, same generic layout-folder screen as Archive). Default layout
   // has it last on Home; saved layouts from v112 and earlier (v:2 or lower) get a one-time add at the end of Home.
-  var HL_KEY = 'cc_home_layout', HL_OLD_KEY = 'cc_home_order', HL_VER = 3;
+  // v122: new Home folder 'Fitness & Health' (f:fh, #hf/fh) holding Daily Log (moved in), Food Log, Workout Log and a 'Medical'
+  // sub-folder (f:medical, #hf/medical) with Health Metrics. Saved layouts from v120 and earlier (v:3 or lower) get a one-time move:
+  // the folder takes the Daily Log button's place (same folder, same spot), the Daily Log goes inside it; nothing else moves.
+  var HL_KEY = 'cc_home_layout', HL_OLD_KEY = 'cc_home_order', HL_VER = 4;
+  var HL_FH_IN = ['log', 'food', 'workouts', 'f:medical'], HL_FH_NEW = ['f:fh', 'food', 'workouts', 'f:medical', 'health'];
   var HL_BIZ_ORIG = ['biz/sierra', 'biz/kiwit', 'biz/tiwik'];
   var HL_TO_ARCHIVE = HL_BIZ_ORIG.concat(['fin/overview', 'fin/laundromat']);   // v111: these start in (and migrate to) Business > Archive
   function hlIsBizId(id) { return typeof id === 'string' && /^biz\/[^\/\s]+$/.test(id); }
@@ -15572,6 +16328,11 @@
     'pc':        { label: 'Plan Checks', go: 'pc', sub: 'Mic checklist \u00b7 fullscreen plan \u00b7 pins & notes', cls: 'pc-entry' },
     'f:archive': { label: 'Archive', go: 'hf/archive', folder: true },
     'f:lisa':    { label: 'Lisa', go: 'hf/lisa', folder: true },   // v113: empty Home folder (drag buttons in)
+    'f:fh':      { label: 'Fitness & Health', go: 'hf/fh', folder: true },   // v122: Daily Log (overview), Food Log, Workout Log, Medical
+    'food':      { label: 'Food Log', go: 'food' },
+    'workouts':  { label: 'Workout Log', go: 'workouts' },
+    'f:medical': { label: 'Medical', go: 'hf/medical', folder: true },     // v122: Health Metrics (+ whatever is dragged in)
+    'health':    { label: 'Health Metrics', go: 'health' },
     // v111: the Finances screens (same routes as the old Finances hub buttons, so a tap opens the same screen)
     'fin/ledger':     { label: FIN_PAGES.ledger.label, go: 'fin/ledger', sub: FIN_PAGES.ledger.sub },
     'fin/overview':   { label: FIN_PAGES.overview.label, go: 'fin/overview', sub: FIN_PAGES.overview.sub },
@@ -15579,8 +16340,10 @@
     'fin/invest':     { label: FIN_PAGES.invest.label, go: 'fin/invest', sub: FIN_PAGES.invest.sub }   // v121: Finances > Investments (slots in after Ledger on saved layouts too)
   };
   var HL_DEFAULT = {
-    home: ['projects', 'log', 'spend', 'fin', 'insn', 'lt', 'pt', 'trust', 'ent/kiwit', 'ent/tiwik', 'mf', 'biz', 'f:lisa'],
+    home: ['projects', 'f:fh', 'spend', 'fin', 'insn', 'lt', 'pt', 'trust', 'ent/kiwit', 'ent/tiwik', 'mf', 'biz', 'f:lisa'],
     projects: ['pc'],
+    'f:fh': HL_FH_IN.slice(),
+    'f:medical': ['health'],
     biz: ['f:archive'],
     fin: ['fin/ledger', 'fin/invest'],
     'f:archive': HL_TO_ARCHIVE.slice()
@@ -15637,21 +16400,36 @@
         Object.keys(mf).forEach(function (fid) { if (Array.isArray(mf[fid])) mf[fid] = mf[fid].filter(function (id) { return HL_TO_ARCHIVE.indexOf(id) < 0; }); });
         mf['f:archive'] = (Array.isArray(mf['f:archive']) ? mf['f:archive'] : []).concat(HL_TO_ARCHIVE);
       }
+      var moved = false;
       if (!(raw.v >= 3)) {   // v113 one-time migration: the new Lisa folder goes at the end of Home; nothing else moves
         var mg = raw.f;
         Object.keys(mg).forEach(function (fid) { if (Array.isArray(mg[fid])) mg[fid] = mg[fid].filter(function (id) { return id !== 'f:lisa'; }); });
         mg.home = (Array.isArray(mg.home) ? mg.home : []).concat(['f:lisa']);
-        hl.f = hlNormalize(mg); hlSave(); return;
+        moved = true;
       }
-      hl.f = hlNormalize(raw.f); return;
+      if (!(raw.v >= 4)) { hlMigrateFh(raw.f); moved = true; }   // v122 one-time migration: Fitness & Health folder
+      hl.f = hlNormalize(raw.f); if (moved) hlSave(); return;
     }
     var src = JSON.parse(JSON.stringify(HL_DEFAULT)), old = [];   // first run: carry over the old Home order (v<=106)
     try { old = JSON.parse(localStorage.getItem(HL_OLD_KEY) || '[]') || []; } catch (e) { old = []; }
     if (Array.isArray(old) && old.length) {
+      old = old.map(function (id) { return id === 'log' ? 'f:fh' : id; });   // v122: the Daily Log now lives in Fitness & Health
       var rest = src.home.filter(function (id) { return old.indexOf(id) < 0; });
       src.home = old.filter(function (id) { return src.home.indexOf(id) >= 0; }).concat(rest);
     }
     hl.f = hlNormalize(src);
+  }
+  // v122: put the Fitness & Health folder where the Daily Log button was (its folder, its spot) and move the Daily Log into it with the new
+  // Food Log, Workout Log and Medical (Health Metrics). Every other button keeps its folder and order.
+  function hlMigrateFh(mf) {
+    Object.keys(mf).forEach(function (fid) { if (Array.isArray(mf[fid])) mf[fid] = mf[fid].filter(function (id) { return HL_FH_NEW.indexOf(id) < 0; }); });
+    delete mf['f:fh']; delete mf['f:medical'];
+    var par = '', at = -1;
+    Object.keys(mf).forEach(function (fid) { if (!par && Array.isArray(mf[fid])) { var i = mf[fid].indexOf('log'); if (i >= 0) { par = fid; at = i; } } });
+    if (par) mf[par].splice(at, 1, 'f:fh');
+    else mf.home = (Array.isArray(mf.home) ? mf.home : []).concat(['f:fh']);
+    mf['f:fh'] = HL_FH_IN.slice();
+    mf['f:medical'] = ['health'];
   }
   function hlSave() {
     try { localStorage.setItem(HL_KEY, JSON.stringify({ v: HL_VER, f: hl.f })); } catch (e) {}
@@ -15742,7 +16520,7 @@
     }
     hlEnsureBiz();
   }
-  function hlOpenFolder(kind) {          // #hf/<name> = a layout-only folder (Archive, Lisa)
+  function hlOpenFolder(kind) {          // #hf/<name> = a layout-only folder (Archive, Lisa, Fitness & Health = fh, Medical)
     var id = 'f:' + (kind || 'archive');
     if (!HL_ITEMS[id]) { state.hfId = ''; return false; }
     state.hfId = id; hlRender(); return true;

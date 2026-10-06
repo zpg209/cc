@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lora:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=121">
+<link rel="stylesheet" href="app.css?v=122">
 </head>
 <body>
   <div class="bg"></div>
@@ -248,7 +248,7 @@
   </section>
 
   <section id="screen-log" class="screen fitscreen">
-    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><h2>Daily Log</h2></div>
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="log-back" data-go="hf/fh" hidden>&lsaquo; Back</button><h2>Daily Log</h2></div>
     <div class="enttabs two" aria-label="Daily Tracker and Daily Log"><button data-go="track">Tracker</button><button data-go="log" class="on">Log</button></div>
     <div id="log-top"></div>
     <div class="weeknav">
@@ -257,6 +257,20 @@
       <button class="navbtn" id="log-next">Next week &rsaquo;</button>
     </div>
     <div id="log-body"><div class="loading">Loading…</div></div>
+  </section>
+
+  <!-- ============ FITNESS & HEALTH (v122): Food Log, Workout Log, Medical > Health Metrics ============ -->
+  <section id="screen-food" class="screen fitscreen fhscreen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="food-back" data-go="hf/fh">&lsaquo; Back</button><h2>Food Log</h2></div>
+    <div id="food-body"><div class="loading">Loading…</div></div>
+  </section>
+  <section id="screen-workouts" class="screen fitscreen fhscreen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="wo-back" data-go="hf/fh">&lsaquo; Back</button><h2>Workout Log</h2></div>
+    <div id="wo-body"><div class="loading">Loading…</div></div>
+  </section>
+  <section id="screen-health" class="screen fitscreen fhscreen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="hm-back" data-go="hf/medical">&lsaquo; Back</button><h2>Health Metrics</h2></div>
+    <div id="hm-body"><div class="loading">Loading…</div></div>
   </section>
 
   <!-- ============ VAULT (daily spend + income) ============ -->
@@ -314,6 +328,6 @@
     <div id="vcam-body"></div>
   </section>
 
-  <script src="app.js?v=121"></script>
+  <script src="app.js?v=122"></script>
 </body>
 </html>

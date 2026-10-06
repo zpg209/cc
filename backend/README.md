@@ -63,3 +63,38 @@ What it adds:
 Until it is deployed (front end v121): Finances > Investments works fully on the phone. Edits are saved in that browser's localStorage (`cc_invest_v1`) and the screen says "Saved on this phone only". When the server answers `invest`, the phone merges per account (newest `updated` wins), pushes up any newer phone copy, and then saves every edit to the server too. No front-end change is needed.
 
 Check after deploying: `…/exec?api=1&pc=PASSCODE&action=invest` should return `{"ok":true,"data":{"accts":{"etrade":null,"af":null,"crypto":null},"version":49}}` until something is saved.
+
+## fh-fiber-notes.patch (API v50, Fitness & Health: fiber column + meals from Notes)
+Patch against Api.gs v45. It is independent of the other patches here and applies before or after dlog-week-sunday.patch, doc-share.patch, investments.patch and health-metrics.patch. Apply it, then redeploy the Apps Script web app (Zac signs in, Deploy > Manage deployments > edit > New version). No new scopes.
+
+What it adds:
+- logday: `fiber=` (g), plus `sugar=` (g) and `sodium=` (mg) for later. They take `mode=add|set` like the macros. The first value adds a "Fiber (g)" (or "Sugar (g)" / "Sodium (mg)") header at the END of the Phone Log, the same way Hike miles and Steps are added. Nothing is moved. The backup and the CC write log journal are the same as for every logday.
+- log read: each `ext.history[]` / `ext.today` item also carries `fiber`, `sugar`, `sodium` and `notes` (the day's Notes text, all rows of that day joined with " | ", newest 1,500 characters).
+- `ext.version: 22`, `ext.notesInHistory: true`, `ext.write.fiber: true`, `ext.write.nutrients`, and `ext.columns.fiber/sugar/sodium/notes`.
+- Optional server-side fiber target: add `fiber: <grams>` to `CONFIG.TARGETS` in Code.gs and it reaches the phone as `ext.targets.fiber`. Nothing sets one today, because Zac hasn't picked a number.
+
+Until it is deployed (front end v122):
+- Fiber is saved in the meal's Notes as "[Fiber: N g]" (Food Log and the Tracker's smart fill). It is also kept in the meal list on that phone, so the Food Log can total it.
+- The Food Log lists meals added on that phone plus meals in recent voice notes. Meals typed straight into the sheet's Notes appear after the update.
+- The phone notices the update on its own (`ext.write.fiber` / `ext.notesInHistory`). After that it sends `fiber=`, reads the Fiber column first, and falls back to the Notes tags for older days. No front-end change is needed.
+
+Check after deploying: `…/exec?api=1&pc=PASSCODE&action=log` should include `"notesInHistory":true` and `"fiber":true` inside `ext.write`.
+
+## health-metrics.patch (API v51, Fitness & Health > Medical > Health Metrics)
+Patch against Api.gs v45. It is independent of the other patches here. Apply it, then redeploy (Zac signs in). It uses SpreadsheetApp only, which the script already uses, so no new scopes.
+
+Sheet: "Health Metrics" in Second Brain / Fitness & Health / Medical (id `1NMxPbmskd-yfP3PNg5qgFiivwZFWmyGF2dEL-CIxTgQ`, first tab). Row 1 is the header row: Metric | Current value | Unit | Optimal/target range | Date measured | Measurement standard/source | Levers (diet/supplement) | Notes. It starts EMPTY.
+
+What it adds (both behind the same passcode check as every action):
+- `action=healthmetrics`: read-only, creates nothing. Returns `{ version:51, sheetId, url, tab, columns:[{key,label,found}], metrics:[{row, metric, value, unit, range, date, source, levers, notes}] }`. Blank rows are skipped.
+- `action=healthmetricset`: `[&row=N&was=<metric now in row N>]&metric=..[&value=..&unit=..&range=..&date=..&source=..&levers=..&notes=..]&cid=..[&dry=1]`.
+  - No `row`: appends one metric. The name is required and a duplicate name is refused.
+  - With `row`: updates ONLY the fields sent ("" clears one). If `was` doesn't match the metric now in that row (the sheet was re-sorted), it refuses with `moved`.
+  - Writes plain-text cells. A value starting with = + - @ is stored as text, never as a formula. Length caps apply per field, up to 500 metrics.
+  - LockService, plus cid retry-safety for 6 h. Nothing is ever deleted.
+  - Each change is journaled on a "CC write log" tab inside the Health Metrics sheet, created on the first write.
+  - A missing header is added right of the last header.
+
+Until it is deployed (front end v122), Medical > Health Metrics shows "No metrics yet" with a link to open the sheet. "+ Add metric" stays disabled, and a note explains that adding and editing switch on after this update. The Daily Log overview card says "None yet". After deploying, the phone notices the action on its own: the list, + Add metric and tap-to-edit start working.
+
+Check after deploying: `…/exec?api=1&pc=PASSCODE&action=healthmetrics` should return `"version":51` and `"metrics":[]`.

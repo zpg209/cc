@@ -1,0 +1,163 @@
+--- a/Api.gs
++++ b/Api.gs
+@@ -45,6 +45,8 @@
+  *   GET  <exec>?api=1&pc=123456&action=debttabs&dry=1    (admin v30: create + seed the Debts and Bills tabs from the current Overview Doc values; idempotent; also debtset, billadd, billpaid, billdel, debtdel, see DEBTTABS_CHANGE.md)
+  *   POST <exec>  body (Content-Type text/plain): {"pc":"123456","action":"log","offset":0}
+  *   POST <exec>  body (text/plain JSON) {"pc":..,"action":"receiptsave","cid":"abc","kind":"expense|income","account":"Household|TiwiK|KiwiT","date":"2026-10-03","amount":12.5,"merchant":"..","note":"..","mime":"image/jpeg","data":"<base64 JPEG>"[,"dry":1]}   (admin v33+: file a receipt photo in Drive under Financial/Expenses/<Account>/<YYYY>/<MM>; see RECEIPTS_CHANGE.md)
++ *   GET  <exec>?api=1&pc=123456&action=healthmetrics     (v51 Fitness & Health > Medical: rows of the "Health Metrics" sheet {version,sheetId,url,tab,columns,metrics:[{row,metric,value,unit,range,date,source,levers,notes}]}; read-only, creates nothing)
++ *   GET  <exec>?api=1&pc=123456&action=healthmetricset[&row=N&was=<metric now in row N>]&metric=..[&value=..&unit=..&range=..&date=..&source=..&levers=..&notes=..]&cid=abc[&dry=1]   (admin v51: append ONE metric (no row; metric required) or update ONLY the sent fields of row N; "" clears a field; plain-text cells; LockService + cid retry-safe; deletes nothing)
+  *   GET  <exec>?api=1&pc=123456&action=receipts[&offset=0|&month=2026-10][&kind=expense|income][&account=..][&limit=50]   (v33+: receipt photos filed for a month; read-only, never creates folders)
+  *
+  * Responses are JSON. Bad/missing passcode -> {"error":"auth"} with no data.
+@@ -142,6 +144,8 @@
+       case 'billpaid':  return apiBillPaid_(extra.all || {});
+       case 'billdel':   return apiRowDel_('bills', extra.all || {});
+       case 'debtdel':   return apiRowDel_('debts', extra.all || {});
++      case 'healthmetrics':   return apiHealthMetrics_();                     // v51: Fitness & Health > Medical > Health Metrics
++      case 'healthmetricset': return apiHealthMetricSet_(extra.all || {});
+       default:      return { error: 'bad_action' };
+     }
+   } catch (err) {
+@@ -7938,4 +7942,142 @@
+   } finally {
+     lock.releaseLock();
+   }
++}
++
++/* ======================================================================== */
++/* Health Metrics (v51) — Fitness & Health > Medical > Health Metrics        */
++/*   Sheet "Health Metrics" in Second Brain/Fitness & Health/Medical, one    */
++/*   header row: Metric | Current value | Unit | Optimal/target range |      */
++/*   Date measured | Measurement standard/source | Levers (diet/supplement)  */
++/*   | Notes. It starts EMPTY; the phone adds rows. Same passcode check as   */
++/*   every action (apiDispatch_). Read creates nothing. Writes: LockService, */
++/*   cid retry-safety (6 h), plain-text cells (no date/number auto-convert), */
++/*   only the sent fields change, nothing is ever deleted, every write is    */
++/*   journaled on a "CC write log" tab in the same sheet.                    */
++/* ======================================================================== */
++var API_HM_CFG = {
++  sheetId: '1NMxPbmskd-yfP3PNg5qgFiivwZFWmyGF2dEL-CIxTgQ',
++  tab: '',                 // '' = the first tab (it is still called "Untitled" / "Sheet1")
++  fields: [                // key, header written when missing, header candidates, max length
++    ['metric', 'Metric', ['metric', 'metric name', 'name'], 120],
++    ['value',  'Current value', ['current value', 'value', 'current'], 120],
++    ['unit',   'Unit', ['unit', 'units'], 40],
++    ['range',  'Optimal/target range', ['optimal/target range', 'optimal range', 'target range', 'optimal', 'target'], 200],
++    ['date',   'Date measured', ['date measured', 'date', 'measured'], 40],
++    ['source', 'Measurement standard/source', ['measurement standard/source', 'measurement standard', 'source', 'standard'], 300],
++    ['levers', 'Levers (diet/supplement)', ['levers (diet/supplement)', 'levers', 'diet/supplement'], 1000],
++    ['notes',  'Notes', ['notes', 'note', 'comments'], 2000]
++  ],
++  maxRows: 500,
++  journalTab: 'CC write log'
++};
++
++function apiHmSheet_() {
++  var ss = SpreadsheetApp.openById(API_HM_CFG.sheetId);
++  var sh = API_HM_CFG.tab ? ss.getSheetByName(API_HM_CFG.tab) : ss.getSheets()[0];
++  if (!sh) throw new Error('Health Metrics tab not found.');
++  return { ss: ss, sh: sh };
++}
++
++function apiHmCols_(headerRow) {
++  var spec = {};
++  API_HM_CFG.fields.forEach(function (f) { spec[f[0]] = f[2]; });
++  return mapHeaders_(headerRow, spec);
++}
++
++function apiHmRead_(sh) {
++  var lastRow = sh.getLastRow(), lastCol = Math.max(1, sh.getLastColumn());
++  var vals = lastRow ? sh.getRange(1, 1, lastRow, lastCol).getDisplayValues() : [[]];
++  var col = apiHmCols_(vals[0] || []), rows = [];
++  for (var r = 1; r < vals.length; r++) {
++    var o = { row: r + 1 }, any = false;
++    API_HM_CFG.fields.forEach(function (f) {
++      var c = col[f[0]], v = c >= 0 ? String(vals[r][c] == null ? '' : vals[r][c]).trim() : '';
++      o[f[0]] = v; if (v) any = true;
++    });
++    if (any) rows.push(o);
++  }
++  return { col: col, rows: rows, lastRow: lastRow, lastCol: lastCol };
++}
++
++function apiHealthMetrics_() {
++  var h = apiHmSheet_(), rd = apiHmRead_(h.sh);
++  return { ok: true, data: {
++    version: 51,
++    sheetId: API_HM_CFG.sheetId,
++    url: 'https://docs.google.com/spreadsheets/d/' + API_HM_CFG.sheetId + '/edit',
++    tab: h.sh.getName(),
++    columns: API_HM_CFG.fields.map(function (f) { return { key: f[0], label: f[1], found: rd.col[f[0]] >= 0 }; }),
++    metrics: rd.rows
++  } };
++}
++
++function apiHealthMetricSet_(p) {
++  function has(k) { return p[k] !== undefined && p[k] !== null; }
++  var F = API_HM_CFG.fields, sent = {}, n = 0, bad = null;
++  F.forEach(function (f) {
++    if (!has(f[0])) return;
++    var v = String(p[f[0]]).replace(/[\r\n]+/g, ' ').trim();
++    if (v.length > f[3]) { bad = f[1] + ' is too long (max ' + f[3] + ' characters).'; return; }
++    if (/^[=+\-@]/.test(v)) v = "'" + v;     // never let a typed value run as a formula
++    sent[f[0]] = v; n++;
++  });
++  if (bad) return { error: 'bad_value', message: bad };
++  var rowIn = has('row') && String(p.row).trim() !== '' ? parseInt(p.row, 10) : 0;
++  if (has('row') && String(p.row).trim() !== '' && !(rowIn >= 2)) return { error: 'bad_value', message: 'row must be 2 or more.' };
++  if (!rowIn && !sent.metric) return { error: 'bad_value', message: 'Name the metric.' };
++  if (rowIn && has('metric') && !sent.metric) return { error: 'bad_value', message: 'A metric needs a name.' };
++  if (!n) return { error: 'bad_value', message: 'Nothing to write.' };
++  var dry = /^(1|true|yes)$/i.test(String(p.dry || ''));
++  var cid = String(p.cid || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);
++  var cache = CacheService.getScriptCache(), ck = cid ? 'cc_hmset_' + cid : '';
++
++  var lock = LockService.getScriptLock();
++  try { lock.waitLock(20000); } catch (e) { return { error: 'busy', message: 'Another update is running. Try again.' }; }
++  try {
++    if (ck && !dry) { var seen = cache.get(ck); if (seen) { var pj = JSON.parse(seen); pj.duplicate = true; return { ok: true, data: pj }; } }
++    var h = apiHmSheet_(), sh = h.sh, rd = apiHmRead_(sh), col = rd.col;
++    var addHeads = F.filter(function (f) { return col[f[0]] < 0 && sent[f[0]] !== undefined; }).map(function (f) { return f[1]; });
++    var rowNum, before = {};
++    if (rowIn) {
++      var cur = null;
++      rd.rows.forEach(function (x) { if (x.row === rowIn) cur = x; });
++      if (!cur) return { error: 'not_found', message: 'That row has no metric. Refresh and try again.' };
++      if (has('was') && String(p.was).trim() !== cur.metric) return { error: 'moved', message: 'The sheet changed (row ' + rowIn + ' is now "' + cur.metric + '"). Refresh and try again.' };
++      rowNum = rowIn; before = cur;
++    } else {
++      if (rd.rows.length >= API_HM_CFG.maxRows) return { error: 'too_many', message: 'The list is full (' + API_HM_CFG.maxRows + ' metrics).' };
++      var dupe = rd.rows.filter(function (x) { return x.metric.toLowerCase() === sent.metric.replace(/^'/, '').toLowerCase(); })[0];
++      if (dupe) return { error: 'duplicate', message: '"' + dupe.metric + '" is already in the list (row ' + dupe.row + '). Edit it instead.' };
++      rowNum = Math.max(rd.lastRow, 1) + 1;
++    }
++    var result = { row: rowNum, created: !rowIn, written: {}, addedColumns: addHeads, dry: dry };
++    F.forEach(function (f) { if (sent[f[0]] !== undefined) result.written[f[0]] = { before: before[f[0]] || '', after: sent[f[0]] }; });
++    if (dry) return { ok: true, data: result };
++
++    if (addHeads.length) {               // a missing header goes right of the last one (nothing is moved)
++      var lc = rd.lastRow ? sh.getLastColumn() : 0;
++      addHeads.forEach(function (hd, i) { sh.getRange(1, lc + i + 1).setValue(hd); });
++      SpreadsheetApp.flush();
++      rd = apiHmRead_(sh); col = rd.col;
++    }
++    F.forEach(function (f) {
++      if (sent[f[0]] === undefined || col[f[0]] < 0) return;
++      var cell = sh.getRange(rowNum, col[f[0]] + 1);
++      cell.setNumberFormat('@');
++      cell.setValue(sent[f[0]]);
++    });
++    SpreadsheetApp.flush();
++    try {
++      var jt = h.ss.getSheetByName(API_HM_CFG.journalTab);
++      if (!jt) { jt = h.ss.insertSheet(API_HM_CFG.journalTab); jt.appendRow(['When', 'Action', 'Row', 'Field', 'Before', 'After', 'cid']); }
++      Object.keys(result.written).forEach(function (k) {
++        jt.appendRow([new Date(), rowIn ? 'healthmetricset update' : 'healthmetricset add', rowNum, k, String(result.written[k].before).slice(0, 200), String(result.written[k].after).slice(0, 200), cid]);
++      });
++    } catch (je) { console.error('CC API health metrics journal error: ' + (je && je.stack || je)); }
++    if (ck) cache.put(ck, JSON.stringify(result), 21600);
++    return { ok: true, data: result };
++  } finally {
++    lock.releaseLock();
++  }
+ }
