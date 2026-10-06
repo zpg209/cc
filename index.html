@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lora:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=110">
+<link rel="stylesheet" href="app.css?v=111">
 </head>
 <body>
   <div class="bg"></div>
@@ -60,7 +60,6 @@
       <button class="tile" data-go="mf">Mono Fold</button>
       <button class="tile" data-go="biz">Business</button>
     </div>
-    <button class="linkrow hl-editlink" id="hl-editlink" type="button" aria-pressed="false">&#9998; Edit Home (move buttons)</button>
     <button class="linkrow refreshbtn" id="cc-refresh" type="button">&#8635; Refresh app</button>
   </section>
 
@@ -145,7 +144,7 @@
     <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="hf-back" data-go="biz">&lsaquo; Back</button><h2 id="hf-title">Archive</h2></div>
     <p class="hint" id="hf-path"></p>
     <div class="grid2 homegrid hl-grid" id="hf-grid" data-hl-folder="f:archive"></div>
-    <p class="hint hl-foot">Press and hold any button about a second until the buttons shake (or tap Edit Home), then drag it onto a folder or between buttons.</p>
+    <p class="hint hl-foot">Press and hold any button about a second until the buttons shake, then drag it onto a folder or between buttons.</p>
   </section>
 
   <!-- ============ REAL ESTATE (#re, #re/<slug>) + INSURANCE (#ins) — live from Drive ============ -->
@@ -189,6 +188,7 @@
   <section id="screen-fin" class="screen fin">
     <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="fin-back" data-go="home">&lsaquo; Back</button><button class="homebtn refbtn" id="fin-refresh" aria-label="Refresh" hidden>&#8635;</button></div>
     <h2 class="pagetitle" id="fin-title">Finances</h2>
+    <div class="grid2 homegrid hl-grid hl-sub" id="hl-fin" data-hl-folder="fin" hidden></div>
     <div id="fin-body"><div class="loading">Loading…</div></div>
   </section>
 
@@ -295,6 +295,6 @@
     <div id="vcam-body"></div>
   </section>
 
-  <script src="app.js?v=110"></script>
+  <script src="app.js?v=111"></script>
 </body>
 </html>

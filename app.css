@@ -2158,9 +2158,6 @@ html.pc-fs-open, html.pc-fs-open body { overflow: hidden !important; touch-actio
 .hl-grid .tile { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 .hl-grid .tile.hl-pop { animation: hlpop .26s ease-out !important; }
 @keyframes hlpop { 0% { transform: scale(.9); } 60% { transform: scale(1.08); } 100% { transform: scale(1); } }
-.hl-editlink { margin: 14px auto 0; display: block; width: auto; min-width: 180px; padding: 10px 20px; font-size: 16px; color: var(--muted);
-  background: transparent; border: 1px dashed rgba(208,138,85,.45); border-radius: var(--radius); font-family: inherit; cursor: pointer; }
-.hl-editlink[aria-pressed="true"] { color: var(--red); border-style: solid; border-color: var(--red); }
 #home-grid .tile .sub { display: none; }
 .hl-sub { margin-bottom: 12px; }
 /* folder buttons: a small copper folder mark in the corner */
