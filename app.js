@@ -16384,6 +16384,7 @@
       var an = pcFindAnnot(id);
       if (an) {
         an.text = t.value;
+        document.querySelectorAll('#screen-pc [data-pc-annot-text="' + id + '"]').forEach(function (o) { if (o !== t) o.value = t.value; });
         var preview = document.querySelector('.pcannot[data-id="' + id + '"] .pcannotbody');
         if (preview) preview.textContent = (t.value || '').trim() || 'Note\u2026';
         pcAutosave();
@@ -16407,6 +16408,8 @@
           pcEnsureItems();
           while (pc.items.length < n) pc.items.push({ text: '', pin: null });
           pc.items[n - 1].text = t.value;
+          // keep the other copy (editor list vs fullscreen dock) in step so a later DOM read can't bring back old text
+          document.querySelectorAll('#screen-pc [data-pc-item="' + n + '"]').forEach(function (o) { if (o !== t) o.value = t.value; });
           if (n !== pc.cur) {
             document.querySelectorAll('#pc-items .pcitem').forEach(function (row) {
               row.classList.toggle('on', parseInt(row.getAttribute('data-pc-row'), 10) === n);
