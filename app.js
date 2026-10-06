@@ -1565,6 +1565,8 @@
   var SRC_LABEL = {};
   SRC_LABEL['Mono Village Laundromat'] = 'TiwiK (MVL)';
   SRC_LABEL['KiwiT rent'] = 'KiwiT';   // v116: Lisa's Table shows as itself; the KiwiT rent source displays as 'KiwiT'
+  var ACCT_LABEL = { TiwiK: 'TiwiK (MVL)' };   // v117: display only; stored Account stays 'TiwiK'
+  function acctLabel(a) { return Object.prototype.hasOwnProperty.call(ACCT_LABEL, a) ? ACCT_LABEL[a] : a; }
   function srcLabel(s) { return Object.prototype.hasOwnProperty.call(SRC_LABEL, s) ? SRC_LABEL[s] : s; }
 
   function loadSpend(force) {
@@ -1925,7 +1927,7 @@
         (d.byCategory || []).forEach(function (c) { var k = normCat(c.name); m[k] = (m[k] || 0) + c.amount; });
         cats = sortedPairs(m); total = Number(d.total) || 0;
       } else { cats = []; total = 0; }
-      return { name: a, amount: r2(total), cats: cats, count: list.length };
+      return { name: a, label: acctLabel(a), amount: r2(total), cats: cats, count: list.length };
     });
     var hh = items.filter(function (x) { return x.account === 'Household'; });
     var who = full ? Object.keys(sumBy(hh, 'who')).map(function (k) { return { name: k, amount: r2(sumBy(hh, 'who')[k]) }; })
@@ -1963,7 +1965,7 @@
     var u = g ? SHEET_URL + '?gid=' + g + '#gid=' + g : SHEET_URL;
     return '<a class="linkrow sheetbtn" data-title="Spend sheet" href="' + esc(u) + '">' + esc(label || 'Open in spend sheet') + ' &#8599;</a>';
   }
-  var CALC_LABELS = { 'tiwik-net': 'TiwiK net', 'lt-net': "Lisa's Table net", 'hh-spend': 'Household spend',
+  var CALC_LABELS = { 'tiwik-net': 'TiwiK (MVL) net', 'kiwit-net': 'KiwiT net', 'lt-net': "Lisa's Table net", 'hh-spend': 'Household spend',
     'avg-spend': 'Avg daily spend', 'avg-income': 'Avg daily income', 'month-net': 'Net (income \u2212 spend)' };
   function cashRoute(acct, cat) { return 'spend/cash/' + encodeURIComponent(acct || 'All') + (cat ? '/' + encodeURIComponent(cat) : ''); }
   function whoRoute(w) { return 'spend/who/' + encodeURIComponent(w); }
@@ -1998,7 +2000,7 @@
       var meta = [];
       if (!opt.chip && !opt.catPage && e.category) meta.push(catTag(e.category));      // v114: the category shows on every row (the chip shows it otherwise)
       if (e.method) meta.push(isCash(e) ? '<span class="cashtag">' + esc(e.method) + '</span>' : esc(e.method));
-      if (opt.acct && e.account !== 'Household') meta.push('<span class="acct-tag">' + esc(e.account) + '</span>');
+      if (opt.acct && e.account !== 'Household') meta.push('<span class="acct-tag">' + esc(acctLabel(e.account)) + '</span>');
       if (opt.paid) meta.push(e.paidFrom ? '<span class="pf-tag' + (e.paidFrom === 'Household card/account' ? ' pf-hh' : '') + '">Paid from: ' + esc(e.paidFrom) + '</span>' : (opt.paid === 'need' ? '<span class="pf-tag pf-none">Paid from: not set</span>' : ''));
       return '<div class="entry item' + vEntCls(e) + '"' + vEntAttr('exp', e) + '><div class="d">' + esc(e.label) + '<br>' + esc(e.who) + '</div>' +
         '<div class="m"><div class="mer">' + esc(e.merchant || '—') + '</div>' +
@@ -2608,8 +2610,8 @@
         b += barRows(a.cats, function (c) { return catRoute(c, a.name); }, '',
           cashOK ? function (c) { return { v: cashOf(mine.filter(function (x) { return x.category === c; })), route: cashRoute(a.name, c) }; } : null);
         if (cashOK) b += '<div class="cashtot">' + cashBtn(cashOf(mine), cashRoute(a.name)) + '</div>';
-        b += totBtn(a.name + ' total', a.amount, acctRoute(a.name)).replace('totrow tapt', 'totrow tapt' + (cashOK ? ' hascash' : ''));
-        h += vSec('acct-' + a.name, 'acctsec', esc(a.name), '<span class="amt-out">' + money(a.amount) + '</span>', acctRoute(a.name), b);
+        b += totBtn(acctLabel(a.name) + ' total', a.amount, acctRoute(a.name)).replace('totrow tapt', 'totrow tapt' + (cashOK ? ' hascash' : ''));
+        h += vSec('acct-' + a.name, 'acctsec', esc(acctLabel(a.name)), '<span class="amt-out">' + money(a.amount) + '</span>', acctRoute(a.name), b);
       });
 
       var allCats = sortedPairs(sumBy(M.items, 'category'));
@@ -2631,7 +2633,8 @@
         sumBtn('', 'spend/all', 'Total spend', '<span class="amt amt-out">' + money(M.total) + '</span>') +
         sumBtn('minor', calcRoute('avg-income'), 'Avg daily income', '<span class="amt amt-in">' + perDay(M.incomeTotal) + '</span>') +
         sumBtn('minor', calcRoute('avg-spend'), 'Avg daily spend', '<span class="amt amt-out">' + perDay(M.total) + '</span>') +
-        netLine('tiwik-net', 'TiwiK net', srcTot('Mono Village Laundromat'), acctTot('TiwiK'), 'Spent') +
+        netLine('tiwik-net', 'TiwiK (MVL) net', srcTot('Mono Village Laundromat'), acctTot('TiwiK'), 'Spent') +
+        netLine('kiwit-net', 'KiwiT net', srcTot(KR_SOURCE), acctTot('KiwiT'), 'Spent') +
         netLine('lt-net', "Lisa's Table net", srcTot("Lisa's Table"), groc, 'Groceries') +
         sumBtn('net cmp', calcRoute('hh-spend'), 'Household spend<small>Running month total · excludes groceries (counted in Lisa\'s Table net)</small>',
           '<span class="amt neg">\u2212' + money(Math.abs(r2(hhTot - groc))) + '</span>');
@@ -2690,6 +2693,13 @@
             part('Spent · TiwiK', '\u2212' + money(sum(ts)), acctRoute('TiwiK'), 'out') +
             (cashOK ? part('&nbsp;&nbsp;of which Cash', money(cashOf(ts)), cashRoute('TiwiK')) : ''),
           secs: [{ head: 'Income entries', inc: ti }, { head: 'TiwiK spend entries', sp: ts }] };
+      } else if (key === 'kiwit-net') {
+        var ki = srcList(KR_SOURCE), ks = inAcct('KiwiT'), nk = r2(sum(ki) - sum(ks));
+        c = { val: nk, note: 'KiwiT rent income − everything spent from the KiwiT account (cash and non-cash).',
+          parts: part('Income · KiwiT', money(sum(ki)), incomeRoute(KR_SOURCE), 'in') +
+            part('Spent · KiwiT', '\u2212' + money(sum(ks)), acctRoute('KiwiT'), 'out') +
+            (cashOK ? part('&nbsp;&nbsp;of which Cash', money(cashOf(ks)), cashRoute('KiwiT')) : ''),
+          secs: [{ head: 'Income entries', inc: ki }, { head: 'KiwiT spend entries', sp: ks }] };
       } else if (key === 'lt-net') {
         var li = srcList("Lisa's Table"), n2 = r2(sum(li) - groc);
         c = { val: n2, note: 'Lisa\'s Table income − Household Groceries (cash and non-cash).',
@@ -8033,9 +8043,9 @@
     return n > 0 ? n : null;
   }
   function vDateOk(s) { var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || '')); if (!m) return false; var d = new Date(+m[1], +m[2] - 1, +m[3], 12); return d.getFullYear() === +m[1] && d.getMonth() === +m[2] - 1 && d.getDate() === +m[3]; }
-  function vOpts(list, sel) {
+  function vOpts(list, sel, lab) {
     var l = list.slice(); if (sel && l.indexOf(sel) < 0) l.unshift(sel);
-    return l.map(function (o) { return '<option value="' + esc(o) + '"' + (o === sel ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('');
+    return l.map(function (o) { return '<option value="' + esc(o) + '"' + (o === sel ? ' selected' : '') + '>' + esc(lab ? lab(o) : o) + '</option>'; }).join('');
   }
   function vField(label, inner, cls) { return '<label class="vfield' + (cls ? ' ' + cls : '') + '"><span>' + esc(label) + '</span>' + inner + '</label>'; }
   /* ---- v114: Category type-ahead (Add expense / Add income forms + Edit on the entry sheet). A plain text input, so typing, the keyboard's
@@ -8272,7 +8282,7 @@
         vField('Date', '<input id="vf-date" type="date" value="' + esc(f.date) + '">') + '</div>';
       h += vField('Merchant', '<input id="vf-merchant" type="text" maxlength="120" autocomplete="off" value="' + esc(f.merchant) + '" placeholder="Where / what">');
       h += vCatHtml('vf-cat', f.category, 'exp');
-      h += '<div class="vrow2">' + vField('Account', '<select id="vf-acct">' + vOpts(VP.ACCTS, f.account) + '</select>') +
+      h += '<div class="vrow2">' + vField('Account', '<select id="vf-acct">' + vOpts(VP.ACCTS, f.account, acctLabel) + '</select>') +
         vField('Paid by', '<select id="vf-who">' + vOpts(VP.WHO, f.who) + '</select>') + '</div>';
       h += vPayHtml(f);
       h += vField('Notes', '<textarea id="vf-notes" rows="2" maxlength="300">' + esc(f.notes) + '</textarea>');
@@ -11824,7 +11834,7 @@
     var kb = Math.round(vc.b64.length * 0.75 / 1024);
     body.innerHTML = '<div class="card vform vcamcard"><h3>' + (inc ? 'Income document' : 'Receipt') + ' <small>' + vc.w + ' \u00d7 ' + vc.h + ' \u00b7 ' + kb + ' KB</small></h3>' +
       '<img class="vprev" alt="Photo preview" src="' + vc.url + '">' +
-      '<div class="vrow2">' + vField('Account', '<select id="vc-acct">' + vOpts(VP.ACCTS, 'Household') + '</select>') + vField('Date', '<input id="vc-date" type="date" value="' + esc(vToday()) + '">') + '</div>' +
+      '<div class="vrow2">' + vField('Account', '<select id="vc-acct">' + vOpts(VP.ACCTS, 'Household', acctLabel) + '</select>') + vField('Date', '<input id="vc-date" type="date" value="' + esc(vToday()) + '">') + '</div>' +
       '<div class="vrow2">' + vField('Amount (optional)', '<input id="vc-amount" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00">') + vField(inc ? 'From (optional)' : 'Merchant (optional)', '<input id="vc-merchant" type="text" maxlength="80" autocomplete="off">') + '</div>' +
       vField('Note (optional)', '<textarea id="vc-note" rows="2" maxlength="300"></textarea>') +
       '<p class="foot">Saved as a photo in Drive (' + (inc ? 'Income Documents' : 'Expenses') + ' \u203a account \u203a year \u203a month). It does not add a row to the spend sheet.</p>' +
