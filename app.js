@@ -5592,7 +5592,7 @@
       if (!rec) { docMessage('This saved menu isn\u2019t on this phone anymore.'); return; }
       $('doc-title').textContent = rec.name;
       var link = rec.drive && rec.drive.url ? rec.drive.url : '';
-      $('doc-open').href = link || '#'; $('doc-open').hidden = !link;
+      $('doc-open').href = link || '#'; $('doc-open').style.display = link ? '' : 'none';   // no Drive copy yet: no Open in Drive
       var c = daSetDoc(link, rec.name, { id: 'ltm-' + rec.id, folder: false, local: true });
       c.link = link; c.file = ltmFileOf(rec); c.mailHref = ltmMailHref(rec); c.smsHref = ltmSmsHref(rec);
       daPaint();
