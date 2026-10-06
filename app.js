@@ -14530,7 +14530,9 @@
   // They are registered when the biz data arrives (hlBizSync); until then their ids stay in the layout as placeholders
   // (kept and saved, just not drawn). The three original ones default to Business > Archive; a business the server adds
   // later defaults to Business. Saved layouts from v110 and earlier (v:1) get a one-time move of the three into Archive.
-  var HL_KEY = 'cc_home_layout', HL_OLD_KEY = 'cc_home_order', HL_VER = 2;
+  // v113: new empty Home folder 'Lisa' (f:lisa, #hf/lisa, same generic layout-folder screen as Archive). Default layout
+  // has it last on Home; saved layouts from v112 and earlier (v:2 or lower) get a one-time add at the end of Home.
+  var HL_KEY = 'cc_home_layout', HL_OLD_KEY = 'cc_home_order', HL_VER = 3;
   var HL_BIZ_ORIG = ['biz/sierra', 'biz/kiwit', 'biz/tiwik'];
   var HL_TO_ARCHIVE = HL_BIZ_ORIG.concat(['fin/overview', 'fin/laundromat']);   // v111: these start in (and migrate to) Business > Archive
   function hlIsBizId(id) { return typeof id === 'string' && /^biz\/[^\/\s]+$/.test(id); }
@@ -14549,13 +14551,14 @@
     'biz':       { label: 'Business', go: 'biz', folder: true },
     'pc':        { label: 'Plan Checks', go: 'pc', sub: 'Mic checklist \u00b7 fullscreen plan \u00b7 pins & notes', cls: 'pc-entry' },
     'f:archive': { label: 'Archive', go: 'hf/archive', folder: true },
+    'f:lisa':    { label: 'Lisa', go: 'hf/lisa', folder: true },   // v113: empty Home folder (drag buttons in)
     // v111: the Finances screens (same routes as the old Finances hub buttons, so a tap opens the same screen)
     'fin/ledger':     { label: FIN_PAGES.ledger.label, go: 'fin/ledger', sub: FIN_PAGES.ledger.sub },
     'fin/overview':   { label: FIN_PAGES.overview.label, go: 'fin/overview', sub: FIN_PAGES.overview.sub },
     'fin/laundromat': { label: FIN_PAGES.laundromat.label, go: 'fin/laundromat', sub: FIN_PAGES.laundromat.sub }
   };
   var HL_DEFAULT = {
-    home: ['projects', 'log', 'spend', 'fin', 'insn', 'lt', 'pt', 'trust', 'ent/kiwit', 'ent/tiwik', 'mf', 'biz'],
+    home: ['projects', 'log', 'spend', 'fin', 'insn', 'lt', 'pt', 'trust', 'ent/kiwit', 'ent/tiwik', 'mf', 'biz', 'f:lisa'],
     projects: ['pc'],
     biz: ['f:archive'],
     fin: ['fin/ledger'],
@@ -14612,7 +14615,12 @@
         var mf = raw.f;
         Object.keys(mf).forEach(function (fid) { if (Array.isArray(mf[fid])) mf[fid] = mf[fid].filter(function (id) { return HL_TO_ARCHIVE.indexOf(id) < 0; }); });
         mf['f:archive'] = (Array.isArray(mf['f:archive']) ? mf['f:archive'] : []).concat(HL_TO_ARCHIVE);
-        hl.f = hlNormalize(mf); hlSave(); return;
+      }
+      if (!(raw.v >= 3)) {   // v113 one-time migration: the new Lisa folder goes at the end of Home; nothing else moves
+        var mg = raw.f;
+        Object.keys(mg).forEach(function (fid) { if (Array.isArray(mg[fid])) mg[fid] = mg[fid].filter(function (id) { return id !== 'f:lisa'; }); });
+        mg.home = (Array.isArray(mg.home) ? mg.home : []).concat(['f:lisa']);
+        hl.f = hlNormalize(mg); hlSave(); return;
       }
       hl.f = hlNormalize(raw.f); return;
     }
@@ -14713,7 +14721,7 @@
     }
     hlEnsureBiz();
   }
-  function hlOpenFolder(kind) {          // #hf/<name> = a layout-only folder (Archive)
+  function hlOpenFolder(kind) {          // #hf/<name> = a layout-only folder (Archive, Lisa)
     var id = 'f:' + (kind || 'archive');
     if (!HL_ITEMS[id]) { state.hfId = ''; return false; }
     state.hfId = id; hlRender(); return true;
