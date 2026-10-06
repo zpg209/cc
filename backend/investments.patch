@@ -1,0 +1,74 @@
+# Finances > Investments (API v49). Independent of the other patches here (applies before or after them).
+# Context lines are v45 code (see vault-category.patch for the same dispatch block). Hunks marked "(anchor)" go next to the quoted line.
+# Storage: Script Properties (PropertiesService.getScriptProperties()), one key per account, so no new OAuth scope and no sheet/Drive writes.
+--- a/Api.gs
++++ b/Api.gs
+@@ header comment (anchor: the " *   GET  <exec>?api=1&pc=123456&action=spendcol" line) @@
++ *   GET  <exec>?api=1&pc=123456&action=invest   (v49 Investments: {accts:{etrade,af,crypto}} each {type,balance,asof,holdings[{ticker,name,shares,value}],notes,updated}; read-only)
++ *   POST {pc, action:'investsave', acct:'etrade'|'af'|'crypto', json:'<account object>', updated:<ms>}   (v49: replace ONE account; newer `updated` wins; account numbers rejected)
+@@ -133,6 +133,8 @@ dispatch switch (anchor: "case 'incomedel': return apiIncomeDel_(extra.all || {});")
+       case 'ptworkoutset': return apiPtWorkoutSet_(extra.all || {});
+       case 'ptworkoutdel': return apiPtWorkoutDel_(extra.all || {});
+       case 'incomedel': return apiIncomeDel_(extra.all || {});
++      case 'invest':     return apiInvest_();                          // v49 (Finances > Investments): read the three accounts
++      case 'investsave': return apiInvestSave_(extra.all || {});       // v49: replace one account (GET params or POST body)
+       case 'spenddel':  return apiSpendDel_(extra.all || {});
+@@ new functions (add at the end of Api.gs) @@
++/* ---------------- v49 Finances > Investments ----------------
++ * The phone keeps its own copy (localStorage) and works without this. With it, entries sync across devices.
++ * One Script Property per account: CC_INVEST_<acct> = JSON (each value must stay under 9 KB; enforced below).
++ */
++var API_INVEST_ACCTS = ['etrade', 'af', 'crypto'];
++function apiInvestNum_(v) {
++  var s = String(v == null ? '' : v).replace(/[$,\s]/g, '');
++  return /^-?\d+(\.\d+)?$/.test(s) ? s : '';
++}
++function apiInvestClean_(a) {
++  a = a && typeof a === 'object' ? a : {};
++  var out = {
++    type: String(a.type || '').slice(0, 40),
++    balance: apiInvestNum_(a.balance),
++    asof: /^\d{4}-\d{2}-\d{2}$/.test(String(a.asof || '')) ? String(a.asof) : '',
++    notes: String(a.notes || '').slice(0, 2000),
++    updated: Number(a.updated) || 0,
++    holdings: []
++  };
++  (Array.isArray(a.holdings) ? a.holdings : []).slice(0, 60).forEach(function (h) {
++    h = h || {};
++    var x = { ticker: String(h.ticker || '').trim().slice(0, 16).toUpperCase(), name: String(h.name || '').trim().slice(0, 80),
++              shares: apiInvestNum_(h.shares), value: apiInvestNum_(h.value) };
++    if (x.ticker || x.name || x.shares || x.value) out.holdings.push(x);
++  });
++  return out;
++}
++function apiInvest_() {
++  var props = PropertiesService.getScriptProperties(), accts = {};
++  API_INVEST_ACCTS.forEach(function (k) {
++    var raw = props.getProperty('CC_INVEST_' + k), v = null;
++    if (raw) { try { v = apiInvestClean_(JSON.parse(raw)); } catch (e) { v = null; } }
++    accts[k] = v;
++  });
++  return { ok: true, data: { accts: accts, version: 49 } };
++}
++function apiInvestSave_(p) {
++  p = p || {};
++  var k = String(p.acct || '').toLowerCase();
++  if (API_INVEST_ACCTS.indexOf(k) < 0) return { error: 'bad_value', message: 'acct must be etrade, af or crypto.' };
++  var obj;
++  try { obj = JSON.parse(String(p.json || '')); } catch (e) { return { error: 'bad_value', message: 'json must be the account object.' }; }
++  var a = apiInvestClean_(obj);
++  if (!a.updated) a.updated = Number(p.updated) || Date.now();
++  var text = a.notes + ' ' + a.holdings.map(function (h) { return h.name; }).join(' ');
++  if (/\b\d{8,}\b/.test(text)) return { error: 'no_account_numbers', message: 'Do not send account numbers.' };
++  var json = JSON.stringify(a);
++  if (json.length > 8500) return { error: 'too_long', message: 'Too much for one account (shorten notes or holdings).' };
++  var lock = LockService.getScriptLock();
++  lock.waitLock(10000);
++  try {
++    var props = PropertiesService.getScriptProperties(), cur = props.getProperty('CC_INVEST_' + k), curU = 0;
++    if (cur) { try { curU = Number(JSON.parse(cur).updated) || 0; } catch (e) { curU = 0; } }
++    if (curU > a.updated) return { ok: true, data: { acct: k, kept: 'server', updated: curU } };   // an older edit never overwrites a newer one
++    props.setProperty('CC_INVEST_' + k, json);
++  } finally { lock.releaseLock(); }
++  return { ok: true, data: { acct: k, updated: a.updated } };
++}

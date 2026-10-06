@@ -13,7 +13,7 @@
     spendData: null, spendDataOff: null, spendRoute: { kind: '', val: '', acct: '' },
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
-     folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', ovKey: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
+     folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', ovKey: '', invAcct: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
   var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf'];
 
   function $(id) { return document.getElementById(id); }
@@ -113,7 +113,7 @@
   var RC_MAX_AGE = 3 * 864e5;       // older than this: ignored (the screen waits for the server like before)
   var RC_READS = { links: 1, log: 1, spend: 1, accounts: 1, vaultdebt: 1, biz: 1, re: 1, ins: 1, ltmacros: 1, notes: 1, punch: 1, lognotes: 1,
     fin: 1, insnotes: 1, wishlist: 1, orders: 1, ptclients: 1, receipts: 1, entity: 1, entitytax: 1, folder: 1 };
-  var RC_NOCACHE = { ping: 1, file: 1, filebytes: 1 };      // reads that are never stored (passcode check; file bytes are big)
+  var RC_NOCACHE = { ping: 1, file: 1, filebytes: 1, invest: 1 };      // reads that are never stored (passcode check; file bytes are big)
   var RC_MONEY = ['spend', 'accounts', 'vaultdebt', 'entity', 'entitytax', 'receipts', 'fin', 'insnotes'];
   var RC_DEBT = ['vaultdebt', 'spend', 'entity', 'entitytax', 'fin'];
   var RC_WRITES = {
@@ -125,7 +125,8 @@
     ltmacroset: ['ltmacros', 'orders'], ltpriceset: ['ltmacros', 'orders'], menuitemadd: ['ltmacros', 'orders', 'folder'],
     orderset: ['orders'], orderpaid: ['orders'], orderdel: ['orders'], weekmenuset: ['orders'], menusave: ['folder'],
     wishadd: ['wishlist'], wishset: ['wishlist'], wishdel: ['wishlist'],
-    ptclientset: ['ptclients'], ptclientdel: ['ptclients'], ptworkoutset: ['ptclients'], ptworkoutdel: ['ptclients']
+    ptclientset: ['ptclients'], ptclientdel: ['ptclients'], ptworkoutset: ['ptclients'], ptworkoutdel: ['ptclients'],
+    investsave: []   // v121: Investments live outside the read cache (phone copy + Script Properties)
   };
   var rcGen = 0, rcInflight = {}, rcBusyList = [], rcPendingScr = {}, rcFlushT = 0, rcOfferScr = '', rcNoteT = 0, rcBypass = false;
   var rcTouched = window.WeakSet ? new WeakSet() : null;     // fields the user typed in (a background repaint never wipes them)
@@ -468,7 +469,7 @@
       var entKey = ENTS[R.kind] ? R.kind : 'kiwit', entSub = ENT_SUBS.test(R.val) ? R.val : '';
       state.entRoute = { key: entKey, kind: entSub, val: entSub ? R.acct : '', tab: !entSub && R.val === 'docs' ? 'docs' : '' };
     }
-    if (name === 'fin') { state.finKind = (R.kind === 'ledger' || R.kind === 'overview' || R.kind === 'laundromat') ? R.kind : ''; state.ovKey = state.finKind === 'overview' && OV_HEADS[R.val] ? R.val : ''; }
+    if (name === 'fin') { state.finKind = (R.kind === 'ledger' || R.kind === 'overview' || R.kind === 'laundromat' || R.kind === 'invest') ? R.kind : ''; state.ovKey = state.finKind === 'overview' && OV_HEADS[R.val] ? R.val : ''; state.invAcct = state.finKind === 'invest' && INV_ACCTS[R.val] ? R.val : ''; }
     if (name === 'insn') state.insSlug = R.kind || '';
     if (name === 'lt' && R.kind === 'orders' && R.query) {      // #lt/orders?tab=summary&week=yyyy-mm-dd (tap-through from the Vault's live Lisa's Table income)
       var oq = qparams(R.query), ow = OL_ISO.test(oq.week || '') ? olMonday(oq.week) : '';
@@ -519,7 +520,7 @@
         vk ? '#' + name + '/' + vk :
         (name === 'proj' || name === 'notes' || name === 'mic' || name === 'docs' || name === 'punch') ? '#' + name + '/' + state.projSlug :
         name === 'ent' ? entHash(state.entRoute) :
-        name === 'fin' ? '#fin' + (state.finKind ? '/' + state.finKind + (state.ovKey ? '/' + state.ovKey : '') : '') :
+        name === 'fin' ? '#fin' + (state.finKind ? '/' + state.finKind + (state.ovKey ? '/' + state.ovKey : '') + (state.finKind === 'invest' && state.invAcct ? '/' + state.invAcct : '') : '') :
         name === 'insn' ? '#insn' + (state.insSlug ? '/' + encodeURIComponent(state.insSlug) : '') :
         name === 'lt' ? '#lt' + (R.kind ? '/' + encodeURIComponent(R.kind) : '') :
         name === 'pt' ? '#pt' + (state.ptRoute.kind ? '/' + encodeURIComponent(state.ptRoute.kind) + (state.ptRoute.id ? '/' + encodeURIComponent(state.ptRoute.id) : '') : '') :
@@ -6089,7 +6090,8 @@
   var FIN_PAGES = {
     ledger:     { label: 'Ledger',     sub: 'Accounts, cash flow, bills' },
     overview:   { label: 'Overview',   sub: 'Net worth · cash flow · debt' },
-    laundromat: { label: 'Mono Village Laundromat \u00b7 TiwiK', sub: 'TiwiK LLC · income & expenses · loan · maintenance' }
+    laundromat: { label: 'Mono Village Laundromat \u00b7 TiwiK', sub: 'TiwiK LLC · income & expenses · loan · maintenance' },
+    invest:     { label: 'Investments', sub: 'E*TRADE · American Funds · Crypto' }   // v121
   };
   var INS_ORDER = ['personal', 'wetumka', 'monoway', 'tiwik', 'kiwit', 'sierra', 'stewart'];
   var INS_LABEL = { personal: 'Personal & Autos', wetumka: 'Wetumka', monoway: 'Mono Way', tiwik: 'TiwiK', kiwit: 'KiwiT', sierra: 'Sierra Consultants', stewart: 'Stewart Street' };
@@ -6260,6 +6262,7 @@
     if (box._fxBound) return; box._fxBound = true;
     box.addEventListener('click', function (e) {
       if (e.target.closest('a[href]')) return;   // document links open in the viewer (global handler)
+      if (boxId === 'fin-body' && state.finKind === 'invest' && invClick(e)) return;
       if (boxId === 'fin-body' && state.finKind === 'ledger' && ledClick(e)) return;
       if (boxId === 'fin-body' && (state.finKind === 'overview' || state.finKind === 'ledger') && ovClick(e)) return;
       var mo = e.target.closest('[data-ld-month]');
@@ -6291,7 +6294,7 @@
     // v111: Ledger / Overview / Laundromat are Home-layout items; Back returns to the folder that holds the button
     // (Overview and Laundromat default to Business > Archive). The Finances hub's own Back follows Finances' folder.
     var finUp = kind ? hlItemBack('fin/' + kind, 'fin') : hlBackOf('fin');
-    $('fin-back').setAttribute('data-go', ovd ? 'fin/overview' : finUp);
+    $('fin-back').setAttribute('data-go', ovd ? 'fin/overview' : kind === 'invest' && state.invAcct ? 'fin/invest' : finUp);
     $('fin-back').hidden = kind ? false : finUp === 'home';
     if ($('hl-fin')) $('hl-fin').hidden = !!kind || !$('hl-fin').querySelector('.tile');
     $('fin-refresh').hidden = !kind;
@@ -6301,6 +6304,7 @@
     if (kind === 'laundromat') return loadLd(!!force);
     if (kind === 'overview') return loadOv(!!force);
     if (kind === 'ledger') return loadLed(!!force);
+    if (kind === 'invest') { if (force && inv.srv !== 'na') inv.srv = 'unk'; return loadInv(); }
     var cached = fin.cache[kind];
     if (cached) renderFin(kind, cached.data);
     else $('fin-body').innerHTML = '<div class="loading">Loading…</div>';
@@ -6351,6 +6355,214 @@
     if ((d.questions || []).length) h += collCard('ovq', 'Questions', d.questions.length, simpleList(d.questions), false);
     h += notesCard(d.notes, 'ov') + doneCard(d.done, 'ov');
     return h;
+  }
+  // ---- Investments (v121): Finances > Investments. Three account tiles (E*TRADE, American Funds, Crypto), each EMPTY until Zac fills it in.
+  // Nothing financial is in this file or in the public repo: what Zac types is saved on this phone (localStorage 'cc_invest_v1') and, once
+  // backend/investments.patch is deployed (actions invest / investsave), in the Apps Script's Script Properties too (newest edit wins).
+  // Until then the live server answers bad_action and the screen says "Saved on this phone only".
+  var INV_KEY = 'cc_invest_v1';
+  var INV_ORDER = ['etrade', 'af', 'crypto'];
+  var INV_ACCTS = {
+    etrade: { label: 'E*TRADE', folder: 'https://drive.google.com/drive/folders/189EH4v4wa_MRS1Ar0DfkVVFSCctou50Q' },
+    af:     { label: 'American Funds', folder: 'https://drive.google.com/drive/folders/1pVP2QSMVIqAFCmAX4qZVWQRs5OPG59cP' },
+    crypto: { label: 'Crypto', folder: 'https://drive.google.com/drive/folders/11N3Skl_WaYJNo89MrRGJaASRlJCAWHuY' }
+  };
+  var INV_DOC = { url: 'https://docs.google.com/document/d/1u-8DTE-WQSoyj2XOgErIZJf1riqgsTYGtsf48Dcx51s/edit', title: 'Investments \u2013 Discussion & Review' };
+  var INV_FOLDER = 'https://drive.google.com/drive/folders/1h8Pvt_1mfgWhloUtPzQ-k_wESP3Ehtvc';
+  var INV_TYPES = ['Brokerage (taxable)', 'Traditional IRA', 'Roth IRA', 'Rollover IRA', 'SEP IRA', '529', 'Exchange account', 'Self-custody wallet', 'Other'];
+  var INV_ASK = 'Send Big Dog a statement or holdings screenshot to fill this in.';
+  var inv = { d: null, srv: 'unk', edit: '', draft: null, msg: '', bad: false, busy: false };   // srv: unk | load | ok | na | err
+
+  function invBlank() { return { type: '', balance: '', asof: '', holdings: [], notes: '', updated: 0 }; }
+  function invClean(a) {
+    var o = invBlank(); a = a && typeof a === 'object' ? a : {};
+    o.type = String(a.type || '').slice(0, 40); o.balance = invNumStr(a.balance); o.asof = /^\d{4}-\d{2}-\d{2}$/.test(a.asof || '') ? a.asof : '';
+    o.notes = String(a.notes || '').slice(0, 2000); o.updated = Number(a.updated) || 0;
+    o.holdings = (Array.isArray(a.holdings) ? a.holdings : []).slice(0, 60).map(function (h) {
+      h = h || {};
+      return { ticker: String(h.ticker || '').trim().slice(0, 16).toUpperCase(), name: String(h.name || '').trim().slice(0, 80), shares: invNumStr(h.shares), value: invNumStr(h.value) };
+    }).filter(function (h) { return h.ticker || h.name || h.shares || h.value; });
+    return o;
+  }
+  function invNumStr(v) {   // '$12,345.6' -> '12345.6'; anything not a number -> ''
+    var s = String(v == null ? '' : v).replace(/[$,\s]/g, '');
+    return /^-?\d+(\.\d+)?$/.test(s) ? s : (/^-?\.\d+$/.test(s) ? '0' + s.replace('-', '') : '');
+  }
+  function invLoad() {
+    if (inv.d) return inv.d;
+    var raw = null; try { raw = JSON.parse(localStorage.getItem(INV_KEY) || 'null'); } catch (e) { raw = null; }
+    var d = { accts: {} };
+    INV_ORDER.forEach(function (k) { d.accts[k] = invClean(raw && raw.accts && raw.accts[k]); });
+    inv.d = d; return d;
+  }
+  function invSaveLocal() { try { localStorage.setItem(INV_KEY, JSON.stringify(inv.d)); return true; } catch (e) { return false; } }
+  function invIsEmpty(a) { return !a.type && !a.balance && !a.asof && !a.holdings.length && !a.notes; }
+  function invUsd(s) {
+    var n = Number(s); if (s === '' || !isFinite(n)) return '\u2014';
+    return (n < 0 ? '\u2212' : '') + '$' + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function invQty(s) { var n = Number(s); return s === '' || !isFinite(n) ? '' : n.toLocaleString('en-US', { maximumFractionDigits: 8 }); }
+  function invAcctKey() { return INV_ACCTS[state.invAcct] ? state.invAcct : ''; }
+
+  // Server sync (only when the server knows action=invest). Newest `updated` per account wins; a newer phone copy is pushed up.
+  function invSync() {
+    if (inv.srv === 'load' || inv.srv === 'na') return;
+    inv.srv = 'load';
+    apiRaw('invest', {}).then(function (j) {
+      if (j.error === 'bad_action' || j.error === 'bad_page') { inv.srv = 'na'; return invRerender(); }
+      if (j.error) { inv.srv = 'err'; return invRerender(); }
+      inv.srv = 'ok';
+      var d = invLoad(), s = (j.data && j.data.accts) || {}, push = [];
+      INV_ORDER.forEach(function (k) {
+        var sv = s[k] ? invClean(s[k]) : null, lc = d.accts[k];
+        if (sv && sv.updated > lc.updated) d.accts[k] = sv;
+        else if (lc.updated && (!sv || lc.updated > sv.updated)) push.push(k);
+      });
+      invSaveLocal();
+      push.forEach(invPush);
+      invRerender();
+    }, function (err) {
+      if (err instanceof AuthError) { setPc(''); return lock('Passcode changed. Enter the new one.'); }
+      inv.srv = 'err'; invRerender();
+    });
+  }
+  function invPush(k) {
+    var a = inv.d.accts[k];
+    return apiPostRaw('investsave', { acct: k, json: JSON.stringify(a), updated: a.updated }, 60000).then(function (j) {
+      if (j && j.error === 'bad_action') { inv.srv = 'na'; return false; }
+      return !!(j && j.ok);
+    }, function () { return false; });
+  }
+  function invRerender() { if (state.finKind === 'invest' && $('screen-fin').classList.contains('active') && !inv.edit) renderInv(); }
+  function invSrvLine() {
+    if (inv.srv === 'ok') return 'Saved to Command Center (syncs across devices).';
+    if (inv.srv === 'load') return 'Checking the server\u2026';
+    return 'Saved on this phone only. Syncing across devices needs a server update (backend/investments.patch).';
+  }
+
+  function loadInv() {
+    invLoad();
+    if (inv.edit && inv.edit !== invAcctKey()) { inv.edit = ''; inv.draft = null; }
+    renderInv();
+    if (inv.srv === 'unk' || inv.srv === 'err') invSync();
+  }
+  function renderInv() {
+    var k = invAcctKey();
+    $('fin-title').textContent = k ? INV_ACCTS[k].label : FIN_PAGES.invest.label;
+    $('fin-body').innerHTML = k ? (inv.edit === k ? invFormHtml(k) : invAcctHtml(k)) : invHubHtml();
+  }
+  function invHubHtml() {
+    var d = invLoad(), h = '<div class="grid2 homegrid inv-grid">', tot = 0, nTot = 0;
+    INV_ORDER.forEach(function (k) {
+      var a = d.accts[k], sub = invIsEmpty(a) ? 'Empty' : a.balance !== '' ? invUsd(a.balance) : (a.holdings.length + ' holding' + (a.holdings.length === 1 ? '' : 's'));
+      if (a.balance !== '') { tot += Number(a.balance); nTot++; }
+      h += '<button type="button" class="tile small inv-tile" data-go="fin/invest/' + k + '">' + esc(INV_ACCTS[k].label) +
+        '<span class="sub">' + esc(sub) + '</span>' + (a.asof ? '<span class="sub inv-asof">as of ' + esc(fmtDate(a.asof)) + '</span>' : '') + '</button>';
+    });
+    h += '<a class="tile small inv-tile inv-doc" data-title="' + esc(INV_DOC.title) + '" href="' + esc(INV_DOC.url) + '">Investment discussion<span class="sub">Doc \u00b7 review &amp; questions</span></a>';
+    h += '</div>';
+    if (nTot) h += '<div class="card inv-tot"><span>Total entered (' + nTot + ' of ' + INV_ORDER.length + ')</span><b>' + esc(invUsd(String(tot))) + '</b></div>';
+    else h += '<div class="fxnote inv-note"><b>Empty</b>' + esc(INV_ASK) + ' Or open an account and tap Edit to type it in.</div>';
+    h += '<div class="foot inv-srv">' + esc(invSrvLine()) + '</div>';
+    h += '<a class="linkrow" data-title="Investments" href="' + esc(INV_FOLDER) + '">Open Investments folder &rsaquo;</a>';
+    return h;
+  }
+  function invKv(label, val, ph) {
+    return '<div class="inv-kv"><span>' + esc(label) + '</span>' + (val ? '<b>' + esc(val) + '</b>' : '<i>' + esc(ph || 'Not filled in') + '</i>') + '</div>';
+  }
+  function invAcctHtml(k) {
+    var a = invLoad().accts[k], h = '';
+    if (invIsEmpty(a)) h += '<div class="fxnote inv-note"><b>Empty</b>' + esc(INV_ASK) + '</div>';
+    h += '<div class="card inv-card"><h3>Account</h3>' +
+      invKv('Account type', a.type, 'Brokerage / IRA / etc.') +
+      invKv('Balance', a.balance !== '' ? invUsd(a.balance) : '', 'Not filled in') +
+      invKv('As of', a.asof ? fmtDate(a.asof) : '', 'Statement date') + '</div>';
+    h += '<div class="card inv-card"><h3>Holdings' + (a.holdings.length ? ' <small>' + a.holdings.length + '</small>' : '') + '</h3>';
+    if (!a.holdings.length) h += '<div class="inv-empty">No holdings yet. ' + esc(INV_ASK) + '</div>';
+    else {
+      var hv = 0, any = false;
+      h += '<div class="inv-hl"><div class="inv-hr inv-hh"><span>Ticker</span><span>Name</span><span>Shares</span><span>Value</span></div>';
+      a.holdings.forEach(function (x) {
+        if (x.value !== '') { hv += Number(x.value); any = true; }
+        h += '<div class="inv-hr"><span class="t">' + esc(x.ticker || '\u2014') + '</span><span class="n">' + esc(x.name || '') + '</span><span class="q">' + esc(invQty(x.shares)) + '</span><span class="v">' + esc(x.value !== '' ? invUsd(x.value) : '') + '</span></div>';
+      });
+      if (any) h += '<div class="inv-hr inv-hsum"><span></span><span>Holdings total</span><span></span><span class="v">' + esc(invUsd(String(hv))) + '</span></div>';
+      h += '</div>';
+    }
+    h += '</div>';
+    h += '<div class="card inv-card"><h3>Notes</h3>' + (a.notes ? '<div class="inv-notes">' + esc(a.notes) + '</div>' : '<div class="inv-empty">No notes yet.</div>') + '</div>';
+    h += '<button type="button" class="linkrow smallrow inv-editbtn" data-inv="edit">Edit ' + esc(INV_ACCTS[k].label) + '</button>';
+    if (a.updated) h += '<div class="foot inv-srv">Last edited ' + esc(new Date(a.updated).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })) + '. ' + esc(invSrvLine()) + '</div>';
+    h += '<a class="linkrow" data-title="' + esc(INV_ACCTS[k].label + ' statements') + '" href="' + esc(INV_ACCTS[k].folder) + '">' + esc(INV_ACCTS[k].label) + ' statements folder &rsaquo;</a>';
+    h += '<a class="linkrow" data-title="' + esc(INV_DOC.title) + '" href="' + esc(INV_DOC.url) + '">Investment discussion &rsaquo;</a>';
+    return h;
+  }
+  function invFormHtml(k) {
+    var a = inv.draft || invLoad().accts[k], types = INV_TYPES.slice();
+    if (a.type && types.indexOf(a.type) < 0) types.unshift(a.type);
+    var h = '<div class="card vform inv-form" data-inv-form="' + k + '"><h3>Edit ' + esc(INV_ACCTS[k].label) + '<small>leave blank what you don\u2019t know</small></h3>';
+    h += '<label class="vfield"><span>Account type</span><select data-f="type"><option value="">\u2014 choose \u2014</option>' +
+      types.map(function (t) { return '<option' + (t === a.type ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('') + '</select></label>';
+    h += '<div class="vrow2"><label class="vfield"><span>Balance ($)</span><input data-f="balance" inputmode="decimal" autocomplete="off" placeholder="0.00" value="' + esc(a.balance) + '"></label>' +
+      '<label class="vfield"><span>As-of date</span><input data-f="asof" type="date" value="' + esc(a.asof) + '"></label></div>';
+    h += '<div class="inv-fh">Holdings</div>';
+    (a.holdings.length ? a.holdings : []).forEach(function (x, i) {
+      h += '<div class="inv-frow" data-h="' + i + '">' +
+        '<label class="vfield"><span>Ticker</span><input data-h-f="ticker" autocapitalize="characters" autocomplete="off" value="' + esc(x.ticker) + '"></label>' +
+        '<label class="vfield"><span>Name</span><input data-h-f="name" autocomplete="off" value="' + esc(x.name) + '"></label>' +
+        '<label class="vfield"><span>Shares</span><input data-h-f="shares" inputmode="decimal" autocomplete="off" value="' + esc(x.shares) + '"></label>' +
+        '<label class="vfield"><span>Value ($)</span><input data-h-f="value" inputmode="decimal" autocomplete="off" value="' + esc(x.value) + '"></label>' +
+        '<button type="button" class="navbtn inv-del" data-inv="hdel" data-i="' + i + '" aria-label="Remove holding">\u00d7</button></div>';
+    });
+    h += '<button type="button" class="navbtn inv-add" data-inv="hadd">+ Add holding</button>';
+    h += '<label class="vfield"><span>Notes</span><textarea data-f="notes" rows="3" placeholder="Advisor, contributions, beneficiaries, anything to remember">' + esc(a.notes) + '</textarea></label>';
+    h += '<div class="inv-fbtns"><button type="button" class="navbtn" data-inv="cancel">Cancel</button><button type="button" class="navbtn bigsave" data-inv="save">Save</button></div>';
+    h += '<button type="button" class="navbtn inv-clear" data-inv="clear">Clear this account</button>';
+    h += '<div class="noteflash' + (inv.msg ? ' show' + (inv.bad ? ' bad' : '') : '') + '"' + (inv.msg ? '' : ' hidden') + '>' + esc(inv.msg) + '</div>';
+    h += '<div class="foot inv-srv">Do not type account numbers. ' + esc(invSrvLine()) + '</div></div>';
+    return h;
+  }
+  function invReadForm() {
+    var f = document.querySelector('[data-inv-form]'); if (!f) return null;
+    var g = function (n) { var el = f.querySelector('[data-f="' + n + '"]'); return el ? el.value : ''; };
+    var d = { type: g('type'), balance: g('balance'), asof: g('asof'), notes: g('notes'), holdings: [], updated: 0 };
+    f.querySelectorAll('.inv-frow').forEach(function (r) {
+      var h = {}; ['ticker', 'name', 'shares', 'value'].forEach(function (n) { var el = r.querySelector('[data-h-f="' + n + '"]'); h[n] = el ? el.value : ''; });
+      d.holdings.push(h);
+    });
+    return d;
+  }
+  function invRawDraft(d) {   // keep what was typed (even half-typed numbers) while adding/removing rows
+    return { type: d.type, balance: d.balance, asof: d.asof, notes: d.notes, updated: 0,
+      holdings: d.holdings.map(function (h) { return { ticker: h.ticker, name: h.name, shares: h.shares, value: h.value }; }) };
+  }
+  function invClick(e) {
+    var b = e.target.closest('[data-inv]'); if (!b) return false;
+    var act = b.getAttribute('data-inv'), k = invAcctKey(); if (!k) return false;
+    inv.msg = ''; inv.bad = false;
+    if (act === 'edit') { inv.edit = k; inv.draft = null; renderInv(); window.scrollTo(0, 0); return true; }
+    if (act === 'cancel') { inv.edit = ''; inv.draft = null; renderInv(); return true; }
+    var cur = invReadForm(); if (!cur) return true;
+    if (act === 'hadd') { cur.holdings.push({ ticker: '', name: '', shares: '', value: '' }); inv.draft = invRawDraft(cur); renderInv(); var rs = document.querySelectorAll('.inv-frow'); if (rs.length) { var inp = rs[rs.length - 1].querySelector('input'); if (inp) inp.focus(); } return true; }
+    if (act === 'hdel') { cur.holdings.splice(Number(b.getAttribute('data-i')), 1); inv.draft = invRawDraft(cur); renderInv(); return true; }
+    if (act === 'clear') {
+      if (!window.confirm('Clear everything entered for ' + INV_ACCTS[k].label + '?')) return true;
+      cur = invBlank();
+    } else if (act !== 'save') return true;
+    var bad = [];
+    if (cur.balance && invNumStr(cur.balance) === '') bad.push('Balance');
+    cur.holdings.forEach(function (h, i) {
+      if (h.shares && invNumStr(h.shares) === '') bad.push('Shares (row ' + (i + 1) + ')');
+      if (h.value && invNumStr(h.value) === '') bad.push('Value (row ' + (i + 1) + ')');
+    });
+    if (/\b\d{8,}\b/.test(cur.notes || '')) bad.push('Notes look like they contain an account number');
+    if (bad.length) { inv.draft = invRawDraft(cur); inv.msg = 'Check: ' + bad.join(', ') + '.'; inv.bad = true; renderInv(); return true; }
+    var a = invClean(cur); a.updated = Date.now();
+    inv.d.accts[k] = a; inv.edit = ''; inv.draft = null;
+    if (!invSaveLocal()) { inv.edit = k; inv.draft = invRawDraft(cur); inv.msg = 'Could not save on this phone (storage full or private browsing).'; inv.bad = true; renderInv(); return true; }
+    renderInv(); window.scrollTo(0, 0);
+    if (inv.srv === 'ok') invPush(k).then(function (ok) { if (!ok) { inv.srv = inv.srv === 'na' ? 'na' : 'err'; invRerender(); } });
+    return true;
   }
   // ---- Overview v4 (FIN2): document ledger (fin page "overview", Finances - Overview v4 Doc) + live Vault (`spend` API) ----
   // No figures live in this file. Every number is fetched at runtime: Vault numbers drill to the #spend/... routes, document numbers
@@ -15363,13 +15575,14 @@
     // v111: the Finances screens (same routes as the old Finances hub buttons, so a tap opens the same screen)
     'fin/ledger':     { label: FIN_PAGES.ledger.label, go: 'fin/ledger', sub: FIN_PAGES.ledger.sub },
     'fin/overview':   { label: FIN_PAGES.overview.label, go: 'fin/overview', sub: FIN_PAGES.overview.sub },
-    'fin/laundromat': { label: FIN_PAGES.laundromat.label, go: 'fin/laundromat', sub: FIN_PAGES.laundromat.sub }
+    'fin/laundromat': { label: FIN_PAGES.laundromat.label, go: 'fin/laundromat', sub: FIN_PAGES.laundromat.sub },
+    'fin/invest':     { label: FIN_PAGES.invest.label, go: 'fin/invest', sub: FIN_PAGES.invest.sub }   // v121: Finances > Investments (slots in after Ledger on saved layouts too)
   };
   var HL_DEFAULT = {
     home: ['projects', 'log', 'spend', 'fin', 'insn', 'lt', 'pt', 'trust', 'ent/kiwit', 'ent/tiwik', 'mf', 'biz', 'f:lisa'],
     projects: ['pc'],
     biz: ['f:archive'],
-    fin: ['fin/ledger'],
+    fin: ['fin/ledger', 'fin/invest'],
     'f:archive': HL_TO_ARCHIVE.slice()
   };
   var hl = { f: null, dragging: false, edit: false };

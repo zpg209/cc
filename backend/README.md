@@ -52,3 +52,14 @@ What it adds:
 Why: the document viewer's action bar (front end v120) shares the actual file through the phone's share sheet (`navigator.share({ files })`: Messages, Mail, AirDrop, Save to Files), so the recipient gets the file and needs no Drive access. PDFs, images and Google Docs already work through the live `action=file`. That action converts Office files to PDF, and Drive's conversion fails for some .docx (for example the Lisa's Table menu items), so those files have no bytes today. Until this is deployed, Share sends the Drive link instead, with a note that the recipient needs Drive access.
 
 Check after deploying: `…/exec?api=1&pc=PASSCODE&action=filebytes&id=1w-xDKd2UUlBd0vGXqrNruo0GNTvjgOtm` should return `"name":"2 egg muffins.docx"` and `"b64":"UEsDB…"` (a .docx is a zip). No front-end change is needed: the app notices the action on its own.
+
+## investments.patch (API v49, Finances > Investments sync)
+Independent of the other patches (applies before or after them). Apply it, then redeploy the Apps Script web app (Zac signs in, Deploy > Manage deployments > edit > New version). It uses only PropertiesService and LockService, so no new authorization should be needed.
+
+What it adds:
+- `action=invest` (read): `{ accts: { etrade, af, crypto } }`. Each account is `{ type, balance, asof, holdings:[{ticker,name,shares,value}], notes, updated }`, or null if never saved.
+- `action=investsave` (POST body or GET params): `acct=etrade|af|crypto`, `json=<account object>`, `updated=<ms>`. It replaces that one account in Script Properties (`CC_INVEST_<acct>`, max about 8.5 KB, 60 holdings). An older edit never overwrites a newer one, and anything that looks like an account number (8+ digits) is rejected.
+
+Until it is deployed (front end v121): Finances > Investments works fully on the phone. Edits are saved in that browser's localStorage (`cc_invest_v1`) and the screen says "Saved on this phone only". When the server answers `invest`, the phone merges per account (newest `updated` wins), pushes up any newer phone copy, and then saves every edit to the server too. No front-end change is needed.
+
+Check after deploying: `…/exec?api=1&pc=PASSCODE&action=invest` should return `{"ok":true,"data":{"accts":{"etrade":null,"af":null,"crypto":null},"version":49}}` until something is saved.

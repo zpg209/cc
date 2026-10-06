@@ -2332,3 +2332,42 @@ body.hl-busy { -webkit-user-select: none; user-select: none; cursor: grabbing; }
   font: 700 14px/1 'Inter', sans-serif; cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,.5); }
 .docfs-exit[hidden] { display: none; }
 .doc-msg .retry + .retry { margin-top: 8px; }
+
+/* ---- v121 Finances > Investments (E*TRADE, American Funds, Crypto + discussion doc). Charcoal, black buttons, copper labels. ---- */
+.inv-grid { margin-bottom: 12px; }
+.inv-grid .inv-tile { flex-direction: column; gap: 4px; min-height: 92px; text-decoration: none; }
+.inv-grid .inv-tile .sub { color: var(--copper); }
+.inv-grid .inv-tile .sub.inv-asof { color: var(--muted); font-size: 12px; text-transform: none; letter-spacing: 0; }
+.inv-grid .inv-doc { border-style: dashed; }
+.inv-tot { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; }
+.inv-tot span { color: var(--muted); font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .8px; }
+.inv-tot b { color: var(--copper); font-size: 20px; font-variant-numeric: tabular-nums; }
+.inv-srv { margin: 6px 2px 0; font-size: 12px; line-height: 1.4; }
+.inv-card h3 { color: var(--copper); }
+.inv-card h3 small { color: var(--muted); margin-left: 6px; }
+.inv-kv { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 15px; }
+.inv-kv:first-of-type { border-top: 0; }
+.inv-kv span { color: var(--muted); }
+.inv-kv b { color: var(--text); font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+.inv-kv i { color: #7d7d7d; font-style: normal; text-align: right; }
+.inv-empty { color: var(--muted); font-size: 14px; line-height: 1.45; padding: 4px 0 2px; }
+.inv-hl { font-size: 14px; }
+.inv-hr { display: grid; grid-template-columns: 64px 1fr 78px 96px; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); align-items: baseline; }
+.inv-hr.inv-hh { border-top: 0; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .7px; text-transform: uppercase; padding-top: 2px; }
+.inv-hr .t { color: var(--copper); font-weight: 700; }
+.inv-hr .n { color: #ddd; min-width: 0; overflow-wrap: anywhere; }
+.inv-hr .q, .inv-hr .v, .inv-hr.inv-hh span:nth-child(n+3) { text-align: right; font-variant-numeric: tabular-nums; }
+.inv-hr.inv-hsum { font-weight: 700; color: var(--text); }
+.inv-hr.inv-hsum .v { color: var(--copper); }
+.inv-notes { white-space: pre-wrap; font-size: 15px; line-height: 1.45; color: #e6e6e6; }
+.inv-editbtn { margin-top: 4px; border: 1px solid var(--copper-edge); }
+.inv-fh { margin: 6px 0 6px; font: 700 11px/1.2 'Inter', sans-serif; letter-spacing: .7px; text-transform: uppercase; color: var(--copper); }
+.inv-frow { display: grid; grid-template-columns: 1fr 2fr 44px; gap: 6px 8px; padding: 8px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(0,0,0,.25); }
+.inv-frow .vfield { margin: 0; }
+.inv-frow .vfield:nth-child(3) { grid-column: 1; }
+.inv-frow .vfield:nth-child(4) { grid-column: 2; }
+.inv-frow .inv-del { grid-column: 3; grid-row: 1 / span 2; align-self: stretch; padding: 0; font-size: 24px; min-height: 46px; }
+.inv-add { width: 100%; margin: 0 0 12px; }
+.inv-fbtns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px; }
+.inv-clear { width: 100%; margin-top: 10px; color: var(--muted); font-size: 15px; min-height: 44px; }
+.inv-note { margin-bottom: 12px; }
