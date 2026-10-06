@@ -2359,11 +2359,10 @@
     var c = FH.sheet;
     state.trackData = null; state.logData = null;
     fhSheetClose();
-    return api('log', 0).then(function (d) { FH.data = d; }, function () {}).then(function () {
-      var scr = rcScreenNow();
-      if (scr === 'food') fhRenderFood(FH.data); else if (scr === 'workouts') fhRenderWo(FH.data); else if (scr === 'log') loadLog();
-      rcNote(msg);
-    });
+    function paint() { var scr = rcScreenNow(); if (scr === 'food') fhRenderFood(FH.data); else if (scr === 'workouts') fhRenderWo(FH.data); else if (scr === 'log') loadLog(); }
+    if (FH.data) paint();                 // at once: the saved day is selected and a phone-added meal shows; the server's totals follow
+    rcNote(msg);
+    return api('log', 0).then(function (d) { FH.data = d; }, function () {}).then(paint);
   }
   function fhWriteErr(err) {
     if (err instanceof AuthError) { setPc(''); lock('Passcode changed. Enter the new one.'); return; }
