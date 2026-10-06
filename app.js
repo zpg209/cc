@@ -8286,7 +8286,7 @@
   /* ---------------- Lisa's Personal Training (#pt): clients -> profile -> workouts ---------------- */
   // Live from the Sheet "Lisa's Personal Training" through ptclients (read) and ptclientset / ptclientdel / ptworkoutset / ptworkoutdel (writes, cid + POST).
   // Nothing about clients is stored in this repo or in localStorage (only which cards are open). Unsaved edits live in memory until Save.
-  // Routes: #pt (client list), #pt/new (add client), #pt/client/<id> (client: Profile | Workouts | History tabs, tab kept in memory).
+  // Routes: #pt (client list), #pt/new (add client), #pt/client/<id> (client: Profile | Workouts | History | Plan tabs, tab kept in memory; v106 Plan = 4-week plan builder, see ptpHtml).
   // v103 workouts: still the sheet's Workouts tab via ptworkoutset (no backend change). Exercises are saved as one line each in the Exercises cell:
   // the FIRST line is a JSON meta line {"cc":1,"kind":"prescribed"} or {"cc":1,"kind":"prior","source":"history"} (History tab = workouts done before
   // starting), then one JSON line per exercise {"n":name,"s":sets,"r":reps,"w":weight,"d":duration,"note":..} (a name-only exercise is a plain text line).
@@ -8510,7 +8510,7 @@
       var e2 = ptExBlank(); e2.n = t; ex.push(e2);
     });
     var kind = meta && (meta.kind === 'prior' || meta.kind === 'history' || meta.source === 'history' || meta.source === 'prior') ? 'prior' : 'prescribed';
-    w._p = { src: src, kind: kind, ex: ex };
+    w._p = { src: src, kind: kind, ex: ex, meta: meta };
     return w._p;
   }
   function ptSplit(c) {
@@ -8595,7 +8595,7 @@
     pt.wf = { id: w ? w.id : '', clientId: clientId, kind: p ? p.kind : (kind === 'prior' ? 'prior' : 'prescribed'), date: w ? w.date : vToday(), title: w ? w.title : '', ex: ex, notes: w ? w.notes : '', cid: '', sig: '' };
   }
   function ptTab(t) {
-    if (!/^(profile|workouts|history)$/.test(t || '') || t === pt.tab) return;
+    if (!/^(profile|workouts|history|plan)$/.test(t || '') || t === pt.tab) return;
     ptMicStop(true); if (sp.open) ptSpellClose();
     pt.stash[pt.tab] = { wf: pt.wf, wfOpen: pt.wfOpen };
     var st = pt.stash[t] || {}; pt.wf = st.wf || null; pt.wfOpen = st.wfOpen || ''; pt.wConfirm = '';
@@ -8606,12 +8606,13 @@
   function ptClientHtml(c) {
     var t = pt.tab, x = ptSplit(c);
     var h = '<div class="pthead"><b class="ptname">' + esc(c.name) + '</b><span class="ptchip ' + (c.status === 'paused' ? 'paused' : 'active') + '">' + (c.status === 'paused' ? 'Paused' : 'Active') + '</span></div>';
-    h += '<div class="pttabs" role="tablist" aria-label="Client sections">' + [['profile', 'Profile', ''], ['workouts', 'Workouts', x.rx.length], ['history', 'History', x.prior.length]].map(function (d) {
+    h += '<div class="pttabs" role="tablist" aria-label="Client sections">' + [['profile', 'Profile', ''], ['workouts', 'Workouts', x.rx.length], ['history', 'History', x.prior.length], ['plan', 'Plan', pt.pp && pt.pp[c.id] && pt.pp[c.id].plan ? '\u2022' : '']].map(function (d) {
       var on = t === d[0];
       return '<button type="button" role="tab" class="vchip' + (on ? ' on' : '') + '" data-pt="tab" data-t="' + d[0] + '" aria-selected="' + on + '">' + d[1] + (d[2] !== '' ? ' <small>' + d[2] + '</small>' : '') + '</button>';
     }).join('') + '</div>';
     if (t === 'workouts') return h + ptWorkoutsHtml(c, x.rx);
     if (t === 'history') return h + ptHistoryHtml(c, x.prior);
+    if (t === 'plan') return h + ptpHtml(c);
     return h + ptProfileHtml(c);
   }
   // one mic for the workout / history form: same mic as the client form (pm + ptMicListen), same ids, so ptMicStatus / ptMicUi just work
@@ -8680,7 +8681,7 @@
   function ptWCardHtml(c, w, hist) {
     var p = ptWParse(w), busy = pt.wbusy === w.id;
     var h = '<div class="ptwk' + (w.done ? ' isdone' : '') + (hist ? ' prior' : '') + '"><div class="ptwkhead"><div class="ptwkwhen"><b class="ptwkdate">' + esc(ptDateW(w.date)) + '</b>' +
-      (hist ? '<span class="ptchip prior">History</span>' : '') + '</div>';
+      (hist ? '<span class="ptchip prior">History</span>' : '') + (!hist && p.meta && p.meta.plan && p.meta.wk ? '<span class="ptchip ptplanchip">Plan wk ' + esc(String(p.meta.wk)) + '</span>' : '') + '</div>';
     if (!hist) h += '<button type="button" class="vchip ptwkdone' + (w.done ? ' on' : '') + '" data-pt="wdone" data-id="' + esc(w.id) + '"' + (busy ? ' disabled' : '') +
       ' aria-pressed="' + !!w.done + '">' + (w.done ? '\u2713 Done' : 'Mark done') + '</button>';
     h += '</div><div class="ptwktitle">' + esc(w.title) + '</div>';
@@ -8724,6 +8725,696 @@
       else h += ptWCardHtml(c, w, true);
     });
     return h + '</div>';
+  }
+
+  // ---- v106: 4-week plan (Plan tab). Rules-based, runs on the phone (no AI, no server change). Reads the client's history (History entries +
+  // completed prescribed workouts) and profile (condition, age, ailments, goals, schedule), proposes 4 weeks, Lisa reviews / edits, and only
+  // "Approve plan" writes: one ptworkoutset per session, meta line {"cc":1,"kind":"prescribed","plan":"<id>","wk":1,"sess":2}. Draft is memory-only.
+  //
+  // EXERCISE LIBRARY: edit freely (add / remove lines). Fields:
+  //   id  unique letters-only key        n   name shown + saved          p   pattern (see PT_PATS)
+  //   eq  bw | db | kb | band | bb | machine | cable | bench | cardio    lv  difficulty 1 easy .. 3 hard
+  //   u   r reps | e reps per side | t seconds | te seconds per side | c minutes
+  //   w0  suggested start [beginner, intermediate, advanced] (omit = bodyweight)   inc  weight step (lb; default 5 lower body, 2.5-5 upper)
+  //   av  ailment keys it can aggravate (see PT_AIL)   m  regex that recognises it in logged history (longest match wins)   mx  exclude regex   cue  default note
+  var PT_LIB = [
+    { id: 'boxsq',     n: 'Box squat (sit to stand)',       p: 'squat',  eq: 'bw',      lv: 1, u: 'r',  m: /box squats?|sit[ -]?to[ -]?stands?|chair squats?/, cue: 'Sit back to the box, stand tall' },
+    { id: 'bwsq',      n: 'Bodyweight squat',               p: 'squat',  eq: 'bw',      lv: 1, u: 'r',  av: ['knee'], m: /(body ?weight |air |bw )?squats?/ },
+    { id: 'wallsit',   n: 'Wall sit',                       p: 'squat',  eq: 'bw',      lv: 1, u: 't',  m: /wall sits?/, cue: 'Shallow angle, pain-free' },
+    { id: 'gobsq',     n: 'Goblet squat',                   p: 'squat',  eq: 'db',      lv: 1, u: 'r',  w0: ['15 lb', '25 lb', '35 lb'], av: ['knee'], m: /goblet( squats?)?/ },
+    { id: 'legpress',  n: 'Leg press',                      p: 'squat',  eq: 'machine', lv: 1, u: 'r',  w0: ['50 lb', '90 lb', '140 lb'], inc: 10, m: /leg press/ },
+    { id: 'dbsq',      n: 'Dumbbell squat',                 p: 'squat',  eq: 'db',      lv: 2, u: 'r',  w0: ['10 lb each', '20 lb each', '30 lb each'], av: ['knee'], m: /(dumbbell|db) squats?/ },
+    { id: 'bbsq',      n: 'Barbell back squat',             p: 'squat',  eq: 'bb',      lv: 3, u: 'r',  w0: ['45 lb', '65 lb', '95 lb'], inc: 10, av: ['knee', 'back', 'shoulder'], m: /(barbell |back )+squats?/ },
+    { id: 'hiphinge',  n: 'Hip hinge with dowel',           p: 'hinge',  eq: 'bw',      lv: 1, u: 'r',  m: /(hip )?hinges?|dowel/, cue: 'Flat back, push hips back' },
+    { id: 'kbdl',      n: 'Kettlebell deadlift',            p: 'hinge',  eq: 'kb',      lv: 1, u: 'r',  w0: ['15 lb', '25 lb', '35 lb'], av: ['back'], m: /(kettlebell|kb) deadlifts?/ },
+    { id: 'cablepull', n: 'Cable pull-through',             p: 'hinge',  eq: 'cable',   lv: 2, u: 'r',  w0: ['20 lb', '30 lb', '40 lb'], m: /pull[ -]?throughs?/ },
+    { id: 'dbrdl',     n: 'Dumbbell Romanian deadlift',     p: 'hinge',  eq: 'db',      lv: 2, u: 'r',  w0: ['10 lb each', '20 lb each', '30 lb each'], av: ['back'], m: /(dumbbell |db )?(romanian|rdl|stiff[ -]?leg(ged)?)( deadlifts?)?/ },
+    { id: 'kbswing',   n: 'Kettlebell swing',               p: 'hinge',  eq: 'kb',      lv: 3, u: 'r',  w0: ['15 lb', '25 lb', '35 lb'], av: ['back', 'shoulder'], m: /(kettlebell |kb )?swings?/ },
+    { id: 'bbdl',      n: 'Barbell deadlift',               p: 'hinge',  eq: 'bb',      lv: 3, u: 'r',  w0: ['65 lb', '95 lb', '135 lb'], inc: 10, av: ['back'], m: /(barbell |conventional )?deadlifts?/ },
+    { id: 'stepup',    n: 'Step-up (low step)',             p: 'lunge',  eq: 'bw',      lv: 1, u: 'e',  m: /step[ -]?ups?/, cue: 'Whole foot on the step, drive through the heel' },
+    { id: 'splitsq',   n: 'Split squat (hold support)',     p: 'lunge',  eq: 'bw',      lv: 1, u: 'e',  av: ['knee', 'balance'], m: /split squats?/ },
+    { id: 'revlunge',  n: 'Reverse lunge',                  p: 'lunge',  eq: 'db',      lv: 2, u: 'e',  w0: ['', '10 lb each', '20 lb each'], av: ['knee', 'balance'], m: /(reverse |back )?lunges?/ },
+    { id: 'latlunge',  n: 'Lateral lunge',                  p: 'lunge',  eq: 'bw',      lv: 2, u: 'e',  av: ['knee', 'hip'], m: /(lateral|side) lunges?/ },
+    { id: 'walklunge', n: 'Walking lunge',                  p: 'lunge',  eq: 'db',      lv: 3, u: 'e',  w0: ['', '10 lb each', '20 lb each'], av: ['knee', 'balance'], m: /walking lunges?/ },
+    { id: 'bulgarian', n: 'Bulgarian split squat',          p: 'lunge',  eq: 'db',      lv: 3, u: 'e',  w0: ['', '10 lb each', '20 lb each'], av: ['knee', 'balance', 'hip'], m: /bulgarian( split squats?)?/ },
+    { id: 'bridge',    n: 'Glute bridge',                   p: 'bridge', eq: 'bw',      lv: 1, u: 'r',  m: /(glute )?bridges?/, cue: 'Squeeze glutes at the top' },
+    { id: 'clamshell', n: 'Banded clamshell',               p: 'bridge', eq: 'band',    lv: 1, u: 'e',  m: /clam ?shells?/ },
+    { id: 'sidestep',  n: 'Banded side step',               p: 'bridge', eq: 'band',    lv: 1, u: 'e',  m: /side ?steps?|monster walks?|lateral (band )?walks?/ },
+    { id: 'slbridge',  n: 'Single-leg glute bridge',        p: 'bridge', eq: 'bw',      lv: 2, u: 'e',  m: /(single|one)[ -]?leg(ged)? (glute )?bridges?/ },
+    { id: 'hipthrust', n: 'Dumbbell hip thrust',            p: 'bridge', eq: 'db',      lv: 2, u: 'r',  w0: ['15 lb', '25 lb', '40 lb'], m: /hip thrusts?/ },
+    { id: 'wallpu',    n: 'Wall push-up',                   p: 'push',   eq: 'bw',      lv: 1, u: 'r',  m: /wall push[ -]?ups?/ },
+    { id: 'floorpress',n: 'Dumbbell floor press',           p: 'push',   eq: 'db',      lv: 1, u: 'r',  w0: ['8 lb each', '15 lb each', '25 lb each'], m: /floor press/ },
+    { id: 'chestpress',n: 'Machine chest press',            p: 'push',   eq: 'machine', lv: 1, u: 'r',  w0: ['20 lb', '40 lb', '60 lb'], m: /machine chest press|chest press( machine)?/ },
+    { id: 'bandpress', n: 'Band chest press',               p: 'push',   eq: 'band',    lv: 1, u: 'r',  w0: ['light band', 'medium band', 'heavy band'], m: /band(ed)? (chest )?press/ },
+    { id: 'inclinepu', n: 'Incline push-up (bench)',        p: 'push',   eq: 'bw',      lv: 1, u: 'r',  av: ['wrist', 'shoulder'], m: /incline push[ -]?ups?/ },
+    { id: 'dbbench',   n: 'Dumbbell bench press',           p: 'push',   eq: 'bench',   lv: 2, u: 'r',  w0: ['10 lb each', '20 lb each', '30 lb each'], av: ['shoulder'], m: /(dumbbell|db) (bench|chest) press|bench press/ },
+    { id: 'pushup',    n: 'Push-up',                        p: 'push',   eq: 'bw',      lv: 2, u: 'r',  av: ['wrist', 'shoulder'], m: /push[ -]?ups?/ },
+    { id: 'scaption',  n: 'Scaption raise (thumbs up)',     p: 'press',  eq: 'db',      lv: 1, u: 'r',  w0: ['3 lb each', '5 lb each', '8 lb each'], inc: 2, m: /scaption|y[ -]raises?/ },
+    { id: 'latraise',  n: 'Lateral raise',                  p: 'press',  eq: 'db',      lv: 1, u: 'r',  w0: ['3 lb each', '5 lb each', '8 lb each'], inc: 2, av: ['shoulder'], m: /(lateral|side) raises?/ },
+    { id: 'bandohp',   n: 'Band overhead press',            p: 'press',  eq: 'band',    lv: 1, u: 'r',  w0: ['light band', 'medium band', 'heavy band'], av: ['shoulder', 'neck'], m: /band(ed)? (overhead|shoulder) press/ },
+    { id: 'landmine',  n: 'Landmine press',                 p: 'press',  eq: 'bb',      lv: 2, u: 'e',  w0: ['empty bar', '10 lb', '25 lb'], m: /landmine( press)?/ },
+    { id: 'dbohp',     n: 'Seated dumbbell shoulder press', p: 'press',  eq: 'db',      lv: 2, u: 'r',  w0: ['8 lb each', '15 lb each', '20 lb each'], av: ['shoulder', 'neck'], m: /(overhead|shoulder|military|ohp)( press)?/ },
+    { id: 'dbrow',     n: 'One-arm dumbbell row',           p: 'row',    eq: 'db',      lv: 1, u: 'e',  w0: ['10 lb', '20 lb', '30 lb'], m: /(one[ -]?arm |single[ -]?arm |dumbbell |db |bent[ -]?over )*rows?/ },
+    { id: 'bandrow',   n: 'Band row',                       p: 'row',    eq: 'band',    lv: 1, u: 'r',  w0: ['light band', 'medium band', 'heavy band'], m: /band(ed)? rows?/ },
+    { id: 'seatedrow', n: 'Seated cable row',               p: 'row',    eq: 'cable',   lv: 1, u: 'r',  w0: ['30 lb', '50 lb', '70 lb'], m: /(seated|cable)( cable)? rows?/ },
+    { id: 'facepull',  n: 'Face pull',                      p: 'row',    eq: 'cable',   lv: 1, u: 'r',  w0: ['20 lb', '30 lb', '40 lb'], m: /face ?pulls?/, cue: 'Elbows high, squeeze shoulder blades' },
+    { id: 'chestrow',  n: 'Chest-supported dumbbell row',   p: 'row',    eq: 'db',      lv: 2, u: 'r',  w0: ['10 lb each', '15 lb each', '25 lb each'], m: /chest[ -]?supported( rows?)?/ },
+    { id: 'invrow',    n: 'Inverted row (TRX)',             p: 'row',    eq: 'machine', lv: 2, u: 'r',  av: ['shoulder'], m: /(inverted|trx|ring) rows?/ },
+    { id: 'bbrow',     n: 'Barbell bent-over row',          p: 'row',    eq: 'bb',      lv: 3, u: 'r',  w0: ['45 lb', '65 lb', '85 lb'], av: ['back'], m: /barbell (bent[ -]?over )?rows?/ },
+    { id: 'bandpd',    n: 'Band lat pulldown',              p: 'pull',   eq: 'band',    lv: 1, u: 'r',  w0: ['light band', 'medium band', 'heavy band'], m: /band(ed)? (lat )?pull[ -]?downs?/ },
+    { id: 'latpd',     n: 'Lat pulldown',                   p: 'pull',   eq: 'machine', lv: 1, u: 'r',  w0: ['30 lb', '50 lb', '70 lb'], m: /(lat )?pull[ -]?downs?/ },
+    { id: 'straightarm',n:'Straight-arm pulldown',          p: 'pull',   eq: 'cable',   lv: 2, u: 'r',  w0: ['15 lb', '25 lb', '35 lb'], m: /straight[ -]?arm( pull[ -]?downs?)?/ },
+    { id: 'pullover',  n: 'Dumbbell pullover',              p: 'pull',   eq: 'bench',   lv: 2, u: 'r',  w0: ['10 lb', '15 lb', '25 lb'], av: ['shoulder'], m: /pull[ -]?overs?/ },
+    { id: 'assistpu',  n: 'Assisted pull-up',               p: 'pull',   eq: 'machine', lv: 3, u: 'r',  av: ['shoulder', 'elbow'], m: /(assisted )?(pull|chin)[ -]?ups?/ },
+    { id: 'deadbug',   n: 'Dead bug',                       p: 'core',   eq: 'bw',      lv: 1, u: 'e',  av: ['preg'], m: /dead ?bugs?/, cue: 'Low back stays down' },
+    { id: 'birddog',   n: 'Bird dog',                       p: 'core',   eq: 'bw',      lv: 1, u: 'e',  m: /bird ?dogs?/ },
+    { id: 'pallof',    n: 'Pallof press',                   p: 'core',   eq: 'band',    lv: 1, u: 'e',  m: /pallof( press)?/, cue: 'Resist the twist' },
+    { id: 'inclplank', n: 'Incline plank (hands on bench)', p: 'core',   eq: 'bw',      lv: 1, u: 't',  av: ['wrist'], m: /incline planks?/ },
+    { id: 'sideplank', n: 'Side plank (from knees)',        p: 'core',   eq: 'bw',      lv: 1, u: 'te', av: ['shoulder'], m: /side planks?/ },
+    { id: 'plank',     n: 'Forearm plank',                  p: 'core',   eq: 'bw',      lv: 2, u: 't',  av: ['shoulder', 'back', 'preg'], m: /(forearm )?planks?/ },
+    { id: 'crunch',    n: 'Crunch',                         p: 'core',   eq: 'bw',      lv: 1, u: 'r',  av: ['neck', 'back', 'preg'], m: /crunch(es)?|sit[ -]?ups?/ },
+    { id: 'mtclimb',   n: 'Mountain climber',               p: 'core',   eq: 'bw',      lv: 3, u: 't',  av: ['wrist', 'shoulder', 'back', 'knee'], m: /mountain climbers?/ },
+    { id: 'farmer',    n: 'Farmer carry',                   p: 'carry',  eq: 'db',      lv: 1, u: 't',  w0: ['10 lb each', '20 lb each', '30 lb each'], m: /farmers?'? (carry|walk)s?/, cue: 'Tall posture, slow steps' },
+    { id: 'suitcase',  n: 'Suitcase carry',                 p: 'carry',  eq: 'db',      lv: 2, u: 'te', w0: ['15 lb', '25 lb', '35 lb'], m: /suitcase( carry| walk)?/ },
+    { id: 'dbcurl',    n: 'Dumbbell biceps curl',           p: 'bi',     eq: 'db',      lv: 1, u: 'r',  w0: ['5 lb each', '10 lb each', '15 lb each'], av: ['elbow'], m: /(biceps? |dumbbell |db )?curls?/, mx: /\bleg\b|hamstring/ },
+    { id: 'hammercurl',n: 'Hammer curl',                    p: 'bi',     eq: 'db',      lv: 1, u: 'r',  w0: ['5 lb each', '10 lb each', '15 lb each'], m: /hammer( curls?)?/ },
+    { id: 'bandcurl',  n: 'Band curl',                      p: 'bi',     eq: 'band',    lv: 1, u: 'r',  w0: ['light band', 'medium band', 'heavy band'], m: /band(ed)? curls?/ },
+    { id: 'kickback',  n: 'Triceps kickback',               p: 'tri',    eq: 'db',      lv: 1, u: 'r',  w0: ['5 lb each', '8 lb each', '12 lb each'], m: /kick ?backs?/ },
+    { id: 'tripush',   n: 'Triceps pushdown',               p: 'tri',    eq: 'cable',   lv: 1, u: 'r',  w0: ['20 lb', '30 lb', '40 lb'], m: /(triceps? |rope )?push[ -]?downs?/ },
+    { id: 'ohext',     n: 'Overhead triceps extension',     p: 'tri',    eq: 'db',      lv: 2, u: 'r',  w0: ['8 lb', '12 lb', '20 lb'], av: ['shoulder', 'elbow'], m: /overhead (triceps? )?extensions?|skull ?crushers?/ },
+    { id: 'benchdip',  n: 'Bench dip',                      p: 'tri',    eq: 'bw',      lv: 2, u: 'r',  av: ['shoulder', 'wrist'], m: /(bench )?dips?/ },
+    { id: 'walk',      n: 'Brisk walk / treadmill',         p: 'cardio', eq: 'bw',      lv: 1, u: 'c',  m: /walk(ing)?|treadmill|hike/ },
+    { id: 'bike',      n: 'Stationary bike',                p: 'cardio', eq: 'cardio',  lv: 1, u: 'c',  m: /(stationary |exercise |spin )?bike|cycl(e|ing)|spin class/ },
+    { id: 'elliptical',n: 'Elliptical',                     p: 'cardio', eq: 'cardio',  lv: 1, u: 'c',  m: /elliptical/ },
+    { id: 'rower',     n: 'Rowing machine',                 p: 'cardio', eq: 'cardio',  lv: 2, u: 'c',  av: ['back'], m: /rower|rowing( machine)?|\berg\b/ },
+    { id: 'slbal',     n: 'Single-leg balance (near support)', p: 'bal', eq: 'bw',      lv: 1, u: 'te', m: /(single|one)[ -]?leg (balance|stand)s?|balance/ },
+    { id: 'heeltoe',   n: 'Heel-to-toe walk',               p: 'bal',    eq: 'bw',      lv: 1, u: 't',  m: /heel[ -]?to[ -]?toe|tandem walk/ },
+    { id: 'catcow',    n: 'Cat-cow',                        p: 'bal',    eq: 'bw',      lv: 1, u: 'r',  m: /cat[ -]?cows?/ }
+  ];
+  var PT_PATS = { squat: 'Squat', hinge: 'Hinge', lunge: 'Single leg', bridge: 'Glutes / hips', push: 'Push', press: 'Shoulders', row: 'Row', pull: 'Pull-down',
+    core: 'Core', carry: 'Carry', bi: 'Biceps', tri: 'Triceps', cardio: 'Cardio', bal: 'Balance / mobility' };
+  var PT_LOWER = { squat: 1, hinge: 1, lunge: 1, bridge: 1, carry: 1 };
+  var PT_EQS = { gym: null, home: ['bw', 'db', 'kb', 'band'], min: ['bw', 'band'] };
+  var PT_EQL = { bw: 'bodyweight', db: 'dumbbells', kb: 'kettlebell', band: 'band', bb: 'barbell', machine: 'machine', cable: 'cable', bench: 'bench + dumbbells', cardio: 'cardio machine' };
+  // AILMENT MAP: keyword regex -> key. Exercises tagged av:[key] are swapped for a same-pattern exercise without it (prefer list first);
+  // `cue` is added as the note on exercises in `pats`. heart / preg add a plan-level caution (warn) too.
+  var PT_AIL = {
+    knee:     { re: /knee|acl\b|mcl\b|menisc|patell|tkr/, label: 'knee', pats: ['squat', 'lunge'], prefer: ['boxsq', 'legpress', 'wallsit', 'stepup', 'bridge'], cue: 'Pain-free range; knee tracks over toes' },
+    back:     { re: /\bback\b|spine|spinal|lumbar|disc\b|discs|sciatic|herniat|scoliosis/, label: 'back', pats: ['hinge', 'squat', 'row', 'core'], prefer: ['hiphinge', 'cablepull', 'chestrow', 'pallof', 'deadbug', 'birddog', 'bridge', 'legpress', 'seatedrow'], cue: 'Neutral spine, brace, stop if pain' },
+    shoulder: { re: /shoulder|rotator|cuff|labrum|frozen|impinge/, label: 'shoulder', pats: ['push', 'press', 'pull', 'tri'], prefer: ['floorpress', 'landmine', 'scaption', 'bandrow', 'facepull', 'chestpress', 'bandpd'], cue: 'Pain-free range only; stop before any pinch' },
+    wrist:    { re: /wrist|carpal|thumb|\bhands?\b/, label: 'wrist', pats: ['push', 'core'], prefer: ['floorpress', 'chestpress', 'hammercurl', 'deadbug', 'pallof'], cue: 'Neutral wrist; handles or fists' },
+    elbow:    { re: /elbow|epicondyl|tennis|golfer/, label: 'elbow', pats: ['bi', 'tri'], prefer: ['hammercurl', 'bandcurl', 'kickback', 'bandrow'], cue: 'Light and pain-free; neutral grip' },
+    hip:      { re: /\bhips?\b|groin|sacroiliac|\bsi joint|piriformis/, label: 'hip', pats: ['squat', 'lunge', 'hinge'], prefer: ['boxsq', 'bridge', 'clamshell', 'legpress'], cue: 'Pain-free depth' },
+    ankle:    { re: /ankle|achilles|plantar|\bfoot\b|\bfeet\b|heel spur/, label: 'ankle / foot', pats: ['lunge', 'carry', 'bal'], prefer: ['boxsq', 'bike', 'bridge'], cue: 'Stable footing; stop if pain' },
+    neck:     { re: /neck|cervical/, label: 'neck', pats: ['press', 'core'], prefer: ['deadbug', 'pallof', 'landmine'], cue: 'Neutral neck, no shrugging' },
+    balance:  { re: /balance|fall risk|falls|fell|dizz|vertigo|neuropath|parkinson|osteopor|osteopenia/, label: 'balance', pats: ['lunge', 'bal', 'carry'], prefer: ['boxsq', 'stepup', 'slbal'], cue: 'Near support; hold a rail if needed' },
+    heart:    { re: /blood pressure|hypertens|heart|cardiac|stent|\bbp\b|lisinopril|amlodipine|metoprolol|beta blocker/, label: 'blood pressure / heart', pats: [], prefer: [], warn: 'Blood pressure / heart noted: breathe out on effort, no breath holding, keep effort moderate.' },
+    preg:     { re: /pregnan|postpartum|prenatal/, label: 'pregnancy', pats: [], prefer: ['birddog', 'pallof'], warn: 'Pregnancy / postpartum noted: no lying flat on the back or crunches; follow her doctor\u2019s guidance.' }
+  };
+  // Session templates: patterns in order (beginners get the first 5, others 6). B variants pick the next-best exercise for each pattern.
+  var PT_TPL = {
+    lowerA: { t: 'Lower body', p: ['squat', 'hinge', 'bridge', 'lunge', 'core', 'carry'] },
+    lowerB: { t: 'Lower body', b: 1, p: ['lunge', 'hinge', 'squat', 'bridge', 'core', 'core'] },
+    upperA: { t: 'Upper body', p: ['push', 'row', 'press', 'pull', 'core', 'bi'] },
+    upperB: { t: 'Upper body', b: 1, p: ['row', 'push', 'pull', 'press', 'core', 'tri'] },
+    fullA:  { t: 'Full body', p: ['squat', 'push', 'hinge', 'row', 'core', 'lunge'] },
+    fullB:  { t: 'Full body', b: 1, p: ['lunge', 'press', 'bridge', 'pull', 'core', 'carry'] },
+    pushA:  { t: 'Push', p: ['push', 'press', 'squat', 'tri', 'core', 'push'] },
+    pushB:  { t: 'Push', b: 1, p: ['push', 'press', 'lunge', 'tri', 'core', 'press'] },
+    pullA:  { t: 'Pull', p: ['pull', 'row', 'hinge', 'bi', 'core', 'row'] },
+    pullB:  { t: 'Pull', b: 1, p: ['row', 'pull', 'bridge', 'bi', 'core', 'carry'] },
+    legsA:  { t: 'Legs', p: ['squat', 'hinge', 'lunge', 'bridge', 'core', 'carry'] },
+    legsB:  { t: 'Legs', b: 1, p: ['lunge', 'hinge', 'squat', 'bridge', 'core', 'core'] }
+  };
+  var PT_FOCUS = [['auto', 'Auto'], ['ul', 'Upper / lower'], ['ppl', 'Push / pull / legs'], ['full', 'Full body']];
+  var PT_ROT = {      // focus rotation; the list keeps cycling across weeks (so e.g. upper/lower at 3 a week alternates L U L, then U L U)
+    auto: { 2: ['fullA', 'fullB'], 3: ['lowerA', 'upperA', 'fullA'], 4: ['lowerA', 'upperA', 'lowerB', 'upperB'], 5: ['lowerA', 'upperA', 'fullA', 'lowerB', 'upperB'] },
+    ul: ['lowerA', 'upperA', 'lowerB', 'upperB'], ppl: ['pushA', 'pullA', 'legsA', 'pushB', 'pullB', 'legsB'], full: ['fullA', 'fullB']
+  };
+  var PT_DAYS = { 2: [0, 3], 3: [0, 2, 4], 4: [0, 1, 3, 4], 5: [0, 1, 2, 3, 4] };     // day offsets inside each week, from the start date
+  var PT_WARM = { id: 'warm', n: 'Warm-up', p: 'warm', u: 'c' };
+  var PT_LVL = ['', 'Beginner', 'Intermediate', 'Advanced'];
+
+  function ptpLib(id) { for (var i = 0; i < PT_LIB.length; i++) if (PT_LIB[i].id === id) return PT_LIB[i]; return id === 'warm' ? PT_WARM : null; }
+  function ptpNum(s) { var m = /(\d+(?:\.\d+)?)/.exec(String(s == null ? '' : s)); return m ? +m[1] : 0; }
+  function ptpRound(v) { return Math.round(v * 2) / 2; }
+  function ptpW(s) {                    // "20 lb each" -> {v:20,u:'lb',each:true}; band / bodyweight / blank -> null
+    s = String(s || '').toLowerCase(); var m = /(\d+(?:\.\d+)?)\s*(lbs?|pounds?|kgs?|kilos?|#|s\b)?/.exec(s);
+    if (!m || /assist/.test(s)) return null;
+    return { v: +m[1], u: /^k/.test(m[2] || '') ? 'kg' : 'lb', each: /each|per hand|\/hand|a hand|pair|\bea\b|x ?2\b|both hands/.test(s) };
+  }
+  function ptpWFmt(w) { return w ? (String(ptpRound(w.v)).replace(/\.0$/, '') + ' ' + w.u + (w.each ? ' each' : '')) : ''; }
+  function ptpSec(s) { s = String(s || '').toLowerCase(); var n = ptpNum(s); if (!n) return 0; return /min/.test(s) && !/sec/.test(s) ? n * 60 : n; }
+  function ptpMin(s) { s = String(s || '').toLowerCase(); var n = ptpNum(s); if (!n) return 0; return /sec|\bs\b/.test(s) && !/min/.test(s) ? Math.max(1, Math.round(n / 60)) : n; }
+  function ptpSecFmt(n, each) { n = Math.max(5, Math.round(n / 5) * 5); return (n >= 120 && n % 60 === 0 ? (n / 60) + ' min' : n + ' sec') + (each ? '/side' : ''); }
+  function ptpShortDate(iso) { var d = mgDate(iso); return d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : String(iso || ''); }
+  function ptpNewId() { var a = 'abcdefghjkmnpqrstuvwxyz', s = 'pl'; for (var i = 0; i < 8; i++) s += a.charAt(Math.floor(Math.random() * a.length)); return s; }  // letters only (the server masks long digit runs)
+  function ptpNextMon() { var d = new Date(); d = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12); if (d.getDay() !== 1) d = mgNextMonday(d); return mgIso(d); }
+  function ptpMatch(name) {             // logged exercise name -> library entry (longest regex match wins)
+    var t = String(name || '').toLowerCase(), best = null, bl = 0;
+    if (!t) return null;
+    PT_LIB.forEach(function (l) { if (!l.m || (l.mx && l.mx.test(t))) return; var m = l.m.exec(t); if (m && m[0].length > bl) { bl = m[0].length; best = l; } });
+    return best;
+  }
+  // a free-text line like "Squat 3x10 @ 20 lb" or "Plank 30s": pull the numbers out of the name when the fields are empty
+  function ptpLineNums(e) {
+    var o = { name: e.n, s: e.s, r: e.r, w: e.w, d: e.d }, t = String(e.n || '');
+    var sr = /(\d+)\s*[x\u00d7]\s*(\d+)/i.exec(t); if (sr && !o.s && !o.r) { o.s = sr[1]; o.r = sr[2]; }
+    var wt = /(\d+(?:\.\d+)?)\s*(lbs?|pounds?|kgs?)\b/i.exec(t); if (wt && !o.w) o.w = wt[0];
+    var dd = /(\d+)\s*(s|sec|secs|seconds|min|mins|minutes)\b/i.exec(t); if (dd && !o.d && !sr) o.d = dd[0];
+    o.name = t.replace(/(\d+)\s*[x\u00d7]\s*(\d+)|@|(\d+(?:\.\d+)?)\s*(lbs?|pounds?|kgs?)\b|(\d+)\s*(s|sec|secs|seconds|min|mins|minutes)\b/gi, ' ').replace(/[\s,:\-]+$/, '').replace(/\s+/g, ' ').trim() || t;
+    return o;
+  }
+  // History the plan builds on: History entries + prescribed workouts marked done. by[libId] = latest logged set for that exercise.
+  function ptpHist(c) {
+    var by = {}, other = {}, count = 0, exN = 0, matched = 0, last = '';
+    (c.workouts || []).forEach(function (w) {
+      var p = ptWParse(w); if (!(p.kind === 'prior' || w.done)) return;
+      var named = p.ex.filter(function (e) { return String(e.n || '').trim(); }); if (!named.length) return;
+      count++; if (String(w.date || '') > last) last = String(w.date || '');
+      named.forEach(function (e) {
+        var x = ptpLineNums(e), l = ptpMatch(x.name), rec = { name: x.name, s: x.s, r: x.r, w: x.w, d: x.d, date: String(w.date || '') }; exN++;
+        if (l) { matched++; if (!by[l.id] || rec.date >= by[l.id].date) by[l.id] = rec; }
+        else { var k = x.name.toLowerCase(); if (!other[k] || rec.date >= other[k].date) other[k] = rec; }
+      });
+    });
+    var ol = Object.keys(other).map(function (k) { return other[k]; }).sort(function (a, b) { return a.date < b.date ? 1 : -1; }).slice(0, 25);
+    return { by: by, other: ol, count: count, exN: exN, matched: matched, last: last };
+  }
+  function ptpAilments(c) {
+    var txt = [c.ailments, c.condition, c.medications].join('\n').toLowerCase(), keys = [];
+    txt.split(/[\n.;,]+|\band\b|\bbut\b/).forEach(function (cl) {
+      if (!cl.trim() || /\b(no|none|never|not|denies)\b|\b(fine|healed|resolved|recovered)\b/.test(cl)) return;
+      Object.keys(PT_AIL).forEach(function (k) { if (keys.indexOf(k) < 0 && PT_AIL[k].re.test(cl)) keys.push(k); });
+    });
+    return keys;
+  }
+  function ptpGoal(c) {
+    var g = String(c.goals || '').toLowerCase();
+    var o = { str: /strength|strong|muscle|tone|toning|build|lift|bone/.test(g), end: /lose|loss|weight|fat|slim|endurance|stamina|cardio|energy|condition|run\b|running|5k|heart health/.test(g),
+      mob: /mobility|flexib|posture|balance|pain|move better|moving better|function|range of motion|stiff|rehab|aches?/.test(g) };
+    o.label = [o.str ? 'strength' : '', o.end ? 'endurance / weight loss' : '', o.mob ? 'mobility / balance' : ''].filter(Boolean).join(', ') || 'general fitness';
+    o.R = o.str && !o.end ? 8 : (o.end && !o.str ? 12 : 10);
+    return o;
+  }
+  function ptpSpwDefault(c) {
+    var s = String(c.schedule || '').toLowerCase(), w = { once: 2, twice: 2, two: 2, three: 3, four: 4, five: 5 };
+    var m = /\b([1-7]|once|twice|two|three|four|five)\s*(x|times|days|sessions|\/|per|a week)/.exec(s) || /\b(once|twice)\b/.exec(s);
+    var n = m ? (w[m[1]] || +m[1]) : 3; return Math.min(5, Math.max(2, n || 3));
+  }
+  function ptpEqDefault(c) {
+    var t = [c.condition, c.experience, c.notes, c.schedule, c.goals].join(' ').toLowerCase();
+    if (/no equipment|body ?weight only|no weights/.test(t)) return 'min';
+    if (/\bat home\b|home gym|garage|\bhome\b|no gym/.test(t)) return 'home';
+    return 'gym';
+  }
+  function ptpSetDefault(c) {
+    var last = ''; (c.workouts || []).forEach(function (w) { var p = ptWParse(w); if (p.meta && p.meta.plan && String(w.date || '') > last) last = String(w.date || ''); });
+    var start = ptpNextMon();
+    if (last && last >= start) { var d = mgDate(last); if (d) start = mgIso(mgNextMonday(d)); }
+    return { spw: ptpSpwDefault(c), start: start, focus: 'auto', eq: ptpEqDefault(c), wk4: 'deload', level: 'auto' };
+  }
+  function ptpCtx(c, set) {
+    var hist = ptpHist(c), all = [c.condition, c.experience].join(' . ').toLowerCase(), tl = 0, why = [];
+    if (/advanced|athlet|very fit|excellent|competit|years of (lifting|training)|lifts regularly/.test(all)) tl = 3;
+    else if (/beginner|sedentary|decondition|out of shape|new to (exercise|working out|the gym|training|lifting)|never (worked|exercised|lifted|trained)|poor|low fitness|inactive|not (very )?active|weak|frail/.test(all)) tl = 1;
+    else if (/intermediate|moderate|some experience|fair|average|regular|good|active|fit\b/.test(all)) tl = 2;
+    var hl = hist.count >= 12 ? 3 : hist.count >= 4 ? 2 : 1, lvl = tl ? (hl > tl ? Math.min(tl + 1, hl) : tl) : hl;
+    why.push(tl ? 'condition reads ' + PT_LVL[tl].toLowerCase() : 'no fitness level noted');
+    var age = parseInt(c.age, 10);
+    if (age >= 75 && lvl > 1) { lvl = 1; why.push('age ' + age); } else if (age >= 65 && lvl > 2) { lvl = 2; why.push('age ' + age); } else if (age && age < 16 && lvl > 2) { lvl = 2; why.push('age ' + age); }
+    var little = hist.count < 3;
+    if (little && lvl > 1) { lvl = 1; why.push('little history, so starting conservative'); }
+    var auto = lvl; if (set.level !== 'auto' && +set.level >= 1 && +set.level <= 3) { lvl = +set.level; why = ['set by you']; }
+    var g = ptpGoal(c), ail = ptpAilments(c);
+    if (age >= 70 && ail.indexOf('balance') < 0) ail.push('balance');          // 70+: treat as a balance caution (shown under Work around)
+    return { lvl: lvl, auto: auto, lvlWhy: why.join(', '), little: little, hist: hist, goal: g, ail: ail, age: age || 0,
+      S: lvl === 1 ? 2 : 3, R: lvl === 1 ? Math.max(10, g.R) : g.R, eq: PT_EQS[set.eq] || null, wk4: set.wk4 === 'test' ? 'test' : 'deload' };
+  }
+  function ptpEqOk(ctx, l) { return !ctx.eq || ctx.eq.indexOf(l.eq) >= 0; }
+  function ptpConf(ctx, l) { return (l.av || []).filter(function (k) { return ctx.ail.indexOf(k) >= 0; }); }
+  function ptpAilLbl(keys) { return keys.map(function (k) { return PT_AIL[k] ? PT_AIL[k].label : k; }).join(' + '); }
+  function ptpScore(ctx, l) {
+    var s = ctx.hist.by[l.id] ? 6 : 0;
+    s += l.lv === ctx.lvl ? 3 : (l.lv < ctx.lvl ? 2 - (ctx.lvl - l.lv - 1) : -4 * (l.lv - ctx.lvl));
+    ctx.ail.forEach(function (k) { if ((PT_AIL[k].prefer || []).indexOf(l.id) >= 0) s += 1; });
+    return s;
+  }
+  function ptpRanked(ctx, pat, used) {     // same-pattern exercises, best first (history, level fit, ailment-friendly); equipment filter unless nothing fits
+    var c = PT_LIB.filter(function (l) { return l.p === pat && !used[l.id] && ptpEqOk(ctx, l); });
+    if (!c.length) c = PT_LIB.filter(function (l) { return l.p === pat && !used[l.id]; });
+    return c.map(function (l, i) { return { l: l, i: i, sc: ptpScore(ctx, l) }; }).sort(function (a, b) { return b.sc - a.sc || a.i - b.i; }).map(function (x) { return x.l; });
+  }
+  function ptpPick(ctx, pat, k, used) {
+    var all = ptpRanked(ctx, pat, used); if (!all.length) return null;
+    var fit = function (l) { return l.lv <= ctx.lvl; }, allF = all.filter(fit).length ? all.filter(fit) : all;      // B variants / regenerate rotate within her level
+    var safe = all.filter(function (l) { return !ptpConf(ctx, l).length; }), safeF = safe.filter(fit).length ? safe.filter(fit) : safe, want = allF[k % allF.length];
+    if (safe.length) {
+      var got = safeF[k % safeF.length], cf = ptpConf(ctx, want);
+      return { l: got, why: cf.length && got !== want ? 'swapped for ' + ptpAilLbl(cf) + ' (instead of ' + want.n + ')' : '', flag: '' };
+    }
+    return { l: want, why: '', flag: ptpAilLbl(ptpConf(ctx, want)) };
+  }
+  // the exercises for one session template: [{slot, l, why, flag}] (warm-up first)
+  function ptpChoose(ctx, tk, seed, gk) {
+    var T = PT_TPL[tk], pats = T.p.slice(0, ctx.lvl === 1 ? 5 : 6), used = {}, k = (T.b ? 1 : 0) + (seed || 0), out = [{ slot: gk + ':w', l: PT_WARM, why: '', flag: '' }];
+    if (ctx.goal.mob || ctx.ail.indexOf('balance') >= 0) pats.push('bal');
+    if (ctx.goal.end) pats.push('cardio');
+    pats.forEach(function (p, i) { var r = ptpPick(ctx, p, k, used); if (!r) return; used[r.l.id] = 1; out.push({ slot: gk + ':' + i, l: r.l, why: r.why, flag: r.flag }); });
+    return out;
+  }
+  function ptpCue(ctx, l) {
+    var cue = '';
+    ctx.ail.forEach(function (k) { var a = PT_AIL[k]; if (!cue && a.cue && a.pats.indexOf(l.p) >= 0) cue = a.cue; });
+    var n = [l.cue || '', cue].filter(Boolean).join('. ');
+    return n.length > 150 ? cue || l.cue : n;
+  }
+  function ptpHistTxt(h) {
+    var b = []; if (h.s && h.r) b.push(h.s + 'x' + h.r); else if (h.r) b.push(h.r + ' reps'); else if (h.s && h.d) b.push(h.s + 'x' + h.d);
+    if (h.w) b.push('@ ' + h.w); if (h.d && !(h.s && !h.r)) b.push(h.d);
+    return 'from history' + (h.date ? ' (' + ptpShortDate(h.date) + ')' : '') + (b.length ? ': ' + b.join(' ') : '');
+  }
+  function ptpInc(l, W) { if (!W) return 0; var i = l.inc || (PT_LOWER[l.p] ? 5 : (W.v < 15 ? 2.5 : 5)); return W.u === 'kg' ? (i >= 5 ? 2 : 1) : i; }
+  // one exercise for week wk: sets / reps / weight / time + the "why" line. Weeks 1-3 build, week 4 deloads (or tests).
+  function ptpEx(ctx, l, wk, slot, extra, flag, hOver) {
+    var o = { slot: slot, lib: l.id || '', p: l.p || '', n: l.n, s: '', r: '', w: '', d: '', note: '', why: '' }, why = [], h = hOver || (l.id ? ctx.hist.by[l.id] : null), w4 = ctx.wk4;
+    if (l.id === 'warm') { o.d = ctx.lvl === 1 ? '5-8 min' : '5 min'; o.note = 'Easy cardio + dynamic mobility'; o.why = 'every session'; return o; }
+    var S = ctx.S;
+    if (h && ptpNum(h.s) >= 1 && ptpNum(h.s) <= 6) S = Math.min(4, Math.max(2, Math.round(ptpNum(h.s))));
+    if (l.u === 'c') {                  // cardio minutes
+      var M = ctx.lvl === 1 ? 6 : ctx.lvl === 2 ? 8 : 10;
+      if (h && ptpMin(h.d)) { M = Math.min(15, Math.max(5, ptpMin(h.d))); why.push(ptpHistTxt(h) + ', capped as a finisher'); }
+      var mm = wk === 4 ? M : M + 2 * (wk - 1);
+      o.d = mm + ' min'; o.note = ctx.lvl > 1 && ctx.goal.end ? 'Intervals: 30 sec faster / 60 sec easy' : 'Easy to moderate pace';
+      why.push(wk === 1 ? (h ? '' : 'finisher, ' + M + ' min to start') : wk === 4 ? (w4 === 'test' ? 'test: steady, note distance' : 'deload: back to wk 1') : '+' + 2 * (wk - 1) + ' min vs wk 1');
+      if (w4 === 'test' && wk === 4) o.note = 'Steady pace; note distance or level';
+    } else if (l.u === 't' || l.u === 'te') {      // timed holds / carries
+      var T = ctx.lvl === 1 ? 20 : ctx.lvl === 2 ? 30 : 40, W0 = l.w0 ? ptpW(l.w0[ctx.lvl - 1]) : null;
+      if (h && ptpSec(h.d)) { T = Math.min(90, ptpSec(h.d) + 5); why.push(ptpHistTxt(h) + ' \u2192 +5 sec'); }
+      else if (h) why.push(ptpHistTxt(h));
+      if (h && ptpW(h.w)) W0 = ptpW(h.w);
+      if (!h && W0) why.push('start weight is a guess: adjust');
+      var tt = T, ss = S;
+      if (wk === 2) { tt = T + 10; why.push('+10 sec'); }
+      if (wk === 3) { tt = T + 20; why.push('+20 sec'); }
+      if (wk === 4) { if (w4 === 'test') { tt = T + 20; o.note = 'Last set: hold as long as good form lasts (test)'; why.push('test: max hold on last set'); } else { ss = S > 2 ? S - 1 : S; why.push('deload: wk 1 time' + (S > 2 ? ', 1 fewer set' : '')); } }
+      if (!why.length) why.push(W0 ? '' : 'bodyweight');
+      o.s = String(ss); o.d = ptpSecFmt(tt, l.u === 'te'); o.w = ptpWFmt(W0);
+    } else {                            // reps (each side when u = 'e')
+      var R = ctx.R, W = null, band = '';
+      if (l.w0) { var g0 = l.w0[ctx.lvl - 1] || ''; W = ptpW(g0); if (!W && /band|bar/.test(g0)) band = g0; }       // band = a text load (band colour, empty bar)
+      if (h) {
+        var hr = ptpNum(h.r), hw = ptpW(h.w);
+        if (hw) { W = hw; band = ''; } else if (/band/i.test(h.w || '')) { W = null; band = String(h.w).trim(); }
+        if (hr && hr + 2 <= R + 4) { R = Math.round(hr) + 2; why.push(ptpHistTxt(h) + ' \u2192 +2 reps'); }
+        else if (hr && W) { var i0 = ptpInc(l, W); W = { v: W.v + i0, u: W.u, each: W.each }; why.push(ptpHistTxt(h) + ' \u2192 +' + i0 + ' ' + W.u + ', ' + R + ' reps'); }
+        else why.push(ptpHistTxt(h));
+      } else if (W) why.push('start weight is a guess: adjust so the last 2 reps are hard');
+      else if (band) why.push(/band/.test(band) ? 'start band is a guess' : 'start load is a guess');
+      else why.push('bodyweight');
+      var hasW = !!W, inc = ptpInc(l, W), s = S, r = R, ww = W;
+      if (wk === 2) { r = R + 2; why.push('+2 reps vs wk 1'); }
+      if (wk === 3) {
+        if (hasW) { ww = { v: W.v + inc, u: W.u, each: W.each }; why.push('+' + inc + ' ' + W.u + ', back to ' + R + ' reps'); }
+        else { s = Math.min(5, S + 1); r = R + 2; why.push('+1 set' + (/band/.test(band) ? ' (or the next band)' : '')); if (/band/.test(band)) o.note = 'Next band up if ' + R + ' reps feel easy'; }
+      }
+      if (wk === 4) {
+        if (w4 === 'test') { if (hasW) ww = { v: W.v + inc, u: W.u, each: W.each }; o.note = 'Last set: as many clean reps as possible (test)'; why.push('test: ' + (hasW ? 'wk 3 weight, ' : '') + 'last set max reps'); }
+        else { s = S > 2 ? S - 1 : S; r = S > 2 ? R : Math.max(6, R - 2); why.push('deload: wk 1 ' + (hasW ? 'weight' : 'level') + (S > 2 ? ', 1 fewer set' : ', fewer reps')); }
+      }
+      o.s = String(s); o.r = r + (l.u === 'e' ? '/side' : ''); o.w = hasW ? ptpWFmt(ww) : band;
+    }
+    if (wk > 1) why = why.filter(function (x) { return !/^from history|is a guess|^bodyweight$|^finisher/.test(x); });   // weeks 2-4: just the change
+    if (extra) why.push(extra);
+    if (flag) why.unshift('\u26a0 check ' + flag + ': no safer option here');
+    var cue = ptpCue(ctx, l);
+    if (!o.note) o.note = cue; else if (cue && (o.note + '. ' + cue).length <= 150) o.note += '. ' + cue;
+    o.why = why.filter(Boolean).join(' \u00b7 ');
+    return o;
+  }
+  function ptpRot(set) { var r = PT_ROT[set.focus] || PT_ROT.auto; return Array.isArray(r) ? r : (r[set.spw] || r[3]); }
+  function ptpTitle(P, s) {
+    var T = PT_TPL[s.tk] || { t: 'Workout' }, rot = ptpRot(P.set), fam = s.tk.replace(/[AB]$/, ''), both = rot.indexOf(fam + 'A') >= 0 && rot.indexOf(fam + 'B') >= 0;
+    return T.t + (both ? ' ' + s.tk.slice(-1) : '') + ' \u00b7 Week ' + s.wk + (s.wk === 4 ? (P.set.wk4 === 'test' ? ' (test)' : ' (deload)') : '');
+  }
+  function ptpSessFill(P, ctx, s, choice) { s.ex = choice.map(function (x) { return ptpEx(ctx, x.l, s.wk, x.slot, x.why, x.flag); }); }
+  function ptpBuild(c, set, seed) {
+    var ctx = ptpCtx(c, set), rot = ptpRot(set), per = Math.min(5, Math.max(2, +set.spw || 3)), sess = [], n = 0, choice = {};
+    var P = { id: ptpNewId(), clientId: c.id, set: set, seed: seed || 0, vseed: {}, nx: 0, sess: sess, ctx: ctx, edited: false };
+    for (var wk = 1; wk <= 4; wk++) for (var k = 1; k <= per; k++) {
+      var tk = rot[n % rot.length]; n++;
+      if (!choice[tk]) choice[tk] = ptpChoose(ctx, tk, P.seed, tk);
+      var s = { wk: wk, sess: k, date: mgAddDays(set.start, (wk - 1) * 7 + PT_DAYS[per][k - 1]), tk: tk, gk: tk, title: '', ex: [], cid: '', sig: '', saved: '' };
+      ptpSessFill(P, ctx, s, choice[tk]); s.title = ptpTitle(P, s); sess.push(s);
+    }
+    return P;
+  }
+  function ptpRedate(P) { var per = +P.set.spw; P.sess.forEach(function (s) { s.date = mgAddDays(P.set.start, (s.wk - 1) * 7 + PT_DAYS[per][s.sess - 1]); }); }
+
+  // ---- plan state (memory only, per client; nothing about the draft is stored on the phone or the server until Approve) ----
+  function ptpSt(c) {
+    if (!pt.pp) pt.pp = {};
+    var st = pt.pp[c.id];
+    if (!st) st = pt.pp[c.id] = { set: ptpSetDefault(c), plan: null, wk: 1, edit: {}, pick: null, q: '', undo: null, busy: false, all: true, confirm: '', msg: '', bad: false, setOpen: false, saving: '' };
+    return st;
+  }
+  function ptpCur() { var c = ptClient(ptRoute().id); return c ? { c: c, st: ptpSt(c) } : null; }
+  function ptpSnap(st, label) { var P = st.plan; if (!P) return; var ctx = P.ctx; P.ctx = null; st.undo = { p: JSON.stringify(P), label: label }; P.ctx = ctx; }
+  function ptpFlash(st, msg, bad) { st.msg = msg || ''; st.bad = !!bad; }
+
+  // ---- render ----
+  function ptpChips(key, cur, opts, busy) {
+    return '<div class="vchips ptpchips" role="group">' + opts.map(function (o) {
+      var on = String(cur) === String(o[0]);
+      return '<button type="button" class="vchip' + (on ? ' on' : '') + '" data-pt="ppset" data-k="' + key + '" data-v="' + esc(o[0]) + '" aria-pressed="' + on + '"' + (busy ? ' disabled' : '') + '>' + esc(o[1]) + '</button>';
+    }).join('') + '</div>';
+  }
+  function ptpSettingsHtml(c, st, ctx) {
+    var s = st.set, b = st.busy;
+    var h = '<div class="vfield"><span>Sessions per week</span>' + ptpChips('spw', s.spw, [[2, '2'], [3, '3'], [4, '4'], [5, '5']], b) + '</div>';
+    h += '<div class="vfield"><span>Start date (day 1)</span><input class="wlin ptin ptpdate" type="date" data-ppl="start" value="' + esc(s.start) + '" aria-label="Start date"' + (b ? ' disabled' : '') + '></div>';
+    h += '<div class="vfield"><span>Focus rotation</span>' + ptpChips('focus', s.focus, PT_FOCUS, b) + '</div>';
+    h += '<div class="vfield"><span>Equipment</span>' + ptpChips('eq', s.eq, [['gym', 'Gym'], ['home', 'Home: DB + bands'], ['min', 'Bodyweight + bands']], b) + '</div>';
+    h += '<div class="vfield"><span>Level</span>' + ptpChips('level', s.level, [['auto', 'Auto (' + PT_LVL[ctx.auto] + ')'], [1, 'Beginner'], [2, 'Intermediate'], [3, 'Advanced']], b) + '</div>';
+    h += '<div class="vfield"><span>Week 4</span>' + ptpChips('wk4', s.wk4, [['deload', 'Deload (lighter)'], ['test', 'Test week']], b) + '</div>';
+    return h;
+  }
+  function ptpReadHtml(c, ctx) {
+    var H = ctx.hist, first = String(c.name || '').split(' ')[0] || 'the client', L = [];
+    L.push(['Level', esc(PT_LVL[ctx.lvl]) + (ctx.lvlWhy ? ' <small>(' + esc(ctx.lvlWhy) + ')</small>' : '')]);
+    L.push(['Goal', esc(ctx.goal.label) + ' <small>(' + ctx.R + ' reps base' + (ctx.goal.end ? ', cardio finisher' : '') + (ctx.goal.mob || ctx.ail.indexOf('balance') >= 0 ? ', balance work' : '') + ')</small>']);
+    L.push(['Work around', ctx.ail.length ? esc(ptpAilLbl(ctx.ail)) : 'nothing noted']);
+    L.push(['History', H.count ? H.count + ' workout' + (H.count === 1 ? '' : 's') + ' <small>(' + H.matched + ' of ' + H.exN + ' exercises recognised' + (H.last ? ', latest ' + esc(ptpShortDate(H.last)) : '') + ')</small>' : 'none logged yet']);
+    var h = '<dl class="ptpread">' + L.map(function (x) { return '<dt>' + x[0] + '</dt><dd>' + x[1] + '</dd>'; }).join('') + '</dl>';
+    ctx.ail.forEach(function (k) { if (PT_AIL[k].warn) h += '<div class="ptpwarn">' + esc(PT_AIL[k].warn) + '</div>'; });
+    if (ctx.little) h += '<div class="ptpnote"><b>Little history for ' + esc(first) + '.</b> This is a conservative beginner plan. Log a few past workouts under History first and the plan will start from ' + esc(first) + '\u2019s real weights and reps.' +
+      '<button type="button" class="navbtn ptpgohist" data-pt="pptohist">Log past workouts</button></div>';
+    return h;
+  }
+  function ptpSavedHtml(c) {
+    var g = {}, order = [];
+    (c.workouts || []).forEach(function (w) {
+      var p = ptWParse(w); if (!p.meta || !p.meta.plan) return;
+      var k = String(p.meta.plan); if (!g[k]) { g[k] = { n: 0, done: 0, a: '', b: '' }; order.push(k); }
+      var x = g[k], d = String(w.date || ''); x.n++; if (w.done) x.done++; if (!x.a || d < x.a) x.a = d; if (d > x.b) x.b = d;
+    });
+    if (!order.length) return '';
+    order.sort(function (a, b) { return g[a].a < g[b].a ? 1 : -1; });
+    return '<h3 class="ptsubh">Saved plans</h3>' + order.map(function (k) {
+      var x = g[k]; return '<div class="ptpsaved"><div><b>' + esc(ptpShortDate(x.a)) + ' \u2013 ' + esc(ptpShortDate(x.b)) + '</b><span>' + x.n + ' workouts \u00b7 ' + x.done + ' done</span></div>' +
+        '<button type="button" class="navbtn" data-pt="pptowork">View in Workouts</button></div>';
+    }).join('');
+  }
+  function ptpWhyHtml(why) { return why ? '<span class="ptpwhy' + (/^\u26a0/.test(why) ? ' flag' : '') + '">' + esc(why) + '</span>' : ''; }
+  function ptpExRead(e) {
+    var b = ptExBits(e);
+    return '<li><span class="ptexn">' + esc(e.n || 'Exercise') + '</span>' + (b.length ? '<span class="ptexd">' + b.map(esc).join(' \u00b7 ') + '</span>' : '') +
+      (e.note ? '<span class="ptexnote">' + esc(e.note) + '</span>' : '') + ptpWhyHtml(e.why) + '</li>';
+  }
+  function ptpIn(si, ei, k, v, ph, lbl, num) {
+    return '<div class="vfield ptexf ptexf-' + k + '">' + (k === 'n' ? '' : '<span>' + lbl + '</span>') + '<input class="wlin ptin" type="text" data-ppl="' + si + '.' + ei + '.' + k + '"' + (num ? ' inputmode="numeric"' : '') +
+      ' maxlength="' + (k === 'n' ? 80 : k === 'note' ? 150 : 30) + '" autocomplete="off" value="' + esc(v || '') + '" placeholder="' + esc(ph) + '" aria-label="' + esc(lbl) + '"></div>';
+  }
+  function ptpOpt(ctx, l, act) {
+    var cf = ptpConf(ctx, l), ok = ptpEqOk(ctx, l), tags = [];
+    if (ctx.hist.by[l.id]) tags.push('<i class="hist">in history</i>');
+    tags.push('<i>' + esc(PT_LVL[l.lv]) + '</i>');
+    if (!ok) tags.push('<i class="off">needs ' + esc(PT_EQL[l.eq] || l.eq) + '</i>');
+    if (cf.length) tags.push('<i class="warn">\u26a0\ufe0e ' + esc(ptpAilLbl(cf)) + '</i>');
+    return '<button type="button" class="ptpopt' + (cf.length || !ok ? ' dim' : '') + '" data-pt="' + act + '" data-l="' + esc(l.id) + '"><b>' + esc(l.n) + '</b><span>' + tags.join('') + '</span></button>';
+  }
+  function ptpAddList(ctx, used, q) {
+    var h = q ? '' : '<button type="button" class="ptpopt" data-pt="ppaddblank"><b>Blank exercise</b><span><i>type your own</i></span></button>';
+    var ho = ctx.hist.other.filter(function (x) { return !q || x.name.toLowerCase().indexOf(q) >= 0; });
+    if (ho.length) h += '<div class="ptpgrp">From history</div>' + ho.map(function (x) {
+      return '<button type="button" class="ptpopt" data-pt="ppaddhist" data-h="' + ctx.hist.other.indexOf(x) + '"><b>' + esc(x.name) + '</b><span><i class="hist">' + esc(ptpHistTxt(x).replace(/^from history/, 'logged')) + '</i></span></button>';
+    }).join('');
+    Object.keys(PT_PATS).forEach(function (p) {
+      var ls = PT_LIB.filter(function (l) { return l.p === p && !used[l.id] && (!q || l.n.toLowerCase().indexOf(q) >= 0); });
+      if (ls.length) h += '<div class="ptpgrp">' + esc(PT_PATS[p]) + '</div>' + ls.map(function (l) { return ptpOpt(ctx, l, 'ppaddlib'); }).join('');
+    });
+    return h || '<div class="foot">Nothing matches. Clear the search, or add a blank exercise.</div>';
+  }
+  function ptpUsed(s) { var u = {}; s.ex.forEach(function (e) { if (e.lib) u[e.lib] = 1; }); return u; }
+  function ptpPickHtml(st, P, si) {
+    var pk = st.pick, ctx = P.ctx, s = P.sess[si], h;
+    if (pk.type === 'swap') {
+      var e = s.ex[pk.ei]; if (!e) return '';
+      var l0 = ptpLib(e.lib), pat = l0 ? l0.p : '', seen = {};
+      var alts = pat && pat !== 'warm' ? ptpRanked(ctx, pat, {}).concat(PT_LIB.filter(function (l) { return l.p === pat; })) : [];
+      alts = alts.filter(function (l) { if (seen[l.id] || l.id === e.lib) return false; seen[l.id] = 1; return true; });
+      alts = alts.filter(function (l) { return !ptpConf(ctx, l).length && ptpEqOk(ctx, l); }).concat(alts.filter(function (l) { return ptpConf(ctx, l).length || !ptpEqOk(ctx, l); }));
+      h = '<div class="ptppick"><div class="ptppickh"><b>Swap ' + esc(e.n || 'exercise') + (pat && PT_PATS[pat] ? ' <small>' + esc(PT_PATS[pat]) + '</small>' : '') + '</b><button type="button" class="wlx" data-pt="pppickclose" aria-label="Close">\u00d7</button></div>';
+      h += alts.length ? '<div class="ptpopts">' + alts.map(function (l) { return ptpOpt(ctx, l, 'ppswapto'); }).join('') + '</div>' : '<div class="foot">No library alternatives for this one: edit the name directly instead.</div>';
+      return h + '<p class="pthint">' + (st.all ? 'Swaps it in every week of this session.' : 'Swaps it in this session only.') + '</p></div>';
+    }
+    return '<div class="ptppick"><div class="ptppickh"><b>Add exercise</b><button type="button" class="wlx" data-pt="pppickclose" aria-label="Close">\u00d7</button></div>' +
+      '<input class="searchbox ptpq" type="search" data-ppq="1" placeholder="Search exercises" autocomplete="off" value="' + esc(st.q || '') + '" aria-label="Search exercises">' +
+      '<div class="ptpopts" id="ptp-addlist">' + ptpAddList(ctx, ptpUsed(s), String(st.q || '').toLowerCase().trim()) + '</div>' +
+      '<p class="pthint">' + (st.all ? 'Library picks are added to every week of this session, with the same progression.' : 'Added to this session only.') + '</p></div>';
+  }
+  function ptpSessHtml(st, P, si) {
+    var s = P.sess[si], ed = !!st.edit[si] && !st.busy, b = st.busy, open = st.pick && st.pick.si === si;
+    var h = '<div class="ptwk ptpsess' + (ed ? ' editing' : '') + (s.saved ? ' saved' : '') + '" id="ptp-s' + si + '"><div class="ptwkhead"><div class="ptwkwhen"><b class="ptwkdate">Day ' + s.sess + ' \u00b7 ' + esc(ptDateW(s.date)) + '</b>' +
+      (s.saved ? '<span class="ptchip">Saved</span>' : '') + '</div></div>';
+    if (ed) h += '<div class="vfield ptptitle"><span>Title</span><input class="wlin ptin" type="text" data-ppl="' + si + '.title" maxlength="120" autocomplete="off" value="' + esc(s.title) + '" aria-label="Session title"></div>';
+    else h += '<div class="ptwktitle">' + esc(s.title) + '</div>';
+    if (!ed) {
+      h += s.ex.length ? '<ol class="ptexlist">' + s.ex.map(ptpExRead).join('') + '</ol>' : '<div class="ptwkempty">No exercises. Tap Edit to add some.</div>';
+      if (!s.saved) h += '<div class="ptpbtns"><button type="button" class="navbtn" data-pt="ppedit" data-s="' + si + '"' + (b ? ' disabled' : '') + '>Edit</button>' +
+        '<button type="button" class="navbtn" data-pt="ppregen" data-s="' + si + '"' + (b ? ' disabled' : '') + '>&#8635; Regenerate</button></div>';
+      return h + '</div>';
+    }
+    h += s.ex.map(function (e, ei) {
+      var r = '<div class="ptexrow ptpexrow"><div class="ptexhd"><b aria-hidden="true">' + (ei + 1) + '</b>' + ptpIn(si, ei, 'n', e.n, 'Exercise name', 'Exercise ' + (ei + 1) + ' name') +
+        (e.lib && e.lib !== 'warm' ? '<button type="button" class="navbtn ptpswap' + (open && st.pick.type === 'swap' && st.pick.ei === ei ? ' on' : '') + '" data-pt="ppswap" data-s="' + si + '" data-e="' + ei + '">Swap</button>' : '') +
+        '<button type="button" class="wlx ptexdel" data-pt="ppdel" data-s="' + si + '" data-e="' + ei + '" aria-label="Remove exercise ' + (ei + 1) + '">\u00d7</button></div>' +
+        '<div class="ptexgrid">' + ptpIn(si, ei, 's', e.s, '3', 'Sets', 1) + ptpIn(si, ei, 'r', e.r, '10', 'Reps') + ptpIn(si, ei, 'w', e.w, '25 lb', 'Weight') + ptpIn(si, ei, 'd', e.d, '30 sec', 'Time') + '</div>' +
+        ptpIn(si, ei, 'note', e.note, 'Cue or note (optional)', 'Note') + ptpWhyHtml(e.why) + '</div>';
+      if (open && st.pick.type === 'swap' && st.pick.ei === ei) r += ptpPickHtml(st, P, si);
+      return r;
+    }).join('');
+    if (open && st.pick.type === 'add') h += ptpPickHtml(st, P, si);
+    else h += '<button type="button" class="navbtn ptexadd" data-pt="ppadd" data-s="' + si + '">+ Add exercise</button>';
+    h += '<div class="ptpbtns"><button type="button" class="bigsave" data-pt="ppedit" data-s="' + si + '">Done editing</button>' +
+      '<button type="button" class="navbtn" data-pt="ppregen" data-s="' + si + '">&#8635; Regenerate</button></div>';
+    return h + '</div>';
+  }
+  function ptpHtml(c) {
+    var st = ptpSt(c), P = st.plan, first = String(c.name || '').split(' ')[0] || 'the client', h = '<div class="pt ptplan">';
+    var ctx = P ? P.ctx : ptpCtx(c, st.set);
+    if (!P) {
+      h += '<div class="card ptwcard"><h3 class="ptwfh">Build a 4-week plan for ' + esc(first) + '</h3><p class="pthint ptpintro">Proposes 4 progressive weeks from ' + esc(first) + '\u2019s profile and history. You review and edit everything; nothing is saved until you tap Approve plan.</p>' + ptpReadHtml(c, ctx) + '</div>';
+      h += '<div class="card ptwcard"><h3 class="ptwfh">Settings</h3>' + ptpSettingsHtml(c, st, ctx) + '</div>';
+      h += '<button type="button" class="bigsave ptpbuild" data-pt="ppbuild">Build 4-week plan</button>';
+      h += '<div class="noteflash" id="pt-wflash" hidden></div>';
+      return h + ptpSavedHtml(c) + '</div>';
+    }
+    var per = +P.set.spw, total = P.sess.length, savedN = P.sess.filter(function (s) { return s.saved; }).length, b = st.busy;
+    h += '<div class="card ptwcard ptpsum"><h3 class="ptwfh">4-week plan \u00b7 draft</h3><div class="ptpline">' + per + ' sessions a week \u00b7 ' + total + ' workouts \u00b7 ' + esc(ptpShortDate(P.sess[0].date)) + ' \u2013 ' + esc(ptpShortDate(P.sess[total - 1].date)) + '</div>' + ptpReadHtml(c, ctx) +
+      '<details class="ptpset"' + (st.setOpen ? ' open' : '') + '><summary>Settings <small>' + per + '/wk \u00b7 ' + esc((PT_FOCUS.filter(function (f) { return f[0] === P.set.focus; })[0] || PT_FOCUS[0])[1]) + ' \u00b7 ' + esc(PT_LVL[ctx.lvl]) + '</small></summary><div class="ptpsetbody">' + ptpSettingsHtml(c, st, ctx) +
+      '<p class="pthint">Changing sessions, focus, equipment, level or week 4 rebuilds the plan (Undo brings your edits back). Changing the date only moves the dates.</p></div></details></div>';
+    h += '<div class="ptpbar"><button type="button" class="navbtn" data-pt="ppregenall"' + (b || savedN ? ' disabled' : '') + '>&#8635; Regenerate plan</button>' +
+      '<button type="button" class="navbtn" data-pt="ppundo"' + (st.undo && !b && !savedN ? '' : ' disabled') + '>Undo' + (st.undo ? ' <small>' + esc(st.undo.label) + '</small>' : '') + '</button></div>';
+    h += '<button type="button" class="vchip ptpall' + (st.all ? ' on' : '') + '" data-pt="ppall" aria-pressed="' + st.all + '">' + (st.all ? '\u2713 ' : '') + 'Swap, add, delete and regenerate apply to all 4 weeks</button>';
+    h += '<div class="noteflash' + (st.msg ? ' show' + (st.bad ? ' bad' : '') : '') + '" id="pt-ppmsg"' + (st.msg ? '' : ' hidden') + '>' + esc(st.msg) + '</div>';
+    h += '<div class="pttabs ptpwks" role="tablist" aria-label="Weeks">' + [1, 2, 3, 4].map(function (w) {
+      var on = st.wk === w, d0 = P.sess.filter(function (s) { return s.wk === w; })[0];
+      return '<button type="button" role="tab" class="vchip' + (on ? ' on' : '') + '" data-pt="ppwk" data-w="' + w + '" aria-selected="' + on + '">Wk ' + w + '<small>' + (w === 4 ? (P.set.wk4 === 'test' ? 'test' : 'deload') : esc(d0 ? ptpShortDate(d0.date) : '')) + '</small></button>';
+    }).join('') + '</div>';
+    h += '<p class="pthint ptpwkhint">' + (st.wk === 1 ? 'Week 1: the starting point.' : st.wk === 4 ? (P.set.wk4 === 'test' ? 'Week 4: test week. Week 3 loads with a max-effort last set.' : 'Week 4: deload. Lighter, to recover before the next block.') : 'Week ' + st.wk + ': progresses from week ' + (st.wk - 1) + '.') + '</p>';
+    P.sess.forEach(function (s, si) { if (s.wk === st.wk) h += ptpSessHtml(st, P, si); });
+    h += '<div class="ptpapprove">' + (savedN && !b ? '<div class="ptpline">' + savedN + ' of ' + total + ' saved. Approve again to save the rest (saved ones will not double).</div>' : '') +
+      '<button type="button" class="bigsave" data-pt="ppapprove" id="ptp-approve"' + (b ? ' disabled' : '') + '>' + (b ? esc(st.saving || 'Saving\u2026') : 'Approve plan \u00b7 save ' + (total - savedN) + ' workouts') + '</button>' +
+      '<p class="pthint">Saves each session to the Workouts tab as a prescribed workout, dated across the 4 weeks, where Text workout and Mark done work as usual.</p>';
+    h += st.confirm === 'discard' ? '<div class="wlconf ptwconf"><div class="vdelq">Discard this draft plan?' + (savedN ? ' The ' + savedN + ' already saved stay in Workouts.' : '') + '</div><div class="draftbtns"><button type="button" class="bigsave vdelbtn" data-pt="ppdiscardyes">Yes, discard</button><button type="button" class="navbtn" data-pt="ppdiscardno">Keep</button></div></div>'
+      : '<button type="button" class="navbtn vdelbtn ptwdel" data-pt="ppdiscard"' + (b ? ' disabled' : '') + '>Discard draft</button>';
+    return h + '</div><div class="noteflash" id="pt-wflash" hidden></div>' + ptpSavedHtml(c) + '</div>';
+  }
+
+  // ---- edit operations (Undo keeps one step) ----
+  function ptpTargets(st, P, si) { var s = P.sess[si]; return st.all ? P.sess.filter(function (x) { return x.gk === s.gk && !x.saved; }) : [s]; }
+  function ptpDetach(st, P, si) {         // "this session only": give it its own group so later all-weeks edits leave it alone
+    var s = P.sess[si]; if (st.all) return;
+    var g = s.tk + '@' + s.wk + '.' + s.sess; if (s.gk === g) return;
+    s.ex.forEach(function (e) { e.slot = e.slot.replace(/^[^:]*/, g); }); s.gk = g;
+  }
+  function ptpSwap(st, P, si, ei, libId) {
+    var l = ptpLib(libId), s = P.sess[si], e = s && s.ex[ei]; if (!l || !e) return;
+    ptpSnap(st, 'swap'); ptpDetach(st, P, si);
+    var slot = s.ex[ei].slot, old = e.n, ctx = P.ctx, cf = ptpConf(ctx, l);
+    ptpTargets(st, P, si).forEach(function (x) {
+      for (var i = 0; i < x.ex.length; i++) if (x.ex[i].slot === slot) { x.ex[i] = ptpEx(ctx, l, x.wk, slot, 'your swap (was ' + old + ')', cf.length ? ptpAilLbl(cf) : ''); break; }
+    });
+    P.edited = true; st.pick = null; ptpFlash(st, 'Swapped ' + old + ' for ' + l.n + (st.all ? ' in every week.' : ' in this session.'));
+  }
+  function ptpDel(st, P, si, ei) {
+    var s = P.sess[si], e = s && s.ex[ei]; if (!e) return;
+    ptpSnap(st, 'delete'); ptpDetach(st, P, si);
+    var slot = s.ex[ei].slot;
+    ptpTargets(st, P, si).forEach(function (x) { x.ex = x.ex.filter(function (y) { return y.slot !== slot; }); });
+    if (st.pick && st.pick.si === si) st.pick = null;
+    P.edited = true; ptpFlash(st, 'Removed ' + (e.n || 'exercise') + (st.all ? ' from every week.' : '.'));
+  }
+  function ptpAdd(st, P, si, l, hOver) {
+    var s = P.sess[si]; if (!s || !l) return;
+    if (s.ex.length >= PT_EXMAX) { ptpFlash(st, 'That is the most exercises one workout can hold (' + PT_EXMAX + ').', true); return; }
+    ptpSnap(st, 'add'); ptpDetach(st, P, si);
+    var slot = s.gk + ':x' + (++P.nx), ctx = P.ctx, cf = l.id ? ptpConf(ctx, l) : [];
+    ptpTargets(st, P, si).forEach(function (x) { if (x.ex.length < PT_EXMAX) x.ex.push(ptpEx(ctx, l, x.wk, slot, 'added by you', cf.length ? ptpAilLbl(cf) : '', hOver)); });
+    P.edited = true; st.pick = null; st.q = ''; ptpFlash(st, 'Added ' + l.n + (st.all ? ' to every week.' : '.'));
+  }
+  function ptpRegen(st, P, si) {
+    var s = P.sess[si]; if (!s || s.saved) return;
+    ptpSnap(st, 'regenerate'); ptpDetach(st, P, si);
+    P.vseed[s.gk] = (P.vseed[s.gk] || 0) + 1;
+    var choice = ptpChoose(P.ctx, s.tk, P.seed + P.vseed[s.gk], s.gk);
+    ptpTargets(st, P, si).forEach(function (x) { ptpSessFill(P, P.ctx, x, choice); });
+    st.pick = null; P.edited = true; ptpFlash(st, 'New exercises for ' + s.title.split(' \u00b7 ')[0] + (st.all ? ' in every week.' : ' (this session only).'));
+  }
+  function ptpRebuild(c, st, seed, label) {
+    if (st.plan) ptpSnap(st, label);
+    var keep = st.plan ? st.plan.id : '';
+    st.plan = ptpBuild(c, JSON.parse(JSON.stringify(st.set)), seed); if (keep) st.plan.id = keep;
+    st.edit = {}; st.pick = null; st.confirm = '';
+  }
+  function ptpUndo(c, st) {
+    if (!st.undo) return;
+    var P = JSON.parse(st.undo.p); P.ctx = ptpCtx(c, P.set); st.plan = P; st.set = JSON.parse(JSON.stringify(P.set)); st.undo = null; st.pick = null;
+    ptpFlash(st, 'Undone.');
+  }
+  function ptpScrollTo(id) { var el = $(id); if (!el || !el.getBoundingClientRect) return; var t = el.getBoundingClientRect().top; if (t < 0 || t > window.innerHeight - 80) el.scrollIntoView({ block: 'start', behavior: 'smooth' }); }
+  function ptpClick(a, b) {
+    var cur = ptpCur(); if (!cur) return;
+    var c = cur.c, st = cur.st, P = st.plan, si = +b.getAttribute('data-s'), ei = +b.getAttribute('data-e');
+    if (a === 'pptohist') return ptTab('history');
+    if (a === 'pptowork') return ptTab('workouts');
+    if (st.busy) return;
+    var savedN = P ? P.sess.filter(function (s) { return s.saved; }).length : 0;
+    st.msg = '';
+    if (a === 'ppbuild') { st.plan = null; st.undo = null; ptpRebuild(c, st, 0, ''); st.wk = 1; ptRender(); var sm = document.querySelector('#pt-body .ptpsum'); if (sm) sm.scrollIntoView({ block: 'start', behavior: 'smooth' }); return; }
+    if (a === 'ppset') {
+      var k = b.getAttribute('data-k'), v = b.getAttribute('data-v');
+      if (k === 'spw') v = +v;
+      if (String(st.set[k]) === String(v)) return;
+      if (savedN) { ptpFlash(st, 'Part of this plan is already saved, so settings are locked. Approve the rest, or discard the draft.', true); return ptRender(); }
+      st.set[k] = v; st.setOpen = true;
+      if (P) { var wasEdited = P.edited; ptpRebuild(c, st, P.seed, 'settings'); ptpFlash(st, 'Plan rebuilt with the new settings.' + (wasEdited ? ' Undo brings back your edits.' : '')); }
+      return ptRender();
+    }
+    if (!P) return;
+    if (a === 'ppwk') { st.wk = +b.getAttribute('data-w') || 1; st.pick = null; ptRender(); var wt = document.querySelector('#pt-body .ptpwks'); if (wt && wt.getBoundingClientRect().top < 0) wt.scrollIntoView({ block: 'start' }); return; }
+    if (a === 'ppall') { st.all = !st.all; return ptRender(); }
+    if (a === 'ppedit') { if (st.edit[si]) delete st.edit[si]; else st.edit[si] = 1; if (st.pick && st.pick.si === si) st.pick = null; ptRender(); return ptpScrollTo('ptp-s' + si); }
+    if (a === 'ppregen') { ptpRegen(st, P, si); return ptRender(); }
+    if (a === 'ppregenall') { if (savedN) return; ptpRebuild(c, st, P.seed + 1, 'regenerate'); ptpFlash(st, 'New plan generated. Undo goes back to the previous one.'); return ptRender(); }
+    if (a === 'ppundo') { if (savedN) return; ptpUndo(c, st); return ptRender(); }
+    if (a === 'ppswap') { st.pick = st.pick && st.pick.type === 'swap' && st.pick.si === si && st.pick.ei === ei ? null : { type: 'swap', si: si, ei: ei }; return ptRender(); }
+    if (a === 'ppswapto') { var pk = st.pick; if (pk) ptpSwap(st, P, pk.si, pk.ei, b.getAttribute('data-l')); return ptRender(); }
+    if (a === 'ppdel') { ptpDel(st, P, si, ei); return ptRender(); }
+    if (a === 'ppadd') { st.pick = { type: 'add', si: si }; st.q = ''; ptRender(); var q = document.querySelector('#pt-body .ptpq'); if (q) q.scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }
+    if (a === 'ppaddlib') { if (st.pick) ptpAdd(st, P, st.pick.si, ptpLib(b.getAttribute('data-l'))); return ptRender(); }
+    if (a === 'ppaddhist') {
+      var hx = P.ctx.hist.other[+b.getAttribute('data-h')]; if (!hx || !st.pick) return;
+      ptpAdd(st, P, st.pick.si, { id: '', n: hx.name, p: '', u: ptpNum(hx.d) && !ptpNum(hx.r) ? 't' : 'r', w0: ptpW(hx.w) ? [hx.w, hx.w, hx.w] : null }, hx);
+      return ptRender();
+    }
+    if (a === 'ppaddblank') {
+      var sIdx = st.pick ? st.pick.si : -1, s = P.sess[sIdx]; if (!s) return;
+      if (s.ex.length >= PT_EXMAX) { ptpFlash(st, 'That is the most exercises one workout can hold (' + PT_EXMAX + ').', true); return ptRender(); }
+      ptpSnap(st, 'add'); s.ex.push({ slot: 'c' + (++P.nx), lib: '', p: '', n: '', s: '', r: '', w: '', d: '', note: '', why: 'added by you' }); P.edited = true;
+      var at = s.ex.length - 1; st.pick = null; ptRender();
+      var inp = document.querySelector('[data-ppl="' + sIdx + '.' + at + '.n"]'); if (inp) { inp.focus(); inp.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+      return;
+    }
+    if (a === 'pppickclose') { st.pick = null; return ptRender(); }
+    if (a === 'ppdiscard') { st.confirm = 'discard'; return ptRender(); }
+    if (a === 'ppdiscardno') { st.confirm = ''; return ptRender(); }
+    if (a === 'ppdiscardyes') { st.plan = null; st.undo = null; st.edit = {}; st.pick = null; st.confirm = ''; st.set = ptpSetDefault(c); ptRender(); return ptMsg('pt-wflash', savedN ? 'Draft discarded. The ' + savedN + ' saved workouts stay in Workouts.' : 'Draft discarded. Nothing was saved.', false); }
+    if (a === 'ppapprove') return ptpApprove(c, st);
+  }
+  function ptpInput(t) {
+    var cur = ptpCur(); if (!cur) return;
+    var st = cur.st, P = st.plan;
+    if (t.hasAttribute('data-ppq')) {
+      st.q = t.value; var box = $('ptp-addlist'); if (!box || !P || !st.pick) return;
+      box.innerHTML = ptpAddList(P.ctx, ptpUsed(P.sess[st.pick.si]), String(st.q || '').toLowerCase().trim()); return;
+    }
+    var k = t.getAttribute('data-ppl'); if (!k || k === 'start' || !P) return;      // start date: handled on change (re-dates)
+    var m = /^(\d+)\.(?:(\d+)\.(\w+)|(title))$/.exec(k); if (!m) return;
+    var se = P.sess[+m[1]]; if (!se) return;
+    if (m[4]) se.title = t.value; else { var e = se.ex[+m[2]]; if (e && PT_EXF.indexOf(m[3]) >= 0) e[m[3]] = t.value; }
+    P.edited = true;
+  }
+  function ptpChange(t) {
+    if (!t.getAttribute || t.getAttribute('data-ppl') !== 'start') return;
+    var cur = ptpCur(); if (!cur) return;
+    var st = cur.st, v = String(t.value || ''), P = st.plan;
+    if (!mgDate(v)) return;
+    if (P && P.sess.some(function (s) { return s.saved; })) { t.value = st.set.start; ptpFlash(st, 'Part of this plan is already saved, so the dates are locked.', true); return ptRender(); }
+    st.set.start = v;
+    if (P) { P.set.start = v; ptpRedate(P); ptpFlash(st, 'Dates moved: day 1 is now ' + ptDateW(v) + '.'); }
+    ptRender();
+  }
+
+  // ---- approve: one ptworkoutset per session, in order; each keeps its own entry id (cid) so a retry never doubles ----
+  function ptpExOut(P, s) {
+    var rows = s.ex.filter(function (e) { return String(e.n || '').trim(); }), out = ptExOut('prescribed', rows);
+    out[0] = { cc: 1, kind: 'prescribed', plan: P.id, wk: s.wk, sess: s.sess };
+    return out;
+  }
+  function ptpNotes(P, s) {
+    return '4-week plan: week ' + s.wk + ' of 4, day ' + s.sess + ' of ' + P.set.spw + '.' + (s.wk === 4 ? (P.set.wk4 === 'test' ? ' Test week: last set max effort, good form only.' : ' Deload week: lighter, focus on form.') : '');
+  }
+  function ptpSortW(c) { c.workouts.sort(function (a, b) { return a.date === b.date ? b.row - a.row : (a.date < b.date ? 1 : -1); }); }
+  function ptpApprove(c, st) {
+    var P = st.plan; if (!P || st.busy) return;
+    var trim = function (v) { return String(v == null ? '' : v).replace(/^\s+|\s+$/g, ''); }, bad = '', badWk = 0;
+    P.sess.forEach(function (s) {
+      if (bad || s.saved) return;
+      var at = 'Week ' + s.wk + ', day ' + s.sess;
+      if (!trim(s.title)) bad = at + ' needs a title.';
+      else if (!s.ex.some(function (e) { return trim(e.n); })) bad = at + ' has no exercises. Add one (or regenerate it).';
+      else if (s.ex.some(function (e) { return !trim(e.n) && PT_EXF.some(function (k) { return k !== 'n' && trim(e[k]); }); })) bad = at + ': an exercise needs a name (or remove that row).';
+      else if (!mgDate(s.date)) bad = 'Pick a valid start date.';
+      if (bad) badWk = s.wk;
+    });
+    if (bad) { ptpFlash(st, bad, true); if (badWk) st.wk = badWk; ptRender(); var m0 = $('pt-ppmsg'); if (m0) m0.scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }
+    var todo = P.sess.filter(function (s) { return !s.saved; }), total = P.sess.length, dup = false;
+    if ((c.workouts || []).length + todo.length > 500) { ptpFlash(st, 'That would pass the 500-workout limit for this client.', true); return ptRender(); }
+    st.busy = true; st.msg = ''; st.edit = {}; st.pick = null; st.confirm = '';
+    var fail = function (msg) {
+      st.busy = false; st.saving = '';
+      var n = P.sess.filter(function (s) { return s.saved; }).length;
+      if (n) { ptpSortW(c); ptApply(c); }
+      ptpFlash(st, 'Saved ' + n + ' of ' + total + '. ' + msg + ' Tap Approve again to save the rest (saved ones will not double).', true);
+      ptRender(); var m1 = $('pt-ppmsg'); if (m1) m1.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    };
+    var done = function () {
+      st.busy = false; st.saving = '';
+      ptpSortW(c); ptApply(c);
+      var first = P.sess[0].date, last = P.sess[total - 1].date;
+      st.plan = null; st.undo = null; st.set = ptpSetDefault(c); st.wk = 1;
+      if (dup) ptLoad(false);
+      if (pt.tab !== 'workouts') ptTab('workouts'); else ptRender();
+      ptMsg('pt-wflash', 'Plan approved: ' + total + ' workouts saved (' + ptpShortDate(first) + ' \u2013 ' + ptpShortDate(last) + ').', false);
+    };
+    var step = function (i) {
+      if (i >= todo.length) return done();
+      var s = todo[i], body = { clientId: c.id, date: s.date, title: trim(s.title).replace(/\s+/g, ' '), exercises: ptpExOut(P, s), notes: ptpNotes(P, s) };
+      var sig = JSON.stringify(body); if (s.sig !== sig) { s.sig = sig; s.cid = vNewCid(); }
+      body.cid = s.cid;
+      st.saving = 'Saving ' + (total - todo.length + i + 1) + ' of ' + total + '\u2026';
+      var btn = $('ptp-approve'); if (btn) btn.textContent = st.saving;
+      apiPostRaw('ptworkoutset', body, 60000).then(function (j) {
+        if (j.error) return fail(ptApiMsg(j) + (j.error === 'bad_action' ? ' Nothing more was saved.' : ''));
+        var w = j.data && j.data.workout;
+        if (w) { c.workouts = (c.workouts || []).filter(function (x) { return x.id !== w.id; }); c.workouts.push(w); s.saved = w.id; }
+        else { s.saved = 'dup'; dup = true; }          // same entry id already saved on an earlier try
+        step(i + 1);
+      }, function (err) { if (vAuth(err)) { st.busy = false; st.saving = ''; return; } fail(friendly(err)); });
+    };
+    ptRender(); step(0);
   }
 
   // ---- spoken-value parsing (short fields): the result is shown in the field so it can be corrected ----
@@ -9367,15 +10058,18 @@
     else if (a === 'wdel') { pt.wConfirm = pt.wf ? pt.wf.id : ''; ptRender(); }
     else if (a === 'wdelno') { pt.wConfirm = ''; ptRender(); }
     else if (a === 'wdelyes') ptWorkoutDelete();
+    else if (/^pp/.test(a)) ptpClick(a, b);
   });
   $('pt-body').addEventListener('input', function (e) {
     var t = e.target;
     if (t.id === 'pt-q') { pt.q = t.value; var box = $('pt-list'); if (box) box.innerHTML = ptListRows(); return; }
+    if (t.hasAttribute && (t.hasAttribute('data-ppl') || t.hasAttribute('data-ppq'))) return ptpInput(t);
     var k = t.getAttribute && t.getAttribute('data-ptf');
     if (k && pt.form) { pt.form[k] = t.value; var s = document.querySelector('[data-ptsec="' + (PT_SECS.filter(function (x) { return x.fields.indexOf(k) >= 0; })[0] || {}).key + '"] .ptsum span'); if (s) s.innerHTML = ptSecSummary((PT_SECS.filter(function (x) { return x.fields.indexOf(k) >= 0; })[0] || {}).key, null); return; }
     var wk = t.getAttribute && t.getAttribute('data-ptw');
     if (wk && pt.wf) { var exm = /^ex\.(\d+)\.(\w+)$/.exec(wk); if (exm) { var exr = pt.wf.ex && pt.wf.ex[+exm[1]]; if (exr) exr[exm[2]] = t.value; } else pt.wf[wk] = t.value; }
   });
+  $('pt-body').addEventListener('change', function (e) { if (e.target && e.target.hasAttribute && e.target.hasAttribute('data-ppl')) ptpChange(e.target); });
   document.addEventListener('visibilitychange', function () { if (document.hidden && pm.on) { ptMicStop(true); ptMicUi(); } });
 
   /* ---------------- Lisa's Table: Orders (#lt/orders) — Current | Previous | Summary ---------------- */
