@@ -14178,6 +14178,7 @@
     'f:archive': []
   };
   var hl = { f: null, dragging: false, edit: false };
+  var HL_HOLD_MS = 1200;   // press-and-hold time that starts the shaking (see hlDrag for why not 3 s)
   function hlIsFolder(id) { return id === 'home' || !!(HL_ITEMS[id] && HL_ITEMS[id].folder); }
   function hlFolderIds() { return ['home'].concat(Object.keys(HL_ITEMS).filter(function (k) { return HL_ITEMS[k].folder; })); }
   function hlDefaultParent(id) {
@@ -14383,7 +14384,7 @@
       '<button type="button" class="hl-opt hl-cancel" data-hl-act="' + (id ? 'menu' : 'cancel') + '" data-id="' + esc(id || '') + '">Cancel</button>');
   }
 
-  // Edit ("jiggle") mode, like the iPhone: hold any layout button ~3 s and every button shakes. While shaking, drag a
+  // Edit ("jiggle") mode, like the iPhone: hold any layout button HL_HOLD_MS (1.2 s) and every button shakes. While shaking, drag a
   // button onto a folder's middle to move it in, or over other buttons to reorder; inside a folder a bar at the top
   // offers Home / Up one level. Tap a folder to open it (still shaking), tap a button or its corner badge for the menu
   // (Move to…, Reset layout). Done (or a tap on empty space) stops the shaking. Every change is saved as it happens.
@@ -14405,32 +14406,66 @@
         if (b.getAttribute('data-hl-bar') === 'done') hlEdit(false); else hlResetAsk('');
       });
       document.body.appendChild(bar);
-      if (navigator.vibrate) try { navigator.vibrate(20); } catch (er) {}
+      if (navigator.vibrate) try { navigator.vibrate(30); } catch (er) {}
     }
     if (!on) { if (bar) bar.remove(); if (hl.f) hlSave(); }
+    var eb = $('hl-editlink');
+    if (eb) { eb.innerHTML = on ? '\u2713 Done editing' : '\u270E Edit Home (move buttons)'; eb.setAttribute('aria-pressed', on ? 'true' : 'false'); }
   }
 
   (function hlDrag() {
-    var HOLD = 3000;   // press and hold this long (without moving) to start shaking
+    // v110: the hold that starts shaking. Zac asked for ~3 s, but on a real iPhone a 3 s hold rarely survived: the finger
+    // drifts / rolls past the old 10 px (x+y) tolerance, or iOS takes the touch over (touchcancel / pointercancel) for its own
+    // long-press handling, and then the release was just an ordinary tap that opened the button. 1.2 s is long enough not to
+    // fire on a normal tap and short enough to finish before iOS gets in the way. Shaking starts as soon as the time is up,
+    // with the finger still down. (Also: the "Edit Home" button under the grid enters edit mode with one tap.)
+    var HOLD = HL_HOLD_MS;
+    var SLOP = 12;     // px the finger may wander during the hold (straight-line distance) before it counts as a scroll
+    var DRAG_SLOP = 8; // once shaking, moving this far drags the held button
     var press = null, drag = null, lastTouch = 0, suppressUntil = 0, raf = 0;
+    try { document.documentElement.style.setProperty('--hl-hold', HOLD + 'ms'); } catch (e) {}
     function tileOf(t) { return t && t.closest ? t.closest('.hl-grid > .tile[data-hl]') : null; }
     function clearPress() { if (press) { if (press.timer) clearTimeout(press.timer); press.el.classList.remove('hl-holding'); } press = null; }
+    // Touch and pointer events both report the same finger (pointerdown usually comes first). The second report of the
+    // same press is ignored, so the hold starts once and ends once.
+    function isDup(t, mouse) { return !!(press && press.el === t && !press.mouse === !mouse && !press.lost && Date.now() - press.t0 < 500); }
     function startPress(t, x, y, mouse) {
+      var now = Date.now();
+      if (isDup(t, mouse)) return;
       clearPress();
-      press = { el: t, x: x, y: y, mouse: mouse, edit: !!hl.edit, entered: false };
+      press = { el: t, x: x, y: y, mouse: mouse, edit: !!hl.edit, entered: false, lost: false, t0: now, sy: window.scrollY || 0 };
       if (!press.edit) { t.classList.add('hl-holding'); press.timer = setTimeout(enter, HOLD); }
     }
-    function enter() {           // the 3 s hold finished: everything starts shaking; keep holding and move to drag right away
+    function enter() {           // the hold finished: everything starts shaking; keep holding and move to drag right away
       if (!press) return;
-      press.timer = 0; press.el.classList.remove('hl-holding');
+      var el = press.el;
+      press.timer = 0; el.classList.remove('hl-holding');
       press.edit = true; press.entered = true;
+      suppressUntil = Infinity;   // the release of this hold is never a tap (cleared by the release or the next finger down)
       hlEdit(true);
+      el.classList.add('hl-pop'); setTimeout(function () { el.classList.remove('hl-pop'); }, 260);
     }
     function pressMove(x, y, e) {     // -> true when this movement started a drag
-      var dist = Math.abs(x - press.x) + Math.abs(y - press.y);
-      if (press.edit && dist > 6) { if (e && e.cancelable) e.preventDefault(); begin(); if (drag) { drag.moved = true; move(x, y); } return true; }
-      if (!press.edit && dist > 10) clearPress();   // scrolling / not a hold
+      var dx = x - press.x, dy = y - press.y, dist = Math.sqrt(dx * dx + dy * dy);
+      if (press.edit && dist > DRAG_SLOP) { if (e && e.cancelable && e.type === 'touchmove') e.preventDefault(); begin(); if (drag) { drag.moved = true; move(x, y); } return true; }
+      if (!press.edit && dist > SLOP) clearPress();   // scrolling / not a hold
       return false;
+    }
+    function pressEnd(e) {            // finger up (touchend or pointerup, whichever comes first; the other finds nothing)
+      if (press && press.entered) {   // the hold that started shaking is not a tap
+        if (e && e.cancelable && e.type === 'touchend') e.preventDefault();
+        suppressUntil = Date.now() + 700;
+      }
+      clearPress();
+    }
+    // iOS (or the browser) took the touch away: touchcancel / pointercancel.
+    function pressCancel() {
+      if (!press) return;
+      if (press.entered) { suppressUntil = Infinity; clearPress(); return; }   // already shaking: stay shaking (no tap on release)
+      if (press.edit) { clearPress(); return; }
+      // Not there yet and the finger has not moved: iOS is probably running its own long-press. Keep the timer going;
+      // a scroll, a new touch or a click (the finger came up = it was a tap) stops it.
+      press.lost = true;
     }
     function zonesHtml(fid) {
       if (fid === 'home') return '';
@@ -14532,44 +14567,88 @@
       }
       hlRender();
     }
-    // Touch (phone)
-    document.addEventListener('touchstart', function (e) {
+    // Touch (phone): touch events and touch-type pointer events are both listened to (de-duplicated); some iOS / Android
+    // builds deliver one more reliably than the other around a long press.
+    function touchDown(t, x, y) {
+      lastTouch = Date.now(); if (drag) return;
+      if (!isDup(t, false)) suppressUntil = 0;   // a new finger down: the next click belongs to it
+      if (!t) { clearPress(); return; }
+      startPress(t, x, y, false);
+    }
+    function touchMove(x, y, e) {
       lastTouch = Date.now();
-      if (drag) return;
-      var t = tileOf(e.target); if (!t || e.touches.length !== 1) { clearPress(); return; }
-      startPress(t, e.touches[0].clientX, e.touches[0].clientY, false);
+      if (drag) { if (e.cancelable && e.type === 'touchmove') e.preventDefault(); move(x, y); return; }
+      if (press && !press.mouse) pressMove(x, y, e);
+    }
+    function touchUp(e) {
+      lastTouch = Date.now();
+      if (drag) { if (e.cancelable && e.type === 'touchend') e.preventDefault(); end(false); return; }
+      if (press && !press.mouse) pressEnd(e);
+    }
+    function touchCancel(e) {
+      lastTouch = Date.now();
+      if (drag) { end(true); return; }
+      if (press && !press.mouse) pressCancel(e);
+    }
+    document.addEventListener('touchstart', function (e) {
+      if (e.touches.length !== 1) { lastTouch = Date.now(); if (!drag) clearPress(); return; }
+      touchDown(tileOf(e.target), e.touches[0].clientX, e.touches[0].clientY);
     }, { passive: true });
     document.addEventListener('touchmove', function (e) {
-      lastTouch = Date.now();
       var p = e.touches[0]; if (!p) return;
-      if (drag) { if (e.cancelable) e.preventDefault(); move(p.clientX, p.clientY); return; }
-      if (press) pressMove(p.clientX, p.clientY, e);
+      touchMove(p.clientX, p.clientY, e);
     }, { passive: false });
-    document.addEventListener('touchend', function (e) {
-      lastTouch = Date.now();
-      if (drag) { if (e.cancelable) e.preventDefault(); end(false); return; }
-      if (press && press.entered) { if (e.cancelable) e.preventDefault(); suppressUntil = Date.now() + 350; }   // the hold that started shaking is not a tap
-      clearPress();
-    }, { passive: false });
-    document.addEventListener('touchcancel', function () { lastTouch = Date.now(); clearPress(); if (drag) end(true); });
-    // Mouse (Windows desktop): hold 3 s to start shaking; while shaking, press and move to drag; right-click = menu.
-    document.addEventListener('mousedown', function (e) {
+    document.addEventListener('touchend', function (e) { if (e.touches && e.touches.length) return; touchUp(e); }, { passive: false });
+    document.addEventListener('touchcancel', function (e) { touchCancel(e); });
+    var PE = !!window.PointerEvent;
+    if (PE) {
+      document.addEventListener('pointerdown', function (e) {
+        if (e.pointerType === 'mouse') return mouseDown(e);
+        if (!e.isPrimary) { lastTouch = Date.now(); if (!drag) clearPress(); return; }
+        touchDown(tileOf(e.target), e.clientX, e.clientY);
+      });
+      document.addEventListener('pointermove', function (e) {
+        if (e.pointerType === 'mouse') return mouseMove(e);
+        if (e.isPrimary) touchMove(e.clientX, e.clientY, e);
+      });
+      document.addEventListener('pointerup', function (e) {
+        if (e.pointerType === 'mouse') return mouseUp(e);
+        if (e.isPrimary) touchUp(e);
+      });
+      document.addEventListener('pointercancel', function (e) {
+        if (e.pointerType === 'mouse') { clearPress(); if (drag) end(true); return; }
+        if (e.isPrimary) touchCancel(e);
+      });
+    } else {
+      document.addEventListener('mousedown', function (e) { mouseDown(e); });
+      document.addEventListener('mousemove', function (e) { mouseMove(e); });
+      document.addEventListener('mouseup', function (e) { mouseUp(e); });
+    }
+    // A scroll during the hold means it was not a hold (covers a scroll iOS started after taking the touch away).
+    window.addEventListener('scroll', function () {
+      if (press && !press.edit && Math.abs((window.scrollY || 0) - press.sy) > 4) clearPress();
+    }, { passive: true });
+    // Mouse (Windows desktop): hold to start shaking; while shaking, press and move to drag; right-click = menu.
+    function mouseDown(e) {
       if (Date.now() - lastTouch < 1000 || e.button !== 0 || drag) return;
+      suppressUntil = 0;
       var t = tileOf(e.target); if (!t) return;
       e.preventDefault();   // no text selection / native drag; the click still fires
       startPress(t, e.clientX, e.clientY, true);
-    });
-    document.addEventListener('mousemove', function (e) {
+    }
+    function mouseMove(e) {
       if (Date.now() - lastTouch < 1000) return;
       if (drag && drag.mouse) { e.preventDefault(); move(e.clientX, e.clientY); return; }
       if (press && press.mouse) pressMove(e.clientX, e.clientY, e);
-    });
-    document.addEventListener('mouseup', function (e) {
+    }
+    function mouseUp(e) {
       if (Date.now() - lastTouch < 1000) return;
       if (drag && drag.mouse) { e.preventDefault(); end(false); return; }
-      if (press && press.entered) suppressUntil = Date.now() + 350;
-      clearPress();
-    });
+      if (press && press.mouse) pressEnd(e);
+    }
+    // No text selection / loupe / native drag starting from a layout button (iOS and Android long-press behaviours).
+    document.addEventListener('selectstart', function (e) { if (tileOf(e.target)) e.preventDefault(); });
+    document.addEventListener('dragstart', function (e) { if (tileOf(e.target)) e.preventDefault(); });
     window.addEventListener('blur', function () { clearPress(); if (drag) end(true); });
     document.addEventListener('keydown', function (e) {
       if (e.key !== 'Escape') return;
@@ -14587,7 +14666,8 @@
     // other button or corner badge = menu, empty space = Done. A drag or the hold that started shaking never counts as a tap.
     window.addEventListener('click', function (e) {
       var t = tileOf(e.target);
-      if (Date.now() < suppressUntil && (t || hl.edit)) { e.preventDefault(); e.stopPropagation(); return; }
+      if (press && press.lost && !press.entered) clearPress();   // finger came up before the hold finished: a normal tap
+      if (Date.now() < suppressUntil && (t || hl.edit)) { e.preventDefault(); e.stopPropagation(); if (suppressUntil === Infinity) suppressUntil = Date.now() + 700; return; }
       if (!hl.edit) return;
       if (e.target.closest && e.target.closest('#hl-editbar, #hl-sheet, #hl-toast, #hl-zones')) return;
       if (t) {
@@ -14601,6 +14681,11 @@
     }, true);
   })();
   hlLoad(); hlRender();
+  // One-tap way into edit mode (so the long press is not the only way in).
+  (function () {
+    var b = $('hl-editlink'); if (!b) return;
+    b.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); hlEdit(!hl.edit); });
+  })();
 
   // Every "Try again" button: show it is working (handlers re-render the box, replacing the button; restore if nothing does).
   document.addEventListener('click', function (e) {

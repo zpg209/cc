@@ -2152,6 +2152,15 @@ html.pc-fs-open, html.pc-fs-open body { overflow: hidden !important; touch-actio
 /* ---- Home layout: folders + jiggle-mode drag between folders (v=109) ---- */
 .hl-grid[hidden] { display: none !important; }
 .hl-grid .tile { position: relative; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+/* v110: no iOS / Android long-press extras on layout buttons (text selection, loupe, callout, native drag, double-tap zoom);
+   vertical and horizontal page scrolling still work (manipulation = pan + pinch, no double-tap zoom). */
+.hl-grid, .hl-grid .tile, .hl-grid .tile * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-user-drag: none; }
+.hl-grid .tile { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.hl-grid .tile.hl-pop { animation: hlpop .26s ease-out !important; }
+@keyframes hlpop { 0% { transform: scale(.9); } 60% { transform: scale(1.08); } 100% { transform: scale(1); } }
+.hl-editlink { margin: 14px auto 0; display: block; width: auto; min-width: 180px; padding: 10px 20px; font-size: 16px; color: var(--muted);
+  background: transparent; border: 1px dashed rgba(208,138,85,.45); border-radius: var(--radius); font-family: inherit; cursor: pointer; }
+.hl-editlink[aria-pressed="true"] { color: var(--red); border-style: solid; border-color: var(--red); }
 #home-grid .tile .sub { display: none; }
 .hl-sub { margin-bottom: 12px; }
 /* folder buttons: a small copper folder mark in the corner */
@@ -2160,8 +2169,8 @@ html.pc-fs-open, html.pc-fs-open body { overflow: hidden !important; touch-actio
 .hl-grid .tile.hl-folder::after { content: ''; position: absolute; top: 5px; right: 15px; width: 6px; height: 2px;
   border: 1px solid var(--btn-edge); border-bottom: 0; border-radius: 2px 2px 0 0; opacity: .7; }
 .hl-grid .tile.dragging { position: relative; z-index: 40; opacity: .92; box-shadow: 0 14px 30px rgba(0,0,0,.65); transition: none; }
-/* hold-to-shake: the held button eases in for 3 s, then every button shakes (edit mode) */
-.hl-grid .tile.hl-holding { transform: scale(.94); background: var(--btn-press); transition: transform 2.9s ease-in, background 2.9s; }
+/* hold-to-shake: the held button eases in for the hold time (--hl-hold, set from HL_HOLD_MS), then every button shakes (edit mode) */
+.hl-grid .tile.hl-holding { transform: scale(.94); background: var(--btn-press); transition: transform var(--hl-hold, 1.2s) ease-in, background var(--hl-hold, 1.2s); }
 body.hl-edit .hl-grid .tile:not(.dragging) { animation: hlwob .26s ease-in-out infinite alternate; touch-action: none; }
 body.hl-edit .hl-grid .tile:nth-child(2n):not(.dragging) { animation-delay: -.13s; animation-duration: .3s; }
 @keyframes hlwob { from { transform: rotate(-1.1deg); } to { transform: rotate(1.1deg); } }
