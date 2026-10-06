@@ -4312,6 +4312,7 @@
     $('note-text').setAttribute('placeholder', MIC_PH_LOG);
     $('mic-hint').hidden = false;
     $('note-save').setAttribute('data-lbl', 'Save to Voice notes');
+    if (!mic.on && !$('note-text').value) sfReset(); else sfUpdate(true);
   }
   function micLogReset() {
     state.micLog = false;
@@ -4319,6 +4320,7 @@
     $('note-text').setAttribute('placeholder', MIC_PH);
     $('mic-hint').hidden = true;
     $('note-save').removeAttribute('data-lbl');
+    sfReset();
   }
   function renderProj() {
     $('proj-doc').href = projDocUrl();
@@ -4526,11 +4528,13 @@
     if (mic.on) ta.value = mic.base + mic.committed + mic.interim;
     else { var d = draftGet(); if (d && !ta.value) { ta.value = d; $('note-recovered').hidden = false; } }
     micUi();
+    if (state.micLog) sfUpdate(true);
   }
   $('note-text').addEventListener('input', function () {
     var ta = this;
     if (mic.on) { mic.base = ta.value; mic.committed = ''; mic.interim = ''; }
     draftSet(ta.value); micUi();
+    if (state.micLog) sfSoon();
   });
   $('note-save').addEventListener('click', function () { saveNote(); });
   $('note-discard').addEventListener('click', function () { discardNote(); });
@@ -4540,6 +4544,7 @@
     var ta = $('note-text'); if (ta) ta.value = '';
     draftSet(''); mic.base = mic.committed = mic.interim = ''; mic.msg = '';
     var r = $('note-recovered'); if (r) r.hidden = true;
+    if (state.micLog) sfReset();
     micUi();
   }
   function saveNote() {
@@ -4577,21 +4582,37 @@
   }
   function saveLogNote(text) {
     var ta = $('note-text');
+    sfUpdate(true);
+    var fill = sf.auto && sfKeys().length;
     notes.saving = true; micUi();
-    apiRaw('lognote', { text: text, cid: logCid(text) }).then(function (j) {
+    var filled = null;
+    (fill ? sfWrite(text) : Promise.resolve(null)).then(function (res) {
+      filled = res;
+      if (res && res.bad.length) {          // some fields did not save: keep everything on the phone; a retry is safe (same client ids)
+        var e = new Error((res.ok.length ? 'Saved ' + res.ok.join(', ') + '. ' : '') + 'Not saved: ' + res.bad.map(function (b) { return b.label + ' (' + b.msg + ')'; }).join('; ') + '.');
+        e.partial = true; throw e;
+      }
+      var tag = res && res.ok.length ? '[Filled into Daily Log' + (trkPast() ? ' ' + res.date : '') + ': ' + res.ok.join(', ') + '] ' : '';
+      var vt = tag && (tag + text).length <= NOTE_MAX ? tag + text : text;
+      return apiRaw('lognote', { text: vt, cid: logCid(vt) });
+    }).then(function (j) {
       notes.saving = false;
-      if (j.error === 'bad_action') { micUi(); return flash('Saving isn\u2019t available yet (server update pending). Your note is kept on this phone.', true); }
-      if (j.error) { micUi(); return flash((j.message || 'Couldn\u2019t save (' + j.error + ').') + ' Your note is kept on this phone.', true); }
+      var okFill = filled && filled.ok.length ? 'Saved to Daily Log ✓ ' + filled.ok.join(', ') : '';
+      if (!okFill && j.error === 'bad_action') { micUi(); return flash('Saving isn\u2019t available yet (server update pending). Your note is kept on this phone.', true); }
+      if (!okFill && j.error) { micUi(); return flash((j.message || 'Couldn\u2019t save (' + j.error + ').') + ' Your note is kept on this phone.', true); }
       draftSet(''); mic.base = mic.committed = mic.interim = '';
       try { localStorage.removeItem(LOG_CID_KEY); } catch (e) {}
       if (ta) ta.value = '';
       vn.at = 0;                                               // the Daily log list reloads when it is shown
+      if (okFill) state.trackData = null;                      // the Tracker re-reads the day (its cached read was dropped by the writes)
+      sfReset();
       micUi();
-      flash(j.data && j.data.duplicate ? 'Already saved.' : 'Saved to Voice notes \u2713');
+      if (okFill) flash(okFill + (j.error ? ' (voice note copy not saved: ' + (j.message || j.error) + ')' : ''), !!j.error);
+      else flash(j.data && j.data.duplicate ? 'Already saved.' : 'Saved to Voice notes \u2713');
     }, function (err) {
       notes.saving = false; micUi();
       if (err instanceof AuthError) { setPc(''); return lock('Passcode changed. Enter the new one.'); }
-      flash(friendly(err) + ' Your note is kept on this phone.', true);
+      flash((err && err.partial ? err.message : friendly(err)) + ' Your note is kept on this phone; tap Save again to retry.', true);
     });
   }
   var vn = { data: null, state: 'idle', msg: '', seq: 0, at: 0 };
@@ -4653,6 +4674,358 @@
   $('vn-head').addEventListener('click', function () { var o = !isOpen('vnt', true); setOpen('vnt', o); renderVoiceNotes(); });
   $('vn-body').addEventListener('click', function (e) { if (e.target.id === 'vn-retry') loadVoiceNotes(); if (e.target.id === 'vn-more') { setOpen('vnold', !isOpen('vnold', false)); renderVoiceNotes(); } });
 
+  /* ---- Smart fill (v112): on-device, rules-based parser for Daily Log dictation. No network, no AI.
+   * sfParse(text) -> { meals: {breakfast, lunch, dinner, snacks, drinks}, water, waterTotal, workouts: [{label, act, min, mi}],
+   *   workoutMin, hike, steps, weight, sleep, calories, protein, carbs, fat, notes }  (missing = not said)
+   * Text is split into clauses at punctuation and before meal / water / activity / body keywords (Web Speech often gives no
+   * punctuation). Each clause is matched against the measurement rules on a number-normalized copy ("sixty ounces" -> "60 ounces");
+   * food text always keeps the words exactly as dictated. A clause that is only a measurement is used up; anything left goes to the
+   * current meal (after a meal word) or else to Notes. */
+  var SF_MEALS = { breakfast: 'breakfast', brunch: 'breakfast', lunch: 'lunch', dinner: 'dinner', supper: 'dinner', snack: 'snacks', snacks: 'snacks', dessert: 'snacks' };
+  var SF_ONES = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13,
+    fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19 };
+  var SF_TENS = { twenty: 20, thirty: 30, forty: 40, fourty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
+  var SF_NW = '(?:' + Object.keys(SF_ONES).concat(Object.keys(SF_TENS), ['hundred', 'thousand']).join('|') + ')';
+  var SF_NUMSEQ = new RegExp('\\b' + SF_NW + '(?:(?:\\s+|-)(?:and\\s+)?' + SF_NW + ')*\\b', 'g');
+  // activities: [regex, label]; order matters (first match wins for the label)
+  var SF_ACTS = [
+    [/\b(?:bik(?:e|ed|es|ing)|bicycl\w*|cycl(?:ed|ing)|(?:rode|ride|riding)\s+(?:my\s+|the\s+)?bike|peloton|spin(?:ning)?\s+class)\b/, 'Bike'],
+    [/\b(?:hik(?:e|ed|es|ing))\b/, 'Hike'],
+    [/\b(?:ran|run|runs|running|jog(?:ged|ging)?)\b/, 'Run'],
+    [/\b(?:walk(?:ed|ing|s)?)\b/, 'Walk'],
+    [/\b(?:paddle\s*board(?:ed|ing)?|paddleboard(?:ed|ing)?|sup\s+board|stand\s*up\s+paddl\w*)\b/, 'Paddleboard'],
+    [/\b(?:kayak(?:ed|ing)?)\b/, 'Kayak'],
+    [/\b(?:swam|swim(?:ming)?|laps)\b/, 'Swim'],
+    [/\b(?:strength|lift(?:ed|ing)?(?:\s+weights)?|weight\s*(?:lifting|training)|weights|gym|resistance\s+training|crossfit)\b/, 'Strength'],
+    [/\b(?:pickle\s*ball)\b/, 'Pickleball'],
+    [/\b(?:tennis)\b/, 'Tennis'], [/\b(?:golf(?:ed|ing)?)\b/, 'Golf'], [/\b(?:yoga)\b/, 'Yoga'], [/\b(?:pilates)\b/, 'Pilates'],
+    [/\b(?:row(?:ed|ing)\s*(?:machine)?|rower)\b/, 'Row'], [/\b(?:stretch(?:ed|ing)?|mobility)\b/, 'Stretch'],
+    [/\b(?:basketball|soccer|volleyball|softball|baseball|surf(?:ed|ing)?|ski(?:ed|ing)?|snowboard(?:ed|ing)?|climb(?:ed|ing)?|boxing|elliptical|stair\s*master|cardio|hiit)\b/, '']
+  ];
+  var SF_DRINK = /\b(?:beers?|ipas?|lagers?|modelos?|wine|cocktails?|margaritas?|seltzers?|whiskey|vodka|tequila|coffees?|lattes?|espresso|teas?|sodas?|pepsi|coke|diet\s+coke|juice|kombucha|protein\s+shakes?|smoothies?)\b/i;
+  var SF_NOTE_RX = /^(?:i\s+|i'm\s+|im\s+)?(?:felt|feel|feeling|was\s+feeling|energy|mood|sore|tired|stressed|headache|note|remember|reminder|need\s+to|should|didn't|did\s+not|no\s+workout|rest\s+day|knee|back|shoulder)\b/i;
+  function sfDrinkOnly(txt) {        // a loose clause that is only drinks ("two beers", "one IPA", "coffee with cream") -> Drinks
+    if (!SF_DRINK.test(txt)) return false;
+    var rest = sfNorm(txt).replace(new RegExp(SF_DRINK.source, 'gi'), ' ')
+      .replace(/\b(?:\d+(?:\.\d+)?|a|an|one|couple|few|some|of|cups?|glass(?:es)?|cans?|pints?|bottles?|shots?|large|small|medium|big|iced|hot|black|with|and|cream|honey|sugar|milk|oat|almond|splash|diet|light|more|another|drank|had|i)\b/g, ' ')
+      .replace(/[^a-z]+/g, '').trim();
+    return !rest;
+  }
+  function sfNum(words) {           // "two thousand five hundred" -> 2500, "sixty five" -> 65
+    var total = 0, cur = 0, any = false;
+    words.toLowerCase().replace(/-/g, ' ').split(/\s+/).forEach(function (w) {
+      if (w === 'and' || !w) return;
+      if (SF_ONES[w] != null) { cur += SF_ONES[w]; any = true; }
+      else if (SF_TENS[w] != null) { cur += SF_TENS[w]; any = true; }
+      else if (w === 'hundred') { cur = (cur || 1) * 100; any = true; }
+      else if (w === 'thousand') { total += (cur || 1) * 1000; cur = 0; any = true; }
+    });
+    return any ? total + cur : null;
+  }
+  function sfNorm(s) {
+    var t = ' ' + String(s || '').toLowerCase().replace(/[\u2018\u2019]/g, "'") + ' ';
+    t = t.replace(/(\d),(\d{3})\b/g, '$1$2');
+    t = t.replace(/\b(\d+)\s+(?:and\s+)?(?:a\s+)?(?:1\/2|one\s+half|half)\b/g, function (m, n) { return (Number(n) + 0.5) + ''; });
+    t = t.replace(/\b(\d+)\s+(?:and\s+)?(?:a\s+)?quarter\b/g, function (m, n) { return (Number(n) + 0.25) + ''; });
+    t = t.replace(SF_NUMSEQ, function (m) {
+      var mh = /^(.*?)(?:\s+and)?\s+a\s+half$/.exec(m);      // never matches (half is not a number word); kept simple on purpose
+      var v = sfNum(mh ? mh[1] : m); return v == null ? m : String(v);
+    });
+    t = t.replace(/\b(\d+(?:\.\d+)?)\s+and\s+a\s+half\b/g, function (m, n) { return (Number(n) + 0.5) + ''; });
+    t = t.replace(/\b(\d+(?:\.\d+)?)\s+(hours?|hrs?|miles?|mi|liters?|litres?|cups?|glasses?|bottles?|gallons?)\s+and\s+a\s+half\b/g, function (m, n, u) { return (Number(n) + 0.5) + ' ' + u; });
+    t = t.replace(/\bhalf\s+(?:an?\s+)?(hour|mile|liter|litre|gallon|cup|glass|bottle)\b/g, '0.5 $1');
+    t = t.replace(/\b(?:an?|one)\s+(hour|mile|liter|litre|gallon|cup|glass|bottle)\b/g, '1 $1');
+    t = t.replace(/\b(\d+(?:\.\d+)?)\s*(hours?|hrs?)\s+and\s+(\d+)\s*(?:minutes?|mins?)\b/g, function (m, h, u, mi) { return (Number(h) * 60 + Number(mi)) + ' minutes'; });
+    t = t.replace(/\b(\d+(?:\.\d+)?)k\s+steps\b/g, function (m, n) { return (Number(n) * 1000) + ' steps'; });
+    return t.replace(/\s+/g, ' ');
+  }
+  var SF_Q = '(\\d+(?:\\.\\d+)?)';
+  var SF_WATER_RX = new RegExp('(?:\\b(?:drank|drink|had|about|around|roughly|maybe|like)\\s+)*' + SF_Q + '\\s*(oz|ounces?|ounce|cups?|glasses?|liters?|litres?|l|bottles?|gallons?)\\s+(?:of\\s+)?(?:\\w+\\s+)?water\\b|\\bwater\\s*(?:intake|total)?\\s*(?:was|is|of|:)?\\s*' + SF_Q + '\\s*(oz|ounces?|ounce|cups?|glasses?|liters?|litres?|bottles?|gallons?)\\b', 'g');
+  var SF_UNIT_OZ = function (u) { u = u.replace(/s$/, ''); return u === 'cup' || u === 'glas' || u === 'glass' ? 8 : u === 'liter' || u === 'litre' || u === 'l' ? 33.8 : u === 'bottle' ? 16.9 : u === 'gallon' ? 128 : 1; };
+  function sfSplit(text) {
+    var s = String(text || '').replace(/\r/g, '');
+    var nw = '(?:\\d+(?:[.,/]\\d+)?|' + SF_NW + '(?:(?:\\s+|-)' + SF_NW + ')*|an?|half(?:\\s+an?)?)';
+    var dur = '(?:' + nw + '[\\s-]*(?:minutes?|mins?|hours?|hrs?|miles?|mi|k|km)[\\s-]+(?:of\\s+)?)';
+    var bounds = [
+      /\b(?:for\s+|and\s+(?:then\s+)?(?:for\s+)?|then\s+(?:for\s+)?)?(?:breakfast|brunch|lunch|dinner|supper|snacks?|dessert)\b/gi,
+      new RegExp('\\b(?:(?:and\\s+)?(?:i\\s+)?(?:drank|had)\\s+)?' + nw + '\\s*(?:oz|ounces?|cups?|glasses?|liters?|litres?|bottles?|gallons?)\\s+(?:of\\s+)?(?:\\w+\\s+)?water\\b', 'gi'),
+      new RegExp('\\b(?:(?:and\\s+)?(?:then\\s+)?(?:i\\s+)?(?:did\\s+(?:a\\s+)?|went\\s+(?:on\\s+a\\s+|for\\s+a\\s+)?)?)' + dur + '?(?:bik(?:e|ed|ing)|cycl(?:ed|ing)|rode|hik(?:e|ed|ing)|ran|run|running|jogg?(?:ed|ing)?|walk(?:ed|ing)?|swam|swim(?:ming)?|lift(?:ed|ing)|strength|paddle\\s*board\\w*|paddleboard\\w*|kayak\\w*|pickle\\s*ball|yoga|pilates|tennis|golf\\w*|stretch\\w*)\\b', 'gi'),
+      /\b(?:(?:and\s+)?(?:i\s+)?(?:slept|weighed|weigh-?in|weight|sleep)\b)/gi,
+      new RegExp('\\b' + nw + '\\s+(?:hours?\\s+(?:of\\s+)?sleep|steps)\\b', 'gi'),
+      new RegExp('\\b' + nw + '\\s*(?:calories|cals|kcal)\\b', 'gi')
+    ];
+    var marks = {};
+    bounds.forEach(function (rx) { s.replace(rx, function (m) { var off = arguments[arguments.length - 2]; if (off > 0) marks[off] = 1; return m; }); });
+    var cuts = Object.keys(marks).map(Number).sort(function (a, b) { return a - b; }), out = [], last = 0;
+    cuts.forEach(function (c) { out.push(s.slice(last, c)); last = c; });
+    out.push(s.slice(last));
+    var parts = [];
+    out.forEach(function (p) { p.split(/[;\n]+|[.!?](?=\s|$)|,(?!\d{3}\b)/).forEach(function (q) { if (q.trim()) parts.push(q.trim()); }); });
+    return parts;
+  }
+  function sfClean(food) {           // tidy food text for the Notes column, words kept as dictated
+    return String(food || '').replace(/\s+/g, ' ').replace(/\s+,/g, ',')
+      .replace(/^[\s,:;.\-\u2013\u2014]+|[\s,:;.\-\u2013\u2014]+$/g, '')
+      .replace(/^(?:and\s+then|and|then|also|plus|i\s+had|i\s+ate|had|ate|was|i\s+drank|drank)\b[\s,:]*/i, '')
+      .replace(/^(?:and|then|also|plus)\b\s*/i, '')
+      .replace(/(?:\s+(?:and|then|also|plus|about|around|roughly|like|maybe|with|of|for|in))+$/i, '').trim();
+  }
+  function sfFmtMin(m) { return m >= 60 && m % 30 === 0 ? (m / 60) + ' hr' : m + ' min'; }
+  function sfParse(text) {
+    var R = { meals: {}, workouts: [], notes: '' }, notes = [], cur = null, lastNoteIdx = -1, any = false;
+    var add = function (k, v) { R[k] = Math.round(((R[k] || 0) + v) * 10) / 10; any = true; };
+    sfSplit(text).forEach(function (raw) {
+      var n = sfNorm(raw), used = n, m, food = raw, measured = false;
+      // meal word at the start of the clause (or "for breakfast" at the end, with nothing else)
+      var mm = /^\s*(?:and\s+(?:then\s+)?|then\s+)?(?:for\s+)?(breakfast|brunch|lunch|dinner|supper|snacks?|dessert)\b\s*(?:was|i\s+had|i\s+ate|had|ate|:|-|\u2013|\u2014)?\s*/i.exec(raw);
+      if (mm) {
+        cur = SF_MEALS[mm[1].toLowerCase()];
+        food = raw.slice(mm[0].length);
+        n = sfNorm(food); used = n;
+        if (!sfClean(food) && lastNoteIdx >= 0 && lastNoteIdx === notes.length - 1) {   // "two eggs for breakfast"
+          R.meals[cur] = (R.meals[cur] ? R.meals[cur] + ', ' : '') + notes.pop(); lastNoteIdx = -1; any = true; return;
+        }
+      }
+      // water (kept inside the meal text when the clause also names food, e.g. "8 oz of water with protein powder")
+      SF_WATER_RX.lastIndex = 0;
+      while ((m = SF_WATER_RX.exec(n))) {
+        var q = Number(m[1] || m[3]), u = m[2] || m[4];
+        if (q > 0) { add('water', Math.round(q * SF_UNIT_OZ(u))); measured = true; used = used.replace(m[0], ' '); }
+      }
+      if (/\b(?:total|in\s+all|so\s+far|for\s+the\s+day|all\s+day|today)\b/.test(n) && /water/.test(n) && R.water) { R.waterTotal = true; used = used.replace(/\b(?:total|in\s+all|so\s+far|for\s+the\s+day|all\s+day|today)\b/g, ' '); }
+      // sleep
+      if ((m = new RegExp('\\b(?:slept|sleep)\\s*(?:was|of|for|about|around|like|:)?\\s*(?:about\\s+|around\\s+)?' + SF_Q + '\\s*(?:hours?|hrs?|h)?\\b').exec(n)) ||
+          (m = new RegExp(SF_Q + '\\s*(?:hours?|hrs?)\\s+(?:of\\s+)?sleep\\b').exec(n))) {
+        var sv = Number(m[1]); if (sv > 0 && sv <= 24) { R.sleep = sv; any = true; measured = true; used = used.replace(m[0], ' ').replace(/\blast\s+night\b/, ' '); }
+      }
+      // body weight (not "lifted weights")
+      if ((m = new RegExp('\\b(?:weighed(?:\\s+in)?(?:\\s+at)?|weigh-?in(?:\\s+was)?|(?:body\\s*)?weight(?:\\s+(?:was|is|this\\s+morning|today))*|scale\\s+(?:said|says|was))\\s*(?::)?\\s*' + SF_Q + '\\s*(?:lbs?|pounds?)?\\b').exec(n))) {
+        var wv = Number(m[1]); if (wv >= 50 && wv <= 600) { R.weight = wv; any = true; measured = true; used = used.replace(m[0], ' ').replace(/\b(?:this\s+morning|today)\b/g, ' '); }
+      }
+      // steps
+      if ((m = new RegExp(SF_Q + '\\s*steps\\b').exec(n)) || (m = new RegExp('\\bsteps\\s*(?:was|were|:)?\\s*' + SF_Q).exec(n))) {
+        var stv = Number(m[1]); if (stv > 0 && stv <= 100000) { R.steps = Math.round(stv); any = true; measured = true; used = used.replace(m[0], ' '); }
+      }
+      // calories / macros (only when a number is said)
+      [['calories', '(?:calories|cals?|kcal)'], ['protein', '(?:g|grams?)\\s*(?:of\\s+)?protein'], ['carbs', '(?:g|grams?)\\s*(?:of\\s+)?(?:carbs?|carbohydrates?)'], ['fat', '(?:g|grams?)\\s*(?:of\\s+)?fats?']].forEach(function (k) {
+        var rx = new RegExp(SF_Q + '\\s*' + k[1] + '\\b'), rx2 = new RegExp('\\b' + k[1].replace(/^\(\?:g\|grams\?\)\\s\*\(\?:of\\s\+\)\?/, '') + '\\s*(?:was|of|:)?\\s*' + SF_Q + '\\s*(?:g|grams?)?\\b'), mt = rx.exec(n);
+        if (!mt && k[0] !== 'calories') mt = rx2.exec(n);
+        if (!mt && k[0] === 'calories') mt = new RegExp('\\b(?:calories|cals)\\s*(?:was|were|:)?\\s*' + SF_Q).exec(n);
+        if (mt) { add(k[0], Number(mt[1])); measured = true; used = used.replace(mt[0], ' '); }
+      });
+      // workouts
+      var act = null;
+      for (var i = 0; i < SF_ACTS.length; i++) { var am = SF_ACTS[i][0].exec(n); if (am) { act = { label: SF_ACTS[i][1] || (am[0].charAt(0).toUpperCase() + am[0].slice(1)), word: am[0] }; break; } }
+      if (!act && /\b(?:work(?:ed)?\s*out|workout|exercised?|training)\b/.test(n)) act = { label: 'Workout', word: (/\b(?:work(?:ed)?\s*out|workout|exercised?|training)\b/.exec(n) || [''])[0] };
+      if (act) {
+        var mi = null, min = null, dm;
+        if ((dm = new RegExp(SF_Q + '[\\s-]*(?:miles?|mi)\\b').exec(n))) { mi = Number(dm[1]); used = used.replace(dm[0], ' '); }
+        else if ((dm = new RegExp(SF_Q + '[\\s-]*(?:k|km|kilometers?)\\b').exec(n))) { mi = Math.round(Number(dm[1]) * 0.621 * 10) / 10; used = used.replace(dm[0], ' '); }
+        if ((dm = new RegExp(SF_Q + '[\\s-]*(?:minutes?|mins?)\\b').exec(n))) { min = Number(dm[1]); used = used.replace(dm[0], ' '); }
+        else if ((dm = new RegExp(SF_Q + '[\\s-]*(?:hours?|hrs?|hr|h)\\b').exec(n))) { min = Math.round(Number(dm[1]) * 60); used = used.replace(dm[0], ' '); }
+        var w = { act: act.label, label: act.label + (mi != null ? ' ' + mi + ' mi' : '') + (min != null ? ' ' + sfFmtMin(min) : ''), mi: mi, min: min };
+        R.workouts.push(w); any = true; measured = true;
+        if (min != null) add('workoutMin', min);
+        if (act.label === 'Hike' && mi != null) add('hike', mi);
+        used = used.replace(act.word, ' ');
+        if (cur) cur = null;
+      }
+      // what is left of the clause once the measurements are taken out
+      var left = used.replace(/\b(?:i|i've|i'd|i\s+did|did|went|go|for|a|an|the|of|and|then|also|plus|about|around|roughly|like|maybe|had|drank|got|my|in|on|at|with|today|this\s+morning|last\s+night|total|was|were|is|did\s+a|some|just|ounces?|oz|minutes?|mins?|hours?|miles?|lbs?|pounds?|water|workout|work\s+out|session|class|ride|morning|afternoon|evening|tonight|um|uh|so|ok|okay|yeah)\b/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
+      if (measured && !left) { cur = null; return; }      // a clause that is only water / workout / weight / sleep / steps / macros ends the meal
+      var txt = sfClean(food);
+      if (!txt) return;
+      if (measured && act) { notes.push(txt); lastNoteIdx = notes.length - 1; return; }   // e.g. "biked 10 miles with Lisa": keep the extra words in Notes
+      if (SF_NOTE_RX.test(txt)) { notes.push(txt); lastNoteIdx = -1; cur = null; return; }
+      if (cur) { R.meals[cur] = (R.meals[cur] ? R.meals[cur] + ', ' : '') + txt; any = true; }
+      else if (sfDrinkOnly(txt)) { R.meals.drinks = (R.meals.drinks ? R.meals.drinks + ', ' : '') + txt; any = true; }
+      else { notes.push(txt); lastNoteIdx = notes.length - 1; }
+    });
+    R.notes = notes.join('; ');
+    if (R.workouts.length && R.workoutMin == null) R.workoutMin = null;
+    R.any = any || !!R.notes;
+    return R;
+  }
+
+  /* ---- Smart fill UI (v112): Daily Tracker > Dictate a log note. As the note is dictated or typed, sfParse() fills the Daily Log fields
+   * shown under the note (editable); a chip says what was filled, with Undo (turns smart fill off for this note; Fill again re-runs it).
+   * Save writes the fields through the normal actions (logday: workout text appended to the day's, minutes / hike added, macros added,
+   * steps set, meals + leftovers appended to Notes; logset: weight, sleep; logadd: water in <=32 oz steps, add or set-total), then
+   * saves the note to Voice notes as before, tagged with what was filled. Client ids come from the note text + day, so a retry
+   * after a dropped reply never double-adds. Nothing is written until Save is tapped. */
+  var SF_FIELDS = [
+    ['breakfast', 'Breakfast', 't'], ['lunch', 'Lunch', 't'], ['dinner', 'Dinner', 't'], ['snacks', 'Snacks', 't'], ['drinks', 'Drinks', 't'],
+    ['water', 'Water', 'n', 'oz'], ['workout', 'Workout', 't'], ['workoutMin', 'Workout min', 'n', 'min'], ['hike', 'Hike', 'n', 'mi'],
+    ['steps', 'Steps', 'n', ''], ['weight', 'Weight', 'n', 'lb'], ['sleep', 'Sleep', 'n', 'h'],
+    ['calories', 'Calories', 'n', 'kcal'], ['protein', 'Protein', 'n', 'g'], ['carbs', 'Carbs', 'n', 'g'], ['fat', 'Fat', 'n', 'g'], ['notes', 'Notes', 't']
+  ];
+  var SF_LBL = {}; SF_FIELDS.forEach(function (f) { SF_LBL[f[0]] = f[1]; });
+  var sf = { auto: true, vals: {}, edited: {}, lastText: null, waterMode: 'add', t: 0, sig: '' };
+  function sfFromParse(r) {
+    var v = {};
+    ['breakfast', 'lunch', 'dinner', 'snacks', 'drinks'].forEach(function (k) { if (r.meals[k]) v[k] = r.meals[k]; });
+    if (r.water) v.water = r.water;
+    if (r.workouts.length) v.workout = r.workouts.map(function (w) { return w.label; }).join('; ');
+    ['workoutMin', 'hike', 'steps', 'weight', 'sleep', 'calories', 'protein', 'carbs', 'fat'].forEach(function (k) { if (r[k] != null && r[k] !== '') v[k] = r[k]; });
+    if (r.notes) v.notes = r.notes;
+    return v;
+  }
+  function sfReset() { sf.auto = true; sf.vals = {}; sf.edited = {}; sf.lastText = null; sf.waterMode = 'add'; sf.sig = ''; clearTimeout(sf.t); sfRender(); }
+  function sfSoon() { clearTimeout(sf.t); sf.t = setTimeout(function () { sfUpdate(); }, 250); }
+  function sfUpdate(force) {
+    if (!state.micLog) return;
+    var ta = $('note-text'), text = ta ? ta.value : '';
+    if (!force && text === sf.lastText) return;
+    sf.lastText = text;
+    if (sf.auto) {
+      var nv = sfFromParse(sfParse(text)), out = {};
+      Object.keys(sf.edited).forEach(function (k) { if (sf.vals[k] != null) out[k] = sf.vals[k]; });
+      Object.keys(nv).forEach(function (k) { if (!sf.edited[k]) out[k] = nv[k]; });
+      sf.vals = out;
+      if (sf.vals.water == null) sf.waterMode = 'add';
+      else if (!sf.edited.waterMode) sf.waterMode = /\b(?:total|in all|so far|for the day|all day)\b/i.test(text) ? 'set' : 'add';
+    }
+    sfRender();
+  }
+  function sfKeys() { return SF_FIELDS.map(function (f) { return f[0]; }).filter(function (k) { return sf.vals[k] != null && sf.vals[k] !== ''; }); }
+  function sfLabels() {
+    var out = [];
+    sfKeys().forEach(function (k) { var l = k === 'workoutMin' ? 'Workout' : SF_LBL[k]; if (out.indexOf(l) < 0) out.push(l); });
+    return out;
+  }
+  function sfToday() { var d = state.trackData; return d && d.ext && d.ext.today ? d.ext.today : null; }
+  function sfDayLabel() { var k = trkPast(); return k ? trkDayLabel(k) : 'Today' + (sfToday() && sfToday().label ? ' \u00b7 ' + sfToday().label : ''); }
+  function sfRender() {
+    var card = $('sf-card'); if (!card) return;
+    var on = !!state.micLog, keys = sfKeys(), ta = $('note-text'), has = !!(ta && ta.value.trim());
+    card.hidden = !on || (!has && !keys.length);
+    var sv = $('note-save');
+    if (on && sv) { sv.setAttribute('data-lbl', sf.auto && keys.length ? 'Save to Daily Log' : 'Save to Voice notes'); micUi(); }
+    if (card.hidden) { sf.sig = ''; return; }
+    $('sf-when').textContent = sfDayLabel();
+    var chip = $('sf-chip');
+    if (!sf.auto) chip.innerHTML = '<span>Smart fill off \u00b7 saved as a voice note only</span><button type="button" class="sfbtn" data-sf-act="again">Fill again</button>';
+    else if (keys.length) chip.innerHTML = '<span><b>Filled:</b> ' + esc(sfLabels().join(', ')) + '</span><button type="button" class="sfbtn" data-sf-act="undo">Undo</button>';
+    else chip.innerHTML = '<span class="dim">Nothing to fill yet. Say a meal (\u201Cbreakfast \u2026\u201D), water, a workout, weight, sleep or steps.</span>';
+    chip.className = 'sfchip' + (sf.auto && keys.length ? ' on' : '');
+    var list = $('sf-list'), sig = (sf.auto ? keys.join(',') : 'off') + '|' + sf.waterMode, act = document.activeElement;
+    var editing = act && list.contains(act) && act.getAttribute('data-sf');
+    if (sig === sf.sig && editing) {               // same rows: update values in place, never under the caret
+      Array.prototype.forEach.call(list.querySelectorAll('[data-sf]'), function (i) { var k = i.getAttribute('data-sf'); if (i !== act) i.value = sf.vals[k] == null ? '' : sf.vals[k]; });
+      sfWaterNote(); return;
+    }
+    sf.sig = sig;
+    if (!sf.auto) { list.innerHTML = ''; return; }
+    list.innerHTML = keys.map(function (k) {
+      var f = SF_FIELDS.filter(function (x) { return x[0] === k; })[0], v = sf.vals[k];
+      var input = f[2] === 'n'
+        ? '<input type="number" inputmode="decimal" step="any" min="0" data-sf="' + k + '" value="' + esc(v) + '" autocomplete="off">'
+        : (k === 'notes' || String(v).length > 40 ? '<textarea rows="2" data-sf="' + k + '">' + esc(v) + '</textarea>' : '<input type="text" data-sf="' + k + '" value="' + esc(v) + '" autocomplete="off">');
+      var extra = '';
+      if (k === 'water') extra = '<div class="seg small sfwm"><button type="button" data-sf-wm="add" class="' + (sf.waterMode === 'add' ? 'on' : '') + '">Add</button><button type="button" data-sf-wm="set" class="' + (sf.waterMode === 'set' ? 'on' : '') + '">Set day total</button></div><span class="sfwn" id="sf-wn"></span>';
+      if (k === 'steps') extra = '<span class="sfwn">sets the day\u2019s steps</span>';
+      if (k === 'workout') extra = '<span class="sfwn">added to the day\u2019s workout</span>';
+      return '<label class="sfrow' + (f[2] === 't' ? ' txt' : '') + '"><span class="sfl">' + f[1] + (f[3] ? ' <small>' + f[3] + '</small>' : '') + '</span>' + input + extra + '</label>';
+    }).join('');
+    if (editing) { var again = list.querySelector('[data-sf="' + editing + '"]'); if (again) again.focus(); }
+    sfWaterNote();
+  }
+  function sfWaterNote() {
+    var el = $('sf-wn'); if (!el) return;
+    var t = trkPast() ? null : sfToday(), cur = t && t.water != null ? t.water : (t ? 0 : null), v = Number(sf.vals.water);
+    if (cur == null || !isFinite(v)) { el.textContent = ''; return; }
+    var after = sf.waterMode === 'set' ? v : cur + v;
+    el.textContent = 'today ' + fmt(cur) + ' \u2192 ' + fmt(after) + ' oz';
+  }
+  (function () {
+    var list = $('sf-list'), chip = $('sf-chip');
+    if (!list || !chip) return;
+    list.addEventListener('input', function (e) {
+      var k = e.target.getAttribute('data-sf'); if (!k) return;
+      sf.edited[k] = true;
+      var v = e.target.value;
+      if (v === '') delete sf.vals[k]; else sf.vals[k] = e.target.type === 'number' ? Number(v) : v;
+      if (k === 'water') sfWaterNote();
+      var sv = $('note-save'); if (sv) { sv.setAttribute('data-lbl', sf.auto && sfKeys().length ? 'Save to Daily Log' : 'Save to Voice notes'); micUi(); }
+      $('sf-chip').querySelector('b') && ($('sf-chip').querySelector('span').innerHTML = '<b>Filled:</b> ' + esc(sfLabels().join(', ')));
+    });
+    list.addEventListener('click', function (e) {
+      var b = e.target.closest ? e.target.closest('[data-sf-wm]') : null; if (!b) return;
+      e.preventDefault(); sf.waterMode = b.getAttribute('data-sf-wm'); sf.edited.waterMode = true; sf.sig = ''; sfRender();
+    });
+    chip.addEventListener('click', function (e) {
+      var b = e.target.closest ? e.target.closest('[data-sf-act]') : null; if (!b) return;
+      if (b.getAttribute('data-sf-act') === 'undo') { sf.auto = false; sf.vals = {}; sf.edited = {}; sf.sig = ''; sfRender(); }
+      else { sf.auto = true; sf.edited = {}; sf.sig = ''; sfUpdate(true); }
+    });
+    // Keyboard dictation (iOS / Android mic key) can change the box without an input event until it ends: check the box while the page is open.
+    setInterval(function () { if (state.micLog && rcScreenNow() === 'mic' && !notes.saving) { var ta = $('note-text'); if (ta && ta.value !== sf.lastText) sfUpdate(); } }, 800);
+  })();
+  function sfHash(s) { var h = 5381; for (var i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
+  function sfNotesText(v) {
+    var parts = [];
+    ['breakfast', 'lunch', 'dinner', 'snacks', 'drinks'].forEach(function (k) { if (v[k]) parts.push(SF_LBL[k] + ': ' + String(v[k]).trim()); });
+    if (v.notes) parts.push(String(v.notes).trim());
+    return parts.join('; ');
+  }
+  // -> Promise of { ok: [labels], bad: [{label, msg}] }. Reads the day fresh first (so appends/adds use the sheet's current values).
+  function sfWrite(text) {
+    var v = {}; Object.keys(sf.vals).forEach(function (k) { v[k] = sf.vals[k]; });
+    var mode = sf.waterMode, past = trkPast(), lim = { water: [0, 300], workoutMin: [0, 1000], hike: [0, 100], steps: [0, 100000], weight: [50, 600], sleep: [0, 24],
+      calories: [0, 20000], protein: [0, 2000], carbs: [0, 3000], fat: [0, 2000] }, badv = [];
+    Object.keys(lim).forEach(function (k) { if (v[k] == null) return; var x = Number(v[k]); if (!isFinite(x) || x < lim[k][0] || x > lim[k][1]) badv.push(SF_LBL[k] + ' ' + lim[k][0] + '\u2013' + lim[k][1]); });
+    if (badv.length) { var be = new Error('Check the numbers: ' + badv.join(', ') + '. Nothing was saved.'); be.partial = true; return Promise.reject(be); }
+    return apiGet(rcUrl('log', {})).then(function (t) {
+      var j; try { j = JSON.parse(t); } catch (e) { throw new Error('Unexpected response from server.'); }
+      if (j.error === 'auth') throw new AuthError();
+      if (j.error || !j.data || !j.data.ext || !j.data.ext.write || !j.data.ext.write.logday) throw new Error(j.message || 'The Daily Log can\u2019t take these fields yet (server update pending).');
+      var ext = j.data.ext, key = past || ext.today.date, row = key === ext.today.date ? ext.today : ((ext.history || []).filter(function (x) { return x.date === key; })[0] || {});
+      var base = 'sf' + sfHash(key + '|' + text + '|' + JSON.stringify(v) + '|' + mode), res = { ok: [], bad: [], date: key }, chain = Promise.resolve();
+      var p = { date: key, mode: 'add', cid: base + 'd' }, dayLbl = [];
+      ['calories', 'protein', 'carbs', 'fat'].forEach(function (k) { if (v[k] != null && isFinite(Number(v[k]))) { p[k] = Number(v[k]); dayLbl.push(SF_LBL[k]); } });
+      if (v.workout || v.workoutMin != null) {
+        var old = String(row.workout || '').replace(/\s*\u00b7\s*\d+(?:\.\d+)?\s*min$/, '').trim();
+        if (/^(?:rest|none|rest \/ none)$/i.test(old)) old = '';
+        var add = String(v.workout || '').split(/\s*;\s*/).filter(function (x) { return x && old.toLowerCase().indexOf(x.toLowerCase()) < 0; });
+        var wt = old ? (add.length ? old + '; ' + add.join('; ') : old) : (add.join('; ') || 'Workout');
+        p.workout = wt.slice(0, 200);
+        if (v.workoutMin != null && isFinite(Number(v.workoutMin))) p.workout_min = Math.round(((row.minutes || 0) + Number(v.workoutMin)) * 10) / 10;
+        dayLbl.push('Workout');
+      }
+      if (v.hike != null && isFinite(Number(v.hike))) { p.hike_miles = Math.round(((row.hike || 0) + Number(v.hike)) * 10) / 10; dayLbl.push('Hike'); }
+      if (v.steps != null && isFinite(Number(v.steps))) { p.steps = Math.round(Number(v.steps)); dayLbl.push('Steps'); }
+      var nt = sfNotesText(v);
+      if (nt) {
+        p.notes = nt;
+        ['breakfast', 'lunch', 'dinner', 'snacks', 'drinks', 'notes'].forEach(function (k) { if (v[k]) dayLbl.push(SF_LBL[k]); });
+      }
+      if (dayLbl.length) chain = chain.then(function () {
+        return apiRaw('logday', p).then(function (r) { trkRes(r); res.ok = res.ok.concat(dayLbl); }, function (e) { if (e instanceof AuthError) throw e; res.bad.push({ label: dayLbl.join(', '), msg: friendly(e) }); })
+          .catch(function (e) { if (e instanceof AuthError) throw e; res.bad.push({ label: dayLbl.join(', '), msg: e.message || String(e) }); });
+      });
+      ['weight', 'sleep'].forEach(function (k) {
+        if (v[k] == null || !isFinite(Number(v[k]))) return;
+        chain = chain.then(function () {
+          return apiRaw('logset', { field: k, value: Number(v[k]), date: key, cid: base + k[0] }).then(function (r) { trkRes(r); res.ok.push(SF_LBL[k]); })
+            .catch(function (e) { if (e instanceof AuthError) throw e; res.bad.push({ label: SF_LBL[k], msg: e.message || String(e) }); });
+        });
+      });
+      if (v.water != null && isFinite(Number(v.water))) {
+        var delta = Math.round((mode === 'set' ? Number(v.water) - (row.water || 0) : Number(v.water)) * 10) / 10, steps = [];
+        while (Math.abs(delta) > 0.05) { var s = Math.max(-32, Math.min(32, delta)); steps.push(s); delta = Math.round((delta - s) * 10) / 10; }
+        if (steps.length) {
+          var wchain = Promise.resolve(), wfail = null;
+          steps.forEach(function (s, i) {
+            wchain = wchain.then(function () { if (wfail) return; return apiRaw('logadd', { value: s, date: key, cid: base + 'w' + i + (mode === 'set' ? 's' : '') }).then(function (r) { trkRes(r); }); })
+              .catch(function (e) { if (e instanceof AuthError) throw e; wfail = wfail || e; });
+          });
+          chain = chain.then(function () { return wchain.then(function () { if (wfail) res.bad.push({ label: 'Water', msg: wfail.message || String(wfail) }); else res.ok.push('Water'); }); });
+        } else res.ok.push('Water');
+      }
+      return chain.then(function () { return res; });
+    });
+  }
+
   /* ---- Mic (Web Speech API) ---- */
   function micUi() {
     var btn = $('mic-btn'); if (!btn) return;
@@ -4680,6 +5053,7 @@
     draftSet(ta.value);
     var r = $('note-recovered'); if (r) r.hidden = true;
     micUi();
+    if (state.micLog) sfSoon();
   }
   function micSpace(a, b) { return a && b && !/\s$/.test(a) ? a + ' ' + b : a + b; }
   function micFail(msg) {

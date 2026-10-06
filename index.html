@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lora:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=111">
+<link rel="stylesheet" href="app.css?v=112">
 </head>
 <body>
   <div class="bg"></div>
@@ -99,7 +99,13 @@
       <div class="draftbtns"><button class="bigsave" id="note-save">Save note</button><button class="navbtn discard" id="note-discard">Discard</button></div>
       <div class="noteflash" id="notes-flash" hidden></div>
     </div>
-    <p class="foot miclhint" id="mic-hint" hidden>Try: &ldquo;Two eggs and coffee for breakfast, 30 minute walk, weight 211, slept 7 hours.&rdquo; Saved notes go to your Voice notes; Chief of Staff turns them into log entries.</p>
+    <div class="card sfcard" id="sf-card" hidden>
+      <div class="sfhead"><h3>Smart fill &middot; Daily Log</h3><span class="foot" id="sf-when"></span></div>
+      <div class="sfchip" id="sf-chip" role="status" aria-live="polite"></div>
+      <div class="sflist" id="sf-list"></div>
+      <p class="foot sffoot">Nothing is saved until you tap Save. Meals and anything that doesn&rsquo;t fit a field go into the day&rsquo;s Notes; workouts are added to the day&rsquo;s. Edit any value first.</p>
+    </div>
+    <p class="foot miclhint" id="mic-hint" hidden>Try: &ldquo;Breakfast two eggs and toast, lunch turkey sandwich, 60 ounces of water, biked 10 miles, weight 211, slept 7 hours.&rdquo; The fields fill in as you talk; Save puts them in the Daily Log and keeps the note in Voice notes.</p>
   </section>
 
   <!-- ============ RUNNING NOTES (#notes/<slug>) ============ -->
@@ -295,6 +301,6 @@
     <div id="vcam-body"></div>
   </section>
 
-  <script src="app.js?v=111"></script>
+  <script src="app.js?v=112"></script>
 </body>
 </html>
