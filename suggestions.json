@@ -1,0 +1,17 @@
+{
+  "updated": "2026-10-06",
+  "source": "Project Tasks — Master (Google Sheet), open items as of 2026-10-06",
+  "note": "Seed list for the Suggestions box on CC Home (shown when the API has no action=suggest yet). Edit freely: one object per item. id must stay unique and stable (Snooze/Dismiss remember it); text is what gets added to Today; project is a short tag; due is YYYY-MM-DD (past = shown as overdue); priority 1 = high, 2 = normal (high and overdue show first). Set \"done\": true or delete the item to retire it. The phone shows up to 3 at a time.",
+  "items": [
+    { "id": "tv-hydraulics-comments", "text": "Respond to Hydraulics/culvert plan-check comments (11 items)", "project": "Terra Vi", "due": "2026-09-26", "priority": 1 },
+    { "id": "tv-file-plancheck-pdfs", "text": "Locate May 2026 Design-General + Stormwater plan-check PDFs and file in the Terra Vi Drive folder", "project": "Terra Vi", "due": "2026-09-24", "priority": 1 },
+    { "id": "math-resubmit-permit", "text": "Resubmit permit package", "project": "Mathiesen", "due": "2026-09-26", "priority": 1 },
+    { "id": "marval-keyway-opengov", "text": "Upload retaining wall keyway plan to OpenGov", "project": "MarVal", "due": "2026-09-26", "priority": 1 },
+    { "id": "ysf-site-plan", "text": "Lock/update preliminary site plan", "project": "YSF", "due": "2026-09-26", "priority": 2 },
+    { "id": "math-permit-checklist", "text": "Finish permit checklist", "project": "Mathiesen", "due": "2026-09-26", "priority": 2 },
+    { "id": "marval-site-walk-writeup", "text": "Write up 9/10 site walk (footings + drainage)", "project": "MarVal", "due": "2026-09-26", "priority": 2 },
+    { "id": "ysf-musco-memo", "text": "Write Musco vs budget light memo", "project": "YSF", "due": "2026-09-26", "priority": 2 },
+    { "id": "tv-ttcp", "text": "Submit TTCP (MUTCD) and clarify closure type", "project": "Terra Vi", "due": "2026-09-26", "priority": 2 },
+    { "id": "math-survey-tiein", "text": "Schedule top-of-pipe survey tie-in", "project": "Mathiesen", "due": "2026-09-26", "priority": 2 }
+  ]
+}

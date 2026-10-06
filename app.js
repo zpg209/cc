@@ -545,6 +545,7 @@
     if (name === 'ent') loadEnt(false);
     if (name === 'biz') { state.bizSlug = R.kind; loadBiz(); }
     if (name === 'home' || name === 'projects' || name === 'biz' || name === 'hf' || name === 'fin') hlRender();   // Home layout grids (folders)
+    if (name === 'home') tkRender(); else tkMicStop(true);   // v124: Home task list + suggestions (localStorage cc.tasks.v1)
     if (name === 're') loadRe();
     if (name === 'proj') renderProj();
     if (name === 'notes') openNotes();
@@ -16288,6 +16289,379 @@
   });
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && pc.fs && pcOnScreen()) { e.preventDefault(); pcExitFs(); }
+  });
+
+  /* ---------------- Home: daily task list + suggestions (v=124) ---------------- */
+  // Compact, collapsible block at the top of Home (above the layout buttons). Lives on THIS PHONE only (localStorage
+  // 'cc.tasks.v1'); nothing here touches the passcode, Plan Checks, layout or cache keys. All reads/writes go through
+  // tkLoad / tkSave so a server copy can replace them later (backend/tasks.patch).
+  //  - Today: open tasks due today or earlier. Earlier ones are "carried Nd" (N = days since their due date).
+  //  - Top 3: up to 3 pinned tasks, shown first in a copper-outlined block; a 4th pin is refused with a short message.
+  //  - Check = done (struck through, then hidden; "Done today N" shows / un-does them). Tap text = edit. x or swipe left = delete (Undo).
+  //  - Upcoming: open tasks with a future due date (collapsible).
+  //  - Suggestions (separate box below): open items from the Project Tasks Master list. Source: the API's action=suggest when
+  //    the server has it (backend/tasks.patch), otherwise suggestions.json in this repo. Add to Today / Snooze 3 days / Dismiss.
+  //    Nothing is added unless tapped.
+  // None of this is a layout button (.hl-grid > .tile), so the press-and-hold shaking and drag never start from here.
+  var TK_KEY = 'cc.tasks.v1', TK_SUGG_KEY = 'cc.tasks.sugg.v1', TK_MAX_PINS = 3, TK_SUGG_SHOW = 3, TK_SNOOZE_DAYS = 3;
+  var tk = { d: null, editId: '', showDone: false, msg: '', msgUndo: null, msgT: 0, rec: null, on: false, base: '', committed: '', interim: '',
+    sugg: null, suggSrc: '', suggLoading: false, suggTried: '', built: false, day: '' };
+  function tkPad(n) { return (n < 10 ? '0' : '') + n; }
+  function tkIso(d) { return d.getFullYear() + '-' + tkPad(d.getMonth() + 1) + '-' + tkPad(d.getDate()); }
+  function tkToday() { return tkIso(new Date()); }
+  function tkAddDays(iso, n) { var p = iso.split('-'); return tkIso(new Date(+p[0], +p[1] - 1, +p[2] + n)); }
+  function tkDays(a, b) {       // whole days from a to b (YYYY-MM-DD)
+    var pa = a.split('-'), pb = b.split('-');
+    return Math.round((Date.UTC(+pb[0], +pb[1] - 1, +pb[2]) - Date.UTC(+pa[0], +pa[1] - 1, +pa[2])) / 864e5);
+  }
+  function tkValidIso(s) { return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s); }
+  function tkNice(iso) {
+    var t = tkToday(), n = tkDays(t, iso);
+    if (n === 0) return 'Today'; if (n === 1) return 'Tomorrow'; if (n === -1) return 'Yesterday';
+    var p = iso.split('-'), d = new Date(+p[0], +p[1] - 1, +p[2]);
+    return d.toLocaleDateString('en-US', { weekday: n > 0 && n < 7 ? 'short' : undefined, month: 'short', day: 'numeric' });
+  }
+  function tkNewId() { return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+  function tkLoad() {
+    if (tk.d) return tk.d;
+    var raw = null; try { raw = JSON.parse(localStorage.getItem(TK_KEY) || 'null'); } catch (e) { raw = null; }
+    var d = raw && typeof raw === 'object' ? raw : {};
+    d.v = 1;
+    d.tasks = (Array.isArray(d.tasks) ? d.tasks : []).filter(function (t) { return t && t.id && typeof t.text === 'string'; });
+    d.tasks.forEach(function (t) { if (!tkValidIso(t.due)) t.due = tkToday(); t.done = !!t.done; t.pin = !!t.pin; });
+    d.open = d.open && typeof d.open === 'object' ? d.open : { panel: true, upc: false, sugg: true };
+    d.sugg = d.sugg && typeof d.sugg === 'object' ? d.sugg : {};      // suggestion id -> { snooze: 'YYYY-MM-DD' } | { dismissed: 1 } | { added: 1 }
+    tk.d = d; return d;
+  }
+  function tkSave() {
+    var d = tkLoad();
+    var cut = tkAddDays(tkToday(), -60);    // completed tasks older than 60 days are pruned
+    d.tasks = d.tasks.filter(function (t) { return !t.done || !t.doneOn || t.doneOn >= cut; });
+    try { localStorage.setItem(TK_KEY, JSON.stringify(d)); return true; } catch (e) { tkFlash('Could not save on this phone (storage full or blocked).'); return false; }
+  }
+  function tkFind(id) { var l = tkLoad().tasks; for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i]; return null; }
+  function tkPinsUsed() { var t = tkToday(); return tkLoad().tasks.filter(function (x) { return x.pin && !x.done && x.due <= t; }).length; }
+  function tkFlash(msg, undoF) {
+    tk.msg = msg || ''; tk.msgUndo = undoF || null; clearTimeout(tk.msgT);
+    var el = $('tk-msg'); if (!el) return;
+    el.innerHTML = tk.msg ? esc(tk.msg) + (undoF ? ' <button type="button" class="tk-undo" data-tk="undo">Undo</button>' : '') : '';
+    el.hidden = !tk.msg;
+    if (tk.msg) tk.msgT = setTimeout(function () { tk.msg = ''; tk.msgUndo = null; var e2 = $('tk-msg'); if (e2) { e2.hidden = true; e2.innerHTML = ''; } }, undoF ? 6000 : 3200);
+  }
+  var TK_PIN_SVG = '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false" fill="currentColor"><path d="M15 3l6 6-2 1-3.5 3.5L15 19l-2 1-3.5-3.5L4 22l-1-1 5.5-5.5L5 12l1-2 5.5-.5L15 6z"/></svg>';
+  function tkBuild() {
+    var box = $('home-tasks'); if (!box || tk.built) return !!box;
+    tk.built = true;
+    box.innerHTML =
+      '<div class="tk-panel" id="tk-panel">' +
+        '<button type="button" class="tk-head" data-tk="toggle" aria-expanded="true"><span class="tk-title">Today</span><span class="tk-sum" id="tk-sum"></span><span class="tk-chev" aria-hidden="true">&#9662;</span></button>' +
+        '<div class="tk-msg" id="tk-msg" role="status" hidden></div>' +
+        '<div class="tk-body" id="tk-body">' +
+          '<div class="tk-add">' +
+            '<input type="text" id="tk-text" class="tk-input" maxlength="300" enterkeyhint="done" autocomplete="off" autocapitalize="sentences" placeholder="Add a task\u2026" aria-label="New task">' +
+            '<button type="button" class="tk-mic" id="tk-mic" data-tk="mic" aria-pressed="false" aria-label="Dictate a task">' + vsvg('mic', 20) + '</button>' +
+            '<button type="button" class="tk-addbtn" data-tk="add">Add</button>' +
+          '</div>' +
+          '<div class="tk-when"><span class="tk-for">For</span><input type="date" id="tk-due" class="tk-date" aria-label="Due date">' +
+            '<button type="button" class="tk-chip" data-tk="due" data-n="0">Today</button><button type="button" class="tk-chip" data-tk="due" data-n="1">Tomorrow</button>' +
+            '<span class="tk-micstate" id="tk-micstate" hidden></span></div>' +
+          '<div id="tk-lists"></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="sg-box" id="sg-box">' +
+        '<button type="button" class="tk-head sg-head" data-tk="sgtoggle" aria-expanded="true"><span class="tk-title">Suggestions</span><span class="tk-sum" id="sg-sum"></span><span class="tk-chev" aria-hidden="true">&#9662;</span></button>' +
+        '<div class="sg-body" id="sg-body"></div>' +
+      '</div>';
+    $('tk-due').value = tkToday();
+    box.addEventListener('click', tkClick);
+    box.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return;
+      if (e.target.id === 'tk-text') { e.preventDefault(); tkAdd(); }
+      else if (e.target.id === 'tk-etext') { e.preventDefault(); tkEditSave(); }
+    });
+    box.addEventListener('input', function (e) { if (e.target.id === 'tk-text' && !tk.on) tk.base = ''; });
+    tkSwipeInit(box);
+    return true;
+  }
+  function tkRowHtml(t, today, opts) {
+    var id = esc(t.id), carried = !t.done && t.due < today ? tkDays(t.due, today) : 0;
+    if (tk.editId === t.id) {
+      return '<div class="tk-row tk-editing" data-id="' + id + '"><div class="tk-edit">' +
+        '<input type="text" id="tk-etext" class="tk-input" maxlength="300" value="' + esc(t.text) + '" aria-label="Edit task">' +
+        '<div class="tk-erow"><input type="date" id="tk-edue" class="tk-date" value="' + esc(t.due) + '" aria-label="Due date">' +
+        '<button type="button" class="tk-addbtn" data-tk="esave">Save</button><button type="button" class="tk-chip" data-tk="ecancel">Cancel</button></div></div></div>';
+    }
+    var meta = '';
+    if (carried) meta += '<span class="tk-tag tk-carried">carried ' + carried + 'd</span>';
+    if (opts && opts.upc) meta += '<span class="tk-tag">' + esc(tkNice(t.due)) + '</span>';
+    return '<div class="tk-row' + (t.done ? ' tk-isdone' : '') + (t.pin && !t.done && !(opts && opts.upc) ? ' tk-pinned' : '') + '" data-id="' + id + '">' +
+      '<button type="button" class="tk-check" data-tk="check" role="checkbox" aria-checked="' + (t.done ? 'true' : 'false') + '" aria-label="' + (t.done ? 'Mark not done' : 'Mark done') + '"></button>' +
+      '<button type="button" class="tk-text" data-tk="edit" aria-label="Edit task"><span class="tk-t">' + esc(t.text) + '</span>' + meta + '</button>' +
+      (opts && (opts.upc || t.done) ? '' : '<button type="button" class="tk-pin' + (t.pin ? ' on' : '') + '" data-tk="pin" aria-pressed="' + (t.pin ? 'true' : 'false') + '" aria-label="' + (t.pin ? 'Unpin from Top 3' : 'Pin to Top 3') + '">' + TK_PIN_SVG + '</button>') +
+      '<button type="button" class="tk-x" data-tk="del" aria-label="Delete task">\u00d7</button></div>';
+  }
+  function tkRender() {
+    if (!tkBuild()) return;
+    var d = tkLoad(), today = tkToday();
+    if (tk.day && tk.day !== today) { var due = $('tk-due'); if (due && due.value === tk.day) due.value = today; }   // new day: date picker follows
+    tk.day = today;
+    var open = d.tasks.filter(function (t) { return !t.done && t.due <= today; });
+    var byOrder = function (a, b) { return (a.due < b.due ? -1 : a.due > b.due ? 1 : 0) || ((a.at || 0) - (b.at || 0)); };
+    var pinned = open.filter(function (t) { return t.pin; }).sort(byOrder);
+    var rest = open.filter(function (t) { return !t.pin; }).sort(byOrder);
+    var doneToday = d.tasks.filter(function (t) { return t.done && t.doneOn === today; }).sort(function (a, b) { return (b.doneAt || 0) - (a.doneAt || 0); });
+    var upc = d.tasks.filter(function (t) { return !t.done && t.due > today; }).sort(byOrder);
+    var h = '';
+    if (pinned.length) h += '<div class="tk-top"><div class="tk-toplbl">Top 3 <small>' + pinned.length + '/' + TK_MAX_PINS + '</small></div>' + pinned.map(function (t) { return tkRowHtml(t, today); }).join('') + '</div>';
+    h += '<div class="tk-list">' + rest.map(function (t) { return tkRowHtml(t, today); }).join('') + '</div>';
+    if (!open.length) h += '<div class="tk-empty">' + (doneToday.length ? 'All clear for today.' : 'Nothing for today yet.') + '</div>';
+    if (doneToday.length || upc.length) {
+      h += '<div class="tk-foot">';
+      if (doneToday.length) h += '<button type="button" class="tk-link" data-tk="showdone" aria-expanded="' + (tk.showDone ? 'true' : 'false') + '">Done today ' + doneToday.length + ' ' + (tk.showDone ? '&#9652;' : '&#9662;') + '</button>';
+      if (upc.length) h += '<button type="button" class="tk-link" data-tk="upc" aria-expanded="' + (d.open.upc ? 'true' : 'false') + '">Upcoming ' + upc.length + ' ' + (d.open.upc ? '&#9652;' : '&#9662;') + '</button>';
+      h += '</div>';
+    }
+    if (tk.showDone && doneToday.length) h += '<div class="tk-sub tk-donelist">' + doneToday.map(function (t) { return tkRowHtml(t, today); }).join('') + '</div>';
+    if (d.open.upc && upc.length) h += '<div class="tk-sub tk-upc"><div class="tk-sublbl">Upcoming</div>' + upc.map(function (t) { return tkRowHtml(t, today, { upc: true }); }).join('') + '</div>';
+    $('tk-lists').innerHTML = h;
+    var sum = open.length + ' open' + (doneToday.length ? ' \u00b7 ' + doneToday.length + ' done' : '') + (upc.length ? ' \u00b7 ' + upc.length + ' upcoming' : '');
+    $('tk-sum').textContent = sum;
+    var panelOpen = d.open.panel !== false;
+    $('tk-panel').classList.toggle('collapsed', !panelOpen);
+    $('tk-panel').querySelector('.tk-head').setAttribute('aria-expanded', String(panelOpen));
+    if (tk.editId) { var et = $('tk-etext'); if (et && document.activeElement !== et) { try { et.focus(); et.setSelectionRange(et.value.length, et.value.length); } catch (e) {} } }
+    tkMicUi();
+    tkSuggRender();
+  }
+  function tkAdd() {
+    var inp = $('tk-text'), text = (inp.value || '').replace(/\s+/g, ' ').trim();
+    if (tk.on) tkMicStop(true);
+    if (!text) { tkFlash('Type or say a task first.'); inp.focus(); return; }
+    var due = $('tk-due').value, today = tkToday();
+    if (!tkValidIso(due)) due = today;
+    tkLoad().tasks.push({ id: tkNewId(), text: text.slice(0, 300), due: due, created: today, at: Date.now(), done: false, pin: false });
+    tkSave();
+    inp.value = ''; tk.base = ''; $('tk-due').value = today;
+    tkRender();
+    if (due > today) tkFlash('Added for ' + tkNice(due) + ' (in Upcoming).'); else tkFlash('Added.');
+  }
+  function tkEditSave() {
+    var t = tkFind(tk.editId); if (!t) { tk.editId = ''; return tkRender(); }
+    var text = ($('tk-etext').value || '').replace(/\s+/g, ' ').trim(), due = $('tk-edue').value;
+    if (!text) { tkFlash('A task needs some text (use \u00d7 to delete it).'); return; }
+    t.text = text.slice(0, 300);
+    if (tkValidIso(due) && due !== t.due) { t.due = due; if (due > tkToday()) t.pin = false; }
+    tk.editId = ''; tkSave(); tkRender(); tkFlash('Saved.');
+  }
+  function tkDelete(id) {
+    var d = tkLoad(), i = -1;
+    for (var k = 0; k < d.tasks.length; k++) if (d.tasks[k].id === id) i = k;
+    if (i < 0) return;
+    var gone = d.tasks.splice(i, 1)[0];
+    if (tk.editId === id) tk.editId = '';
+    tkSave(); tkRender();
+    tkFlash('Deleted \u201c' + (gone.text.length > 40 ? gone.text.slice(0, 38) + '\u2026' : gone.text) + '\u201d.', function () {
+      var dd = tkLoad(); dd.tasks.splice(Math.min(i, dd.tasks.length), 0, gone); tkSave(); tkRender();
+    });
+  }
+  function tkClick(e) {
+    var b = e.target.closest ? e.target.closest('[data-tk]') : null; if (!b) return;
+    var a = b.getAttribute('data-tk'), row = b.closest('.tk-row'), id = row ? row.getAttribute('data-id') : '', d = tkLoad(), t = id ? tkFind(id) : null;
+    if (a === 'toggle') { d.open.panel = d.open.panel === false; tkSave(); if (d.open.panel === false) tkMicStop(true); return tkRender(); }
+    if (a === 'sgtoggle') { d.open.sugg = d.open.sugg === false; tkSave(); return tkSuggRender(); }
+    if (a === 'add') return tkAdd();
+    if (a === 'mic') { if (tk.on) tkMicStop(false); else tkMicStart(); return; }
+    if (a === 'due') { $('tk-due').value = tkAddDays(tkToday(), +b.getAttribute('data-n') || 0); return; }
+    if (a === 'undo') { var f = tk.msgUndo; tkFlash(''); if (f) f(); return; }
+    if (a === 'showdone') { tk.showDone = !tk.showDone; return tkRender(); }
+    if (a === 'upc') { d.open.upc = !d.open.upc; tkSave(); return tkRender(); }
+    if (a === 'esave') return tkEditSave();
+    if (a === 'ecancel') { tk.editId = ''; return tkRender(); }
+    if (a === 'sgadd' || a === 'sgsnooze' || a === 'sgdismiss') return tkSuggAct(a, b.getAttribute('data-sid'));
+    if (a === 'sgretry') { tk.suggTried = ''; tk.sugg = null; return tkSuggLoad(true); }
+    if (!t) return;
+    if (a === 'check') {
+      if (t.done) { t.done = false; t.doneOn = ''; t.doneAt = 0; tkSave(); return tkRender(); }
+      t.done = true; t.doneOn = tkToday(); t.doneAt = Date.now(); t.pin = false; tkSave();
+      row.classList.add('tk-isdone', 'tk-fading'); b.setAttribute('aria-checked', 'true');
+      setTimeout(tkRender, 900);          // struck through for a moment, then hidden
+      return;
+    }
+    if (a === 'edit') { if (t.done) return; tk.editId = t.id; return tkRender(); }
+    if (a === 'del') return tkDelete(t.id);
+    if (a === 'pin') {
+      if (t.pin) { t.pin = false; tkSave(); return tkRender(); }
+      if (tkPinsUsed() >= TK_MAX_PINS) return tkFlash('Top 3 is full. Unpin one first.');
+      t.pin = true; tkSave(); return tkRender();
+    }
+  }
+  // Swipe a task row left to delete it (horizontal only; vertical scrolling is left alone).
+  function tkSwipeInit(box) {
+    var s = null;
+    box.addEventListener('touchstart', function (e) {
+      if (e.touches.length !== 1) { s = null; return; }
+      var row = e.target.closest ? e.target.closest('.tk-row') : null;
+      if (!row || row.classList.contains('tk-editing') || e.target.closest('input')) { s = null; return; }
+      s = { row: row, x: e.touches[0].clientX, y: e.touches[0].clientY, on: false, dx: 0 };
+    }, { passive: true });
+    box.addEventListener('touchmove', function (e) {
+      if (!s) return;
+      var p = e.touches[0], dx = p.clientX - s.x, dy = p.clientY - s.y;
+      if (!s.on) {
+        if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { s = null; return; }
+        if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5) { s.on = true; s.row.classList.add('tk-swiping'); }
+      }
+      if (s.on) { if (e.cancelable) e.preventDefault(); s.dx = Math.min(0, dx); s.row.style.transform = 'translateX(' + s.dx + 'px)'; s.row.classList.toggle('tk-swipedel', s.dx < -90); }
+    }, { passive: false });
+    function endSwipe() {
+      if (!s) return;
+      var c = s; s = null;
+      if (!c.on) return;
+      c.row.classList.remove('tk-swiping');
+      var id = c.row.getAttribute('data-id');
+      if (c.dx < -90) { c.row.style.transform = 'translateX(-110%)'; setTimeout(function () { tkDelete(id); }, 140); }
+      else { c.row.style.transform = ''; c.row.classList.remove('tk-swipedel'); }
+      // the finger-up click after a swipe must not open the edit box
+      var block = function (ev) { ev.stopPropagation(); ev.preventDefault(); };
+      box.addEventListener('click', block, true); setTimeout(function () { box.removeEventListener('click', block, true); }, 400);
+    }
+    box.addEventListener('touchend', endSwipe);
+    box.addEventListener('touchcancel', function () { if (s && s.on) { s.row.style.transform = ''; s.row.classList.remove('tk-swiping', 'tk-swipedel'); } s = null; });
+  }
+  /* ---- Mic (same pattern as the other dictation boxes: words go into the box; nothing is added until Add) ---- */
+  function tkMicUi() {
+    var b = $('tk-mic'), st = $('tk-micstate'); if (!b) return;
+    b.classList.toggle('rec', tk.on); b.setAttribute('aria-pressed', tk.on ? 'true' : 'false'); b.setAttribute('aria-label', tk.on ? 'Stop dictation' : 'Dictate a task');
+    if (st) { st.hidden = !tk.on && !tk.micMsg; st.textContent = tk.on ? 'Listening\u2026' : (tk.micMsg || ''); st.classList.toggle('warn', !tk.on && !!tk.micMsg); }
+  }
+  function tkMicFail(msg) { tk.on = false; var r = tk.rec; tk.rec = null; try { r && r.abort(); } catch (e) {} tk.micMsg = msg; tkMicUi(); var i = $('tk-text'); if (i) i.focus(); setTimeout(function () { tk.micMsg = ''; tkMicUi(); }, 6000); }
+  function tkMicStart() {
+    var inp = $('tk-text'); if (!inp) return;
+    tk.micMsg = '';
+    if (!SR) return tkMicFail('Live mic isn\u2019t available here \u2014 use the keyboard\u2019s mic key.');
+    tk.base = inp.value ? inp.value.replace(/\s+$/, '') + ' ' : ''; tk.committed = ''; tk.interim = '';
+    var rec; try { rec = new SR(); } catch (e) { return tkMicFail(MIC_NA); }
+    rec.continuous = false; rec.interimResults = true; rec.lang = 'en-US'; rec.maxAlternatives = 1;
+    rec.onresult = function (ev) {
+      var interim = '';
+      for (var i = ev.resultIndex; i < ev.results.length; i++) {
+        var r = ev.results[i], t = r[0] ? r[0].transcript : '';
+        if (r.isFinal) tk.committed = micSpace(tk.committed, t.trim() + ' '); else interim += t;
+      }
+      tk.interim = interim.replace(/^\s+/, ''); inp.value = tk.base + tk.committed + tk.interim;
+    };
+    rec.onerror = function (ev) {
+      var er = ev && ev.error;
+      if (er === 'not-allowed' || er === 'service-not-allowed' || er === 'audio-capture' || er === 'language-not-supported') return tkMicFail(MIC_NA);
+      if (er === 'network') return tkMicFail('The speech service couldn\u2019t be reached. Use the keyboard\u2019s mic key.');
+      if (er === 'no-speech') tk.micMsg = 'Didn\u2019t catch anything. Tap the mic and try again.';
+    };
+    rec.onend = function () {
+      if (tk.rec !== rec) return;
+      tk.committed = micSpace(tk.committed, tk.interim ? tk.interim.trim() + ' ' : ''); tk.interim = '';
+      tk.on = false; tk.rec = null;
+      var v = (tk.base + tk.committed).replace(/\s+$/, ''); if (v) inp.value = v.charAt(0).toUpperCase() + v.slice(1);
+      tkMicUi();
+      if (tk.micMsg) setTimeout(function () { tk.micMsg = ''; tkMicUi(); }, 5000);
+    };
+    tk.rec = rec; tk.on = true;
+    try { rec.start(); } catch (e2) { return tkMicFail(MIC_NA); }
+    tkMicUi();
+  }
+  function tkMicStop(quiet) {
+    var r = tk.rec;
+    if (quiet) { tk.rec = null; tk.on = false; try { r && r.abort(); } catch (e) {} tkMicUi(); return; }
+    if (r) { try { r.stop(); } catch (e2) { tk.rec = null; tk.on = false; tkMicUi(); } }
+  }
+  /* ---- Suggestions: server (action=suggest, once deployed) else suggestions.json ---- */
+  function tkSuggNorm(list, src) {
+    return (Array.isArray(list) ? list : []).filter(function (s) { return s && typeof s.text === 'string' && s.text.trim(); }).map(function (s) {
+      var id = String(s.id || (src + ':' + (s.project || '') + ':' + s.text)).slice(0, 120);
+      return { id: id, text: String(s.text).trim().slice(0, 300), project: String(s.project || '').slice(0, 40), due: tkValidIso(s.due) ? s.due : '', priority: Number(s.priority) || 2, done: !!s.done };
+    }).filter(function (s) { return !s.done; });
+  }
+  function tkSuggLoad(force) {
+    var today = tkToday();
+    if (tk.suggLoading || (!force && tk.suggTried === today)) return;
+    tk.suggTried = today; tk.suggLoading = true;
+    if (!tk.sugg) { try { var c = JSON.parse(localStorage.getItem(TK_SUGG_KEY) || 'null'); if (c && Array.isArray(c.items)) { tk.sugg = c.items; tk.suggSrc = c.src || ''; } } catch (e) {} }
+    var fromFile = function () {
+      return fetch('suggestions.json?d=' + today, { cache: 'no-cache', credentials: 'omit' }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function (j) { return { items: tkSuggNorm(j && j.items, 'f'), src: 'suggestions.json' + (j && j.updated ? ' (updated ' + j.updated + ')' : '') }; });
+    };
+    // The server only answers action=suggest after backend/tasks.patch is deployed; until then (unknown action / error) use the file.
+    var fromServer = function () {
+      if (!getPc()) return Promise.reject(new Error('locked'));
+      return apiGet(rcUrl('suggest', { n: 12 })).then(function (text) {
+        var j = JSON.parse(text);
+        if (!j || !j.ok || !j.data || !Array.isArray(j.data.items)) throw new Error('no suggest');
+        return { items: tkSuggNorm(j.data.items, 'm'), src: 'Project Tasks Master (live)' };
+      });
+    };
+    fromServer().catch(fromFile).then(function (r) {
+      tk.sugg = r.items; tk.suggSrc = r.src;
+      try { localStorage.setItem(TK_SUGG_KEY, JSON.stringify({ items: r.items, src: r.src, at: Date.now() })); } catch (e) {}
+    }, function () { if (!tk.sugg) tk.sugg = []; tk.suggErr = true; }).then(function () { tk.suggLoading = false; tkSuggRender(); });
+  }
+  function tkSuggVisible() {
+    var d = tkLoad(), today = tkToday(), have = {};
+    d.tasks.forEach(function (t) { if (!t.done) have[t.text.toLowerCase()] = 1; });
+    return (tk.sugg || []).filter(function (s) {
+      var st = d.sugg[s.id];
+      if (st && (st.dismissed || st.added)) return false;
+      if (st && st.snooze && st.snooze > today) return false;
+      return !have[s.text.toLowerCase()];
+    }).sort(function (a, b) {
+      var ao = a.due && a.due < today ? 0 : 1, bo = b.due && b.due < today ? 0 : 1;
+      return (a.priority - b.priority) || (ao - bo) || ((a.due || '9999') < (b.due || '9999') ? -1 : (a.due || '9999') > (b.due || '9999') ? 1 : 0);
+    });
+  }
+  function tkSuggRender() {
+    var body = $('sg-body'), box = $('sg-box'); if (!body) return;
+    var d = tkLoad(), open = d.open.sugg !== false, today = tkToday();
+    box.classList.toggle('collapsed', !open);
+    box.querySelector('.sg-head').setAttribute('aria-expanded', String(open));
+    if (open && !tk.sugg && !tk.suggLoading) tkSuggLoad(false);
+    var vis = tkSuggVisible(), show = vis.slice(0, TK_SUGG_SHOW);
+    $('sg-sum').textContent = tk.sugg ? (vis.length ? vis.length + ' from your project list' : 'none right now') : '';
+    if (!open) return;
+    if (!tk.sugg) { body.innerHTML = '<div class="tk-empty">' + (tk.suggLoading ? 'Loading\u2026' : '') + '</div>'; return; }
+    if (!show.length) {
+      body.innerHTML = '<div class="tk-empty">' + (tk.suggErr && !tk.sugg.length ? 'Suggestions couldn\u2019t load. <button type="button" class="tk-link" data-tk="sgretry">Try again</button>' : 'No suggestions right now.') + '</div>';
+      return;
+    }
+    body.innerHTML = show.map(function (s) {
+      var late = s.due && s.due < today ? tkDays(s.due, today) : 0, sid = esc(s.id);
+      var meta = (s.project ? '<span class="tk-tag sg-proj">' + esc(s.project) + '</span>' : '') +
+        (late ? '<span class="tk-tag tk-carried">overdue ' + late + 'd</span>' : s.due ? '<span class="tk-tag">due ' + esc(tkNice(s.due)) + '</span>' : '') +
+        (s.priority === 1 ? '<span class="tk-tag sg-hi">high</span>' : '');
+      return '<div class="sg-item"><div class="sg-text">' + esc(s.text) + '<div class="sg-meta">' + meta + '</div></div>' +
+        '<div class="sg-btns"><button type="button" class="tk-addbtn" data-tk="sgadd" data-sid="' + sid + '">Add to Today</button>' +
+        '<button type="button" class="tk-chip" data-tk="sgsnooze" data-sid="' + sid + '">Snooze 3d</button>' +
+        '<button type="button" class="tk-chip" data-tk="sgdismiss" data-sid="' + sid + '">Dismiss</button></div></div>';
+    }).join('') + (vis.length > show.length ? '<div class="sg-more">+' + (vis.length - show.length) + ' more after these</div>' : '');
+  }
+  function tkSuggAct(a, sid) {
+    var d = tkLoad(), s = null, today = tkToday();
+    (tk.sugg || []).forEach(function (x) { if (x.id === sid) s = x; });
+    if (!s) return;
+    if (a === 'sgadd') {
+      d.tasks.push({ id: tkNewId(), text: (s.project && s.text.toLowerCase().indexOf(s.project.toLowerCase()) < 0 ? s.project + ': ' : '') + s.text, due: today, created: today, at: Date.now(), done: false, pin: false, src: 'sugg:' + s.id });
+      d.sugg[sid] = { added: 1, on: today };
+      if (d.open.panel === false) d.open.panel = true;
+      tkSave(); tkRender(); tkFlash('Added to Today.');
+      return;
+    }
+    var prev = d.sugg[sid];
+    d.sugg[sid] = a === 'sgsnooze' ? { snooze: tkAddDays(today, TK_SNOOZE_DAYS) } : { dismissed: 1, on: today };
+    tkSave(); tkSuggRender();
+    tkFlash(a === 'sgsnooze' ? 'Snoozed until ' + tkNice(tkAddDays(today, TK_SNOOZE_DAYS)) + '.' : 'Dismissed.', function () {
+      var dd = tkLoad(); if (prev) dd.sugg[sid] = prev; else delete dd.sugg[sid]; tkSave(); tkSuggRender();
+    });
+  }
+  // Coming back to the app on a new day (or after a while): re-draw so carry-over and Upcoming move on their own.
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible' && $('screen-home') && $('screen-home').classList.contains('active') && tk.built) tkRender();
   });
 
   /* ---------------- Init ---------------- */

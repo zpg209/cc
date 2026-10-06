@@ -98,3 +98,20 @@ What it adds (both behind the same passcode check as every action):
 Until it is deployed (front end v122), Medical > Health Metrics shows "No metrics yet" with a link to open the sheet. "+ Add metric" stays disabled, and a note explains that adding and editing switch on after this update. The Daily Log overview card says "None yet". After deploying, the phone notices the action on its own: the list, + Add metric and tap-to-edit start working.
 
 Check after deploying: `…/exec?api=1&pc=PASSCODE&action=healthmetrics` should return `"version":51` and `"metrics":[]`.
+
+## tasks.patch (API v52, Home task list Suggestions from the Master project list)
+Patch against Api.gs v45 (independent of the other patches here). Apply it, then redeploy the Apps Script web app (Zac signs in, Deploy > Manage deployments > edit > New version). It only reads a Sheet (SpreadsheetApp.openById on "Project Tasks — Master", id `1Tso8tdD_Z8oxAL1O1C6ozgOZeUWQnHoiThmtAmk1--w`), so the existing scopes should be enough. Not urgent: CC v121 works fully without it.
+
+What it adds:
+- new `suggest` action: `?api=1&pc=PASSCODE&action=suggest[&n=12]` returns `{ ok:true, data:{ items:[{ id, text, project, due, priority }], total, source, at } }`.
+  - Reads every tab whose header row starts `Done | Task` (Master, Terra Vi, YSF, Mathiesen, MarVal, ...). Skips "Instructions" and the "· Phone" dashboards.
+  - Keeps rows whose Done box is not ticked. The same task on the Master tab and on its project tab counts once.
+  - Sort order: priority first (from a "Priority" column if there is one: High/1/P1 = high), then overdue, then due date (rows with no date go last).
+  - `id` = `m:` + 12 hex chars of MD5(project|task), so Snooze and Dismiss on the phone keep working after a reload.
+- Nothing in the Sheet changes.
+
+Why: the Home Suggestions box (front end v121) offers 3 open items from Zac's project list, with Add to Today, Snooze 3 days and Dismiss. Before this is deployed, the server answers `bad_action` and the phone uses `suggestions.json` in the repo instead (a static seed taken from the Master Sheet on 2026-10-06). After deploying, the box follows the Sheet on its own, and ticking Done in the Sheet removes the item. No front-end change is needed.
+
+The tasks themselves stay on the phone (localStorage `cc.tasks.v1`). Server sync for them is not part of this patch.
+
+Updating suggestions.json (no deploy needed beyond a push): edit `items` (each item has `id` (unique, stable), `text`, `project`, `due` YYYY-MM-DD, `priority` 1|2, optional `done: true`), bump `updated`, then push to main and spa. The phone re-checks it every time the app opens and keeps the last good copy for offline use.

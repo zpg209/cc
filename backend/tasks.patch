@@ -1,0 +1,78 @@
+--- a/Api.gs
++++ b/Api.gs
+@@ -13,6 +13,7 @@
+  *        RAW per account: balance, prevBalance, change, entries[].balance (a card's balance is the amount OWED, positive). NET (cards subtracted, apps counted as cash): groups[].total/prevTotal/change, total/prevTotal/change,
+  *        reconciliation[].balanceChange/expected/gap. New: groups[].cash/owed and cash/owed at the top level (cash = banks + apps, owed = sum of card balances, total = cash - owed))
+  *   GET  <exec>?api=1&pc=123456&action=acctadd&name=Chase%20Visa&entity=Household|TiwiK|KiwiT&kind=bank|card|app&cid=abc[&balance=1200.50][&asof=2026-10-04][&note=..][&bank=..][&type=..][&purpose=..][&dry=1]   (admin v44+: append ONE account row to the Accounts tab (adds a "Kind" column at the end if missing); with balance also adds the first Balances row (asof defaults to today); card balance = amount owed (positive); Sierra is rejected; an existing account name is rejected (use balset))
++ *   GET  <exec>?api=1&pc=123456&action=suggest[&n=12]   (v52 Home tasks: open items from the "Project Tasks — Master" Sheet for the Home Suggestions box {items:[{id,text,project,due,priority}]}, overdue/high first; read-only)
+  *   GET  <exec>?api=1&pc=123456&action=spendcol   (admin: create the Daily Spend "Paid from" column I + dropdown if missing; idempotent)
+  *   GET  <exec>?api=1&pc=123456&action=spendfix&date=2026-09-27&amount=400&merchant=Wagner&paid_from=Cash[&notes=..][&category=..][&account=..][&row=N][&dry=1]   (admin: set Paid from / notes / category on ONE matched Daily Spend row)
+  *   GET  <exec>?api=1&pc=123456&action=spendadd&date=2026-10-02&amount=7.5&merchant=Bagel%20shop&category=Dining&account=Household&who=Zac&cid=abc[&paid_from=..][&method=Cash|Credit|Debit|Venmo|Zelle|Check|ACH/Transfer|Other][&notes=..][&dry=1]   (admin v31+: add ONE Daily Spend row; see SPENDADD_CHANGE.md; v42: method = the sheet's Method dropdown + Venmo/Zelle/Check, 'Credit card' = Credit; a value missing from the dropdown is added to it)
+@@ -93,6 +94,7 @@
+       case 'entitytax': { if (!apiEntCfg_(extra.all && extra.all.entity)) return { error: 'bad_entity' }; return { ok: true, data: apiEntityTax_(extra.all.entity, extra.all.year, extra.all.format) }; }
+       case 'vaultdebt': return { ok: true, data: apiVaultDebt_() };
+       case 'biz':   return { ok: true, data: apiBiz_() };
++      case 'suggest': return { ok: true, data: apiSuggest_(extra && extra.all && extra.all.n) };   // v52 (Home tasks): Suggestions box on Home (read-only)
+       case 'file':  return apiFile_(id);
+       case 'folder': return apiFolder_(id);
+       case 're':    return { ok: true, data: apiRe_() };
+@@ -756,6 +758,59 @@
+   return { ok: true, data: { name: name, mime: blob.getContentType() || mime, url: url, size: bytes.length, b64: Utilities.base64Encode(bytes) } };
+ }
+ 
++/**
++ * v52 (Home tasks): action=suggest[&n=12] -> { ok, data:{ items:[{ id, text, project, due:'yyyy-MM-dd'|'', priority:1|2 }], source, at } }
++ * Reads every tab of the "Project Tasks — Master" Sheet that has a header row starting "Done | Task" (Master, Terra Vi, YSF,
++ * Mathiesen, MarVal, ...; "Instructions" and the "· Phone" dashboards are skipped), keeps rows whose Done box is not ticked,
++ * de-duplicates by project + task, and sorts: priority (a "Priority" column if present: High/1/P1 = 1), then overdue, then
++ * due date (no date last). Read-only: nothing in the Sheet changes. The phone's Suggestions box (front end v121+) asks for this
++ * first and falls back to suggestions.json in the repo when the action is missing, so nothing breaks before it is deployed.
++ * id = 'm:' + first 12 hex chars of MD5(project|task) so Snooze / Dismiss on the phone keep working across reloads.
++ */
++var TASKS_MASTER_ID = '1Tso8tdD_Z8oxAL1O1C6ozgOZeUWQnHoiThmtAmk1--w';   // Drive: "Project Tasks — Master"
++function apiSuggest_(rawN) {
++  var n = Math.max(1, Math.min(30, parseInt(rawN, 10) || 12));
++  var tz = Session.getScriptTimeZone() || 'America/Los_Angeles';
++  var today = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
++  var ss = SpreadsheetApp.openById(TASKS_MASTER_ID), seen = {}, out = [];
++  ss.getSheets().forEach(function (sh) {
++    var name = sh.getName();
++    if (/instructions|phone/i.test(name)) return;
++    var vals = sh.getDataRange().getValues(), hr = -1;
++    for (var r = 0; r < Math.min(vals.length, 15); r++) {
++      if (String(vals[r][0]).trim().toLowerCase() === 'done' && String(vals[r][1]).trim().toLowerCase() === 'task') { hr = r; break; }
++    }
++    if (hr < 0) return;
++    var head = vals[hr].map(function (h) { return String(h).trim().toLowerCase(); });
++    var cProj = head.indexOf('project'), cDue = head.indexOf('due'), cPri = head.indexOf('priority');
++    for (var i = hr + 1; i < vals.length; i++) {
++      var row = vals[i], task = String(row[1] || '').trim();
++      if (!task || row[0] === true || String(row[0]).toUpperCase() === 'TRUE') continue;
++      var proj = String(cProj >= 0 ? row[cProj] : name).trim() || name;
++      var key = (proj + '|' + task).toLowerCase();
++      var dv = cDue >= 0 ? row[cDue] : '', due = '';
++      if (dv instanceof Date && !isNaN(dv.getTime())) due = Utilities.formatDate(dv, tz, 'yyyy-MM-dd');
++      else if (typeof dv === 'number' && dv > 30000) due = Utilities.formatDate(new Date(Math.round((dv - 25569) * 864e5)), 'UTC', 'yyyy-MM-dd');
++      else if (/^\d{4}-\d{2}-\d{2}/.test(String(dv))) due = String(dv).slice(0, 10);
++      var pv = cPri >= 0 ? String(row[cPri]).trim().toLowerCase() : '';
++      var pri = /^(1|p1|high|urgent|top)$/.test(pv) ? 1 : 2;
++      var dig = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, key, Utilities.Charset.UTF_8)
++        .map(function (b) { return ('0' + (b & 255).toString(16)).slice(-2); }).join('').slice(0, 12);
++      if (seen[key]) {   // same task on the Master tab and its project tab: keep one, with the higher priority and any due date
++        var o = seen[key]; o.priority = Math.min(o.priority, pri); if (!o.due && due) o.due = due;
++        continue;
++      }
++      seen[key] = { id: 'm:' + dig, text: task.slice(0, 300), project: proj.slice(0, 40), due: due, priority: pri };
++      out.push(seen[key]);
++    }
++  });
++  out.sort(function (a, b) {
++    var ao = a.due && a.due < today ? 0 : 1, bo = b.due && b.due < today ? 0 : 1;
++    return (a.priority - b.priority) || (ao - bo) || ((a.due || '9999') < (b.due || '9999') ? -1 : (a.due || '9999') > (b.due || '9999') ? 1 : 0);
++  });
++  return { items: out.slice(0, n), total: out.length, source: 'Project Tasks \u2014 Master', at: new Date().toISOString() };
++}
++
+ function apiFolder_(rawId) {
+   var id = apiCleanId_(rawId);
+   if (!id) return { error: 'bad_id' };
