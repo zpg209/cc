@@ -1505,7 +1505,7 @@
   // sheet's Source values (routes, matching, totals, what is written to the Income tab are unchanged).
   var SRC_LABEL = {};
   SRC_LABEL['Mono Village Laundromat'] = 'TiwiK (MVL)';
-  SRC_LABEL["Lisa's Table"] = 'KiwiT';
+  SRC_LABEL['KiwiT rent'] = 'KiwiT';   // v116: Lisa's Table shows as itself; the KiwiT rent source displays as 'KiwiT'
   function srcLabel(s) { return Object.prototype.hasOwnProperty.call(SRC_LABEL, s) ? SRC_LABEL[s] : s; }
 
   function loadSpend(force) {
@@ -2486,7 +2486,7 @@
           '<div class="sumline"><span>Gap (change \u2212 (income \u2212 spend))</span><b class="' + (r.status === 'gap' ? 'warnv' : 'amt-bal') + '">' + balSigned(r.gap) + '</b></div>' +
           '<div class="foot how">' + (r.status === 'gap' ? 'Gap is above $' + (r.tolerance || 0) + ': transfers, cash, card payments or entries not yet logged can explain it.' : 'Within $' + (r.tolerance || 0) + ' of what logged income and spend explain.') + '</div></div>';
         if ((r.incomeItems || []).length) h += '<div class="card income"><h3>Income entries \u00b7 ' + r.incomeItems.length + '</h3>' +
-          r.incomeItems.map(function (x) { return '<div class="icrow"><span class="icd">' + esc(x.label || x.date) + '</span><span class="icc">' + esc(x.source + (x.client ? ' \u00b7 ' + x.client : '')) +
+          r.incomeItems.map(function (x) { return '<div class="icrow"><span class="icd">' + esc(x.label || x.date) + '</span><span class="icc">' + esc(srcLabel(x.source) + (x.client ? ' \u00b7 ' + x.client : '')) +
             '</span><span class="amt amt-in">' + money(x.amount) + '</span></div>'; }).join('') + '</div>';
         if ((r.spendItems || []).length) h += '<div class="card"><h3>Spend entries \u00b7 ' + r.spendItems.length + '</h3>' +
           r.spendItems.map(function (x) { return '<div class="icrow"><span class="icd">' + esc(x.label || x.date) + '</span><span class="icc">' + esc(x.merchant || x.category) +
@@ -2982,7 +2982,7 @@
 
     // Income (green), one block per source
     var ib = M.sources.map(function (s) {
-      return '<div class="entsrc"><button class="entsrchead"' + goAttr(entRoute(k, 'income', s.name)) + '><span class="n">' + esc(s.name) + '</span><span class="amt amt-in">' + money(s.amount) + '</span><span class="chev">&rsaquo;</span></button>' + entIncRows(s.items, false) + '</div>';
+      return '<div class="entsrc"><button class="entsrchead"' + goAttr(entRoute(k, 'income', s.name)) + '><span class="n">' + esc(srcLabel(s.name)) + '</span><span class="amt amt-in">' + money(s.amount) + '</span><span class="chev">&rsaquo;</span></button>' + entIncRows(s.items, false) + '</div>';
     }).join('') || '<div class="foot empty">No income this month</div>';
     h += vSec(ek('income'), 'income', 'Income', '<span class="amt-in">' + money(M.incomeTotal) + '</span>', entRoute(k, 'income', 'All'), ib + sheetLink('Open Income tab', 'income'));
     // Expenses by category (red)
@@ -3071,7 +3071,7 @@
     h += '<button class="enttax csv" data-ent-csv="1"><span>Download CSV</span><small>Category summary + every entry</small><i class="chev">&darr;</i></button><div class="entcsvmsg" id="ent-csvmsg" hidden></div>';
     h += '<div class="enth">Income by source</div><div class="incgroup">' + (T.sources.map(function (s, i) {
       var l = T.items.income.filter(function (x) { return x.source === s.name; });
-      return vSec('ent-' + E.key + '-tx-i' + i, 'income incsrc', esc(s.name), '<span class="amt-in">' + money(s.amount) + '</span>', '', entMonthsLine(s.months) + entIncRows(l, false), ' data-tgl="1"');
+      return vSec('ent-' + E.key + '-tx-i' + i, 'income incsrc', esc(srcLabel(s.name)), '<span class="amt-in">' + money(s.amount) + '</span>', '', entMonthsLine(s.months) + entIncRows(l, false), ' data-tgl="1"');
     }).join('') || '<div class="foot empty">No income</div>') + '</div>';
     h += '<div class="enth">Expenses by category</div>' + (T.cats.map(function (cat, i) {
       var l = T.items.exp.filter(function (x) { return x.category === cat.name; });
