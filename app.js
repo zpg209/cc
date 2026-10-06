@@ -9383,7 +9383,7 @@
   // stored in this repo; the phone keeps only a cache of known client names (localStorage cc_clients) as a fallback for the client picker.
   var OD_CLIENTS_KEY = 'cc_clients';
   var OD_NA = 'Orders will work after the next server update.';
-  var od = { tab: 'current', week: '', sumWeek: '', prevWeek: '', byWeek: {}, weeks: [], clients: [], exists: false, loading: false, err: '', na: false,
+  var od = { tab: 'current', find: '', week: '', sumWeek: '', prevWeek: '', byWeek: {}, weeks: [], clients: [], exists: false, loading: false, err: '', na: false,
     form: null, confirmDel: '', picker: null, busy: {}, inflight: {}, seq: 0, mic: { rec: null, on: false, base: '', committed: '', interim: '', msg: '' } };
   var OD_MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   function odOnScreen() { return state.ltPart === 'orders' && $('screen-lt').classList.contains('active'); }
@@ -9499,6 +9499,15 @@
       var on = b.getAttribute('data-t') === od.tab; b.classList.toggle('on', on); b.setAttribute('aria-selected', on ? 'true' : 'false');
     });
     if (od.form && od.tab === 'current' && $('od-form')) return;          // never wipe a form that is being filled in
+    var fi = $('od-find');
+    if (fi && document.activeElement === fi && od.tab === 'current' && !od.form && fi.getAttribute('data-wk') === od.week && !odStatusHtml(od.week) && $('od-cards')) {
+      var ch = $('od-curhead'), full = odCurrentHtml(), tmp = document.createElement('div');   // typing in Find an order: refresh around the box, keep focus + keyboard
+      tmp.innerHTML = full;
+      if (ch) ch.innerHTML = tmp.querySelector('#od-curhead').innerHTML;
+      $('od-cards').innerHTML = tmp.querySelector('#od-cards').innerHTML;
+      var rs = $('od-findres'), top = rs ? rs.scrollTop : 0; odFindPaint(); if (rs) rs.scrollTop = top;
+      odEnsure(); return;
+    }
     var h = od.tab === 'previous' ? odPreviousHtml() : od.tab === 'summary' ? odSummaryHtml() : odCurrentHtml();
     $('od-main').innerHTML = h;
     if (od.form && od.tab === 'current') odFormInit();
@@ -9556,8 +9565,92 @@
     h += '<div class="foot odmenunote">' + (W.menu.length ? 'Menu for this week: ' + W.menu.length + ' item' + (W.menu.length === 1 ? '' : 's') + ' (from Generate menu)' :
       'No menu saved for this week yet \u2014 Add client will list every priced menu item. Use Generate menu \u203a Use for orders to set one.') + '</div>';
     h += '<button type="button" class="navbtn wladd odadd" data-od="add">+ Add client</button>';
-    h += W.orders.length ? W.orders.map(function (o) { return odCardHtml(o, true); }).join('') : '<div class="foot empty">No orders for this week yet.</div>';
-    return h + odTotalsHtml(W.orders);
+    return '<div id="od-curhead">' + h + '</div>' + odFindHtml() + '<div id="od-cards">' + odCardsHtml(W) + '</div>';
+  }
+  function odCardsHtml(W) {
+    return (W.orders.length ? W.orders.map(function (o) { return odCardHtml(o, true); }).join('') : '<div class="foot empty">No orders for this week yet.</div>') + odTotalsHtml(W.orders);
+  }
+  // ---- Find an order (type-ahead under Add client): filters the shown week's orders by client name; tap = jump to the card, Edit = the edit form ----
+  function odFindNorm(s) { return norm(String(s || '').replace(/[.,!?;:"\u201c\u201d]+/g, ' ')); }
+  function odFindName(s) {            // the typed / dictated text -> a client name for Add client ("jane doe." -> "Jane Doe")
+    return String(s || '').replace(/[.,!?;:"\u201c\u201d]+/g, ' ').replace(/\s+/g, ' ').trim().split(' ')
+      .map(function (w) { return w && w === w.toLowerCase() ? w.charAt(0).toUpperCase() + w.slice(1) : w; }).join(' ').slice(0, 60);
+  }
+  function odFindMatches(orders, q) {   // [{o, rank}] sorted: name starts with q, then a word starts with q, then anywhere; A to Z within each
+    var k = odFindNorm(q), out = [];
+    (orders || []).forEach(function (o) {
+      var n = odFindNorm(o.client), at = k ? n.indexOf(k) : 0;
+      if (at < 0) return;
+      out.push({ o: o, rank: !k || at === 0 ? 0 : n.charAt(at - 1) === ' ' ? 1 : 2 });
+    });
+    return out.sort(function (a, b) { return a.rank - b.rank || String(a.o.client).localeCompare(String(b.o.client), 'en', { sensitivity: 'base' }); });
+  }
+  function odFindMark(name, q) {        // client name with the matched part highlighted (escaped)
+    var k = odFindNorm(q); name = String(name || '');
+    if (!k) return esc(name);
+    var flat = '', map = [];            // the name lower-cased with runs of spaces / punctuation collapsed, and where each char came from
+    for (var i = 0; i < name.length; i++) {
+      var ch = name.charAt(i).toLowerCase(); if (/[.,!?;:"\u201c\u201d\s]/.test(ch)) ch = ' ';
+      if (ch === ' ' && (!flat.length || flat.charAt(flat.length - 1) === ' ')) continue;
+      flat += ch; map.push(i);
+    }
+    var at = flat.indexOf(k); if (at < 0) return esc(name);
+    var a = map[at], b = map[at + k.length - 1] + 1;
+    return esc(name.slice(0, a)) + '<mark>' + esc(name.slice(a, b)) + '</mark>' + esc(name.slice(b));
+  }
+  function odFindSummary(o) {
+    var its = (o.lines || []).map(function (l) { return (l.qty > 1 ? l.qty + '\u00d7 ' : '') + l.item; }).join(', ');
+    return o.items + ' item' + (o.items === 1 ? '' : 's') + (its ? ' \u00b7 ' + its : '');
+  }
+  function odFindRow(o, q) {
+    var st = o.payStatus === 'paid' ? 'on' : o.payStatus === 'trade' ? 'trade' : 'off';
+    return '<div class="odfrow" role="listitem"><button type="button" class="odfgo" data-od="fgo" data-oid="' + esc(o.orderId) + '" aria-label="Show the order for ' + esc(o.client) + '">' +
+      '<span class="odftop"><span class="odfname">' + odFindMark(o.client, q) + '</span><span class="odfcost">' + odMoney(o.total) + '</span></span>' +
+      '<span class="odfsub"><span class="odfst ' + st + '">' + esc(odPayLabel(o)) + '</span>' + (o.deliveryFee ? '<span class="odfst dl">Delivery</span>' : '') +
+      '<span class="odfits">' + esc(odFindSummary(o)) + '</span></span></button>' +
+      '<button type="button" class="odfedit" data-od="edit" data-oid="' + esc(o.orderId) + '" aria-label="Edit the order for ' + esc(o.client) + '">Edit</button></div>';
+  }
+  function odFindResHtml() {
+    var W = od.byWeek[od.week]; if (!W) return '';
+    var q = od.find || '', k = odFindNorm(q), list = odFindMatches(W.orders, q);
+    if (!W.orders.length && !k) return '<div class="foot empty odfempty">No orders for this week yet.</div>';
+    if (list.length) return '<div class="odfcount">' + (k ? list.length + ' of ' + W.orders.length + ' order' + (W.orders.length === 1 ? '' : 's') : W.orders.length + ' order' + (W.orders.length === 1 ? '' : 's') + ' \u00b7 A to Z') + '</div>' +
+      list.map(function (m) { return odFindRow(m.o, q); }).join('');
+    var nm = odFindName(q), ordered = odOrderedNames(), seen = {};
+    var known = odClients().filter(function (c) {          // existing clients (no order this week yet) whose name matches: start their order instead
+      var n = odFindNorm(c.name); if (!n || ordered[norm(c.name)] || seen[n] || n.indexOf(k) < 0) return false; seen[n] = 1; return true;
+    }).slice(0, 4);
+    return '<div class="odfnone"><div class="odfnomsg">No order for \u201c' + esc(String(q).replace(/\s+/g, ' ').trim()) + '\u201d</div>' +
+      known.map(function (c) { return '<button type="button" class="navbtn odfnew" data-od="fnew" data-n="' + esc(c.name) + '" data-x="1">+ Start an order for ' + esc(c.name) + '</button>'; }).join('') +
+      (nm && !seen[odFindNorm(nm)] ? '<button type="button" class="navbtn odfnew" data-od="fnew" data-n="' + esc(nm) + '">+ Add \u201c' + esc(nm) + '\u201d as a new client</button>' : '') + '</div>';
+  }
+  function odFindHtml() {
+    var q = od.find || '';
+    return '<div class="odfind" id="od-findwrap"><div class="odfbar"><input type="search" class="searchbox odfin" id="od-find" data-wk="' + esc(od.week) + '" autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false" enterkeyhint="search" maxlength="60" placeholder="Find an order, start typing a name" aria-label="Find an order by client name" aria-controls="od-findres" value="' + esc(q) + '">' +
+      '<button type="button" class="odfx" data-od="fclear" aria-label="Clear the search"' + (q ? '' : ' hidden') + '>\u00d7</button></div>' +
+      '<div class="odfres" id="od-findres" role="list" aria-label="Orders this week" aria-live="polite">' + odFindResHtml() + '</div></div>';
+  }
+  function odFindPaint() {
+    var r = $('od-findres'); if (r) { r.innerHTML = odFindResHtml(); r.scrollTop = 0; }
+    var x = document.querySelector('#od-findwrap .odfx'); if (x) x.hidden = !od.find;
+  }
+  function odFindGo(oid) {              // jump to the order's card and flash it
+    var inp = $('od-find'); if (inp) inp.blur();          // let the phone keyboard close so the card is visible
+    var card = null;
+    [].forEach.call(document.querySelectorAll('#od-cards .odcard'), function (c) { if (c.getAttribute('data-oid') === oid) card = c; });
+    if (!card) return;
+    card.classList.remove('odhl'); void card.offsetWidth; card.classList.add('odhl');
+    clearTimeout(card._odhl); card._odhl = setTimeout(function () { card.classList.remove('odhl'); }, 2200);
+    setTimeout(function () { try { card.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { card.scrollIntoView(); } }, 60);
+  }
+  function odFindAdd(name, existing) {  // open Add client with the name filled in (existing client -> picked; otherwise New client + name)
+    var inp = $('od-find'); if (inp) inp.blur();
+    odOpenForm(null);
+    var f = od.form; if (!f || f.orderId) return;
+    if (existing) { f.mode = 'existing'; f.client = name; f.q = ''; }
+    else { f.mode = 'new'; f.client = name; }
+    $('od-main').innerHTML = odWeekNav(od.week, 'current') + odFormHtml(); odFormInit();
+    var fm = $('od-form'); if (fm) { try { fm.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) { fm.scrollIntoView(); } }
   }
   function odPreviousHtml() {
     if (od.prevWeek) {
@@ -9906,13 +9999,25 @@
     else if (a === 'ps') { var s2 = b.getAttribute('data-s'); od.form.payStatus = s2; if (s2 !== 'paid') od.form.payMethod = ''; odPayPaint(); odFmsg(''); }
     else if (a === 'pm') { od.form.payMethod = b.getAttribute('data-m'); odPayPaint(); odFmsg(''); }
     else if (a === 'save') odSave();
+    else if (a === 'fgo') odFindGo(oid);
+    else if (a === 'fclear') { od.find = ''; var fi = $('od-find'); if (fi) { fi.value = ''; fi.focus(); } odFindPaint(); }
+    else if (a === 'fnew') odFindAdd(b.getAttribute('data-n'), b.getAttribute('data-x') === '1');
   });
   $('lt-body').addEventListener('input', function (e) {
-    if (state.ltPart !== 'orders' || !od.form) return;
+    if (state.ltPart !== 'orders') return;
     var t = e.target;
+    if (t.id === 'od-find') { od.find = t.value; odFindPaint(); return; }
+    if (!od.form) return;
     if (t.id === 'od-q') { od.form.q = t.value; if (od.form.client && norm(t.value) !== norm(od.form.client)) od.form.client = ''; odClientPaint(); }
     else if (t.id === 'od-name') { od.form.client = t.value; }
     else if (t.id === 'od-search') { od.form.search = t.value; odItemsPaint(); }
+  });
+
+  $('lt-body').addEventListener('keydown', function (e) {        // Find an order: Enter / Go jumps to the top match
+    if (state.ltPart !== 'orders' || e.target.id !== 'od-find' || e.key !== 'Enter') return;
+    e.preventDefault();
+    var W = od.byWeek[od.week], m = W && odFindMatches(W.orders, od.find);
+    if (m && m.length && odFindNorm(od.find)) odFindGo(m[0].o.orderId); else e.target.blur();
   });
 
   document.addEventListener('visibilitychange', function () { if (document.hidden && od.mic.on) { odMicStop(true); odMicUi(); } if (document.hidden && wl.on) wlMicStop(true), wlUi(); if (document.hidden && ln.on) { lnMicStop(true); lnUi(); } if (document.hidden && mm.on) { macMicStop(true); macUi(); } if (document.hidden && ma.on) { maMicStop(true); maUi(); } if (document.hidden && cm.mic.on) { cmMicStop(true); } });
