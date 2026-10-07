@@ -14,7 +14,7 @@
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', ovKey: '', invAcct: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
-  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr'];
+  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -487,6 +487,7 @@
       var mfOk = { home: 1, orders: 1, customers: 1, design: 1, pricing: 1 };
       state.mfTab = mfOk[R.kind] ? R.kind : 'home';   // #mf, #mf/home, #mf/orders, #mf/customers, #mf/design
     }
+    if (name === 'tm') state.tmView = (R.kind === 'today' || R.kind === 'sugg') ? R.kind : '';   // v131: #tm, #tm/today, #tm/sugg
     if (name === 'pc') {
       // #pc, #pc/list, #pc/new, #pc/<id>
       if (!R.kind || R.kind === 'list') state.pcRoute = { kind: 'list', id: '' };
@@ -532,6 +533,7 @@
         name === 'lt' ? '#lt' + (R.kind ? '/' + encodeURIComponent(R.kind) : '') :
         name === 'pt' ? '#pt' + (state.ptRoute.kind ? '/' + encodeURIComponent(state.ptRoute.kind) + (state.ptRoute.id ? '/' + encodeURIComponent(state.ptRoute.id) : '') : '') :
         name === 'hf' ? '#hf/' + encodeURIComponent(state.hfId.replace(/^f:/, '')) :
+        name === 'tm' ? '#tm' + (state.tmView ? '/' + state.tmView : '') :
         name === 'mf' ? (state.mfTab && state.mfTab !== 'home' ? '#mf/' + state.mfTab : '#mf') :
         name === 'pc' ? (state.pcRoute && state.pcRoute.kind === 'new' ? '#pc/new' : state.pcRoute && state.pcRoute.kind === 'edit' && state.pcRoute.id ? '#pc/' + encodeURIComponent(state.pcRoute.id) : '#pc') :
         name === 're' ? (state.reRoute.ins ? '#ins' : '#re' + (state.reRoute.slug ? '/' + encodeURIComponent(state.reRoute.slug) : '')) : '#' + name;
@@ -547,7 +549,7 @@
     if (name === 'ent') loadEnt(false);
     if (name === 'biz') { state.bizSlug = R.kind; loadBiz(); }
     if (name === 'home' || name === 'projects' || name === 'biz' || name === 'hf' || name === 'fin') hlRender();   // Home layout grids (folders)
-    if (name === 'home') tkRender(); else tkMicStop(true);   // v124: Home task list + suggestions (localStorage cc.tasks.v1)
+    if (name === 'tm') tmOpen(); else tkMicStop(true);   // v131: Task Manager (#tm, #tm/today, #tm/sugg; localStorage cc.tasks.v1)
     if (name === 're') loadRe();
     if (name === 'proj') renderProj();
     if (name === 'notes') openNotes();
@@ -17347,21 +17349,23 @@
     if (e.key === 'Escape' && pc.fs && pcOnScreen()) { e.preventDefault(); pcExitFs(); }
   });
 
-  /* ---------------- Home: daily task list + suggestions (v=124) ---------------- */
-  // Compact, collapsible block at the top of Home (above the layout buttons). Lives on THIS PHONE only (localStorage
-  // 'cc.tasks.v1'); nothing here touches the passcode, Plan Checks, layout or cache keys. All reads/writes go through
-  // tkLoad / tkSave so a server copy can replace them later (backend/tasks.patch).
-  //  - Today: open tasks due today or earlier. Earlier ones are "carried Nd" (N = days since their due date).
-  //  - Top 3: up to 3 pinned tasks, shown first in a copper-outlined block; a 4th pin is refused with a short message.
-  //  - Check = done (struck through, then hidden; "Done today N" shows / un-does them). Tap text = edit. x or swipe left = delete (Undo).
-  //  - Upcoming: open tasks with a future due date (collapsible).
-  //  - Suggestions (separate box below): open items from the Project Tasks Master list. Source: the API's action=suggest when
-  //    the server has it (backend/tasks.patch), otherwise suggestions.json in this repo. Add to Today / Snooze 3 days / Dismiss.
-  //    Nothing is added unless tapped.
-  // None of this is a layout button (.hl-grid > .tile), so the press-and-hold shaking and drag never start from here.
-  var TK_KEY = 'cc.tasks.v1', TK_SUGG_KEY = 'cc.tasks.sugg.v1', TK_MAX_PINS = 3, TK_SUGG_SHOW = 3, TK_SNOOZE_DAYS = 3;
-  var tk = { d: null, editId: '', showDone: false, msg: '', msgUndo: null, msgT: 0, rec: null, on: false, base: '', committed: '', interim: '',
-    sugg: null, suggSrc: '', suggLoading: false, suggTried: '', built: false, day: '' };
+  /* ---------------- Task Manager (#tm, #tm/today, #tm/sugg; v131) ---------------- */
+  // v131: the daily task list + Suggestions box (v124, at the top of Home) moved behind a Home tile 'Task Manager' (layout item 'tm',
+  // movable / foldable like every other tile; saved layouts get it too at the top of Home via hlNormalize). #tm shows two buttons,
+  // Today and Suggestions (with counts). Both lists are collapsible rows: a short title (2-4 words); tap it to see everything.
+  // Lives on THIS PHONE only (localStorage 'cc.tasks.v1', same key and shape as v124 plus three fields, migrated in place:
+  //   title (short general title; auto-made from the text when missing, editable), tAuto (true = title still follows the text),
+  //   notes (free text)). Nothing here touches the passcode, Plan Checks, layout or cache keys.
+  //  - Today: open tasks due today or earlier (earlier = "carried Nd"). Top 3 = up to 3 pinned tasks, first, in a copper-outlined block.
+  //    Then the rest of today, "Done today N" (tap to see / un-do), then Upcoming (future-dated) as its own collapsible group.
+  //    Add by typing or the mic (words go in the box; nothing is saved until Add), with a date (Today / Tomorrow / any day ahead).
+  //    Check = done. Swipe a closed row left = delete (Undo). Expanded row: full text, date, notes, Top 3, carry-over, Done / Edit / Delete.
+  //  - Suggestions: open items from the Project Tasks Master list (API action=suggest once backend/tasks.patch is deployed, else
+  //    suggestions.json in this repo; an item may carry source 'goal' = long-term goal). Expanded row: full text, source, project,
+  //    due, with Add to Today / Snooze 3d / Dismiss. Nothing is added unless tapped.
+  var TK_KEY = 'cc.tasks.v1', TK_SUGG_KEY = 'cc.tasks.sugg.v1', TK_MAX_PINS = 3, TK_SNOOZE_DAYS = 3;
+  var tk = { d: null, editId: '', exp: {}, sexp: {}, showDone: false, msg: '', msgUndo: null, msgT: 0, rec: null, on: false, base: '', committed: '', interim: '', micMsg: '',
+    sugg: null, suggSrc: '', suggLoading: false, suggTried: '', suggErr: false, bound: false, day: '', titleTouched: false };
   function tkPad(n) { return (n < 10 ? '0' : '') + n; }
   function tkIso(d) { return d.getFullYear() + '-' + tkPad(d.getMonth() + 1) + '-' + tkPad(d.getDate()); }
   function tkToday() { return tkIso(new Date()); }
@@ -17377,17 +17381,104 @@
     var p = iso.split('-'), d = new Date(+p[0], +p[1] - 1, +p[2]);
     return d.toLocaleDateString('en-US', { weekday: n > 0 && n < 7 ? 'short' : undefined, month: 'short', day: 'numeric' });
   }
+  function tkLong(iso) {
+    if (!tkValidIso(iso)) return '';
+    var p = iso.split('-'), d = new Date(+p[0], +p[1] - 1, +p[2]);
+    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
+  }
   function tkNewId() { return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+  /* ---- Short titles: "Need to follow up on the drainage at Mathiesen, water ponding ..." -> "Mathiesen drainage" ----
+   * Project name first (as written in the task: Terra Vi, MarVal, Boyer Matheson, Mathiesen/Matheson, Mariposa Gold Mine, YSF,
+   * Brocchini; or the suggestion's project tag), then the main subject (a construction / admin topic word, else a capitalized name,
+   * else the first word that is not filler), plus a document word right after it (comments, memo, checklist, package ...). 2-4 words. */
+  var TK_PROJ_RE = /\b(boyer[\s-]+mat{1,2}h?i?e?s[eo]n|terra[\s-]?vi|mar[\s-]?val|mariposa(?:\s+gold\s+mine)?|mat{1,2}h?i?e?s[eo]n|ysf|brocchini)\b/i;
+  var TK_STOP = {};
+  ('a an the to for of and or but nor with without on in at by from about into onto over under up out off as is are was were be been being am ' +
+    'it its it\'s this that these those there here then than so such very just really also still maybe please pls asap re regarding per via ' +
+    'i me my mine we us our you your he him his she her they them their who whom which what when where why how ' +
+    'need needs needed want wants wanted have has had having do does did doing done get gets got getting make makes made sure ' +
+    'will would should could can may might must shall let lets let\'s going gonna gotta try trying remember reminder note notes ' +
+    'some any all more most much many few lot lots thing things stuff etc ok okay yes no not new old other another each every ' +
+    'today tomorrow tonight yesterday morning afternoon evening night week weeks day days month months year next last this ' +
+    'monday tuesday wednesday thursday friday saturday sunday mon tue tues wed thu thur thurs fri sat sun ' +
+    'january february march april may june july august september october november december jan feb mar apr jun jul aug sep sept oct nov dec ' +
+    'issue issues item items stuff situation problem one two three four five six seven eight nine ten first second third again back still already ' +
+    'like around regarding w/ w/o vs versus if whether because since while after before until during between behind across').split(' ').forEach(function (w) { TK_STOP[w] = 1; });
+  var TK_VERBS = {};
+  ('call calls email emails text texts send sent check checks follow followup follow-up review look looking talk ask tell find fix finish finalize ' +
+    'submit resubmit respond reply write update upload download schedule reschedule locate file lock clarify confirm figure see go come take put set start ' +
+    'discuss meet coordinate prepare draft complete work handle reach contact pick drop buy order pay sign print scan read add remove move ' +
+    'change create build help give keep bring hold verify sort clean book plan think decide approve request') .split(/\s+/).forEach(function (w) { if (w) TK_VERBS[w] = 1; });
+  var TK_TOPICS = ['storm drain', 'drainage', 'drain', 'stormwater', 'swale', 'ponding', 'grading', 'erosion', 'swppp', 'hydraulics', 'hydrology', 'culvert',
+    'retaining wall', 'keyway', 'footings', 'footing', 'foundation', 'survey', 'utility', 'utilities', 'sewer', 'septic', 'water line', 'waterline', 'water main',
+    'well', 'pump', 'paving', 'asphalt', 'concrete', 'curb', 'sidewalk', 'driveway', 'roadway', 'road', 'traffic control', 'ttcp', 'closure', 'lighting', 'lights',
+    'site plan', 'site walk', 'plot plan', 'permit', 'permits', 'encroachment', 'easement', 'boundary', 'topo', 'staking', 'inspection', 'punch list', 'punchlist',
+    'bid', 'bids', 'contract', 'proposal', 'invoice', 'invoices', 'billing', 'payment', 'change order', 'fire', 'hydrant', 'landscaping', 'irrigation', 'fence',
+    'gate', 'roof', 'plumbing', 'electrical', 'hvac', 'insurance', 'taxes', 'tax', 'loan', 'lease', 'rent', 'budget', 'design'];
+  var TK_DOCS = [['comments', 1], ['comment', 1], ['memo', 1], ['checklist', 1], ['package', 1], ['report', 1], ['write-up', 1], ['writeup', 1], ['submittal', 1],
+    ['resubmittal', 1], ['response', 1], ['estimate', 1], ['quote', 1], ['rfi', 1], ['letter', 1], ['application', 1], ['tie-in', 1], ['exhibit', 1], ['calcs', 1],
+    ['plan check', 2], ['plan-check', 2], ['plans', 2], ['plan set', 2], ['drawings', 2], ['pdfs', 2], ['pdf', 2], ['photos', 2], ['map', 2], ['form', 2], ['meeting', 2], ['schedule', 2]];
+  function tkRe(ph) { return new RegExp('(^|[^A-Za-z0-9])(' + ph.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/[\s-]+/g, '[\\s\\-/]+') + ')(?![A-Za-z0-9])', 'i'); }
+  var TK_TOPIC_RE = TK_TOPICS.map(function (p) { return [p, tkRe(p)]; }), TK_DOC_RE = TK_DOCS.map(function (p) { return [p[0], tkRe(p[0]), p[1]]; });
+  function tkFind1(list, s, from, to) {      // earliest phrase from list in s[from..to): { at, end, w }
+    var best = null;
+    list.forEach(function (x) {
+      var sub = s.slice(from, to), m = x[1].exec(sub); if (!m) return;
+      var at = from + m.index + m[1].length, w = m[2], rank = x[2] || 1;
+      var better = !best || (rank !== best.rank && Math.abs(at - best.at) < 40 ? rank < best.rank : (at < best.at || (at === best.at && w.length > best.w.length)));
+      if (better) best = { at: at, end: at + w.length, w: w, rank: rank };
+    });
+    return best;
+  }
+  function tkWord(w) { return /^[A-Z0-9]{2,6}$/.test(w) ? w : w.toLowerCase(); }   // keep acronyms (TTCP, RFI), lower-case the rest
+  function tkAutoTitle(text, project) {
+    var s = String(text || '').replace(/\s+/g, ' ').trim(); if (!s) return '';
+    var proj = '', m = s.match(TK_PROJ_RE), rest = s;
+    if (m) { proj = m[0].replace(/\s+/g, ' '); rest = s.slice(0, m.index) + ' \u00b7 ' + s.slice(m.index + m[0].length); }
+    else if (project) { proj = String(project).trim(); var pm = tkRe(proj).exec(s); if (pm) rest = s.slice(0, pm.index + pm[1].length) + ' \u00b7 ' + s.slice(pm.index + pm[1].length + pm[2].length); }
+    var words = [], topic = tkFind1(TK_TOPIC_RE, rest, 0, rest.length);
+    if (topic) {
+      words.push(tkWord(topic.w).replace(/\s+/g, ' '));
+      var nx = /^\s+([A-Za-z][A-Za-z\-]*)/.exec(rest.slice(topic.end)), nxl = nx ? nx[1].toLowerCase() : '';
+      var nxOk = nx && (TK_TOPICS.indexOf(nxl) >= 0 || TK_DOCS.some(function (x) { return x[0] === nxl; })) && topic.w.toLowerCase().indexOf(nxl) < 0;
+      var doc = nxOk ? { at: topic.end, w: nx[1] } : tkFind1(TK_DOC_RE.filter(function (x) { return topic.w.toLowerCase().indexOf(x[0]) < 0; }), rest, topic.end, Math.min(rest.length, topic.end + 40));
+      if (doc) {
+        // only when the document word belongs to this subject (no sentence break in between)
+        var between = nxOk ? '' : rest.slice(topic.end, doc.at);
+        if (!/[.;:!?\u2014]|\s-\s|,/.test(between)) words.push(tkWord(doc.w));
+      }
+    } else {
+      var toks = rest.split(/[^A-Za-z0-9&'\-]+/).map(function (t) { return t.replace(/^['\-]+|['\-]+$/g, ''); }).filter(Boolean);
+      var content = toks.filter(function (t) { var l = t.toLowerCase().replace(/'s$/, ''); return !TK_STOP[l] && !TK_VERBS[l] && !/^\d+$/.test(t); });
+      var keep = function (w, k) { return /^[A-Z]/.test(w) && (k > 0 || proj) && w !== w.toUpperCase() ? w : tkWord(w); };   // names keep their capital
+      if (content.length >= 2 || (proj && content.length)) words = content.slice(0, proj ? 2 : 3).map(keep);
+      else if (!proj) words = toks.filter(function (t) { return !TK_STOP[t.toLowerCase()]; }).slice(0, 3).map(function (w, k) { return k ? keep(w, k) : w; });
+    }
+    var out = (proj ? [proj] : []).concat(words), max = Math.max(4, (proj ? proj.split(' ').length : 0) + 1);
+    var title = out.slice(0, max).join(' ').replace(/\s+/g, ' ').trim();
+    if (!title) title = s.split(' ').slice(0, 4).join(' ');
+    if (title.length > 40) title = title.slice(0, 40).replace(/\s+\S*$/, '');
+    return title.charAt(0).toUpperCase() + title.slice(1);
+  }
+
   function tkLoad() {
     if (tk.d) return tk.d;
     var raw = null; try { raw = JSON.parse(localStorage.getItem(TK_KEY) || 'null'); } catch (e) { raw = null; }
-    var d = raw && typeof raw === 'object' ? raw : {};
-    d.v = 1;
+    var d = raw && typeof raw === 'object' ? raw : {}, mig = false;
     d.tasks = (Array.isArray(d.tasks) ? d.tasks : []).filter(function (t) { return t && t.id && typeof t.text === 'string'; });
-    d.tasks.forEach(function (t) { if (!tkValidIso(t.due)) t.due = tkToday(); t.done = !!t.done; t.pin = !!t.pin; });
+    d.tasks.forEach(function (t) {
+      if (!tkValidIso(t.due)) t.due = tkToday(); t.done = !!t.done; t.pin = !!t.pin;
+      // v131 migration (in place, same key): a short title for every task, and a notes field
+      if (typeof t.title !== 'string' || !t.title.trim()) { t.title = tkAutoTitle(t.text); t.tAuto = true; mig = true; }
+      if (typeof t.notes !== 'string') { t.notes = ''; mig = true; }
+    });
+    if (d.v !== 2) { d.v = 2; mig = true; }
     d.open = d.open && typeof d.open === 'object' ? d.open : { panel: true, upc: false, sugg: true };
     d.sugg = d.sugg && typeof d.sugg === 'object' ? d.sugg : {};      // suggestion id -> { snooze: 'YYYY-MM-DD' } | { dismissed: 1 } | { added: 1 }
-    tk.d = d; return d;
+    tk.d = d;
+    if (mig && raw) tkSave();
+    return d;
   }
   function tkSave() {
     var d = tkLoad();
@@ -17404,110 +17495,185 @@
     el.hidden = !tk.msg;
     if (tk.msg) tk.msgT = setTimeout(function () { tk.msg = ''; tk.msgUndo = null; var e2 = $('tk-msg'); if (e2) { e2.hidden = true; e2.innerHTML = ''; } }, undoF ? 6000 : 3200);
   }
-  var TK_PIN_SVG = '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false" fill="currentColor"><path d="M15 3l6 6-2 1-3.5 3.5L15 19l-2 1-3.5-3.5L4 22l-1-1 5.5-5.5L5 12l1-2 5.5-.5L15 6z"/></svg>';
-  function tkBuild() {
-    var box = $('home-tasks'); if (!box || tk.built) return !!box;
-    tk.built = true;
-    box.innerHTML =
-      '<div class="tk-panel" id="tk-panel">' +
-        '<button type="button" class="tk-head" data-tk="toggle" aria-expanded="true"><span class="tk-title">Today</span><span class="tk-sum" id="tk-sum"></span><span class="tk-chev" aria-hidden="true">&#9662;</span></button>' +
-        '<div class="tk-msg" id="tk-msg" role="status" hidden></div>' +
-        '<div class="tk-body" id="tk-body">' +
-          '<div class="tk-add">' +
-            '<input type="text" id="tk-text" class="tk-input" maxlength="300" enterkeyhint="done" autocomplete="off" autocapitalize="sentences" placeholder="Add a task\u2026" aria-label="New task">' +
-            '<button type="button" class="tk-mic" id="tk-mic" data-tk="mic" aria-pressed="false" aria-label="Dictate a task">' + vsvg('mic', 20) + '</button>' +
-            '<button type="button" class="tk-addbtn" data-tk="add">Add</button>' +
-          '</div>' +
-          '<div class="tk-when"><span class="tk-for">For</span><input type="date" id="tk-due" class="tk-date" aria-label="Due date">' +
-            '<button type="button" class="tk-chip" data-tk="due" data-n="0">Today</button><button type="button" class="tk-chip" data-tk="due" data-n="1">Tomorrow</button>' +
-            '<span class="tk-micstate" id="tk-micstate" hidden></span></div>' +
-          '<div id="tk-lists"></div>' +
-        '</div>' +
-      '</div>' +
-      '<div class="sg-box" id="sg-box">' +
-        '<button type="button" class="tk-head sg-head" data-tk="sgtoggle" aria-expanded="true"><span class="tk-title">Suggestions</span><span class="tk-sum" id="sg-sum"></span><span class="tk-chev" aria-hidden="true">&#9662;</span></button>' +
-        '<div class="sg-body" id="sg-body"></div>' +
-      '</div>';
-    $('tk-due').value = tkToday();
+  var TK_PIN_SVG = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false" fill="currentColor"><path d="M15 3l6 6-2 1-3.5 3.5L15 19l-2 1-3.5-3.5L4 22l-1-1 5.5-5.5L5 12l1-2 5.5-.5L15 6z"/></svg>';
+  function tkTitleOf(t) { return (t.title && t.title.trim()) || tkAutoTitle(t.text) || 'Task'; }
+  function tkParts(today) {
+    var d = tkLoad();
+    var byOrder = function (a, b) { return (a.due < b.due ? -1 : a.due > b.due ? 1 : 0) || ((a.at || 0) - (b.at || 0)); };
+    var open = d.tasks.filter(function (t) { return !t.done && t.due <= today; });
+    return {
+      open: open,
+      pinned: open.filter(function (t) { return t.pin; }).sort(byOrder),
+      rest: open.filter(function (t) { return !t.pin; }).sort(byOrder),
+      doneToday: d.tasks.filter(function (t) { return t.done && t.doneOn === today; }).sort(function (a, b) { return (b.doneAt || 0) - (a.doneAt || 0); }),
+      upc: d.tasks.filter(function (t) { return !t.done && t.due > today; }).sort(byOrder)
+    };
+  }
+  function tmOnScreen() { var s = $('screen-tm'); return !!s && s.classList.contains('active'); }
+
+  /* ---- #tm: the two buttons ---- */
+  function tmOpen() {
+    var v = state.tmView || '';
+    if (v !== 'today') tkMicStop(true);
+    tk.editId = ''; tk.titleTouched = false;
+    $('tm-title').textContent = v === 'today' ? 'Today' : v === 'sugg' ? 'Suggestions' : 'Task Manager';
+    var back = $('tm-back'), bto = v ? 'tm' : hlItemBack('tm', 'home');
+    back.setAttribute('data-go', bto); back.hidden = bto === 'home';
+    tmBind();
+    if (v === 'today') tmTodayBuild();
+    else if (v === 'sugg') { tmSuggBuild(); tkSuggLoad(false); }
+    else { tmHubBuild(); tkSuggLoad(false); }
+  }
+  function tmBind() {
+    if (tk.bound) return; tk.bound = true;
+    var box = $('tm-body');
     box.addEventListener('click', tkClick);
     box.addEventListener('keydown', function (e) {
-      if (e.key !== 'Enter') return;
-      if (e.target.id === 'tk-text') { e.preventDefault(); tkAdd(); }
-      else if (e.target.id === 'tk-etext') { e.preventDefault(); tkEditSave(); }
+      if (e.key !== 'Enter' || e.shiftKey) return;
+      var id = e.target.id;
+      if (id === 'tk-text' || id === 'tk-title') { e.preventDefault(); tkAdd(); }
+      else if (id === 'tk-etext' || id === 'tk-etitle') { e.preventDefault(); tkEditSave(); }
     });
-    box.addEventListener('input', function (e) { if (e.target.id === 'tk-text' && !tk.on) tk.base = ''; });
+    box.addEventListener('input', function (e) {
+      var id = e.target.id;
+      if (id === 'tk-text') { if (!tk.on) tk.base = ''; tkAutoFill(); }
+      else if (id === 'tk-title') tk.titleTouched = !!e.target.value.trim();
+      else if (id === 'tk-etitle') e.target.setAttribute('data-auto', e.target.value.trim() ? '0' : '1');
+      else if (id === 'tk-etext') { var et = $('tk-etitle'); if (et && et.getAttribute('data-auto') === '1') et.value = tkAutoTitle(e.target.value); }
+    });
     tkSwipeInit(box);
-    return true;
   }
+  function tkAutoFill() {
+    var ti = $('tk-title'), tx = $('tk-text'); if (!ti || !tx || tk.titleTouched) return;
+    ti.value = tkAutoTitle(tx.value);
+  }
+  function tmHubBuild() {
+    $('tm-body').innerHTML =
+      '<div class="tm-hub">' +
+        '<button type="button" class="bigbtn tm-hubbtn" data-go="tm/today" id="tm-go-today">Today<span class="sub" id="tm-cnt-today"></span></button>' +
+        '<button type="button" class="bigbtn tm-hubbtn" data-go="tm/sugg" id="tm-go-sugg">Suggestions<span class="sub" id="tm-cnt-sugg"></span></button>' +
+      '</div>' +
+      '<p class="hint tm-hint">Each task shows a short title. Tap it to see everything about it.</p>';
+    tmHubCounts();
+  }
+  function tmHubCounts() {
+    var a = $('tm-cnt-today'), b = $('tm-cnt-sugg'); if (!a) return;
+    var p = tkParts(tkToday());
+    a.textContent = p.open.length + ' open' + (p.pinned.length ? ' \u00b7 ' + p.pinned.length + ' in Top 3' : '') + (p.upc.length ? ' \u00b7 ' + p.upc.length + ' upcoming' : '') + (p.doneToday.length ? ' \u00b7 ' + p.doneToday.length + ' done' : '');
+    b.textContent = tk.sugg ? (function (n) { return n ? n + ' to pick from' : 'none right now'; })(tkSuggVisible().length) : (tk.suggLoading ? 'Loading\u2026' : '');
+  }
+
+  /* ---- #tm/today ---- */
+  function tmTodayBuild() {
+    $('tm-body').innerHTML =
+      '<div class="tm-today">' +
+        '<div class="card tm-add">' +
+          '<div class="tm-addrow">' +
+            '<textarea id="tk-text" class="tk-input tm-ta" rows="2" maxlength="1000" enterkeyhint="done" autocomplete="off" autocapitalize="sentences" placeholder="Add a task\u2026 type it or tap the mic" aria-label="New task"></textarea>' +
+            '<button type="button" class="tk-mic" id="tk-mic" data-tk="mic" aria-pressed="false" aria-label="Dictate a task">' + vsvg('mic', 20) + '</button>' +
+          '</div>' +
+          '<div class="tm-titlerow"><span class="tk-for">Title</span><input type="text" id="tk-title" class="tk-input" maxlength="60" enterkeyhint="done" autocomplete="off" autocapitalize="sentences" placeholder="Fills in from the task; tap to change" aria-label="Short title"></div>' +
+          '<div class="tk-when"><span class="tk-for">For</span><input type="date" id="tk-due" class="tk-date" aria-label="Due date">' +
+            '<button type="button" class="tk-chip" data-tk="due" data-n="0">Today</button><button type="button" class="tk-chip" data-tk="due" data-n="1">Tomorrow</button>' +
+            '</div>' +
+          '<span class="tk-micstate" id="tk-micstate" hidden></span>' +
+          '<button type="button" class="tk-addbtn tm-addbtn" data-tk="add">Add task</button>' +
+        '</div>' +
+        '<div class="tk-msg" id="tk-msg" role="status" hidden></div>' +
+        '<div id="tk-lists"></div>' +
+      '</div>';
+    $('tk-due').value = tkToday();
+    tk.day = tkToday();
+    tkRender();
+  }
+  function tkFact(label, html) { return '<div class="tm-fact"><b>' + esc(label) + '</b><span>' + html + '</span></div>'; }
   function tkRowHtml(t, today, opts) {
-    var id = esc(t.id), carried = !t.done && t.due < today ? tkDays(t.due, today) : 0;
+    var id = esc(t.id), upc = !!(opts && opts.upc), carried = !t.done && t.due < today ? tkDays(t.due, today) : 0, open = !!tk.exp[t.id] || tk.editId === t.id;
+    var tags = '';
+    if (t.pin && !t.done && !upc) tags += '<span class="tm-pinmark" title="Top 3">' + TK_PIN_SVG + '</span>';
+    if (carried) tags += '<span class="tk-tag tk-carried">carried ' + carried + 'd</span>';
+    if (upc) tags += '<span class="tk-tag">' + esc(tkNice(t.due)) + '</span>';
+    var h = '<div class="tm-row tm-trow' + (open ? ' tm-open' : '') + (t.done ? ' tk-isdone' : '') + (t.pin && !t.done && !upc ? ' tk-pinned' : '') + '" data-id="' + id + '">' +
+      '<div class="tm-rhead">' +
+        '<button type="button" class="tk-check" data-tk="check" role="checkbox" aria-checked="' + (t.done ? 'true' : 'false') + '" aria-label="' + (t.done ? 'Mark not done' : 'Mark done') + '"></button>' +
+        '<button type="button" class="tm-rbtn" data-tk="exp" aria-expanded="' + open + '"><span class="tm-rmain"><span class="tm-rtitle">' + esc(tkTitleOf(t)) + '</span>' + (tags ? '<span class="tm-rtags">' + tags + '</span>' : '') + '</span>' +
+        '<span class="tk-chev" aria-hidden="true">&#9662;</span></button>' +
+      '</div>';
     if (tk.editId === t.id) {
-      return '<div class="tk-row tk-editing" data-id="' + id + '"><div class="tk-edit">' +
-        '<input type="text" id="tk-etext" class="tk-input" maxlength="300" value="' + esc(t.text) + '" aria-label="Edit task">' +
-        '<div class="tk-erow"><input type="date" id="tk-edue" class="tk-date" value="' + esc(t.due) + '" aria-label="Due date">' +
-        '<button type="button" class="tk-addbtn" data-tk="esave">Save</button><button type="button" class="tk-chip" data-tk="ecancel">Cancel</button></div></div></div>';
+      h += '<div class="tm-rbody tm-edit">' +
+        '<label class="tm-lbl" for="tk-etitle">Title</label><input type="text" id="tk-etitle" class="tk-input" maxlength="60" value="' + esc(tkTitleOf(t)) + '" data-auto="' + (t.tAuto ? '1' : '0') + '">' +
+        '<label class="tm-lbl" for="tk-etext">Task</label><textarea id="tk-etext" class="tk-input tm-ta" rows="3" maxlength="1000">' + esc(t.text) + '</textarea>' +
+        '<label class="tm-lbl" for="tk-enotes">Notes</label><textarea id="tk-enotes" class="tk-input tm-ta" rows="3" maxlength="2000" placeholder="Anything else to remember">' + esc(t.notes || '') + '</textarea>' +
+        '<div class="tk-erow"><span class="tk-for">Date</span><input type="date" id="tk-edue" class="tk-date" value="' + esc(t.due) + '" aria-label="Due date"></div>' +
+        '<div class="tm-acts"><button type="button" class="tk-addbtn" data-tk="esave">Save</button><button type="button" class="tk-chip" data-tk="ecancel">Cancel</button></div>' +
+        '</div></div>';
+      return h;
     }
-    var meta = '';
-    if (carried) meta += '<span class="tk-tag tk-carried">carried ' + carried + 'd</span>';
-    if (opts && opts.upc) meta += '<span class="tk-tag">' + esc(tkNice(t.due)) + '</span>';
-    return '<div class="tk-row' + (t.done ? ' tk-isdone' : '') + (t.pin && !t.done && !(opts && opts.upc) ? ' tk-pinned' : '') + '" data-id="' + id + '">' +
-      '<button type="button" class="tk-check" data-tk="check" role="checkbox" aria-checked="' + (t.done ? 'true' : 'false') + '" aria-label="' + (t.done ? 'Mark not done' : 'Mark done') + '"></button>' +
-      '<button type="button" class="tk-text" data-tk="edit" aria-label="Edit task"><span class="tk-t">' + esc(t.text) + '</span>' + meta + '</button>' +
-      (opts && (opts.upc || t.done) ? '' : '<button type="button" class="tk-pin' + (t.pin ? ' on' : '') + '" data-tk="pin" aria-pressed="' + (t.pin ? 'true' : 'false') + '" aria-label="' + (t.pin ? 'Unpin from Top 3' : 'Pin to Top 3') + '">' + TK_PIN_SVG + '</button>') +
-      '<button type="button" class="tk-x" data-tk="del" aria-label="Delete task">\u00d7</button></div>';
+    if (open) {
+      var facts = tkFact('Date', esc(tkNice(t.due)) + (tkNice(t.due) !== tkLong(t.due) ? ' \u00b7 ' + esc(tkLong(t.due)) : ''));
+      if (t.done) facts += tkFact('Status', 'Done' + (t.doneOn === today ? ' today' : t.doneOn ? ' ' + esc(tkNice(t.doneOn)) : ''));
+      else if (!upc) facts += tkFact('Top 3', t.pin ? 'Pinned' : 'Not pinned');
+      if (carried) facts += tkFact('Carry-over', 'Carried ' + carried + ' day' + (carried === 1 ? '' : 's') + ' (was due ' + esc(tkLong(t.due)) + ')');
+      if (upc) facts += tkFact('Upcoming', 'Shows in Today on ' + esc(tkLong(t.due)));
+      if (t.notes) facts += tkFact('Notes', '<span class="tm-notes">' + esc(t.notes) + '</span>');
+      if (t.src && /^sugg:/.test(t.src)) facts += tkFact('From', 'Suggestions' + (t.srcLabel ? ' (' + esc(t.srcLabel) + ')' : ''));
+      if (tkValidIso(t.created) && t.created !== t.due) facts += tkFact('Added', esc(tkLong(t.created)));
+      h += '<div class="tm-rbody"><div class="tm-full">' + esc(t.text) + '</div><div class="tm-facts">' + facts + '</div>' +
+        '<div class="tm-acts">' +
+          (t.done ? '<button type="button" class="tk-addbtn" data-tk="check">Not done</button>' : '<button type="button" class="tk-addbtn" data-tk="check">Done</button>') +
+          (t.done || upc ? '' : '<button type="button" class="tk-chip' + (t.pin ? ' on' : '') + '" data-tk="pin" aria-pressed="' + t.pin + '">' + (t.pin ? 'Unpin' : 'Pin to Top 3') + '</button>') +
+          (t.done ? '' : '<button type="button" class="tk-chip" data-tk="edit">Edit</button>') +
+          '<button type="button" class="tk-chip tm-del" data-tk="del">Delete</button>' +
+        '</div></div>';
+    }
+    return h + '</div>';
   }
   function tkRender() {
-    if (!tkBuild()) return;
+    var lists = $('tk-lists'); if (!lists) return;
     var d = tkLoad(), today = tkToday();
     if (tk.day && tk.day !== today) { var due = $('tk-due'); if (due && due.value === tk.day) due.value = today; }   // new day: date picker follows
     tk.day = today;
-    var open = d.tasks.filter(function (t) { return !t.done && t.due <= today; });
-    var byOrder = function (a, b) { return (a.due < b.due ? -1 : a.due > b.due ? 1 : 0) || ((a.at || 0) - (b.at || 0)); };
-    var pinned = open.filter(function (t) { return t.pin; }).sort(byOrder);
-    var rest = open.filter(function (t) { return !t.pin; }).sort(byOrder);
-    var doneToday = d.tasks.filter(function (t) { return t.done && t.doneOn === today; }).sort(function (a, b) { return (b.doneAt || 0) - (a.doneAt || 0); });
-    var upc = d.tasks.filter(function (t) { return !t.done && t.due > today; }).sort(byOrder);
-    var h = '';
-    if (pinned.length) h += '<div class="tk-top"><div class="tk-toplbl">Top 3 <small>' + pinned.length + '/' + TK_MAX_PINS + '</small></div>' + pinned.map(function (t) { return tkRowHtml(t, today); }).join('') + '</div>';
-    h += '<div class="tk-list">' + rest.map(function (t) { return tkRowHtml(t, today); }).join('') + '</div>';
-    if (!open.length) h += '<div class="tk-empty">' + (doneToday.length ? 'All clear for today.' : 'Nothing for today yet.') + '</div>';
-    if (doneToday.length || upc.length) {
-      h += '<div class="tk-foot">';
-      if (doneToday.length) h += '<button type="button" class="tk-link" data-tk="showdone" aria-expanded="' + (tk.showDone ? 'true' : 'false') + '">Done today ' + doneToday.length + ' ' + (tk.showDone ? '&#9652;' : '&#9662;') + '</button>';
-      if (upc.length) h += '<button type="button" class="tk-link" data-tk="upc" aria-expanded="' + (d.open.upc ? 'true' : 'false') + '">Upcoming ' + upc.length + ' ' + (d.open.upc ? '&#9652;' : '&#9662;') + '</button>';
-      h += '</div>';
+    var p = tkParts(today), h = '';
+    if (p.pinned.length) h += '<div class="tk-top"><div class="tk-toplbl">Top 3 <small>' + p.pinned.length + '/' + TK_MAX_PINS + '</small></div>' + p.pinned.map(function (t) { return tkRowHtml(t, today); }).join('') + '</div>';
+    if (p.rest.length) h += '<div class="tm-grp"><div class="tk-toplbl">Today <small>' + p.rest.length + '</small></div>' + p.rest.map(function (t) { return tkRowHtml(t, today); }).join('') + '</div>';
+    if (!p.open.length) h += '<div class="tk-empty">' + (p.doneToday.length ? 'All clear for today.' : 'Nothing for today yet.') + '</div>';
+    if (p.doneToday.length) {
+      h += '<button type="button" class="tm-grphead" data-tk="showdone" aria-expanded="' + tk.showDone + '"><span>Done today <small>' + p.doneToday.length + '</small></span><span class="tk-chev" aria-hidden="true">&#9662;</span></button>';
+      if (tk.showDone) h += '<div class="tm-grp tm-sub">' + p.doneToday.map(function (t) { return tkRowHtml(t, today); }).join('') + '</div>';
     }
-    if (tk.showDone && doneToday.length) h += '<div class="tk-sub tk-donelist">' + doneToday.map(function (t) { return tkRowHtml(t, today); }).join('') + '</div>';
-    if (d.open.upc && upc.length) h += '<div class="tk-sub tk-upc"><div class="tk-sublbl">Upcoming</div>' + upc.map(function (t) { return tkRowHtml(t, today, { upc: true }); }).join('') + '</div>';
-    $('tk-lists').innerHTML = h;
-    var sum = open.length + ' open' + (doneToday.length ? ' \u00b7 ' + doneToday.length + ' done' : '') + (upc.length ? ' \u00b7 ' + upc.length + ' upcoming' : '');
-    $('tk-sum').textContent = sum;
-    var panelOpen = d.open.panel !== false;
-    $('tk-panel').classList.toggle('collapsed', !panelOpen);
-    $('tk-panel').querySelector('.tk-head').setAttribute('aria-expanded', String(panelOpen));
-    if (tk.editId) { var et = $('tk-etext'); if (et && document.activeElement !== et) { try { et.focus(); et.setSelectionRange(et.value.length, et.value.length); } catch (e) {} } }
+    if (p.upc.length) {
+      h += '<button type="button" class="tm-grphead" data-tk="upc" aria-expanded="' + !!d.open.upc + '"><span>Upcoming <small>' + p.upc.length + '</small></span><span class="tk-chev" aria-hidden="true">&#9662;</span></button>';
+      if (d.open.upc) h += '<div class="tm-grp tm-sub tk-upc">' + p.upc.map(function (t) { return tkRowHtml(t, today, { upc: true }); }).join('') + '</div>';
+    }
+    lists.innerHTML = h;
+    if (tk.editId) { var et = $('tk-etitle'); if (et && !lists.contains(document.activeElement)) { try { $('tk-etext').focus(); } catch (e) {} } }
     tkMicUi();
-    tkSuggRender();
   }
   function tkAdd() {
-    var inp = $('tk-text'), text = (inp.value || '').replace(/\s+/g, ' ').trim();
+    var inp = $('tk-text'); if (!inp) return;
+    var text = (inp.value || '').replace(/\s+/g, ' ').trim();
     if (tk.on) tkMicStop(true);
     if (!text) { tkFlash('Type or say a task first.'); inp.focus(); return; }
-    var due = $('tk-due').value, today = tkToday();
+    var due = $('tk-due').value, today = tkToday(), tIn = ($('tk-title').value || '').replace(/\s+/g, ' ').trim(), auto = !tk.titleTouched || !tIn;
     if (!tkValidIso(due)) due = today;
-    tkLoad().tasks.push({ id: tkNewId(), text: text.slice(0, 300), due: due, created: today, at: Date.now(), done: false, pin: false });
+    var title = (auto ? tkAutoTitle(text) : tIn).slice(0, 60);
+    tkLoad().tasks.push({ id: tkNewId(), text: text.slice(0, 1000), title: title, tAuto: auto, notes: '', due: due, created: today, at: Date.now(), done: false, pin: false });
     tkSave();
-    inp.value = ''; tk.base = ''; $('tk-due').value = today;
+    inp.value = ''; tk.base = ''; $('tk-title').value = ''; tk.titleTouched = false; $('tk-due').value = today;
+    if (due > today) tkLoad().open.upc = true;
     tkRender();
-    if (due > today) tkFlash('Added for ' + tkNice(due) + ' (in Upcoming).'); else tkFlash('Added.');
+    tkFlash(due > today ? 'Added \u201c' + title + '\u201d for ' + tkNice(due) + ' (in Upcoming).' : 'Added \u201c' + title + '\u201d.');
   }
   function tkEditSave() {
     var t = tkFind(tk.editId); if (!t) { tk.editId = ''; return tkRender(); }
     var text = ($('tk-etext').value || '').replace(/\s+/g, ' ').trim(), due = $('tk-edue').value;
-    if (!text) { tkFlash('A task needs some text (use \u00d7 to delete it).'); return; }
-    t.text = text.slice(0, 300);
-    if (tkValidIso(due) && due !== t.due) { t.due = due; if (due > tkToday()) t.pin = false; }
-    tk.editId = ''; tkSave(); tkRender(); tkFlash('Saved.');
+    var ti = $('tk-etitle'), tIn = (ti.value || '').replace(/\s+/g, ' ').trim(), auto = ti.getAttribute('data-auto') === '1' || !tIn;
+    if (!text) { tkFlash('A task needs some text (use Delete to remove it).'); return; }
+    t.text = text.slice(0, 1000);
+    t.title = (auto ? tkAutoTitle(t.text) : tIn).slice(0, 60); t.tAuto = auto;
+    t.notes = String($('tk-enotes').value || '').replace(/\s+$/, '').slice(0, 2000);
+    if (tkValidIso(due) && due !== t.due) { t.due = due; if (due > tkToday()) { t.pin = false; tkLoad().open.upc = true; } }
+    tk.editId = ''; tk.exp[t.id] = true; tkSave(); tkRender(); tkFlash('Saved.');
   }
   function tkDelete(id) {
     var d = tkLoad(), i = -1;
@@ -17515,16 +17681,15 @@
     if (i < 0) return;
     var gone = d.tasks.splice(i, 1)[0];
     if (tk.editId === id) tk.editId = '';
+    delete tk.exp[id];
     tkSave(); tkRender();
-    tkFlash('Deleted \u201c' + (gone.text.length > 40 ? gone.text.slice(0, 38) + '\u2026' : gone.text) + '\u201d.', function () {
+    tkFlash('Deleted \u201c' + tkTitleOf(gone) + '\u201d.', function () {
       var dd = tkLoad(); dd.tasks.splice(Math.min(i, dd.tasks.length), 0, gone); tkSave(); tkRender();
     });
   }
   function tkClick(e) {
     var b = e.target.closest ? e.target.closest('[data-tk]') : null; if (!b) return;
-    var a = b.getAttribute('data-tk'), row = b.closest('.tk-row'), id = row ? row.getAttribute('data-id') : '', d = tkLoad(), t = id ? tkFind(id) : null;
-    if (a === 'toggle') { d.open.panel = d.open.panel === false; tkSave(); if (d.open.panel === false) tkMicStop(true); return tkRender(); }
-    if (a === 'sgtoggle') { d.open.sugg = d.open.sugg === false; tkSave(); return tkSuggRender(); }
+    var a = b.getAttribute('data-tk'), row = b.closest('.tm-trow'), id = row ? row.getAttribute('data-id') : '', d = tkLoad(), t = id ? tkFind(id) : null;
     if (a === 'add') return tkAdd();
     if (a === 'mic') { if (tk.on) tkMicStop(false); else tkMicStart(); return; }
     if (a === 'due') { $('tk-due').value = tkAddDays(tkToday(), +b.getAttribute('data-n') || 0); return; }
@@ -17533,17 +17698,24 @@
     if (a === 'upc') { d.open.upc = !d.open.upc; tkSave(); return tkRender(); }
     if (a === 'esave') return tkEditSave();
     if (a === 'ecancel') { tk.editId = ''; return tkRender(); }
+    if (a === 'sgexp') { var sid0 = b.getAttribute('data-sid'); tk.sexp[sid0] = !tk.sexp[sid0]; return tmSuggRender(); }
     if (a === 'sgadd' || a === 'sgsnooze' || a === 'sgdismiss') return tkSuggAct(a, b.getAttribute('data-sid'));
     if (a === 'sgretry') { tk.suggTried = ''; tk.sugg = null; return tkSuggLoad(true); }
     if (!t) return;
+    if (a === 'exp') {
+      if (tk.editId === t.id) { tk.editId = ''; tk.exp[t.id] = false; }
+      else tk.exp[t.id] = !tk.exp[t.id];
+      return tkRender();
+    }
     if (a === 'check') {
       if (t.done) { t.done = false; t.doneOn = ''; t.doneAt = 0; tkSave(); return tkRender(); }
       t.done = true; t.doneOn = tkToday(); t.doneAt = Date.now(); t.pin = false; tkSave();
-      row.classList.add('tk-isdone', 'tk-fading'); b.setAttribute('aria-checked', 'true');
-      setTimeout(tkRender, 900);          // struck through for a moment, then hidden
+      row.classList.add('tk-isdone', 'tk-fading'); var cb = row.querySelector('.tk-check'); if (cb) cb.setAttribute('aria-checked', 'true');
+      tkFlash('Done: \u201c' + tkTitleOf(t) + '\u201d.', function () { var x = tkFind(t.id); if (x) { x.done = false; x.doneOn = ''; x.doneAt = 0; tkSave(); tkRender(); } });
+      setTimeout(tkRender, 900);          // struck through for a moment, then moves to "Done today"
       return;
     }
-    if (a === 'edit') { if (t.done) return; tk.editId = t.id; return tkRender(); }
+    if (a === 'edit') { if (t.done) return; tk.editId = t.id; tk.exp[t.id] = true; return tkRender(); }
     if (a === 'del') return tkDelete(t.id);
     if (a === 'pin') {
       if (t.pin) { t.pin = false; tkSave(); return tkRender(); }
@@ -17551,13 +17723,13 @@
       t.pin = true; tkSave(); return tkRender();
     }
   }
-  // Swipe a task row left to delete it (horizontal only; vertical scrolling is left alone).
+  // Swipe a closed task row left to delete it (horizontal only; vertical scrolling is left alone).
   function tkSwipeInit(box) {
     var s = null;
     box.addEventListener('touchstart', function (e) {
       if (e.touches.length !== 1) { s = null; return; }
-      var row = e.target.closest ? e.target.closest('.tk-row') : null;
-      if (!row || row.classList.contains('tk-editing') || e.target.closest('input')) { s = null; return; }
+      var row = e.target.closest ? e.target.closest('.tm-trow') : null;
+      if (!row || row.classList.contains('tm-open') || e.target.closest('input, textarea')) { s = null; return; }
       s = { row: row, x: e.touches[0].clientX, y: e.touches[0].clientY, on: false, dx: 0 };
     }, { passive: true });
     box.addEventListener('touchmove', function (e) {
@@ -17577,7 +17749,7 @@
       var id = c.row.getAttribute('data-id');
       if (c.dx < -90) { c.row.style.transform = 'translateX(-110%)'; setTimeout(function () { tkDelete(id); }, 140); }
       else { c.row.style.transform = ''; c.row.classList.remove('tk-swipedel'); }
-      // the finger-up click after a swipe must not open the edit box
+      // the finger-up click after a swipe must not open the row
       var block = function (ev) { ev.stopPropagation(); ev.preventDefault(); };
       box.addEventListener('click', block, true); setTimeout(function () { box.removeEventListener('click', block, true); }, 400);
     }
@@ -17604,7 +17776,7 @@
         var r = ev.results[i], t = r[0] ? r[0].transcript : '';
         if (r.isFinal) tk.committed = micSpace(tk.committed, t.trim() + ' '); else interim += t;
       }
-      tk.interim = interim.replace(/^\s+/, ''); inp.value = tk.base + tk.committed + tk.interim;
+      tk.interim = interim.replace(/^\s+/, ''); inp.value = tk.base + tk.committed + tk.interim; tkAutoFill();
     };
     rec.onerror = function (ev) {
       var er = ev && ev.error;
@@ -17617,7 +17789,7 @@
       tk.committed = micSpace(tk.committed, tk.interim ? tk.interim.trim() + ' ' : ''); tk.interim = '';
       tk.on = false; tk.rec = null;
       var v = (tk.base + tk.committed).replace(/\s+$/, ''); if (v) inp.value = v.charAt(0).toUpperCase() + v.slice(1);
-      tkMicUi();
+      tkAutoFill(); tkMicUi();
       if (tk.micMsg) setTimeout(function () { tk.micMsg = ''; tkMicUi(); }, 5000);
     };
     tk.rec = rec; tk.on = true;
@@ -17630,17 +17802,20 @@
     if (r) { try { r.stop(); } catch (e2) { tk.rec = null; tk.on = false; tkMicUi(); } }
   }
   /* ---- Suggestions: server (action=suggest, once deployed) else suggestions.json ---- */
+  function tkSuggSrcLabel(s) { return /goal/i.test(String(s.source || s.kind || '')) ? 'Long-term goal' : 'Master list'; }
   function tkSuggNorm(list, src) {
     return (Array.isArray(list) ? list : []).filter(function (s) { return s && typeof s.text === 'string' && s.text.trim(); }).map(function (s) {
-      var id = String(s.id || (src + ':' + (s.project || '') + ':' + s.text)).slice(0, 120);
-      return { id: id, text: String(s.text).trim().slice(0, 300), project: String(s.project || '').slice(0, 40), due: tkValidIso(s.due) ? s.due : '', priority: Number(s.priority) || 2, done: !!s.done };
+      var id = String(s.id || (src + ':' + (s.project || '') + ':' + s.text)).slice(0, 120), text = String(s.text).trim().slice(0, 600), project = String(s.project || '').slice(0, 40);
+      var title = typeof s.title === 'string' && s.title.trim() ? s.title.trim().slice(0, 60) : tkAutoTitle(text, project);
+      return { id: id, text: text, title: title, project: project, due: tkValidIso(s.due) ? s.due : '', priority: Number(s.priority) || 2, done: !!s.done,
+        source: tkSuggSrcLabel(s), notes: typeof s.notes === 'string' ? s.notes.slice(0, 600) : '' };
     }).filter(function (s) { return !s.done; });
   }
   function tkSuggLoad(force) {
     var today = tkToday();
     if (tk.suggLoading || (!force && tk.suggTried === today)) return;
     tk.suggTried = today; tk.suggLoading = true;
-    if (!tk.sugg) { try { var c = JSON.parse(localStorage.getItem(TK_SUGG_KEY) || 'null'); if (c && Array.isArray(c.items)) { tk.sugg = c.items; tk.suggSrc = c.src || ''; } } catch (e) {} }
+    if (!tk.sugg) { try { var c = JSON.parse(localStorage.getItem(TK_SUGG_KEY) || 'null'); if (c && Array.isArray(c.items)) { tk.sugg = tkSuggNorm(c.items, 'c'); tk.suggSrc = c.src || ''; } } catch (e) {} }
     var fromFile = function () {
       return fetch('suggestions.json?d=' + today, { cache: 'no-cache', credentials: 'omit' }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
         .then(function (j) { return { items: tkSuggNorm(j && j.items, 'f'), src: 'suggestions.json' + (j && j.updated ? ' (updated ' + j.updated + ')' : '') }; });
@@ -17654,10 +17829,24 @@
         return { items: tkSuggNorm(j.data.items, 'm'), src: 'Project Tasks Master (live)' };
       });
     };
-    fromServer().catch(fromFile).then(function (r) {
-      tk.sugg = r.items; tk.suggSrc = r.src;
+    // v131: both at once; the file shows as soon as it arrives (the server can be slow while other screens warm up), and a live
+    // server answer replaces it whenever it comes.
+    var gotServer = false;
+    var apply = function (r, server) {
+      if (!server && gotServer) return;
+      if (server) gotServer = true;
+      tk.sugg = r.items; tk.suggSrc = r.src; tk.suggErr = false;
       try { localStorage.setItem(TK_SUGG_KEY, JSON.stringify({ items: r.items, src: r.src, at: Date.now() })); } catch (e) {}
-    }, function () { if (!tk.sugg) tk.sugg = []; tk.suggErr = true; }).then(function () { tk.suggLoading = false; tkSuggRender(); });
+      tmSuggRender(); tmHubCounts();
+    };
+    tmSuggRender();
+    var pf = fromFile().then(function (r) { apply(r, false); return true; }, function () { return false; });
+    var ps = fromServer().then(function (r) { apply(r, true); return true; }, function () { return false; });
+    Promise.all([pf, ps]).then(function (res) {
+      tk.suggLoading = false;
+      if (!res[0] && !res[1]) { if (!tk.sugg) tk.sugg = []; tk.suggErr = true; }
+      tmSuggRender(); tmHubCounts();
+    });
   }
   function tkSuggVisible() {
     var d = tkLoad(), today = tkToday(), have = {};
@@ -17672,52 +17861,77 @@
       return (a.priority - b.priority) || (ao - bo) || ((a.due || '9999') < (b.due || '9999') ? -1 : (a.due || '9999') > (b.due || '9999') ? 1 : 0);
     });
   }
-  function tkSuggRender() {
-    var body = $('sg-body'), box = $('sg-box'); if (!body) return;
-    var d = tkLoad(), open = d.open.sugg !== false, today = tkToday();
-    box.classList.toggle('collapsed', !open);
-    box.querySelector('.sg-head').setAttribute('aria-expanded', String(open));
-    if (open && !tk.sugg && !tk.suggLoading) tkSuggLoad(false);
-    var vis = tkSuggVisible(), show = vis.slice(0, TK_SUGG_SHOW);
-    $('sg-sum').textContent = tk.sugg ? (vis.length ? vis.length + ' from your project list' : 'none right now') : '';
-    if (!open) return;
+  function tmSuggBuild() {
+    $('tm-body').innerHTML =
+      '<div class="tm-sugg">' +
+        '<p class="hint tm-hint">Ideas from your project lists. Nothing goes on Today unless you tap <b>Add to Today</b>.</p>' +
+        '<div class="tk-msg" id="tk-msg" role="status" hidden></div>' +
+        '<div id="sg-list"></div>' +
+        '<p class="foot tm-src" id="sg-src"></p>' +
+      '</div>';
+    tmSuggRender();
+  }
+  function tmSuggRender() {
+    var body = $('sg-list'); if (!body) return;
+    var today = tkToday();
     if (!tk.sugg) { body.innerHTML = '<div class="tk-empty">' + (tk.suggLoading ? 'Loading\u2026' : '') + '</div>'; return; }
-    if (!show.length) {
+    var vis = tkSuggVisible();
+    $('sg-src').textContent = tk.suggSrc ? 'Source: ' + tk.suggSrc : '';
+    if (!vis.length) {
       body.innerHTML = '<div class="tk-empty">' + (tk.suggErr && !tk.sugg.length ? 'Suggestions couldn\u2019t load. <button type="button" class="tk-link" data-tk="sgretry">Try again</button>' : 'No suggestions right now.') + '</div>';
       return;
     }
-    body.innerHTML = show.map(function (s) {
-      var late = s.due && s.due < today ? tkDays(s.due, today) : 0, sid = esc(s.id);
-      var meta = (s.project ? '<span class="tk-tag sg-proj">' + esc(s.project) + '</span>' : '') +
-        (late ? '<span class="tk-tag tk-carried">overdue ' + late + 'd</span>' : s.due ? '<span class="tk-tag">due ' + esc(tkNice(s.due)) + '</span>' : '') +
-        (s.priority === 1 ? '<span class="tk-tag sg-hi">high</span>' : '');
-      return '<div class="sg-item"><div class="sg-text">' + esc(s.text) + '<div class="sg-meta">' + meta + '</div></div>' +
-        '<div class="sg-btns"><button type="button" class="tk-addbtn" data-tk="sgadd" data-sid="' + sid + '">Add to Today</button>' +
-        '<button type="button" class="tk-chip" data-tk="sgsnooze" data-sid="' + sid + '">Snooze 3d</button>' +
-        '<button type="button" class="tk-chip" data-tk="sgdismiss" data-sid="' + sid + '">Dismiss</button></div></div>';
-    }).join('') + (vis.length > show.length ? '<div class="sg-more">+' + (vis.length - show.length) + ' more after these</div>' : '');
+    body.innerHTML = vis.map(function (s) {
+      var late = s.due && s.due < today ? tkDays(s.due, today) : 0, sid = esc(s.id), open = !!tk.sexp[s.id];
+      var tags = (s.priority === 1 ? '<span class="tk-tag sg-hi">high</span>' : '') + (late ? '<span class="tk-tag tk-carried">overdue</span>' : '');
+      var h = '<div class="tm-row sg-row' + (open ? ' tm-open' : '') + '" data-sid="' + sid + '">' +
+        '<button type="button" class="tm-rbtn" data-tk="sgexp" data-sid="' + sid + '" aria-expanded="' + open + '"><span class="tm-rmain"><span class="tm-rtitle">' + esc(s.title) + '</span>' +
+        (tags ? '<span class="tm-rtags">' + tags + '</span>' : '') + '</span><span class="tk-chev" aria-hidden="true">&#9662;</span></button>';
+      if (open) {
+        var facts = tkFact('Source', esc(s.source)) + (s.project ? tkFact('Project', esc(s.project)) : '') +
+          (s.due ? tkFact('Due', esc(tkLong(s.due)) + (late ? ' <span class="tk-tag tk-carried">overdue ' + late + 'd</span>' : '')) : '') +
+          tkFact('Priority', s.priority === 1 ? 'High' : 'Normal') + (s.notes ? tkFact('Notes', '<span class="tm-notes">' + esc(s.notes) + '</span>') : '');
+        h += '<div class="tm-rbody"><div class="tm-full">' + esc(s.text) + '</div><div class="tm-facts">' + facts + '</div>' +
+          '<div class="tm-acts"><button type="button" class="tk-addbtn" data-tk="sgadd" data-sid="' + sid + '">Add to Today</button>' +
+          '<button type="button" class="tk-chip" data-tk="sgsnooze" data-sid="' + sid + '">Snooze 3d</button>' +
+          '<button type="button" class="tk-chip" data-tk="sgdismiss" data-sid="' + sid + '">Dismiss</button></div></div>';
+      }
+      return h + '</div>';
+    }).join('');
   }
   function tkSuggAct(a, sid) {
     var d = tkLoad(), s = null, today = tkToday();
     (tk.sugg || []).forEach(function (x) { if (x.id === sid) s = x; });
     if (!s) return;
+    var prev = d.sugg[sid];
     if (a === 'sgadd') {
-      d.tasks.push({ id: tkNewId(), text: (s.project && s.text.toLowerCase().indexOf(s.project.toLowerCase()) < 0 ? s.project + ': ' : '') + s.text, due: today, created: today, at: Date.now(), done: false, pin: false, src: 'sugg:' + s.id });
+      var nt = { id: tkNewId(), text: (s.project && s.text.toLowerCase().indexOf(s.project.toLowerCase()) < 0 ? s.project + ': ' : '') + s.text, title: s.title, tAuto: false,
+        notes: s.notes || '', due: today, created: today, at: Date.now(), done: false, pin: false, src: 'sugg:' + s.id, srcLabel: s.source };
+      d.tasks.push(nt);
       d.sugg[sid] = { added: 1, on: today };
-      if (d.open.panel === false) d.open.panel = true;
-      tkSave(); tkRender(); tkFlash('Added to Today.');
+      delete tk.sexp[sid];
+      tkSave(); tmSuggRender();
+      tkFlash('Added \u201c' + s.title + '\u201d to Today.', function () {
+        var dd = tkLoad(); dd.tasks = dd.tasks.filter(function (x) { return x.id !== nt.id; });
+        if (prev) dd.sugg[sid] = prev; else delete dd.sugg[sid];
+        tkSave(); tmSuggRender();
+      });
       return;
     }
-    var prev = d.sugg[sid];
     d.sugg[sid] = a === 'sgsnooze' ? { snooze: tkAddDays(today, TK_SNOOZE_DAYS) } : { dismissed: 1, on: today };
-    tkSave(); tkSuggRender();
+    delete tk.sexp[sid];
+    tkSave(); tmSuggRender();
     tkFlash(a === 'sgsnooze' ? 'Snoozed until ' + tkNice(tkAddDays(today, TK_SNOOZE_DAYS)) + '.' : 'Dismissed.', function () {
-      var dd = tkLoad(); if (prev) dd.sugg[sid] = prev; else delete dd.sugg[sid]; tkSave(); tkSuggRender();
+      var dd = tkLoad(); if (prev) dd.sugg[sid] = prev; else delete dd.sugg[sid]; tkSave(); tmSuggRender();
     });
   }
   // Coming back to the app on a new day (or after a while): re-draw so carry-over and Upcoming move on their own.
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'visible' && $('screen-home') && $('screen-home').classList.contains('active') && tk.built) tkRender();
+    if (document.visibilityState !== 'visible' || !tmOnScreen()) return;
+    tk.d = null;                                   // pick up any change saved by another tab
+    if (state.tmView === 'today') { if (!tk.editId && !($('tk-text') && $('tk-text').value)) tkRender(); }
+    else if (state.tmView === 'sugg') tmSuggRender();
+    else tmHubCounts();
   });
 
   /* ---------------- Init ---------------- */
@@ -17756,6 +17970,7 @@
     'biz':       { label: 'Business', go: 'biz', folder: true },
     'pc':        { label: 'Plan Checks', go: 'pc', sub: 'Mic checklist \u00b7 fullscreen plan \u00b7 pins & notes', cls: 'pc-entry' },
     'f:archive': { label: 'Archive', go: 'hf/archive', folder: true },
+    'tm':        { label: 'Task Manager', go: 'tm' },   // v131: Today + Suggestions (was the task list at the top of Home)
     'f:lisa':    { label: 'Lisa', go: 'hf/lisa', folder: true },   // v113: Home folder (v130: holds Change requests by default; drag buttons in)
     'lr':        { label: 'Change requests', go: 'lr', sub: 'Ask for a change \u00b7 see replies', cls: 'lr-entry' },   // v130: Lisa's change requests (#lr)
     'f:fh':      { label: 'Fitness & Health', go: 'hf/fh', folder: true },   // v122: Daily Log (overview), Food Log, Workout Log, Medical
@@ -17770,7 +17985,7 @@
     'fin/invest':     { label: FIN_PAGES.invest.label, go: 'fin/invest', sub: FIN_PAGES.invest.sub }   // v121: Finances > Investments (slots in after Ledger on saved layouts too)
   };
   var HL_DEFAULT = {
-    home: ['projects', 'f:fh', 'spend', 'fin', 'insn', 'lt', 'pt', 'trust', 'ent/kiwit', 'ent/tiwik', 'mf', 'biz', 'f:lisa'],
+    home: ['tm', 'projects', 'f:fh', 'spend', 'fin', 'insn', 'lt', 'pt', 'trust', 'ent/kiwit', 'ent/tiwik', 'mf', 'biz', 'f:lisa'],
     projects: ['pc'],
     'f:fh': HL_FH_IN.slice(),
     'f:medical': ['health'],

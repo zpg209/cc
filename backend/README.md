@@ -114,6 +114,8 @@ Why: the Home Suggestions box (front end v121) offers 3 open items from Zac's pr
 
 The tasks themselves stay on the phone (localStorage `cc.tasks.v1`). Server sync for them is not part of this patch.
 
+v131: the task list and Suggestions moved off Home into Home > Task Manager (Today / Suggestions, collapsible rows with a short title). Each item can carry an optional `title` (short name on the collapsed row; the phone makes one from `text` when it is missing, so the server's `suggest` answer needs no change) and an optional `source: "goal"` for a long-term goal (default label: Master list).
+
 Updating suggestions.json (no deploy needed beyond a push): edit `items` (each item has `id` (unique, stable), `text`, `project`, `due` YYYY-MM-DD, `priority` 1|2, optional `done: true`), bump `updated`, then push to main and spa. The phone re-checks it every time the app opens and keeps the last good copy for offline use.
 
 ## lt-menu-save.patch (API v53, Lisa's Table: menu PDFs into Drive > Past Menus)

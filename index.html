@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lora:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=130">
+<link rel="stylesheet" href="app.css?v=131">
 </head>
 <body>
   <div class="bg"></div>
@@ -46,8 +46,6 @@
       <h1 class="title">Command Center</h1>
       <div class="subtitle" id="home-date"></div>
     </header>
-    <!-- Daily task list + suggestions (v=124): filled by app.js (tkRender); not a layout grid, so hold/drag never start here -->
-    <div class="home-tasks" id="home-tasks"></div>
     <div class="grid2 homegrid hl-grid" id="home-grid" data-hl-folder="home">
       <button class="tile" data-go="projects">L&amp;S projects</button>
       <button class="tile" data-go="log">Daily Log</button>
@@ -178,6 +176,12 @@
   <section id="screen-lr" class="screen">
     <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="lr-back" data-go="hf/lisa">&lsaquo; Back</button><h2 id="lr-title">Requests</h2></div>
     <div id="lr-body"><div class="loading">Loading…</div></div>
+  </section>
+
+  <!-- ============ TASK MANAGER (#tm = Today + Suggestions buttons, #tm/today, #tm/sugg; v131): the daily task list moved off Home; filled by app.js (tmOpen) ============ -->
+  <section id="screen-tm" class="screen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="tm-back" data-go="home" hidden>&lsaquo; Back</button><h2 id="tm-title">Task Manager</h2></div>
+    <div id="tm-body"></div>
   </section>
 
   <!-- ============ MONO FOLD (#mf / #mf/home|orders|customers|design) ============ -->
@@ -336,6 +340,6 @@
     <div id="vcam-body"></div>
   </section>
 
-  <script src="app.js?v=130"></script>
+  <script src="app.js?v=131"></script>
 </body>
 </html>
