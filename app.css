@@ -2614,3 +2614,67 @@ body.hl-busy { -webkit-user-select: none; user-select: none; cursor: grabbing; }
 /* v129: separate Show ingredients / Show macros choices; macros line in the cream preview */
 #screen-lt .mp-mac { font-size: 12px; font-style: italic; color: #8a7563; margin-top: 2px; }
 #screen-lt .ltmopts { display: flex; flex-wrap: wrap; gap: 4px 22px; }
+
+/* ---- v130: Lisa > Change requests (#screen-lr): same rose accent as Lisa's Table / Personal Training (burgundy text, pink 0.75px borders, black buttons) ---- */
+#screen-lr { --tt1: #FBD0DF; --tt2: #F4A6C0; --tt3: #D9769A; --tln: 244,166,192; }
+#screen-lr { --lt-t: #CF4059; --lt-e: #F4A6C0; --red: #CF4059; --btn-edge: #F4A6C0; --copper-edge: #F4A6C0; --btn-border: 0.75px; }
+#screen-lr [hidden] { display: none !important; }
+#screen-lr .homebtn, #screen-lr .navbtn, #screen-lr .micbtn, #screen-lr .bigsave, #screen-lr .vchip, #screen-lr .notebox {
+  border-width: var(--btn-border); border-style: solid; border-color: var(--lt-e); }
+#screen-lr .homebtn, #screen-lr .navbtn, #screen-lr .micbtn, #screen-lr .bigsave, #screen-lr .vchip { color: var(--lt-t); background: #000; }
+#screen-lr .homebtn:active, #screen-lr .navbtn:active, #screen-lr .micbtn:active, #screen-lr .bigsave:active, #screen-lr .vchip:active { background: #1d0b10; }
+#screen-lr .micbtn.rec { color: #fff; background: #E5484D; border-color: var(--lt-e); }
+#screen-lr .notebox { background: #000; min-height: 120px; }
+#screen-lr .notebox:focus { border-color: var(--lt-t); }
+#screen-lr .vchip.on { background: var(--lt-t); color: #0b0b0b; border-color: var(--lt-e); font-weight: 700; }
+#screen-lr .vchips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
+#screen-lr .vchip { min-height: 44px; padding: 9px 14px; font: 600 15px/1.2 'Inter', sans-serif; cursor: pointer; border-radius: var(--radius); }
+#screen-lr .vdelbtn, #screen-lr .bigsave.vdelbtn { color: var(--lt-t); border-color: var(--lt-e); font-size: 18px; min-height: 48px; }
+#screen-lr .vdelq { color: var(--lt-t); margin: 4px 0 8px; font-weight: 600; }
+#screen-lr .lrnew { padding: 12px; margin-bottom: 4px; }
+#screen-lr .lrnew .micstate { margin: 6px 0 8px; text-align: left; }
+#screen-lr .lrbtns { display: grid; grid-template-columns: 64px 1fr; gap: 10px; }
+#screen-lr .lrmic { min-height: 58px; width: 64px; padding: 0; box-shadow: none; }
+#screen-lr .lrmic .micico svg { width: 30px; height: 30px; display: block; }
+#screen-lr .lrsend { min-height: 58px; font-size: 21px; }
+#screen-lr .lrclear { display: block; margin: 8px 0 0 auto; background: none; border: 0; color: var(--muted); font: 600 14px/1 'Inter', sans-serif; padding: 8px 4px; cursor: pointer; }
+#screen-lr .wlhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 18px 0 8px; }
+#screen-lr .wlhead .sechead { margin: 0; }
+#screen-lr .sechead small { font: 400 13px/1 'Inter', sans-serif; color: var(--muted); margin-left: 6px; }
+#screen-lr .wlref { min-height: 44px; padding: 8px 16px; font-size: 15px; font-weight: 700; }
+#screen-lr .wlref:disabled { opacity: .55; }
+#screen-lr .wlcard { padding: 4px 12px; }
+#screen-lr .foot.empty { padding: 10px 2px; }
+#screen-lr .lrconn { font-size: 13.5px; line-height: 1.45; color: var(--muted); padding: 9px 12px; margin: 0 0 10px; border-radius: var(--radius); border: 0.75px solid var(--line); }
+#screen-lr .lrconn.lrc-ok { color: #9fd9b2; border-color: rgba(61,190,107,.35); }
+#screen-lr .lrconn.lrc-warn { color: #ffcf8a; border-color: rgba(255,183,77,.45); background: rgba(255,183,77,.06); }
+#screen-lr .lrconn.lrc-bad { color: #ff9a9d; border-color: rgba(229,72,77,.4); background: rgba(229,72,77,.06); }
+#screen-lr .lrconn b { color: #ffe1b3; }
+#screen-lr .lritem { padding: 12px; margin-bottom: 10px; border: 0.75px solid rgba(244,166,192,.45); border-left: 3px solid var(--lt-e); }
+#screen-lr .lritem.st-wait { border-left-color: #ffb74d; }
+#screen-lr .lritem.st-prog { border-left-color: #6fa8ff; }
+#screen-lr .lritem.st-ok { border-left-color: #F4A6C0; }
+#screen-lr .lritem.st-done { border-left-color: #3DBE6B; }
+#screen-lr .lrtop { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+#screen-lr .lrchip { display: inline-block; font: 700 11.5px/1 'Inter', sans-serif; letter-spacing: .4px; text-transform: uppercase; padding: 6px 9px; border-radius: 999px; border: 1px solid; }
+#screen-lr .lrchip.st-new { color: #FBD0DF; border-color: rgba(244,166,192,.6); }
+#screen-lr .lrchip.st-prog { color: #9cc3ff; border-color: rgba(111,168,255,.55); background: rgba(111,168,255,.08); }
+#screen-lr .lrchip.st-ok { color: #0b0b0b; background: #F4A6C0; border-color: #F4A6C0; }
+#screen-lr .lrchip.st-done { color: #7ee2a1; border-color: rgba(61,190,107,.55); background: rgba(61,190,107,.08); }
+#screen-lr .lrchip.st-wait { color: #ffcf8a; border-color: rgba(255,183,77,.55); background: rgba(255,183,77,.07); }
+#screen-lr .lrsec { font-size: 12.5px; color: var(--muted); }
+#screen-lr .lrtext { font-size: 16.5px; line-height: 1.4; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+#screen-lr .lrmeta { margin-top: 6px; font-size: 12px; color: var(--muted); }
+#screen-lr .lrerr { color: #ff9a9d; }
+#screen-lr .lrreply { margin-top: 10px; padding: 10px 12px; border-radius: var(--radius); background: rgba(244,166,192,.07); border: 0.75px solid rgba(244,166,192,.4); }
+#screen-lr .lrrh { font: 700 11px/1.2 'Inter', sans-serif; letter-spacing: .7px; text-transform: uppercase; color: var(--lt-e); margin-bottom: 5px; }
+#screen-lr .lrrh small { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--muted); margin-left: 4px; }
+#screen-lr .lrrt { font-size: 15.5px; line-height: 1.45; color: #f3e6ea; white-space: pre-wrap; overflow-wrap: anywhere; }
+#screen-lr .lranswer { display: block; width: 100%; margin-top: 10px; min-height: 44px; font-weight: 700; font-size: 15px; }
+#screen-lr .lrdel { display: block; margin: 6px 0 0 auto; background: none; border: 0; color: var(--muted); font: 600 13.5px/1 'Inter', sans-serif; padding: 8px 2px; cursor: pointer; }
+#screen-lr .lrconf { margin-top: 8px; }
+#screen-lr .lrpull { height: 0; overflow: hidden; display: flex; align-items: flex-end; justify-content: center; color: var(--muted); font-size: 13px; transition: height .12s; }
+#screen-lr .lrpull span { padding-bottom: 8px; }
+#screen-lr .lrpull.ready { color: var(--lt-e); }
+/* the Change requests button (Home > Lisa): rose edge like the Lisa screens it belongs to */
+.tile.lr-entry { border-color: rgba(244,166,192,.6); }

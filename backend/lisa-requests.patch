@@ -1,0 +1,262 @@
+--- a/Api.gs
++++ b/Api.gs
+@@ -35,6 +35,9 @@
+  *   GET  <exec>?api=1&pc=123456&action=ptclientdel&id=pc..&name=..&cid=abc[&dry=1]   (admin v45+: delete ONE client AND their workouts; id + name are verified (row_mismatch), backups of both tabs, rolled back on failure)
+  *   POST <exec>  body {"pc":..,"action":"ptworkoutset","cid":..,["id":"pw..",]"clientId":"pc..","date":"2026-10-05","title":"..","exercises":"text" | ["line","line"] | [{..}],"notes":"..","done":0|1[,"dry":1]}   (admin v45+: create (clientId + title) or update ONLY the sent fields (id) of one workout; done:1 sets Done on = today; <=500 workouts per client; also works as GET params)
+  *   GET  <exec>?api=1&pc=123456&action=ptworkoutdel&id=pw..&title=..&cid=abc[&dry=1]   (admin v45+: delete ONE workout; id + title verified)
++ *   GET  <exec>?api=1&pc=123456&action=lisareqlist   (v54: Lisa's change requests, read-only; {items:[{id,row,submitted,section:'lt'|'pt'|'both',sectionLabel,request,status:'New'|'In progress'|'Needs your OK'|'Done',reply,updated}],counts,sheetUrl}, newest first; sheet 'Lisa Change Requests' in Lisa's Table)
++ *   POST <exec>  body {"pc":..,"action":"lisareq","id":"lr..","text":"..","section":"lt|pt|both"[,"ts":<ms>][,"dry":1]}   (v54: append ONE change request (Status New); the id never adds twice)
++ *   GET  <exec>?api=1&pc=123456&action=lisareqset&id=lr..[&status=New|In%20progress|Needs%20your%20OK|Done][&reply=..][&reply_mode=append][&dry=1]   (v54, for Lisa's Assistant: set Status / Reply (+ Updated) of ONE request; POST for long replies)  |  action=lisareqdel&id=lr..  (test cleanup: only rows whose Request starts with TEST)
+  *   GET  <exec>?api=1&pc=123456&action=entity&entity=kiwit|tiwik&offset=0   (KiwiT LLC / TiwiK LLC separate books for one month; read-only)
+  *   GET  <exec>?api=1&pc=123456&action=entitytax&entity=kiwit|tiwik&year=2026[&format=csv]   (year-to-date category summary for taxes; csv = {csv, filename})
+  *   GET  <exec>?api=1&pc=123456&action=logadd&value=8&cid=abc   (Daily log: water +8 oz on today's row; also logset&field=weight|sleep|steps|hike&value=N; v43: optional &date=YYYY-MM-DD writes that past day's row instead of today's, same limits as logday: not > 1 day ahead, not > 400 days back)
+@@ -132,6 +135,10 @@
+       case 'ptclientdel':  return apiPtClientDel_(extra.all || {});
+       case 'ptworkoutset': return apiPtWorkoutSet_(extra.all || {});
+       case 'ptworkoutdel': return apiPtWorkoutDel_(extra.all || {});
++      case 'lisareqlist':  return apiLrList_();                       // v54: Lisa's change requests (sheet 'Lisa Change Requests')
++      case 'lisareq':      return apiLrAdd_(extra.all || {});
++      case 'lisareqset':   return apiLrSet_(extra.all || {});
++      case 'lisareqdel':   return apiLrDel_(extra.all || {});
+       case 'incomedel': return apiIncomeDel_(extra.all || {});
+       case 'spenddel':  return apiSpendDel_(extra.all || {});
+       case 'receiptsave': return apiReceiptSave_(extra.all || {});
+@@ -7938,4 +7945,238 @@
+   } finally {
+     lock.releaseLock();
+   }
++}
++
++/* ======================================================================= */
++/* Lisa's change requests — action=lisareq / lisareqlist / lisareqset /     */
++/* lisareqdel (v54). Lisa types or dictates a change she wants in Lisa's     */
++/* Table or Lisa's Personal Training; it becomes one row of the Google Sheet */
++/* "Lisa Change Requests" (Drive > Second Brain > Lisa's Table). Lisa's      */
++/* Assistant reads the rows, does the work and answers in Status + Reply     */
++/* (lisareqset, or by typing in the sheet); the app shows them in the box.   */
++/* The sheet already exists (created 2026-10-07); nothing here creates one.  */
++/* ======================================================================= */
++var API_LR = {
++  sheetId: '1XIa2IhGWY2DWzqIRsvxzf0A94g8Y9Y7z4ItsPXo5Y8c',   // "Lisa Change Requests"
++  folderId: '1k7yFqwv3KQcmUxI-neeVKkZl7mqqCvXR',             // Lisa's Table (fallback: find the sheet by name here)
++  name: 'Lisa Change Requests',
++  head: ['ID', 'Submitted', 'Section', 'Request', 'Status', 'Reply', 'Updated'],
++  maxText: 4000, maxReply: 4000, maxRows: 5000, maxList: 300,
++  statuses: ['New', 'In progress', 'Needs your OK', 'Done'],
++  sections: { lt: 'Lisa\u2019s Table', pt: 'Personal Training', both: 'Both' },
++  testMark: 'TEST'                                            // lisareqdel only removes rows whose Request starts with this
++};
++/** Request / reply text: control characters out, line breaks kept (at most one blank line), spaces collapsed. */
++function apiLrText_(v, max) {
++  var s = String(v == null ? '' : v).replace(/\r\n?/g, '\n')
++    .replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/g, ' ')
++    .split('\n').map(function (l) { return l.replace(/\s+/g, ' ').trim(); }).join('\n')
++    .replace(/\n{3,}/g, '\n\n').trim();
++  return s.length > max ? null : s;
++}
++function apiLrSection_(v) {
++  var s = String(v == null ? '' : v).toLowerCase().replace(/[^a-z]/g, '');
++  if (!s || s === 'lt' || s === 'lisastable' || s === 'table') return API_LR.sections.lt;
++  if (s === 'pt' || s === 'personaltraining' || s === 'lisaspersonaltraining' || s === 'training') return API_LR.sections.pt;
++  if (s === 'both' || s === 'all') return API_LR.sections.both;
++  return '';
++}
++function apiLrSectionKey_(label) {
++  var s = String(label || '').toLowerCase();
++  return /both/.test(s) ? 'both' : /train/.test(s) ? 'pt' : 'lt';
++}
++/** Any status typed in the sheet -> one of the four the app knows ('' -> New). */
++function apiLrStatus_(v) {
++  var s = String(v == null ? '' : v).toLowerCase().trim();
++  if (!s || s === 'new') return 'New';
++  if (/done|complete|finished|fixed|closed/.test(s)) return 'Done';
++  if (/ok|approv|confirm|question|need/.test(s)) return 'Needs your OK';
++  if (/progress|working|started|doing/.test(s)) return 'In progress';
++  return 'New';
++}
++function apiLrIso_(v) {
++  if (v instanceof Date && !isNaN(v)) return v.toISOString();
++  var s = String(v == null ? '' : v).trim(); if (!s) return '';
++  var d = new Date(s); return isNaN(d) ? s : d.toISOString();
++}
++function apiLrSheet_() {
++  var ss = null;
++  try { ss = SpreadsheetApp.openById(API_LR.sheetId); } catch (e) {
++    var it = DriveApp.getFolderById(API_LR.folderId).getFilesByName(API_LR.name);
++    while (it.hasNext() && !ss) { var f = it.next(); if (f.getMimeType() === 'application/vnd.google-apps.spreadsheet' && !f.isTrashed()) ss = SpreadsheetApp.openById(f.getId()); }
++  }
++  if (!ss) return { error: 'no_sheet', message: 'The "Lisa Change Requests" sheet was not found in Lisa\u2019s Table.' };
++  return { ss: ss, sh: ss.getSheets()[0] };
++}
++function apiLrCols_(head) {
++  var h = head.map(function (x) { return String(x == null ? '' : x).toLowerCase().replace(/[^a-z]/g, ''); });
++  var col = {};
++  ['id', 'submitted', 'section', 'request', 'status', 'reply', 'updated'].forEach(function (k) { col[k] = h.indexOf(k); });
++  col.ok = col.id >= 0 && col.request >= 0 && col.status >= 0 && col.reply >= 0;
++  return col;
++}
++function apiLrInfo_(v, col, r) {
++  var g = function (k) { return col[k] >= 0 ? v[col[k]] : ''; };
++  var sec = String(g('section') || '');
++  return { id: String(g('id') || '').trim() || ('row' + (r + 1)), row: r + 1, submitted: apiLrIso_(g('submitted')),
++           section: apiLrSectionKey_(sec), sectionLabel: sec, request: String(g('request') || ''),
++           status: apiLrStatus_(g('status')), reply: String(g('reply') || ''), updated: apiLrIso_(g('updated')) };
++}
++function apiLrRead_(w) {
++  var values = w.sh.getDataRange().getValues();
++  if (!values.length || values[0].join('') === '') return { values: values, col: null };
++  return { values: values, col: apiLrCols_(values[0]) };
++}
++function apiLrFind_(values, col, id) {
++  for (var r = 1; r < values.length; r++) if (String(values[r][col.id] == null ? '' : values[r][col.id]).trim() === id) return r;
++  var m = /^row(\d+)$/.exec(id);                                  // a row typed by hand without an ID
++  if (m) { var r2 = Number(m[1]) - 1; if (r2 >= 1 && r2 < values.length && !String(values[r2][col.id] || '').trim()) return r2; }
++  return -1;
++}
++
++/**
++ * action=lisareqlist  (read-only)
++ * {ok:true,data:{exists:true, sheetUrl, items:[{id,row,submitted,section:'lt'|'pt'|'both',sectionLabel,request,status,reply,updated}], counts:{New,..}, version:54}}
++ * Newest first (Submitted, then sheet row). Rows with an empty Request are skipped.
++ */
++function apiLrList_() {
++  var w = apiLrSheet_(); if (w.error) return w;
++  var rd = apiLrRead_(w), items = [], counts = { 'New': 0, 'In progress': 0, 'Needs your OK': 0, 'Done': 0 };
++  if (rd.col && !rd.col.ok) return { error: 'no_columns', message: 'The sheet needs ID, Request, Status and Reply columns.' };
++  if (rd.col) for (var r = 1; r < rd.values.length; r++) {
++    if (!String(rd.values[r][rd.col.request] == null ? '' : rd.values[r][rd.col.request]).trim()) continue;
++    var o = apiLrInfo_(rd.values[r], rd.col, r); items.push(o); counts[o.status]++;
++  }
++  items.sort(function (a, b) { return a.submitted === b.submitted ? b.row - a.row : (a.submitted < b.submitted ? 1 : -1); });
++  return { ok: true, data: { exists: true, sheetUrl: w.ss.getUrl(), items: items.slice(0, API_LR.maxList), total: items.length, counts: counts, statuses: API_LR.statuses, version: 54 } };
++}
++
++/**
++ * action=lisareq  (POST JSON body or GET params)
++ *   id       required: the phone's request id ([A-Za-z0-9_-], 4-40). It is the idempotency key: the same id is never added twice
++ *            (a repeat returns the saved row with duplicate:'id').   cid is accepted as an alias.
++ *   text     required, <= 4000 characters (line breaks kept)
++ *   section  lt | pt | both (or the labels); default lt
++ *   ts       optional: when Lisa wrote it on the phone (ms since epoch); used for Submitted when within the last 60 days
++ *   dry=1    validates; nothing is written
++ * Appends ID | Submitted | Section | Request | Status=New | Reply='' | Updated. Text cells are stored as text (never a formula).
++ */
++function apiLrAdd_(p) {
++  p = p || {};
++  var id = String(p.id || p.cid || '').trim();
++  if (!/^[A-Za-z0-9_-]{4,40}$/.test(id)) return { error: 'bad_value', message: 'id is required (4-40 letters, digits, - or _).' };
++  var text = apiLrText_(p.text, API_LR.maxText);
++  if (text === null) return { error: 'too_long', message: 'A request can be at most ' + API_LR.maxText + ' characters.' };
++  if (!text) return { error: 'empty', message: 'Nothing to send.' };
++  var section = apiLrSection_(p.section);
++  if (!section) return { error: 'bad_value', message: 'section must be lt, pt or both.' };
++  var now = new Date(), when = now, ts = Number(p.ts);
++  if (ts > 0 && ts <= now.getTime() + 300000 && ts >= now.getTime() - 60 * 864e5) when = new Date(ts);
++  var dry = apiAdminBool_(p.dry);
++
++  var lock = LockService.getScriptLock();
++  try { lock.waitLock(20000); } catch (e) { return { error: 'busy', message: 'Another update is running. Try again.' }; }
++  try {
++    var w = apiLrSheet_(); if (w.error) return w;
++    var sh = w.sh, rd = apiLrRead_(w), col = rd.col;
++    if (!col) {                                                     // empty sheet: header row first
++      if (!dry) { sh.getRange(1, 1, 1, API_LR.head.length).setValues([API_LR.head]); try { sh.setFrozenRows(1); sh.getRange(1, 1, 1, API_LR.head.length).setFontWeight('bold'); } catch (eh) {} }
++      rd = { values: [API_LR.head.slice()], col: apiLrCols_(API_LR.head) }; col = rd.col;
++    }
++    if (!col.ok) return { error: 'no_columns', message: 'The sheet needs ID, Request, Status and Reply columns.' };
++    var hit = apiLrFind_(rd.values, col, id);
++    if (hit > 0) return { ok: true, data: { duplicate: 'id', item: apiLrInfo_(rd.values[hit], col, hit), version: 54 } };
++    var row = Math.max(sh.getLastRow(), 1) + 1;
++    if (row > API_LR.maxRows) return { error: 'full', message: 'The request sheet is full. Archive old rows.' };
++    var width = Math.max(rd.values[0].length, API_LR.head.length), vals = [];
++    for (var c = 0; c < width; c++) vals.push('');
++    vals[col.id] = id; vals[col.request] = text; vals[col.status] = 'New'; vals[col.reply] = '';
++    if (col.submitted >= 0) vals[col.submitted] = when;
++    if (col.section >= 0) vals[col.section] = section;
++    if (col.updated >= 0) vals[col.updated] = now;
++    var item = apiLrInfo_(vals, col, row - 1);
++    if (dry) return { ok: true, data: { dry: true, item: item, version: 54 } };
++    ['id', 'section', 'request', 'status', 'reply'].forEach(function (k) { if (col[k] >= 0) sh.getRange(row, col[k] + 1).setNumberFormat('@'); });
++    ['submitted', 'updated'].forEach(function (k) { if (col[k] >= 0) sh.getRange(row, col[k] + 1).setNumberFormat('yyyy-mm-dd h:mm am/pm'); });
++    sh.getRange(row, 1, 1, width).setValues([vals]);
++    try { sh.getRange(row, col.request + 1).setWrap(true); } catch (ew) {}
++    SpreadsheetApp.flush();
++    var back = sh.getRange(row, 1, 1, width).getValues()[0];
++    if (String(back[col.id]) !== id || String(back[col.request]) !== text) {
++      try { sh.getRange(row, 1, 1, width).clearContent(); } catch (eu) {}
++      return { error: 'write_failed', message: 'read-back mismatch after add' };
++    }
++    try { apiSpendJournal_(SpreadsheetApp.openById(CONFIG.SPEND.SHEET_ID), [now, 'lisareq', row, API_LR.name + ': add ' + id + ' (' + section + ')', '', text.length + ' characters', id]); } catch (ej) { /* the journal never blocks a request */ }
++    return { ok: true, data: { added: true, item: apiLrInfo_(back, col, row - 1), sheetUrl: w.ss.getUrl(), version: 54 } };
++  } finally {
++    lock.releaseLock();
++  }
++}
++
++/**
++ * action=lisareqset  (for Lisa's Assistant; POST JSON body or GET params)
++ *   id      required (the ID column; "row<N>" for a hand-typed row without an ID)
++ *   status  New | In progress | Needs your OK | Done (loose spellings accepted)       reply  text (<= 4000; '' clears)
++ *   reply_mode=append adds the reply under the existing one (blank line between) instead of replacing it
++ *   At least one of status / reply. Updated is set to now. dry=1 previews.
++ */
++function apiLrSet_(p) {
++  p = p || {};
++  var id = String(p.id || '').trim();
++  if (!id) return { error: 'bad_value', message: 'id is required.' };
++  var hasS = p.status !== undefined && p.status !== null && String(p.status).trim() !== '';
++  var hasR = p.reply !== undefined && p.reply !== null;
++  if (!hasS && !hasR) return { error: 'bad_value', message: 'Send status and/or reply.' };
++  var status = hasS ? apiLrStatus_(p.status) : '';
++  var reply = hasR ? apiLrText_(p.reply, API_LR.maxReply) : '';
++  if (reply === null) return { error: 'too_long', message: 'A reply can be at most ' + API_LR.maxReply + ' characters.' };
++  var dry = apiAdminBool_(p.dry);
++  var lock = LockService.getScriptLock();
++  try { lock.waitLock(20000); } catch (e) { return { error: 'busy', message: 'Another update is running. Try again.' }; }
++  try {
++    var w = apiLrSheet_(); if (w.error) return w;
++    var rd = apiLrRead_(w), col = rd.col;
++    if (!col || !col.ok) return { error: 'no_columns', message: 'The sheet needs ID, Request, Status and Reply columns.' };
++    var r = apiLrFind_(rd.values, col, id);
++    if (r < 1) return { error: 'not_found', message: 'No request with id ' + id + '.' };
++    var v = rd.values[r].slice(), now = new Date();
++    if (hasS) v[col.status] = status;
++    if (hasR) {
++      var old = String(v[col.reply] || '');
++      v[col.reply] = String(p.reply_mode || '') === 'append' && old && reply ? (old + '\n\n' + reply).slice(0, API_LR.maxReply) : reply;
++    }
++    if (col.updated >= 0) v[col.updated] = now;
++    var item = apiLrInfo_(v, col, r);
++    if (dry) return { ok: true, data: { dry: true, item: item, version: 54 } };
++    var sh = w.sh;
++    if (hasS) sh.getRange(r + 1, col.status + 1).setNumberFormat('@').setValue(v[col.status]);
++    if (hasR) sh.getRange(r + 1, col.reply + 1).setNumberFormat('@').setValue(v[col.reply]).setWrap(true);
++    if (col.updated >= 0) sh.getRange(r + 1, col.updated + 1).setNumberFormat('yyyy-mm-dd h:mm am/pm').setValue(now);
++    SpreadsheetApp.flush();
++    return { ok: true, data: { updated: true, item: item, version: 54 } };
++  } finally {
++    lock.releaseLock();
++  }
++}
++
++/** action=lisareqdel&id=..  Test cleanup only: deletes ONE row whose Request starts with "TEST"; anything else -> not_test. */
++function apiLrDel_(p) {
++  p = p || {};
++  var id = String(p.id || '').trim();
++  if (!id) return { error: 'bad_value', message: 'id is required.' };
++  var lock = LockService.getScriptLock();
++  try { lock.waitLock(20000); } catch (e) { return { error: 'busy', message: 'Another update is running. Try again.' }; }
++  try {
++    var w = apiLrSheet_(); if (w.error) return w;
++    var rd = apiLrRead_(w), col = rd.col;
++    if (!col || !col.ok) return { error: 'no_columns' };
++    var r = apiLrFind_(rd.values, col, id);
++    if (r < 1) return { error: 'not_found' };
++    if (String(rd.values[r][col.request] || '').indexOf(API_LR.testMark) !== 0) return { error: 'not_test', message: 'Only requests that start with TEST can be deleted through the API.' };
++    if (apiAdminBool_(p.dry)) return { ok: true, data: { dry: true, row: r + 1 } };
++    w.sh.deleteRow(r + 1);
++    return { ok: true, data: { deleted: true, row: r + 1, version: 54 } };
++  } finally {
++    lock.releaseLock();
++  }
+ }

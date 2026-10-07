@@ -14,7 +14,7 @@
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', ovKey: '', invAcct: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
-  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health'];
+  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -113,7 +113,7 @@
   var RC_MAX_AGE = 3 * 864e5;       // older than this: ignored (the screen waits for the server like before)
   var RC_READS = { links: 1, log: 1, spend: 1, accounts: 1, vaultdebt: 1, biz: 1, re: 1, ins: 1, ltmacros: 1, notes: 1, punch: 1, lognotes: 1,
     fin: 1, insnotes: 1, wishlist: 1, orders: 1, ptclients: 1, receipts: 1, entity: 1, entitytax: 1, folder: 1, healthmetrics: 1 };
-  var RC_NOCACHE = { ping: 1, file: 1, filebytes: 1, invest: 1 };      // reads that are never stored (passcode check; file bytes are big)
+  var RC_NOCACHE = { ping: 1, file: 1, filebytes: 1, invest: 1, lisareqlist: 1 };   // v130: lisareqlist (Lisa's change requests) is always asked fresh      // reads that are never stored (passcode check; file bytes are big)
   var RC_MONEY = ['spend', 'accounts', 'vaultdebt', 'entity', 'entitytax', 'receipts', 'fin', 'insnotes'];
   var RC_DEBT = ['vaultdebt', 'spend', 'entity', 'entitytax', 'fin'];
   var RC_WRITES = {
@@ -127,7 +127,8 @@
     orderset: ['orders'], orderpaid: ['orders'], orderdel: ['orders'], weekmenuset: ['orders'], menusave: ['folder'], ltmenusave: ['folder'],
     wishadd: ['wishlist'], wishset: ['wishlist'], wishdel: ['wishlist'],
     ptclientset: ['ptclients'], ptclientdel: ['ptclients'], ptworkoutset: ['ptclients'], ptworkoutdel: ['ptclients'],
-    investsave: []   // v121: Investments live outside the read cache (phone copy + Script Properties)
+    investsave: [],   // v121: Investments live outside the read cache (phone copy + Script Properties)
+    lisareq: []       // v130: Lisa's change requests (lisareqlist is never cached)
   };
   var rcGen = 0, rcInflight = {}, rcBusyList = [], rcPendingScr = {}, rcFlushT = 0, rcOfferScr = '', rcNoteT = 0, rcBypass = false;
   var rcTouched = window.WeakSet ? new WeakSet() : null;     // fields the user typed in (a background repaint never wipes them)
@@ -507,6 +508,7 @@
     if (name !== 'pt') { ptMicStop(true); spellMicStop(true); }
     if (name !== 'mf') mfMicStop(true);
     if (name !== 'pc') pcMicStop(true);
+    if (name !== 'lr') lrMicStop(true);
     if (!(name === 'lt' && R.kind === 'orders')) odMicStop(true);
     if (!(name === 'lt' && (R.kind === 'macros' || R.kind === 'recipes'))) macClose(true);
     if (!(name === 'lt' && R.kind === 'menu-add')) maMicStop(true);
@@ -561,6 +563,7 @@
     if (name === 'pt') ptOpen();
     if (name === 'mf') mfOpen();
     if (name === 'pc') pcOpen();
+    if (name === 'lr') lrOpen();
     if (name === 'doc') { state.docKey = String(route || '').replace(/^#/, ''); openDocScreen(qparams(R.query)); }
     else restoreScroll(String(route || '').replace(/^#/, '') || 'home');
   }
@@ -11070,6 +11073,282 @@
       var f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) cmAttachPhoto(f);
     }
   });
+  /* ---------------- Lisa: Change requests (#lr, Home > Lisa > Change requests; v130) ----------------
+   * Lisa types or dictates a change she wants in Lisa's Table or Lisa's Personal Training. Lisa's Assistant reads the requests a few
+   * times a day in the Google Sheet "Lisa Change Requests" (Drive > Second Brain > Lisa's Table, columns ID | Submitted | Section |
+   * Request | Status | Reply | Updated), does the work and answers in Status (New / In progress / Needs your OK / Done) + Reply.
+   * Server: action=lisareq (POST, appends one row; the phone's id = idempotency key, never doubles) and action=lisareqlist (read
+   * requests + replies), backend/lisa-requests.patch (Api v54). Until that update is deployed the server answers bad_action: each
+   * request is kept on THIS phone (localStorage cc_lisareq_v1) with the chip "Waiting to send" and the screen says so plainly; every
+   * open / Refresh / pull-down (and a quiet check at most every 30 min while the app is open) asks lisareqlist, and as soon as it
+   * answers, every waiting request is sent and the list switches to the sheet (statuses + replies). Request text never goes into the repo. */
+  var LR_KEY = 'cc_lisareq_v1', LR_DRAFT_KEY = 'cc_lisareq_draft', LR_SEC_KEY = 'cc_lisareq_sec', LR_CHK_KEY = 'cc_lisareq_chk';
+  var LR_QUIET_MS = 30 * 60 * 1000;
+  var LR_SECS = { lt: 'Lisa\u2019s Table', pt: 'Personal Training', both: 'Both' };
+  var LR_ST = { 'New': 'new', 'In progress': 'prog', 'Needs your OK': 'ok', 'Done': 'done' };
+  var lr = { rec: null, on: false, base: '', committed: '', interim: '', msg: '', sec: 'lt', server: '', err: '', busy: false, checked: 0, flash: '', flashBad: false, confirmId: '', pull: 0 };
+  function lrOnScreen() { var s = $('screen-lr'); return !!s && s.classList.contains('active'); }
+  function lrLoad() {
+    var l = lsGet(LR_KEY, []);
+    return (Array.isArray(l) ? l : []).filter(function (x) { return x && x.id && typeof x.text === 'string'; });
+  }
+  function lrStore(list) { try { localStorage.setItem(LR_KEY, JSON.stringify(list)); return true; } catch (e) { return false; } }
+  function lrSorted(list) { return list.slice().sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); }); }
+  function lrNewId() { return 'lr' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+  function lrStatus(s) { return LR_ST[s] ? s : 'New'; }
+  function lrWhen(ms) {
+    var d = new Date(ms); if (!ms || isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' }) + ', ' +
+      d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  }
+  function lrMs(iso) { var t = Date.parse(iso || ''); return isNaN(t) ? 0 : t; }
+  function lrFlash(text, bad) { lr.flash = text || ''; lr.flashBad = !!bad; var el = $('lr-flash'); if (el) { el.textContent = lr.flash; el.hidden = !lr.flash; el.className = 'noteflash' + (lr.flash ? ' show' : '') + (bad ? ' bad' : ''); } }
+  function lrOpen() {
+    lrMicStop(true);
+    $('lr-back').setAttribute('data-go', hlItemBack('lr', 'hf/lisa'));
+    lr.msg = ''; lr.confirmId = ''; lr.flash = '';
+    var s = lsGet(LR_SEC_KEY, 'lt'); lr.sec = LR_SECS[s] ? s : 'lt';
+    $('lr-body').innerHTML =
+      '<div class="lr">' +
+      '<div class="lrpull" id="lr-pull" aria-hidden="true"><span>Pull to refresh</span></div>' +
+      '<div class="card draft lrnew" id="lr-card"><h3>New request <span class="rec-tag" id="lr-rec" hidden>&#9679; Listening</span></h3>' +
+      '<div class="vchips lrsecs" role="group" aria-label="Which section">' + Object.keys(LR_SECS).map(function (k) {
+        return '<button type="button" class="vchip' + (k === lr.sec ? ' on' : '') + '" data-lr="sec" data-sec="' + k + '" aria-pressed="' + (k === lr.sec ? 'true' : 'false') + '">' + esc(LR_SECS[k]) + '</button>';
+      }).join('') + '</div>' +
+      '<textarea id="lr-text" class="notebox" rows="4" maxlength="4000" autocapitalize="sentences" placeholder="What would you like changed? Type it, or tap the mic and say it."></textarea>' +
+      '<div class="micstate" id="lr-state">&nbsp;</div>' +
+      '<div class="lrbtns"><button type="button" class="micbtn lrmic" id="lr-btn" data-lr="mic" aria-pressed="false" aria-label="Start dictation"><span class="micico" aria-hidden="true">' + vsvg('mic', 30) + '</span></button>' +
+      '<button type="button" class="bigsave lrsend" data-lr="send" id="lr-send">Send</button></div>' +
+      '<button type="button" class="lrclear" data-lr="clear" id="lr-clear" hidden>Clear</button>' +
+      '<div class="noteflash" id="lr-flash" hidden></div></div>' +
+      '<div class="wlhead"><h3 class="sechead">My requests <small id="lr-count"></small></h3><button type="button" class="navbtn wlref refbtn" data-lr="refresh" id="lr-ref">Refresh</button></div>' +
+      '<div id="lr-conn"></div><div id="lr-list"></div></div>';
+    var ta = $('lr-text'); ta.value = String(lsGet(LR_DRAFT_KEY, '') || '');
+    lrUi(); lrListRender();
+    lrRefresh(true);
+  }
+  function lrUi() {
+    var btn = $('lr-btn'); if (!btn) return;
+    var on = lr.on, has = !!$('lr-text').value.trim();
+    btn.classList.toggle('rec', on); btn.setAttribute('aria-pressed', on ? 'true' : 'false'); btn.setAttribute('aria-label', on ? 'Stop dictation' : 'Start dictation');
+    var st = $('lr-state'); st.className = 'micstate' + (on ? ' rec' : '') + (lr.msg && !on ? ' warn' : '');
+    st.textContent = on ? 'Listening\u2026 tap the mic to stop' : (lr.msg || (has ? '' : 'Tap the mic to talk, or type.'));
+    $('lr-rec').hidden = !on;
+    $('lr-card').classList.toggle('live', on);
+    $('lr-send').disabled = !has || on;
+    $('lr-clear').hidden = !has || on;
+  }
+  function lrMicFail(msg) { lr.on = false; var r = lr.rec; lr.rec = null; try { r && r.abort(); } catch (e) {} lr.msg = msg; lrUi(); var ta = $('lr-text'); if (ta) ta.focus(); }
+  function lrMicStart() {
+    var ta = $('lr-text');
+    if (!SR) { lr.msg = MIC_NA; lrUi(); ta.focus(); return; }
+    lr.msg = ''; lr.base = ta.value ? ta.value.replace(/\s+$/, '') + ' ' : ''; lr.committed = ''; lr.interim = '';
+    var rec; try { rec = new SR(); } catch (e) { return lrMicFail(MIC_NA); }
+    rec.continuous = false; rec.interimResults = true; rec.lang = 'en-US'; rec.maxAlternatives = 1;
+    rec.onresult = function (ev) {
+      var interim = '';
+      for (var i = ev.resultIndex; i < ev.results.length; i++) {
+        var r = ev.results[i], t = r[0] ? r[0].transcript : '';
+        if (r.isFinal) lr.committed = micSpace(lr.committed, t.trim() + ' '); else interim += t;
+      }
+      lr.interim = interim.replace(/^\s+/, ''); ta.value = lr.base + lr.committed + lr.interim; ta.scrollTop = ta.scrollHeight;
+    };
+    rec.onerror = function (ev) {
+      var e = ev && ev.error;
+      if (e === 'not-allowed' || e === 'service-not-allowed' || e === 'audio-capture' || e === 'language-not-supported') return lrMicFail(MIC_NA);
+      if (e === 'network') return lrMicFail('The speech service couldn\u2019t be reached. Tap the text box and use your keyboard\u2019s mic key.');
+      if (e === 'no-speech') lr.msg = 'Didn\u2019t catch anything. Tap the mic and try again.';
+    };
+    rec.onend = function () {
+      if (lr.rec !== rec) return;                        // aborted / screen left
+      lr.committed = micSpace(lr.committed, lr.interim ? lr.interim.trim() + ' ' : ''); lr.interim = '';
+      lr.on = false; lr.rec = null;
+      ta.value = (lr.base + lr.committed).replace(/\s+$/, ''); lsSet(LR_DRAFT_KEY, ta.value);   // added to the box; nothing is sent until Send
+      lrUi();
+    };
+    lr.rec = rec; lr.on = true;
+    try { rec.start(); } catch (e2) { return lrMicFail(MIC_NA); }
+    lrUi();
+  }
+  function lrMicStop(quiet) {
+    var r = lr.rec;
+    if (quiet) { lr.rec = null; lr.on = false; try { r && r.abort(); } catch (e) {} return; }
+    if (r) { try { r.stop(); } catch (e2) { lr.rec = null; lr.on = false; lrUi(); } }
+  }
+  function lrConnRender() {
+    var box = $('lr-conn'); if (!box) return;
+    var waiting = lrLoad().filter(function (x) { return !x.sent; }).length, h = '';
+    if (lr.busy && !lr.server) h = '<div class="lrconn">Checking for replies\u2026</div>';
+    else if (lr.server === 'pending') h = '<div class="lrconn lrc-warn"><b>Not connected yet.</b> Requests are saved on this phone and will send on their own after Zac\u2019s server update. Lisa\u2019s Assistant can\u2019t see them until then.' +
+      (waiting ? ' <span class="lrw">' + waiting + ' waiting to send.</span>' : '') + '</div>';
+    else if (lr.server === 'error') h = '<div class="lrconn lrc-bad">Couldn\u2019t check for replies: ' + esc(lr.err) + (waiting ? ' ' + waiting + ' request' + (waiting === 1 ? ' is' : 's are') + ' saved on this phone and will send later.' : '') + '</div>';
+    else if (lr.server === 'live') h = '<div class="lrconn lrc-ok">Connected. Requests go straight to Lisa\u2019s Assistant.' + (lr.checked ? ' Checked ' + esc(lrWhen(lr.checked)) + '.' : '') + (lr.busy ? ' Updating\u2026' : '') + '</div>';
+    box.innerHTML = h;
+    var rb = $('lr-ref'); if (rb) { rb.disabled = lr.busy; rb.textContent = lr.busy ? 'Checking\u2026' : 'Refresh'; }
+  }
+  function lrListRender() {
+    var box = $('lr-list'); if (!box) return;
+    var list = lrSorted(lrLoad());
+    $('lr-count').textContent = list.length ? String(list.length) : '';
+    lrConnRender();
+    if (!list.length) { box.innerHTML = '<div class="card wlcard"><div class="foot empty">No requests yet. Ask for a change above; replies show up here.</div></div>'; return; }
+    box.innerHTML = list.map(function (x) {
+      var id = esc(x.id), st = x.sent ? lrStatus(x.status) : '', chip = x.sent ? '<span class="lrchip st-' + LR_ST[st] + '">' + esc(st) + '</span>' : '<span class="lrchip st-wait">Waiting to send</span>';
+      var h = '<div class="card lritem' + (x.sent ? ' st-' + LR_ST[st] : ' st-wait') + '" data-id="' + id + '">' +
+        '<div class="lrtop">' + chip + '<span class="lrsec">' + esc(LR_SECS[x.section] || LR_SECS.lt) + '</span></div>' +
+        '<div class="lrtext">' + esc(x.text) + '</div>' +
+        '<div class="lrmeta">' + esc(lrWhen(x.ts)) + (x.sent ? '' : ' \u00b7 saved on this phone') + (x.err ? ' \u00b7 <span class="lrerr">' + esc(x.err) + '</span>' : '') + '</div>';
+      if (x.sent && x.reply) h += '<div class="lrreply"><div class="lrrh">Reply' + (x.updated ? ' <small>' + esc(lrWhen(x.updated)) + '</small>' : '') + '</div><div class="lrrt">' + esc(x.reply) + '</div></div>';
+      if (x.sent && st === 'Needs your OK') h += '<button type="button" class="navbtn lranswer" data-lr="answer" data-id="' + id + '">Answer</button>';
+      if (!x.sent) {
+        h += lr.confirmId === x.id ? '<div class="lrconf"><div class="vdelq">Delete this request? It hasn\u2019t been sent.</div><div class="draftbtns"><button type="button" class="bigsave vdelbtn" data-lr="delyes" data-id="' + id + '">Yes, delete</button><button type="button" class="navbtn" data-lr="delno">Keep</button></div></div>'
+          : '<button type="button" class="lrdel" data-lr="del" data-id="' + id + '">Delete</button>';
+      }
+      return h + '</div>';
+    }).join('');
+  }
+  // Server list -> phone list: the sheet is the record for sent requests (one removed from the sheet leaves the phone too);
+  // requests still waiting stay as they are. Rows typed into the sheet by hand show up as well.
+  function lrMerge(items) {
+    var waiting = lrLoad().filter(function (x) { return !x.sent; }), have = {};
+    var srv = (items || []).filter(function (s) { return s && s.id && String(s.request || '').trim(); }).map(function (s) {
+      have[String(s.id)] = 1;
+      return { id: String(s.id), ts: lrMs(s.submitted) || Date.now(), section: LR_SECS[s.section] ? s.section : 'lt', text: String(s.request || ''),
+               sent: 1, status: lrStatus(s.status), reply: String(s.reply || ''), updated: lrMs(s.updated) };
+    });
+    lrStore(waiting.filter(function (x) { return !have[x.id]; }).concat(srv));
+  }
+  function lrSendOne(x) {
+    return apiPostRaw('lisareq', { id: x.id, cid: x.id, text: x.text, section: x.section, ts: x.ts }, 45000).then(function (j) {
+      if (j.error === 'bad_action') { lr.server = 'pending'; return 'stop'; }
+      var all = lrLoad(), hit = all.filter(function (y) { return y.id === x.id; })[0];
+      if (!hit) return 'ok';
+      if (j.error || !j.data) { hit.err = 'not sent yet: ' + (j.message || j.error || 'server error'); lrStore(all); return 'ok'; }
+      var it = j.data.item || {};
+      hit.sent = 1; hit.err = ''; hit.status = lrStatus(it.status); hit.reply = String(it.reply || ''); hit.updated = lrMs(it.updated);
+      lrStore(all);
+      return 'ok';
+    });
+  }
+  function lrSendWaiting() {
+    var pend = lrLoad().filter(function (x) { return !x.sent; }).sort(function (a, b) { return (a.ts || 0) - (b.ts || 0); }), i = 0, sent = 0;
+    return new Promise(function (res) {
+      (function next() {
+        if (i >= pend.length || lr.server !== 'live') return res(sent);
+        lrSendOne(pend[i++]).then(function (r) { if (r === 'stop') return res(sent); sent++; next(); }, function (err) {
+          if (vAuth(err)) return res(-1);
+          var all = lrLoad(), hit = all.filter(function (y) { return y.id === pend[i - 1].id; })[0];
+          if (hit) { hit.err = 'not sent yet: ' + friendly(err); lrStore(all); }
+          next();
+        });
+      })();
+    });
+  }
+  // Ask lisareqlist: bad_action = server not updated yet; ok = send every waiting request, then show the sheet's list.
+  function lrRefresh(loud) {
+    if (lr.busy || !getPc()) return;
+    lr.busy = true; lsSet(LR_CHK_KEY, Date.now());
+    if (lrOnScreen()) lrConnRender();
+    var done = function () { lr.busy = false; if (lrOnScreen()) lrListRender(); };
+    var list = function () {
+      return apiRaw('lisareqlist', {}).then(function (j) {
+        if (j.error === 'bad_action') { lr.server = 'pending'; return false; }
+        if (j.error || !j.data) { lr.server = 'error'; lr.err = j.message || j.error || 'server error'; return false; }
+        lr.server = 'live'; lr.checked = Date.now(); lrMerge(j.data.items); return true;
+      });
+    };
+    list().then(function (live) {
+      if (!live || !lrLoad().some(function (x) { return !x.sent; })) return done();
+      lrSendWaiting().then(function (n) { if (n > 0) return list().then(done, done); done(); });
+    }, function (err) {
+      if (vAuth(err)) { lr.busy = false; return; }
+      lr.server = 'error'; lr.err = friendly(err); done();
+    });
+  }
+  function lrSend() {
+    var ta = $('lr-text'), text = ta.value.replace(/^\s+|\s+$/g, '');
+    if (!text) return lrFlash('Type or say something first.', true);
+    lrMicStop(true); lr.on = false;
+    var x = { id: lrNewId(), ts: Date.now(), section: lr.sec, text: text.slice(0, 4000), sent: 0 };
+    var all = lrLoad(); all.push(x);
+    if (!lrStore(all)) return lrFlash('Could not save on this phone (storage is full or blocked). Your text is still in the box.', true);
+    ta.value = ''; lsSet(LR_DRAFT_KEY, ''); lr.msg = ''; lrUi(); lrListRender();
+    if (lr.server === 'pending') { lrFlash('Saved on this phone. It will send on its own after the server update.', false); return; }
+    lrFlash('Sending\u2026', false);
+    if (lr.server === 'live' && !lr.busy) {
+      lr.busy = true; lrConnRender();
+      lrSendOne(x).then(function (r) {
+        lr.busy = false;
+        var now = lrLoad().filter(function (y) { return y.id === x.id; })[0];
+        if (r === 'stop') lrFlash('Saved on this phone. It will send on its own after the server update.', false);
+        else if (now && now.sent) lrFlash('Sent to Lisa\u2019s Assistant.', false);
+        else lrFlash('Saved on this phone; not sent yet. It will try again on Refresh.', true);
+        lrListRender();
+      }, function (err) {
+        lr.busy = false; if (vAuth(err)) return;
+        lrFlash('Saved on this phone; not sent yet (' + friendly(err) + '). It will try again on Refresh.', true); lrListRender();
+      });
+      return;
+    }
+    // server state unknown (first check still running or failed): the regular check sends it if the server is ready
+    var wait = function () {
+      if (lr.busy) return setTimeout(wait, 400);
+      lrRefresh(false);
+      var fin = function () {
+        if (lr.busy) return setTimeout(fin, 400);
+        var now = lrLoad().filter(function (y) { return y.id === x.id; })[0];
+        lrFlash(now && now.sent ? 'Sent to Lisa\u2019s Assistant.' : 'Saved on this phone. It will send on its own ' + (lr.server === 'pending' ? 'after the server update.' : 'when the server can be reached.'), false);
+      };
+      setTimeout(fin, 50);
+    };
+    wait();
+  }
+  $('lr-body').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-lr]'); if (!b) return;
+    var a = b.getAttribute('data-lr'), id = b.getAttribute('data-id');
+    if (a === 'mic') { if (lr.on) lrMicStop(); else lrMicStart(); }
+    else if (a === 'send') lrSend();
+    else if (a === 'clear') { lrMicStop(true); lr.on = false; $('lr-text').value = ''; lsSet(LR_DRAFT_KEY, ''); lr.msg = ''; lrUi(); lrFlash('', false); }
+    else if (a === 'sec') {
+      lr.sec = LR_SECS[b.getAttribute('data-sec')] ? b.getAttribute('data-sec') : 'lt'; lsSet(LR_SEC_KEY, lr.sec);
+      [].forEach.call($('lr-card').querySelectorAll('.vchip'), function (c) { var on = c === b; c.classList.toggle('on', on); c.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+    }
+    else if (a === 'refresh') { lrFlash('', false); lrRefresh(true); }
+    else if (a === 'del') { lr.confirmId = lr.confirmId === id ? '' : id; lrListRender(); }
+    else if (a === 'delno') { lr.confirmId = ''; lrListRender(); }
+    else if (a === 'delyes') {
+      var keep = lrLoad().filter(function (x) { return !(x.id === id && !x.sent); });
+      if (!lrStore(keep)) return lrFlash('Could not change the list on this phone.', true);
+      lr.confirmId = ''; lrListRender(); lrFlash('Deleted.', false);
+    }
+    else if (a === 'answer') {
+      var it = lrLoad().filter(function (x) { return x.id === id; })[0]; if (!it) return;
+      var ta = $('lr-text'), q = it.text.replace(/\s+/g, ' ');
+      ta.value = 'About \u201c' + (q.length > 60 ? q.slice(0, 57) + '\u2026' : q) + '\u201d: ';
+      lsSet(LR_DRAFT_KEY, ta.value);
+      var sb = $('lr-card').querySelector('.vchip[data-sec="' + (it.section || 'lt') + '"]'); if (sb) sb.click();
+      lrUi(); window.scrollTo(0, 0); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+    }
+  });
+  $('lr-body').addEventListener('input', function (e) { if (e.target.id === 'lr-text') { lsSet(LR_DRAFT_KEY, e.target.value); lrUi(); } });
+  // Pull down from the top of the list to refresh (touch screens; the Refresh button does the same).
+  (function () {
+    var y0 = -1, dy = 0, scr = $('screen-lr');
+    function ind() { var p = $('lr-pull'); if (!p) return; var h = Math.min(70, Math.max(0, dy * 0.5)); p.style.height = h + 'px'; p.classList.toggle('ready', dy > 120); p.firstChild.textContent = dy > 120 ? 'Release to refresh' : 'Pull to refresh'; }
+    scr.addEventListener('touchstart', function (e) { y0 = (window.scrollY <= 0 && e.touches.length === 1 && !lr.busy) ? e.touches[0].clientY : -1; dy = 0; }, { passive: true });
+    scr.addEventListener('touchmove', function (e) { if (y0 < 0) return; dy = e.touches[0].clientY - y0; if (dy < 0 || window.scrollY > 0) { dy = 0; } ind(); }, { passive: true });
+    scr.addEventListener('touchend', function () { if (y0 < 0) return; var go = dy > 120; y0 = -1; dy = 0; ind(); if (go) { lrFlash('', false); lrRefresh(true); } }, { passive: true });
+  })();
+  // Quiet background check (at most every 30 min while the app is open): waiting requests go out even if the box isn't reopened.
+  function lrQuiet() {
+    if (!getPc() || lr.busy || lrOnScreen()) return;
+    if (!lrLoad().some(function (x) { return !x.sent; })) return;
+    if (Date.now() - (+lsGet(LR_CHK_KEY, 0) || 0) < LR_QUIET_MS) return;
+    lrRefresh(false);
+  }
+  setTimeout(lrQuiet, 8000);
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') setTimeout(lrQuiet, 3000); });
+
   /* ---------------- Lisa's Personal Training (#pt): clients -> profile -> workouts ---------------- */
   // Live from the Sheet "Lisa's Personal Training" through ptclients (read) and ptclientset / ptclientdel / ptworkoutset / ptworkoutdel (writes, cid + POST).
   // Nothing about clients is stored in this repo or in localStorage (only which cards are open). Unsaved edits live in memory until Save.
@@ -17477,7 +17756,8 @@
     'biz':       { label: 'Business', go: 'biz', folder: true },
     'pc':        { label: 'Plan Checks', go: 'pc', sub: 'Mic checklist \u00b7 fullscreen plan \u00b7 pins & notes', cls: 'pc-entry' },
     'f:archive': { label: 'Archive', go: 'hf/archive', folder: true },
-    'f:lisa':    { label: 'Lisa', go: 'hf/lisa', folder: true },   // v113: empty Home folder (drag buttons in)
+    'f:lisa':    { label: 'Lisa', go: 'hf/lisa', folder: true },   // v113: Home folder (v130: holds Change requests by default; drag buttons in)
+    'lr':        { label: 'Change requests', go: 'lr', sub: 'Ask for a change \u00b7 see replies', cls: 'lr-entry' },   // v130: Lisa's change requests (#lr)
     'f:fh':      { label: 'Fitness & Health', go: 'hf/fh', folder: true },   // v122: Daily Log (overview), Food Log, Workout Log, Medical
     'food':      { label: 'Food Log', go: 'food' },
     'workouts':  { label: 'Workout Log', go: 'workouts' },
@@ -17494,6 +17774,7 @@
     projects: ['pc'],
     'f:fh': HL_FH_IN.slice(),
     'f:medical': ['health'],
+    'f:lisa': ['lr'],   // v130: saved layouts get it too (hlNormalize slots new items into their default folder)
     biz: ['f:archive'],
     fin: ['fin/ledger', 'fin/invest'],
     'f:archive': HL_TO_ARCHIVE.slice()

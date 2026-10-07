@@ -138,3 +138,27 @@ Until it is deployed (front end v127):
 After deploying, no front-end change is needed. The next time Lisa's Table opens, every waiting menu uploads on its own (same cid, so no doubles), each card switches to "Saved to Drive › Past Menus", and the PDF shows up in the Drive list.
 
 Check after deploying: `…/exec?api=1&pc=PASSCODE&action=ltmenusave&dry=1&name=Test` should return `{"ok":true,"data":{"dry":true,…,"name":"Test.pdf",…,"version":53}}`. The dry run creates nothing.
+
+## lisa-requests.patch (API v54, Lisa > Change requests)
+Patch against Api.gs v45 (independent of the other patches here; applies before or after them). Apply it, then redeploy the Apps Script web app (Zac signs in, Deploy > Manage deployments > edit > New version). It only opens one existing spreadsheet with SpreadsheetApp (the same kind of write `wishadd` already does), so no new authorization should be needed.
+
+The sheet: **Lisa Change Requests**, Drive > Second Brain > Lisa's Table, id `1XIa2IhGWY2DWzqIRsvxzf0A94g8Y9Y7z4ItsPXo5Y8c` (created 2026-10-07; `API_LR.sheetId`, with a find-by-name fallback in the Lisa's Table folder). First tab, row 1 = `ID | Submitted | Section | Request | Status | Reply | Updated`. Nothing in this patch creates a sheet or changes any sharing.
+
+What it adds:
+- `lisareq` (POST JSON body, or GET): `{ pc, action:'lisareq', id, text, section:'lt'|'pt'|'both', ts }`. Appends one row: ID = the phone's id (`lr…`), Submitted = `ts` when within the last 60 days (when Lisa wrote it), else now; Section = `Lisa’s Table` / `Personal Training` / `Both`; Request (line breaks kept, max 4000 characters, stored as text so it can never become a formula); Status = `New`; Reply empty; Updated = now. The id is the idempotency key: sending the same id again returns the saved row (`duplicate:'id'`) and never adds a second one. `dry=1` validates only. The CC write log gets one line (id, section, number of characters; not the request text).
+- `lisareqlist` (read): `{ items:[{ id, row, submitted, section:'lt'|'pt'|'both', sectionLabel, request, status, reply, updated }], counts, total, sheetUrl, version:54 }`, newest first. Any status typed in the sheet is read loosely ("done", "in progress", "needs ok", blank = New) and comes back as one of `New`, `In progress`, `Needs your OK`, `Done`. Rows typed by hand without an ID get `row<N>`.
+- `lisareqset` (for Lisa's Assistant): `id`, `status` (New | In progress | Needs your OK | Done), `reply` (max 4000; `''` clears; `reply_mode=append` adds under the old reply). Sets Updated = now. GET for short replies, POST JSON body for long ones. `dry=1` previews.
+- `lisareqdel` (test cleanup only): deletes ONE row, and only when its Request starts with `TEST`.
+
+Until it is deployed (front end v130): Home > Lisa > Change requests works on the phone. A request is saved in that browser's localStorage (`cc_lisareq_v1`) with the chip "Waiting to send", and the screen says "Not connected yet … will send on their own after Zac's server update. Lisa's Assistant can't see them until then." Every open, Refresh and pull-down (and a quiet check at most every 30 minutes while the app is open, when something is waiting) asks `lisareqlist`; the live server answers `bad_action`, so nothing is sent.
+
+After deploying, no front-end change is needed: the next check gets an answer, every waiting request is sent (same id, so no doubles), the banner turns to "Connected", and the list shows the sheet's statuses and replies.
+
+Lisa's Assistant, a few times a day:
+1. Read: Drive `read_file_content` on `1XIa2IhGWY2DWzqIRsvxzf0A94g8Y9Y7z4ItsPXo5Y8c` (or `…/exec?api=1&pc=PASSCODE&action=lisareqlist`). New work = rows with Status `New` (or blank).
+2. While working: `…/exec?api=1&pc=PASSCODE&action=lisareqset&id=<ID>&status=In%20progress&reply=<short note>`.
+3. Need Lisa to decide something: `status=Needs your OK` with the question in `reply`. (She gets an Answer button; her answer arrives as a new request that starts with `About "…":`.)
+4. Finished: `status=Done` with what changed in `reply`.
+The Drive connector tools can read the sheet but cannot edit cells, so replies go through `lisareqset` (or someone types them into the Status / Reply cells; the app reads whatever is there).
+
+Check after deploying: `…/exec?api=1&pc=PASSCODE&action=lisareqlist` should return `{"ok":true,"data":{"exists":true,…,"items":[],…,"version":54}}`, and `…&action=lisareq&id=lrcheck1&text=TEST%20check&section=lt&dry=1` should return `"dry":true` without writing anything.
