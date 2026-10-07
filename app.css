@@ -2738,3 +2738,8 @@ body.hl-busy { -webkit-user-select: none; user-select: none; cursor: grabbing; }
 #screen-tm .tm-edit .tk-input { display: block; width: 100%; flex: none; }
 #screen-tm .tm-lbl { color: #c9a07e; font-size: 11px; font-weight: 800; letter-spacing: .7px; text-transform: uppercase; margin-top: 4px; }
 #screen-tm .tm-src { margin-top: 10px; }
+
+/* v132 Hiring (#hiring; L&S projects > Hiring): copper-edged entry button like Plan Checks; doc tiles short, an odd last tile spans the row */
+.tile.hiring-entry { border-color: rgba(208,138,85,.55); }
+#hiring-list .tile.small { min-height: 72px; }
+#hiring-list .tile:last-child:nth-child(odd) { grid-column: 1 / -1; }

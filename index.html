@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lora:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=131">
+<link rel="stylesheet" href="app.css?v=132">
 </head>
 <body>
   <div class="bg"></div>
@@ -70,6 +70,13 @@
     <p class="hint">Opens each project's Running Notes.</p>
     <div class="grid2 homegrid hl-grid hl-sub" id="hl-projects" data-hl-folder="projects"></div>
     <div class="grid2" id="projects-list"></div>
+  </section>
+
+  <!-- ============ HIRING (#hiring; L&S projects > Hiring, v132): links to the hiring docs + folder (hard-coded in app.js HIRING) ============ -->
+  <section id="screen-hiring" class="screen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="hiring-back" data-go="projects">&lsaquo; Back</button></div>
+    <h2 class="pagetitle" id="hiring-title">Hiring &ndash; Structural Engineer</h2>
+    <div id="hiring-body"></div>
   </section>
 
   <!-- ============ PROJECT PAGE (#proj/<slug>) — Terra Vi is the pilot ============ -->
@@ -340,6 +347,6 @@
     <div id="vcam-body"></div>
   </section>
 
-  <script src="app.js?v=131"></script>
+  <script src="app.js?v=132"></script>
 </body>
 </html>

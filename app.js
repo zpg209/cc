@@ -14,7 +14,7 @@
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', ovKey: '', invAcct: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
-  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm'];
+  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -566,6 +566,7 @@
     if (name === 'mf') mfOpen();
     if (name === 'pc') pcOpen();
     if (name === 'lr') lrOpen();
+    if (name === 'hiring') hiringOpen();
     if (name === 'doc') { state.docKey = String(route || '').replace(/^#/, ''); openDocScreen(qparams(R.query)); }
     else restoreScroll(String(route || '').replace(/^#/, '') || 'home');
   }
@@ -1185,6 +1186,26 @@
       return tile(p, p.kind === 'doc' ? 'Running notes' : p.kind === 'folder' ? 'Drive folder' : '');
     }).join('');
     applyAreaUrls(d);
+  }
+
+  /* ---------------- Hiring (#hiring; L&S projects > Hiring, v132) ---------------- */
+  // A small static screen: links to the Structural Engineer hiring docs + the Hiring folder, hard-coded like the PROJ entries
+  // (no server call). Google Docs open in the in-app viewer (tile() / toEmbed()); 'Open Hiring folder' follows the other
+  // screens' 'Open ... folder' linkrow. The L&S projects button is a layout item ('hiring' in HL_ITEMS, default L&S projects).
+  var HIRING = {
+    title: 'Hiring \u2013 Structural Engineer',
+    folderUrl: 'https://drive.google.com/drive/folders/1pcjdV7TLVE3VIMYxAHgczCcwQOg8k7Yt',
+    docs: [
+      { name: 'Recruiting plan', url: 'https://docs.google.com/document/d/1T_1hPHPLDHHyqgoR19M9WPO1OVbVx7Q5eXh7LVcjz7g/edit' },
+      { name: 'Reuben\u2019s draft brochure', url: 'https://docs.google.com/document/d/1v04ul_Zz4JiHfUhRmOqjVP4gNmlzbbrfS8aeNMDMTSA/edit' },
+      { name: 'LinkedIn refresh', url: 'https://docs.google.com/document/d/1G_G3etAES1sR34psg9vR6ZCXmfK9zSHoy7vtEIk-vLs/edit' }
+    ]
+  };
+  function hiringOpen() {
+    $('hiring-title').textContent = HIRING.title;
+    $('hiring-back').setAttribute('data-go', hlItemBack('hiring', 'projects'));   // Back = the folder the Hiring button sits in
+    $('hiring-body').innerHTML = '<div class="grid2" id="hiring-list">' + HIRING.docs.map(function (d) { return tile(d, 'Google Doc'); }).join('') + '</div>' +
+      '<a class="linkrow" data-title="Hiring" href="' + esc(HIRING.folderUrl) + '">Open Hiring folder &rsaquo;</a>';
   }
 
   /* ---------------- Daily log ---------------- */
@@ -17936,7 +17957,7 @@
 
   /* ---------------- Init ---------------- */
   /* ---------------- Home layout: folders + press-and-hold drag (reorder, move into folders) ---------------- */
-  // Every Home button (and the Plan Checks button in L&S projects) is a layout item keyed by its route. Folder items
+  // Every Home button (and the Plan Checks and Hiring buttons in L&S projects) is a layout item keyed by its route. Folder items
   // (L&S projects, Business, Archive) hold other items. The layout lives on this device only (localStorage
   // 'cc_home_layout'); HL_DEFAULT is the fallback, and items shipped later are slotted into their default folder.
   // Moving an item only changes where its button appears: the button keeps its data-go, so it opens the same screen.
@@ -17969,6 +17990,7 @@
     'mf':        { label: 'Mono Fold', go: 'mf' },
     'biz':       { label: 'Business', go: 'biz', folder: true },
     'pc':        { label: 'Plan Checks', go: 'pc', sub: 'Mic checklist \u00b7 fullscreen plan \u00b7 pins & notes', cls: 'pc-entry' },
+    'hiring':    { label: 'Hiring', go: 'hiring', sub: 'Structural Engineer \u00b7 docs', cls: 'hiring-entry' },   // v132: L&S projects > Hiring (#hiring)
     'f:archive': { label: 'Archive', go: 'hf/archive', folder: true },
     'tm':        { label: 'Task Manager', go: 'tm' },   // v131: Today + Suggestions (was the task list at the top of Home)
     'f:lisa':    { label: 'Lisa', go: 'hf/lisa', folder: true },   // v113: Home folder (v130: holds Change requests by default; drag buttons in)
@@ -17986,7 +18008,7 @@
   };
   var HL_DEFAULT = {
     home: ['tm', 'projects', 'f:fh', 'spend', 'fin', 'insn', 'lt', 'pt', 'trust', 'ent/kiwit', 'ent/tiwik', 'mf', 'biz', 'f:lisa'],
-    projects: ['pc'],
+    projects: ['pc', 'hiring'],   // v132: Hiring after Plan Checks (saved layouts get it too: hlNormalize slots it in after Plan Checks)
     'f:fh': HL_FH_IN.slice(),
     'f:medical': ['health'],
     'f:lisa': ['lr'],   // v130: saved layouts get it too (hlNormalize slots new items into their default folder)
