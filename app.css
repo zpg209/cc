@@ -940,10 +940,6 @@ span.dbnum { font-weight: 700; font-variant-numeric: tabular-nums; }
   font: 700 14px/1.1 'Inter', sans-serif; cursor: pointer; }
 .enttabs button.on { color: #1b1b1b; background: var(--copper); border-color: var(--copper); }
 .enttabs button:active { background: var(--btn-press); }
-.entpick { position: relative; display: flex; align-items: center; justify-content: center; min-height: 48px; cursor: pointer; }
-.entpick span { border-bottom: 1px dashed rgba(208,138,85,.7); padding-bottom: 1px; }
-.entpick input[type=month] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 16px; }
-.entpick input[hidden] { display: none; }
 .navbtn:disabled { opacity: .35; pointer-events: none; }
 .entscore { padding: 6px 12px; }
 .entscore h3 { margin: 8px 0 4px; }
@@ -2305,6 +2301,8 @@ body.hl-busy { -webkit-user-select: none; user-select: none; cursor: grabbing; }
 .vmb.on small { opacity: 1; }
 .vmb.on b { color: #FFB27A; }
 .vmb:focus-visible { outline: 2px solid #FFB27A; outline-offset: 1px; }
+/* v133: the KiwiT / TiwiK books use the same bar (#ent-mbar); hidden on Business Documents and the Tax export (which keeps its year stepper) */
+#ent-mbar[hidden], #ent-nav[hidden] { display: none; }
 
 /* ---- v114: Category (type-ahead input in the Add / Edit forms; tag on every entry row; by-category totals) ---- */
 .vcatbox { position: relative; }

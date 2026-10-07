@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lora:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=132">
+<link rel="stylesheet" href="app.css?v=133">
 </head>
 <body>
   <div class="bg"></div>
@@ -308,10 +308,16 @@
   <section id="screen-ent" class="screen">
     <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="ent-back" data-go="ent/kiwit" hidden>&lsaquo; Back</button><h2 id="ent-title">KiwiT LLC</h2></div>
     <div class="enttabs two" id="ent-tabs" hidden></div>
-    <div class="weeknav" id="ent-nav">
-      <button class="navbtn" id="ent-prev">&lsaquo; Prev month</button>
-      <label class="navlabel entpick"><span id="ent-month">&nbsp;</span><input type="month" id="ent-pick" min="2025-01" aria-label="Pick a month"></label>
-      <button class="navbtn" id="ent-next">Next month &rsaquo;</button>
+    <div class="vmbar" id="ent-mbar" role="group" aria-label="Period">
+      <button type="button" class="vmb" id="ent-prev" aria-label="Previous month"><small>&lsaquo; Prev</small><b id="ent-prev-l">&nbsp;</b></button>
+      <button type="button" class="vmb on" id="ent-cur" aria-pressed="true"><small id="ent-cur-s">This month</small><b id="ent-month">&nbsp;</b></button>
+      <button type="button" class="vmb" id="ent-next" aria-label="Next month"><small>Next &rsaquo;</small><b id="ent-next-l">&nbsp;</b></button>
+      <button type="button" class="vmb" id="ent-all" aria-pressed="false" aria-label="All: year to date"><small id="ent-all-s">YTD</small><b>All</b></button>
+    </div>
+    <div class="weeknav" id="ent-nav" hidden>
+      <button class="navbtn" id="ent-yprev">&lsaquo; Prev year</button>
+      <span class="navlabel" id="ent-year">&nbsp;</span>
+      <button class="navbtn" id="ent-ynext">Next year &rsaquo;</button>
     </div>
     <div id="ent-body"><div class="loading">Loading…</div></div>
   </section>
@@ -347,6 +353,6 @@
     <div id="vcam-body"></div>
   </section>
 
-  <script src="app.js?v=132"></script>
+  <script src="app.js?v=133"></script>
 </body>
 </html>

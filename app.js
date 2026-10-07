@@ -2649,15 +2649,18 @@
   function vTodayIso() { var t = new Date(); return t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2); }
   function ytdDays() { var t = new Date(); return Math.round((new Date(t.getFullYear(), t.getMonth(), t.getDate(), 12) - new Date(t.getFullYear(), 0, 1, 12)) / 864e5) + 1; }
   function vmMonth(off) { var t = new Date(); return new Date(t.getFullYear(), t.getMonth() + off, 1, 12); }
-  function paintMonthBar() {
-    var off = Number(state.monthOffset) || 0, all = !!state.spendAll, cur = vmMonth(off), pv = vmMonth(off - 1), nx = vmMonth(off + 1);
+  function paintMonthBar() { vmPaint('spend', state.monthOffset, state.spendAll); }
+  // v133: shared by every month bar (.vmbar markup with ids <p>-prev / -prev-l / -cur / -cur-s / -month / -next / -next-l / -all / -all-s):
+  // the Vault (p = 'spend') and the KiwiT / TiwiK books (p = 'ent').
+  function vmPaint(p, offIn, allIn) {
+    var off = Number(offIn) || 0, all = !!allIn, cur = vmMonth(off), pv = vmMonth(off - 1), nx = vmMonth(off + 1);
     var set = function (id, t) { var el = $(id); if (el) el.textContent = t; };
-    set('spend-prev-l', VM_SHORT[pv.getMonth()] + (pv.getFullYear() !== cur.getFullYear() ? ' ' + String(pv.getFullYear()).slice(2) : ''));
-    set('spend-next-l', VM_SHORT[nx.getMonth()] + (nx.getFullYear() !== cur.getFullYear() ? ' ' + String(nx.getFullYear()).slice(2) : ''));
-    set('spend-month', VM_SHORT[cur.getMonth()]);
-    set('spend-cur-s', off === 0 ? 'This month' : String(cur.getFullYear()));
-    set('spend-all-s', 'YTD ' + new Date().getFullYear());
-    var c = $('spend-cur'), a = $('spend-all');
+    set(p + '-prev-l', VM_SHORT[pv.getMonth()] + (pv.getFullYear() !== cur.getFullYear() ? ' ' + String(pv.getFullYear()).slice(2) : ''));
+    set(p + '-next-l', VM_SHORT[nx.getMonth()] + (nx.getFullYear() !== cur.getFullYear() ? ' ' + String(nx.getFullYear()).slice(2) : ''));
+    set(p + '-month', VM_SHORT[cur.getMonth()]);
+    set(p + '-cur-s', off === 0 ? 'This month' : String(cur.getFullYear()));
+    set(p + '-all-s', 'YTD ' + new Date().getFullYear());
+    var c = $(p + '-cur'), a = $(p + '-all');
     if (c) { c.classList.toggle('on', !all); c.setAttribute('aria-pressed', String(!all)); c.title = all ? 'Show ' + OL_MONTHS[cur.getMonth()] : off ? 'Back to this month' : OL_MONTHS[cur.getMonth()] + ' ' + cur.getFullYear(); }
     if (a) { a.classList.toggle('on', all); a.setAttribute('aria-pressed', String(all)); }
   }
@@ -3897,7 +3900,12 @@
   var ENT_TTL = 60000;
   var MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   state.entRoute = { key: '', kind: '', val: '', tab: '' };
-  state.entOff = 0; state.entCache = {}; state.entTaxCache = {}; state.entYear = new Date().getFullYear();
+  state.entCache = {}; state.entTaxCache = {}; state.entYear = new Date().getFullYear();
+  // v133: month bar like the Vault's (Prev | this month | Next | All = year to date), remembered per screen while the app is open (as the Vault's is).
+  state.entSel = { kiwit: { off: 0, all: false }, tiwik: { off: 0, all: false } };
+  function entSel(key) { return state.entSel[key || state.entRoute.key] || state.entSel.kiwit; }
+  function entCk(key) { var s = entSel(key); return (key || state.entRoute.key) + '|' + (s.all ? 'all' : s.off); }
+  function entIsYtd() { return !!entSel().all; }
 
   function entHash(er) {
     if (!er.kind && er.tab === 'docs') return '#ent/' + er.key + '/docs';
@@ -3949,15 +3957,16 @@
     if (!R.kind && R.tab === 'docs') return loadEntDocs(force);
     loadDebt(false);
     if (R.kind === 'tax') return loadEntTax(force);
-    var ck = R.key + '|' + state.entOff, c = state.entCache[ck];
+    if (entSel().all) return loadEntYtd(force);
+    var off = entSel().off, ck = R.key + '|' + off, c = state.entCache[ck];
     if (!force && c && (c.s === 'load' || (c.at && Date.now() - c.at < ENT_TTL))) return renderEnt();
-    var mine = state.entCache[ck] = { s: 'load', d: c && c.d ? c.d : null, at: 0 };
+    var mine = state.entCache[ck] = { s: 'load', d: c && c.d ? c.d : null, raw: c && c.raw, at: 0 };
     renderEnt();
-    apiRaw('entity', { entity: R.key, offset: state.entOff }).then(function (j) {
+    apiRaw('entity', { entity: R.key, offset: off }).then(function (j) {
       if (state.entCache[ck] !== mine) return;
       if (j.error === 'bad_action') state.entCache[ck] = { s: 'na', d: null, at: Date.now() };
-      else if (j.error) state.entCache[ck] = { s: 'err', d: mine.d, at: Date.now(), msg: j.message || ('Server error: ' + j.error) };
-      else state.entCache[ck] = { s: 'ok', d: entModel(j.data || {}), at: Date.now() };
+      else if (j.error) state.entCache[ck] = { s: 'err', d: mine.d, raw: mine.raw, at: Date.now(), msg: j.message || ('Server error: ' + j.error) };
+      else state.entCache[ck] = { s: 'ok', d: entModel(j.data || {}), raw: j.data || {}, at: Date.now() };
       if (entActive()) renderEnt();
     }, function (err) {
       if (state.entCache[ck] !== mine) return;
@@ -3965,6 +3974,67 @@
       state.entCache[ck] = { s: 'err', d: mine.d, at: Date.now(), msg: m };
       if (entActive()) renderEnt();
     });
+  }
+  // v133: All = January 1 to today of the current year, like the Vault's All: every month's `entity` read (fresh months reused from the
+  // month cache, the rest fetched 3 at a time, one retry each) merged into one response, so every total, list and tap-through works as for a month.
+  // Bank balances come from the current month's read. Nothing is computed on the server.
+  function entYtdMerge(raws, year) {
+    var d = { monthLabel: year + ' year to date', month: String(year), income: [], expenses: [], flags: [], paidFromColumn: null, bank: {} };
+    var t = function (x) { return String(x && x.date || ''); }, cmp = function (a, b) { return t(b) < t(a) ? -1 : t(b) > t(a) ? 1 : 0; };
+    raws.forEach(function (m) {
+      if (!m) return;
+      d.income = d.income.concat(Array.isArray(m.income) ? m.income : []);
+      d.expenses = d.expenses.concat(Array.isArray(m.expenses) ? m.expenses : []);
+      d.flags = d.flags.concat(Array.isArray(m.flags) ? m.flags : []);
+      if (m.paidFromColumn === true) d.paidFromColumn = true; else if (m.paidFromColumn === false && d.paidFromColumn !== true) d.paidFromColumn = false;
+    });
+    var last = raws[raws.length - 1]; if (last && last.bank) d.bank = last.bank;
+    d.income.sort(cmp); d.expenses.sort(cmp); d.flags.sort(cmp);
+    var M = entModel(d); M.ytd = true; M.year = year;
+    return M;
+  }
+  function loadEntYtd(force) {
+    var R = state.entRoute, key = R.key, ck = key + '|all', c = state.entCache[ck];
+    if (!force && c && (c.s === 'load' || (c.at && Date.now() - c.at < ENT_TTL))) return renderEnt();
+    var offs = ytdOffsets(), year = new Date().getFullYear(), got = {}, queue = [], running = 0, failed = false;
+    var mine = state.entCache[ck] = { s: 'load', d: c && c.d ? c.d : null, at: 0, done: 0, of: offs.length };
+    offs.forEach(function (o) {
+      var mc = state.entCache[key + '|' + o];
+      if (!force && mc && mc.s === 'ok' && mc.raw && mc.at && Date.now() - mc.at < ENT_TTL) { got[o] = mc.raw; mine.done++; } else queue.push(o);
+    });
+    renderEnt();
+    var finish = function (patch) { state.entCache[ck] = patch; if (entActive() && state.entRoute.key === key) renderEnt(); };
+    var pump = function () {
+      if (state.entCache[ck] !== mine || failed) return;
+      if (!queue.length && !running) return finish({ s: 'ok', d: entYtdMerge(offs.map(function (o) { return got[o]; }), year), at: Date.now() });
+      while (running < 3 && queue.length) {
+        (function (o) {
+          var tries = 0; running++;
+          var go = function () {
+            apiRaw('entity', { entity: key, offset: o }).then(function (j) {
+              if (state.entCache[ck] !== mine || failed) return;
+              if (j.error) {
+                failed = true;
+                return finish(j.error === 'bad_action' ? { s: 'na', d: null, at: Date.now() } : { s: 'err', d: mine.d, at: Date.now(), msg: j.message || ('Server error: ' + j.error) });
+              }
+              got[o] = j.data || {};
+              state.entCache[key + '|' + o] = { s: 'ok', d: entModel(got[o]), raw: got[o], at: Date.now() };
+              running--; mine.done++;
+              if (entActive() && state.entRoute.key === key && !mine.d) renderEnt();
+              pump();
+            }, function (err) {
+              if (state.entCache[ck] !== mine || failed) return;
+              if (!(err instanceof AuthError) && ++tries < 2) return setTimeout(go, 900);
+              failed = true;
+              var m = entFail(err); if (m === null) return;
+              finish({ s: 'err', d: mine.d, at: Date.now(), msg: m });
+            });
+          };
+          go();
+        })(queue.shift());
+      }
+    };
+    pump();
   }
   function loadEntTax(force) {
     var R = state.entRoute, ck = R.key + '|' + state.entYear, c = state.entTaxCache[ck];
@@ -4013,33 +4083,33 @@
     $('ent-tabs').innerHTML = sub ? '' :
       '<button type="button" class="enttab' + (docs ? '' : ' on') + '" data-go="ent/' + E.key + '" aria-pressed="' + !docs + '">Ledger</button>' +
       '<button type="button" class="enttab' + (docs ? ' on' : '') + '" data-go="ent/' + E.key + '/docs" aria-pressed="' + docs + '">Business Documents</button>';
-    $('ent-nav').hidden = docs;
-    var cur = state.entCache[E.key + '|' + state.entOff];
-    var label = tax ? state.entYear + (state.entYear === new Date().getFullYear() ? ' to date' : '') : (cur && cur.d && cur.d.monthLabel) || entLocalMonth(state.entOff);
-    $('ent-month').textContent = label;
-    $('ent-prev').textContent = tax ? '\u2039 Prev year' : '\u2039 Prev month';
-    $('ent-next').textContent = tax ? 'Next year \u203a' : 'Next month \u203a';
-    $('ent-next').disabled = tax ? state.entYear >= new Date().getFullYear() : state.entOff >= 0;
-    $('ent-pick').hidden = tax;
-    if (!tax) { var t = new Date(); $('ent-pick').max = t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2);
-      var p = new Date(t.getFullYear(), t.getMonth() + state.entOff, 1, 12); $('ent-pick').value = p.getFullYear() + '-' + ('0' + (p.getMonth() + 1)).slice(-2); }
+    // v133: Ledger views use the Vault's month bar (shared vmPaint + .vmbar CSS); the Tax export keeps its year stepper.
+    $('ent-mbar').hidden = docs || tax;
+    $('ent-nav').hidden = !tax;
+    if (!docs && !tax) { var sel = entSel(E.key); vmPaint('ent', sel.off, sel.all); }
+    if (tax) {
+      $('ent-year').textContent = state.entYear + (state.entYear === new Date().getFullYear() ? ' to date' : '');
+      $('ent-ynext').disabled = state.entYear >= new Date().getFullYear();
+    }
   }
-  $('ent-prev').addEventListener('click', function () { if (state.entRoute.kind === 'tax') state.entYear--; else state.entOff--; loadEnt(false); });
-  $('ent-next').addEventListener('click', function () {
-    if (state.entRoute.kind === 'tax') { if (state.entYear < new Date().getFullYear()) state.entYear++; }
-    else if (state.entOff < 0) state.entOff++;
-    loadEnt(false);
+  // Same behaviour as the Vault's buttons: Prev / Next step one month (leaving All); the middle one goes back from All to that month,
+  // and from another month jumps back to the current month; All = year to date.
+  $('ent-yprev').addEventListener('click', function () { state.entYear--; loadEnt(false); });
+  $('ent-ynext').addEventListener('click', function () { if (state.entYear < new Date().getFullYear()) state.entYear++; loadEnt(false); });
+  $('ent-prev').addEventListener('click', function () { var s = entSel(); s.all = false; s.off--; loadEnt(false); });
+  $('ent-next').addEventListener('click', function () { var s = entSel(); s.all = false; s.off++; loadEnt(false); });
+  $('ent-cur').addEventListener('click', function () {
+    var s = entSel();
+    if (s.all) { s.all = false; return loadEnt(false); }
+    if (s.off) { s.off = 0; loadEnt(false); }
   });
-  $('ent-pick').addEventListener('change', function () {
-    var m = String(this.value || '').match(/^(\d{4})-(\d{2})$/), t = new Date();
-    if (!m) return;
-    var off = (Number(m[1]) - t.getFullYear()) * 12 + (Number(m[2]) - 1 - t.getMonth());
-    state.entOff = Math.max(-240, Math.min(0, off)); loadEnt(false);
-  });
+  $('ent-all').addEventListener('click', function () { var s = entSel(); if (!s.all) { s.all = true; loadEnt(false); } });
+  function entOffNow() { return entSel().off; }
+  function entNone(M) { return M && M.ytd ? 'so far this year' : (entOffNow() === 0 ? 'this month' : 'in ' + (M && M.monthLabel || entLocalMonth(entOffNow()))); }
 
   /* ---- small renderers ---- */
   function entIncRows(list, showSrc) {
-    if (!list.length) return '<div class="foot empty">No income this month</div>';
+    if (!list.length) return '<div class="foot empty">No income ' + esc(entNone(entCurModel())) + '</div>';
     return '<div class="inccompact">' + list.map(function (e) {
       var what = [showSrc ? e.source : '', e.client, e.notes && !e.expected ? e.notes : ''].filter(Boolean).join(' \u00b7 ');
       return '<div class="icrow"><span class="icd">' + esc(e.label) + '</span><span class="icc">' + esc(what) +
@@ -4100,7 +4170,7 @@
     if (a.asOf) h += '<div class="acmeta"><span>As of ' + esc(acDate(a.asOf)) + '</span>' + (a.stale ? ' <span class="acflag warn">not this month</span>' : (acMonthEnd(a.asOf) ? '' : ' <span class="acflag">not month end</span>')) + '</div>';
     if (a.change != null) h += '<button class="acchg"' + goAttr(entRoute(E.key, 'bal')) + '><span>Change vs ' + esc(acDate(a.prevAsOf)) + '</span><b class="amt-bal">' + balSigned(a.change) + '</b></button>';
     else if (a.balance != null) h += '<div class="acchg none">Change: need another statement</div>';
-    if (a.stale) h += '<div class="acnote">No balance for ' + esc(M.monthLabel || entLocalMonth(state.entOff)) + ' yet. Add a row to the Balances tab ("' + esc(a.name) + '" at month end) to see it here.</div>';
+    if (a.stale) h += '<div class="acnote">No balance for ' + esc(M.ytd ? entLocalMonth(0) : (M.monthLabel || entLocalMonth(entOffNow()))) + ' yet. Add a row to the Balances tab ("' + esc(a.name) + '" at month end) to see it here.</div>';
     if (a.notes) h += '<div class="acnote">' + esc(a.notes) + '</div>';
     return h + '</div>';
   }
@@ -4112,24 +4182,26 @@
   function entNotice(E, c) {
     if (c.s === 'na') return '<div class="card entna"><b>' + esc(E.title) + ' books are not available yet</b>The server update that adds the entity books is pending. Loans and bills below still work; income and spend are in the sheet.</div>';
     if (c.s === 'err') return '<div class="error">' + esc(c.msg || 'Could not load.') + '<div class="retry"><button class="navbtn" data-ent-retry="1">Try again</button></div></div>';
+    if (c.of) return '<div class="loading">Loading ' + new Date().getFullYear() + ' year to date\u2026 ' + (c.done || 0) + ' of ' + c.of + ' months</div>';
     return '<div class="loading">Loading\u2026</div>';
   }
+  function entCurModel() { var c = state.entCache[entCk()]; return c && c.d; }
   function entMainView(E, M) {
     var k = E.key, ek = function (s) { return 'ent-' + k + '-' + s; }, h = '';
     var n = M.net;
     h += '<div class="card entscore">' +
       sumBtn('net cmp', entRoute(k, 'income', 'All'), 'Income' + (M.scheduled ? '<small>incl. ' + money(M.scheduled) + ' scheduled rent not yet logged</small>' : '<small>' + esc(E.sub) + '</small>'), '<span class="amt amt-in">' + money(M.incomeTotal) + '</span>') +
       sumBtn('net cmp', entRoute(k, 'exp'), 'Expenses<small>Daily Spend rows with Account = ' + esc(E.name) + '</small>', '<span class="amt amt-out">' + money(M.expenseTotal) + '</span>') +
-      sumBtn('net cmp', entRoute(k, 'net'), 'Net profit<small>Income \u2212 expenses for ' + esc(M.monthLabel || entLocalMonth(state.entOff)) + '</small>', '<span class="amt ' + (n >= 0 ? 'pos' : 'neg') + '">' + signedMoney(n) + '</span>') + entPfNote(M, E) + '</div>';
+      sumBtn('net cmp', entRoute(k, 'net'), 'Net profit<small>Income \u2212 expenses for ' + esc(M.monthLabel || entLocalMonth(entOffNow())) + '</small>', '<span class="amt ' + (n >= 0 ? 'pos' : 'neg') + '">' + signedMoney(n) + '</span>') + entPfNote(M, E) + '</div>';
     h += '<button class="enttax"' + goAttr(entRoute(k, 'tax')) + '><span>Tax export</span><small>Year-to-date category summary \u00b7 CSV</small><i class="chev">&rsaquo;</i></button>';
 
     // Income (green), one block per source
     var ib = M.sources.map(function (s) {
       return '<div class="entsrc"><button class="entsrchead"' + goAttr(entRoute(k, 'income', s.name)) + '><span class="n">' + esc(srcLabel(s.name)) + '</span><span class="amt amt-in">' + money(s.amount) + '</span><span class="chev">&rsaquo;</span></button>' + entIncRows(s.items, false) + '</div>';
-    }).join('') || '<div class="foot empty">No income this month</div>';
+    }).join('') || '<div class="foot empty">No income ' + esc(entNone(M)) + '</div>';
     h += vSec(ek('income'), 'income', 'Income', '<span class="amt-in">' + money(M.incomeTotal) + '</span>', entRoute(k, 'income', 'All'), ib + sheetLink('Open Income tab', 'income'));
     // Expenses by category (red)
-    var eb = M.cats.length ? barRows(M.cats, function (c) { return entRoute(k, 'cat', c); }, '') : '<div class="foot empty">No expenses this month</div>';
+    var eb = M.cats.length ? barRows(M.cats, function (c) { return entRoute(k, 'cat', c); }, '') : '<div class="foot empty">No expenses ' + esc(entNone(M)) + '</div>';
     eb += totBtn(E.title + ' expenses', M.expenseTotal, entRoute(k, 'exp'));
     h += vSec(ek('exp'), 'acctsec', 'Expenses by category', '<span class="amt-out">' + money(M.expenseTotal) + '</span>', entRoute(k, 'exp'), eb + sheetLink('Open Daily Spend sheet'));
     // Net profit
@@ -4137,7 +4209,7 @@
     var nb = sumBtn('', entRoute(k, 'income', 'All'), 'Income', '<span class="amt amt-in">' + money(M.incomeTotal) + '</span>') +
       sumBtn('', entRoute(k, 'exp'), 'Expenses', '<span class="amt amt-out">\u2212' + money(M.expenseTotal) + '</span>') +
       sumBtn('net', entRoute(k, 'net'), 'Net profit', '<span class="amt ' + (n >= 0 ? 'pos' : 'neg') + '">' + signedMoney(n) + '</span>');
-    if (pay > 0 && state.entOff === 0) nb += '<div class="foot how">Loan payment this month: <span class="amt-out">' + money(pay) + '</span> (principal + interest, paid from the bank, not in the expenses above). Cash left after it: <b class="' + (n - pay >= 0 ? 'pos' : 'neg') + '">' + signedMoney(r2(n - pay)) + '</b>.</div>';
+    if (pay > 0 && !M.ytd && entOffNow() === 0) nb += '<div class="foot how">Loan payment this month: <span class="amt-out">' + money(pay) + '</span> (principal + interest, paid from the bank, not in the expenses above). Cash left after it: <b class="' + (n - pay >= 0 ? 'pos' : 'neg') + '">' + signedMoney(r2(n - pay)) + '</b>.</div>';
     h += vSec(ek('net'), 'summary', 'Net profit', '<span class="amt ' + (n >= 0 ? 'pos' : 'neg') + '">' + signedMoney(n) + '</span>', entRoute(k, 'net'), nb);
     // Bank account
     var B = M.bank, bb = B.accounts.length ? B.accounts.map(function (a) { return entBankCard(E, a, M); }).join('') : '<div class="foot">No ' + esc(E.title) + ' bank account found on the Accounts tab (Owner = ' + esc(E.name) + ').</div>';
@@ -4331,7 +4403,7 @@
     var h = '';
     if (!R.kind && R.tab === 'docs') { $('ent-body').innerHTML = entDocsView(E); return; }
     if (R.kind === 'tax') { $('ent-body').innerHTML = entTaxView(E); return; }
-    var c = state.entCache[R.key + '|' + state.entOff] || { s: 'load' }, M = c.d;
+    var c = state.entCache[entCk(R.key)] || { s: 'load' }, M = c.d;
     if (!M) {
       h = entNotice(E, c);
       if (c.s === 'na' && !R.kind) h += entLoansSection(E) + entBillsSection(E) + entSheets();
