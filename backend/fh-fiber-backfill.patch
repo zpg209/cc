@@ -1,0 +1,124 @@
+# Fiber backfill (API v50 add-on). Apply together with fh-fiber-notes.patch (after it), then redeploy (Zac signs in,
+# Deploy > Manage deployments > edit > New version). SpreadsheetApp, PropertiesService and LockService only: no new scopes.
+# Context lines are v45 code; hunks marked "(anchor)" go next to the quoted line (same dispatch block as vault-category.patch).
+#
+# What it does: fills the Phone Log "Fiber (g)" column for rows logged before the column existed, from the "[Fiber: N g]" tags in
+# Notes (case-insensitive, several per row). Notes, calories, protein, carbs and fat are never written. Runs once on its own at the
+# first `log` read after the redeploy (Script Property CC_FIBER_BACKFILL_V1 marks it done), and on demand with action=fiberbackfill.
+--- a/Api.gs
++++ b/Api.gs
+@@ header comment (anchor: the " *   GET  <exec>?api=1&pc=123456&action=lognotes" line) @@
++ *   GET  <exec>?api=1&pc=123456&action=fiberbackfill&dry=1   (v50 fh-fiber-backfill: Phone Log "Fiber (g)" from the Notes "[Fiber: N g]" tags; dry=1 previews,
++ *        without dry it adds the column if missing and fills EMPTY Fiber cells only (force=1 also replaces a different value). Notes / macros untouched.)
+@@ dispatch switch (anchor: "case 'incomedel': return apiIncomeDel_(extra.all || {});") @@
+       case 'incomedel': return apiIncomeDel_(extra.all || {});
++      case 'fiberbackfill': return apiFiberBackfill_(extra.all || {});   // v50 fh-fiber-backfill
+@@ apiLog_ (anchor: "function apiLog_(off) {") @@
+ function apiLog_(off) {
++  apiFiberBackfillOnce_();           // v50 fh-fiber-backfill: first read after the redeploy fills the Fiber column (never blocks the read)
+   var d = getDailyLog(off);          // unchanged legacy payload (Code.gs)
+@@ new functions (add at the end of Api.gs) @@
++/* ---------------- v50 fh-fiber-backfill ----------------
++ * Rows logged before the "Fiber (g)" column existed carry their fiber only as "[Fiber: N g]" tags in Notes. This sums the tags per row
++ * and writes the total to that row's Fiber (g) cell. Tags are read like the phone reads them (app.js fhNotesFiber): in a meal line,
++ * "Dinner (edited): …" replaces the latest earlier dinner of that row and "Dinner (removed): …" drops it; tags outside a meal line count
++ * as written. OVERRIDES correct a known bad tag value without rewriting the Notes text (the correction is in the CC write log).
++ * Only empty Fiber cells are filled (force=1 replaces a different value). Backup (apiLogBackup_) first, one journal line per cell. */
++var API_FIBER_BF = {
++  sheetId: '1MERN98DwQWNJPO0cJoqyMXF_xlX5k-DeeY5vXWA50Ok',   // Zac_Fitness_Diet_Daily_Log
++  tab: 'Phone Log',
++  journalTab: 'CC write log',
++  col: 'Fiber (g)',
++  heads: ['fiber (g)', 'fiber', 'fibre (g)', 'fibre', 'dietary fiber'],
++  prop: 'CC_FIBER_BACKFILL_V1',
++  overrides: [
++    // 10/7 dinner "10 oz ground beef with low-carb tortillas, and one 16 oz IPA" was tagged [Fiber: 34 g]. Ground beef and beer have ~0 g;
++    // a low-carb (Carb Balance type) tortilla has ~15 g (label: 19 g carbs, 15 g fiber), and the row's own dinner numbers (59 g carbs,
++    // 1176 kcal, 91 g protein) fit 2 such tortillas + the IPA. So 2 x 15 = 30 g. Change `value` here if the tortillas were a different kind.
++    { date: '2026-10-07', meal: 'dinner', was: 34, value: 30, why: '10/7 dinner: 2 low-carb tortillas x 15 g, beef 0, IPA 0 (tag said 34 g)' }
++  ]
++};
++function apiFiberTags_(s) {
++  var out = [], m, rx = /\[Fiber:?\s*(\d+(?:\.\d+)?)\s*g?\s*\]/gi;
++  while ((m = rx.exec(String(s || '')))) out.push(Number(m[1]));
++  return out;
++}
++// -> { total: number|null, tags: [{ meal, g, used, override }] }
++function apiFiberFromNotes_(notes, dateKey) {
++  var MAP = { breakfast: 'breakfast', brunch: 'breakfast', lunch: 'lunch', dinner: 'dinner', supper: 'dinner', snack: 'snacks', snacks: 'snacks', dessert: 'snacks', drinks: 'drinks' };
++  var MEAL = /\b(Breakfast|Brunch|Lunch|Dinner|Supper|Snacks?|Dessert|Drinks)\s*(\((?:edited|removed)\))?\s*:\s*/gi;
++  var meals = [], loose = [];
++  String(notes || '').split(/\s*\|\s*/).forEach(function (seg) {
++    var marks = [], m; MEAL.lastIndex = 0;
++    while ((m = MEAL.exec(seg))) marks.push({ i: m.index, end: MEAL.lastIndex, w: MAP[m[1].toLowerCase()] || 'snacks', fix: (m[2] || '').toLowerCase() });
++    apiFiberTags_(marks.length ? seg.slice(0, marks[0].i) : seg).forEach(function (g) { loose.push({ meal: '', g: g }); });
++    marks.forEach(function (k, j) {
++      var body = seg.slice(k.end, j + 1 < marks.length ? marks[j + 1].i : seg.length);
++      var x = { meal: k.w, tags: apiFiberTags_(body) }, prev = -1;
++      for (var p = meals.length - 1; p >= 0; p--) if (meals[p].meal === k.w) { prev = p; break; }
++      if (k.fix === '(removed)') { if (prev >= 0) meals.splice(prev, 1); return; }
++      if (k.fix === '(edited)' && prev >= 0) { meals[prev] = x; return; }
++      meals.push(x);
++    });
++  });
++  var tags = [], total = 0, n = 0;
++  meals.forEach(function (x) { x.tags.forEach(function (g) { tags.push({ meal: x.meal, g: g }); }); });
++  tags = tags.concat(loose);
++  tags.forEach(function (t) {
++    var o = API_FIBER_BF.overrides.filter(function (v) { return v.date === dateKey && v.meal === t.meal && Math.abs(v.was - t.g) < 0.05; })[0];
++    if (o) { t.override = { was: t.g, value: o.value, why: o.why }; t.g = o.value; }
++    total += t.g; n++;
++  });
++  return { total: n ? Math.round(total * 10) / 10 : null, tags: tags };
++}
++function apiFiberBackfillOnce_() {
++  try {
++    var props = PropertiesService.getScriptProperties();
++    if (props.getProperty(API_FIBER_BF.prop)) return;
++    var r = apiFiberBackfill_({ cid: 'fbauto' });
++    if (r && r.ok) props.setProperty(API_FIBER_BF.prop, new Date().toISOString() + ' auto, ' + r.data.written + ' cells');
++  } catch (e) { console.error('CC API fiber backfill (auto) error: ' + (e && e.stack || e)); }
++}
++function apiFiberBackfill_(p) {
++  p = p || {};
++  var dry = String(p.dry || '') === '1', force = String(p.force || '') === '1';
++  var cid = String(p.cid || 'fb' + Date.now()).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);
++  var tz = (typeof CONFIG !== 'undefined' && CONFIG.TIME_ZONE) || Session.getScriptTimeZone();
++  var lock = LockService.getScriptLock();
++  if (!lock.tryLock(20000)) return { error: 'busy', message: 'Another write is running. Try again in a moment.' };
++  try {
++    var ss = SpreadsheetApp.openById(API_FIBER_BF.sheetId), sh = ss.getSheetByName(API_FIBER_BF.tab);
++    if (!sh) return { error: 'not_found', message: 'No "' + API_FIBER_BF.tab + '" tab.' };
++    var values = sh.getDataRange().getValues(), head = values[0].map(function (h) { return String(h || '').trim().toLowerCase(); });
++    var cDate = head.indexOf('date'), cNotes = head.indexOf('notes'), cFib = -1;
++    API_FIBER_BF.heads.forEach(function (h) { if (cFib < 0 && head.indexOf(h) >= 0) cFib = head.indexOf(h); });
++    if (cDate < 0 || cNotes < 0) return { error: 'bad_sheet', message: 'Phone Log needs Date and Notes headers.' };
++    var rows = [];
++    for (var r = 1; r < values.length; r++) {
++      var dv = values[r][cDate], key = dv instanceof Date ? Utilities.formatDate(dv, tz, 'yyyy-MM-dd') : String(dv || '');
++      var res = apiFiberFromNotes_(values[r][cNotes], key);
++      if (res.total === null) continue;
++      var cur = cFib >= 0 ? values[r][cFib] : '', empty = cur === '' || cur === null;
++      var write = empty || (force && Number(cur) !== res.total);
++      rows.push({ row: r + 1, date: key, tags: res.tags, total: res.total, before: empty ? null : cur, write: write });
++    }
++    var todo = rows.filter(function (x) { return x.write; });
++    if (dry || !todo.length) return { ok: true, data: { dry: dry, column: cFib >= 0 ? API_FIBER_BF.col : '(added on first write)', rows: rows, written: 0, version: 50 } };
++
++    if (typeof apiLogBackup_ === 'function') apiLogBackup_(ss, sh);   // same backup as every logday; throws -> nothing written
++    var added = false;
++    if (cFib < 0) {                    // add "Fiber (g)" at the END, like logday adds Hike miles / Steps; nothing moves
++      var lastCol = sh.getLastColumn(), hc = sh.getRange(1, lastCol + 1);
++      sh.getRange(1, lastCol).copyTo(hc, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
++      hc.setValue(API_FIBER_BF.col);
++      cFib = lastCol; added = true;
++    }
++    var jt = ss.getSheetByName(API_FIBER_BF.journalTab), now = new Date();
++    todo.forEach(function (x) {
++      sh.getRange(x.row, cFib + 1).setValue(x.total);
++      var ov = x.tags.filter(function (t) { return t.override; }).map(function (t) { return t.override.why + ' -> ' + t.override.value + ' g'; }).join('; ');
++      try { if (jt) jt.appendRow([now, 'fiberbackfill ' + x.date + (ov ? ' (correction: ' + ov + ')' : ''), x.row, 'fiber', x.before === null ? '' : x.before, x.total, cid]); } catch (je) { /* the journal never blocks the write */ }
++    });
++    return { ok: true, data: { dry: false, column: API_FIBER_BF.col, added: added, rows: rows, written: todo.length, version: 50 } };
++  } finally { lock.releaseLock(); }
++}

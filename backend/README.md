@@ -80,6 +80,27 @@ Until it is deployed (front end v122):
 
 Check after deploying: `…/exec?api=1&pc=PASSCODE&action=log` should include `"notesInHistory":true` and `"fiber":true` inside `ext.write`.
 
+## fh-fiber-backfill.patch (API v50 add-on: fill the Fiber column for old rows)
+Apply with fh-fiber-notes.patch (after it) in the same redeploy (Zac signs in). SpreadsheetApp / PropertiesService / LockService only, no new scopes.
+
+Why: the live server (v45) has no action that can write a Fiber column. `logday` writes only calories/protein/carbs/fat/workout/minutes/hike/steps/notes (it adds only "Hike miles" / "Steps" columns), `logset` only weight/sleep/hike, `logadd` only water; `spendfix`/`incomefix` work on the Daily Spend sheet. So no fiber value can reach the Phone Log until this redeploy, and nothing was improvised (no Notes rewrites, no other columns).
+
+What it adds:
+- `action=fiberbackfill` (`dry=1` previews; `force=1` also replaces a Fiber cell that holds a different number). Adds "Fiber (g)" at the END of the Phone Log if missing (format copied from the last header, nothing moves), sums each row's "[Fiber: N g]" tags (case-insensitive, several per row; "(edited)" / "(removed)" meal lines handled like the phone does) and writes the total to EMPTY Fiber cells only. Notes, calories, protein, carbs and fat are never written. Same backup as logday (`apiLogBackup_`), one "CC write log" line per cell (action `fiberbackfill <date>`, with the correction text when an override was used).
+- Runs once on its own at the first `log` read after the redeploy (Script Property `CC_FIBER_BACKFILL_V1` marks it done; a failure never blocks the read). Running the action again is safe: filled cells are skipped.
+- `API_FIBER_BF.overrides`: corrections applied instead of a tag's value, without changing Notes. One today: 10/7 dinner tag 34 g -> 30 g (2 low-carb tortillas x 15 g; ground beef and IPA ~0 g; the row's dinner carbs 59 g / 1176 kcal fit 2 Carb Balance-type tortillas + a 16 oz IPA). Edit `value` there if the tortillas were a low-fiber kind (e.g. 3.5).
+
+Values it will write today (also in `fiber-backfill-values.csv`, to paste by hand into a "Fiber (g)" header in column P if preferred):
+
+| Sheet row | Date | Tags | Fiber (g) |
+|---|---|---|---|
+| 17 | 2026-10-06 | 2.5 + 7.8 + 7.2 | 17.5 |
+| 16 | 2026-10-07 | 4.2 + 0.6 + 34 (corrected to 30) | 34.8 |
+
+Phones that log before the redeploy keep fiber in the "[Fiber: N g]" tag (front end v134 estimates it per food item); the backfill picks those up too. After the redeploy the phone also sends `fiber=` with every meal (`ext.write.fiber`).
+
+Check after deploying: `…/exec?api=1&pc=PASSCODE&action=fiberbackfill&dry=1` should list rows 16 and 17 with `"before":34.8` / `17.5` (already filled by the first `log` read) and `"written":0`.
+
 ## health-metrics.patch (API v51, Fitness & Health > Medical > Health Metrics)
 Patch against Api.gs v45. It is independent of the other patches here. Apply it, then redeploy (Zac signs in). It uses SpreadsheetApp only, which the script already uses, so no new scopes.
 

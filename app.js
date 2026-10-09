@@ -1683,7 +1683,7 @@
         '<div class="qa-water"><span>Water for that day</span><button type="button" class="fitbtn" data-wd="8">+8 oz</button><button type="button" class="fitbtn" data-wd="-8">\u22128 oz</button></div><div class="fitmsg" id="qa-water-msg" role="status"></div>' : '') + '</div>';
     if (canDay) {
       h += '<div class="card fitcard qa" id="qa-meal"><h3>Add a meal</h3><div class="qgrid4">' +
-        [['calories', 'kcal', '1'], ['protein', 'Protein g', '1'], ['carbs', 'Carbs g', '1'], ['fat', 'Fat g', '1']].map(function (f) { return inp('', f[1], f[2], '', 'data-m="' + f[0] + '"'); }).join('') + '</div>' +
+        [['calories', 'kcal', '1'], ['protein', 'Protein g', '1'], ['carbs', 'Carbs g', '1'], ['fat', 'Fat g', '1']].concat(ext.write.fiber ? [['fiber', 'Fiber g', '0.1']] : []).map(function (f) { return inp('', f[1], f[2], '', 'data-m="' + f[0] + '"'); }).join('') + '</div>' +   // v134: + fiber once the server has the column (numbers only here, no foods to estimate from)
         '<div class="seg small" id="qa-mode"><button type="button" data-mode="add" class="' + (state.trkMode === 'set' ? '' : 'on') + '">Add to ' + (pastK ? 'that day' : 'today') + '</button><button type="button" data-mode="set" class="' + (state.trkMode === 'set' ? 'on' : '') + '">Set ' + (pastK ? 'that day\u2019s' : 'today\u2019s') + ' total</button></div>' +
         '<button type="button" class="fitbtn wide" id="qa-meal-go">Add meal</button><div class="fitmsg" id="qa-meal-msg" role="status"></div></div>';
       h += '<div class="card fitcard qa" id="qa-wo"><h3>Workout</h3><div class="qgrid2w"><label>Type<input type="text" id="qa-wo-type" maxlength="60" placeholder="Run, strength, walk\u2026" autocomplete="off"></label>' +
@@ -1735,14 +1735,14 @@
     trkGo(btn, 'qa-meal-msg', function () {
       return apiRaw('logday', p).then(function (j) {
         var r = trkRes(j), w = r.written || {}, now = [];
-        ['calories', 'protein', 'carbs', 'fat'].forEach(function (k) { if (w[k]) now.push(fmt(w[k].after) + (k === 'calories' ? ' kcal' : ' g ' + k)); });
+        ['calories', 'protein', 'carbs', 'fat', 'fiber'].forEach(function (k) { if (w[k]) now.push(fmt(w[k].after, k === 'fiber' ? 1 : 0) + (k === 'calories' ? ' kcal' : ' g ' + k)); });
         Array.prototype.forEach.call(document.querySelectorAll('#qa-meal input[data-m]'), function (i) { i.value = ''; });
         fitSay('qa-meal-msg', (mode === 'add' ? 'Added. ' : 'Set. ') + (when.charAt(0).toUpperCase() + when.slice(1)) + (mode === 'add' ? ' now ' : ' is ') + now.join(' \u00b7 '));
         var m = $('qa-meal-msg');
         if (m && !r.duplicate) {
           var u = document.createElement('button'); u.type = 'button'; u.className = 'fitundo'; u.textContent = 'Undo';
           u.addEventListener('click', function () {
-            var back = trkWithDate({ mode: 'set', cid: fitCid() }); Object.keys(w).forEach(function (k) { if (['calories', 'protein', 'carbs', 'fat'].indexOf(k) >= 0) back[k] = w[k].before == null ? 0 : w[k].before; });
+            var back = trkWithDate({ mode: 'set', cid: fitCid() }); Object.keys(w).forEach(function (k) { if (['calories', 'protein', 'carbs', 'fat', 'fiber'].indexOf(k) >= 0) back[k] = w[k].before == null ? 0 : w[k].before; });
             u.remove(); fitSay('qa-meal-msg', 'Undoing\u2026');
             apiRaw('logday', back).then(function (j2) { trkRes(j2); fitSay('qa-meal-msg', 'Undone.'); return loadTrackQuiet(); }).catch(function (e) { trkWriteErr(e, 'qa-meal-msg'); });
           });
@@ -1867,6 +1867,9 @@
    *     Vault's "[Category] " / "[Pay: X] " tags) and this phone keeps its own copy of the meals it added (cc_fh_meals) so the numbers show at
    *     once. backend/fh-fiber-notes.patch (API v50) adds the column, fiber= on logday, and day Notes in ext.history; the phone switches on
    *     its own (ext.write.fiber / ext.columns.fiber), and old "[Fiber: …]" tags still count.
+   *     v134: fiber is ESTIMATED per food item (fiberEst, a table of standard values) on every meal path: Food Log add / edit (Say a meal
+   *     or typed food), and the Tracker's dictation smart fill (per meal). A spoken / typed number wins. The "[Fiber: N g]" tag always
+   *     stays in Notes; fiber= is sent as well once ext.write.fiber is on. backend/fh-fiber-backfill.patch fills the column for old rows.
    *   - Meals in Notes: ext.history has no Notes today, so the meal list shows meals added on this phone plus the meals in recent voice notes
    *     (lognotes, read with the same smart fill parser). With v50 the day's Notes ("Breakfast: …; Lunch: …") are listed too.
    *   - Health Metrics: the sheet (Second Brain > Fitness & Health > Medical > Health Metrics) exists but the server can't read or write it
@@ -1937,6 +1940,16 @@
     return o;
   }
   function fhFiberTags(s) { var t = 0, n = 0, m, rx = /\[Fiber:?\s*(\d+(?:\.\d+)?)\s*g?\s*\]/gi; while ((m = rx.exec(String(s || '')))) { t += Number(m[1]); n++; } return n ? fhR1(t) : null; }
+  // v134: a day's fiber from its Notes tags. Tags in meal lines follow "(edited)" (replaces the earlier meal) and "(removed)" (drops it), so a
+  // fixed meal is not counted twice; tags outside any meal line count as written. backend/fh-fiber-backfill.patch reads Notes the same way.
+  function fhNotesFiber(s) {
+    s = String(s || ''); if (fhFiberTags(s) == null) return null;
+    var t = 0, n = 0;
+    fhParseNotes(s).forEach(function (x) { var f = fhFiberTags(x.raw); if (f != null) { t += f; n++; } });
+    var rest = s.split(/\s*\|\s*/).map(function (seg) { FH_MEAL_RX.lastIndex = 0; var m = FH_MEAL_RX.exec(seg); return m ? seg.slice(0, m.index) : seg; }).join(' ');
+    var r = fhFiberTags(rest); if (r != null) { t += r; n++; }
+    return n ? fhR1(t) : null;
+  }
   // "Breakfast: eggs (420 kcal, 30 g protein) [Fiber: 3 g]; Lunch (edited): salad … | Dinner: …" -> meals. "(edited)" replaces the latest earlier
   // meal of that kind, "(removed)" drops it (Notes are append-only, so a fix is written as a new line).
   var FH_MEAL_RX = /\b(Breakfast|Brunch|Lunch|Dinner|Supper|Snacks?|Dessert|Drinks)\s*(\((?:edited|removed)\))?\s*:\s*/gi;
@@ -1996,7 +2009,7 @@
     ['sugar', 'sodium'].forEach(function (k) { o[k] = fhIsNum(row[k]) ? row[k] : null; });
     var mf = 0, mfn = 0; meals.forEach(function (x) { if (fhIsNum(x.fiber) && x.src !== 'voice') { mf += x.fiber; mfn++; } });
     if (fhIsNum(row.fiber)) { o.fiber = row.fiber; o.fiberSrc = 'sheet'; }
-    else if (hasN && fhFiberTags(notes) != null) { o.fiber = fhFiberTags(notes); o.fiberSrc = 'notes'; }
+    else if (hasN && fhNotesFiber(notes) != null) { o.fiber = fhNotesFiber(notes); o.fiberSrc = 'notes'; }
     else if (mfn) { o.fiber = fhR1(mf); o.fiberSrc = 'phone'; }
     else o.fiber = null;
     o.item = {}; FH_MACROS.concat(['fiber']).forEach(function (k) { var s = 0, n = 0; meals.forEach(function (x) { if (fhIsNum(x[k])) { s += x[k]; n++; } }); o.item[k] = n ? fhR1(s) : null; });
@@ -2276,6 +2289,7 @@
       h += '<div class="fhlbl">Meal</div><div class="fhchips">' + FH_MEAL_ORDER.map(function (m) { return '<button type="button" data-fhmeal="' + m + '" class="' + (v.meal === m ? 'on' : '') + '">' + FH_MEAL_LBL[m] + '</button>'; }).join('') + '</div>';
       h += '<div class="bgrid fhone">' + fhInp('fhs-food', 'Food', v.food, 'text', ' maxlength="300" data-fv="food"') + '</div>';
       h += '<div class="bgrid fhg5">' + [['calories', 'kcal'], ['protein', 'Protein g'], ['carbs', 'Carbs g'], ['fat', 'Fat g'], ['fiber', 'Fiber g']].map(function (f) { return fhInp('fhs-' + f[0], f[1], v[f[0]], 'number', ' data-fv="' + f[0] + '"'); }).join('') + '</div>';
+      h += '<div class="foot hint2" id="fhs-fibest">' + esc(fhFiberHint(c)) + '</div>';
       if (!fhCanFiber(d)) h += '<div class="foot hint2">Fiber is saved in the meal\u2019s Notes as "[Fiber: N g]" until the sheet has a Fiber column.</div>';
       if (c.id) h += '<div class="foot">Saving changes the day\u2019s totals by the difference. <button type="button" class="fhlink fhdanger" data-fh="delmeal">Remove this meal</button></div>';
     } else if (c.kind === 'foodday') {
@@ -2301,12 +2315,29 @@
     if (t.id === 'fhs-say') { c.say = t.value; fhSayParse(); return; }
     var k = t.getAttribute && t.getAttribute('data-fv'); if (!k) return;
     c.edited[k] = true; c.vals[k] = t.type === 'number' ? (t.value === '' ? null : Number(t.value)) : t.value;
+    if (k === 'food') fhFiberAuto(null);
+    else if (k === 'fiber') { var fh = $('fhs-fibest'); if (fh) fh.textContent = ''; }
   }
   function fhSheetChange(e) {
     var c = FH.sheet; if (!c) return;
     if (e.target.id === 'fhs-date') { var tk = fhToday(); if (!e.target.value || e.target.value > tk) { e.target.value = c.date; return; } c.date = e.target.value; fhSheetRender(); }
   }
   function fhSetField(k, v) { var c = FH.sheet; if (!c || c.edited[k]) return; c.vals[k] = v; var map = { food: 'fhs-food', type: 'fhs-type', min: 'fhs-min', hike: 'fhs-hike', details: 'fhs-details' }; var el = $(map[k] || ('fhs-' + k)); if (el && document.activeElement !== el) el.value = v == null ? '' : v; }
+  // v134: fiber is estimated per food item (fiberEst) whenever the food changes, unless a fiber number was said / typed or the box was edited.
+  function fhFiberAuto(said) {
+    var c = FH.sheet; if (!c || c.kind !== 'food' || c.edited.fiber) return;
+    var e = said != null ? null : fiberEst(c.vals.food || '');
+    c.fibEst = e; c.fibSaid = said != null;
+    fhSetField('fiber', said != null ? said : (e && e.g != null ? e.g : null));
+    var h = $('fhs-fibest'); if (h) h.textContent = fhFiberHint(c);
+  }
+  function fhFiberHint(c) {
+    if (!c || c.kind !== 'food') return '';
+    if (c.edited.fiber) return '';
+    if (c.fibSaid) return 'Fiber as said.';
+    var e = c.fibEst; if (!e || e.g == null) return 'Fiber is estimated from the foods you name.';
+    return 'Fiber estimated per item: ' + (fiberEstLine(e) || 'no fiber in these foods') + '. Edit the box to change it.';
+  }
   // Smart fill: the same on-device parser as the Tracker's mic (sfParse), mapped to one meal or one workout entry.
   function fhSayParse() {
     var c = FH.sheet; if (!c) return;
@@ -2318,7 +2349,8 @@
       var food = ms.length === 1 ? r.meals[ms[0]] : ms.map(function (m) { return FH_MEAL_LBL[m] + ': ' + r.meals[m]; }).join('; ');
       if (!food && r.notes) food = r.notes; else if (food && r.notes && !/^\s*$/.test(r.notes)) food += '; ' + r.notes;
       fhSetField('food', food || '');
-      FH_MACROS.concat(['fiber']).forEach(function (k) { fhSetField(k, r[k] != null ? r[k] : null); });
+      FH_MACROS.forEach(function (k) { fhSetField(k, r[k] != null ? r[k] : null); });
+      fhFiberAuto(r.fiber != null ? r.fiber : null);
     } else if (c.kind === 'wo') {
       fhSetField('type', r.workouts.map(function (w) { return w.label; }).join('; '));
       fhSetField('min', r.workoutMin != null ? r.workoutMin : null);
@@ -2379,10 +2411,9 @@
     if (fhIsNum(v.protein)) nums.push(fmt(v.protein) + ' g protein');
     if (fhIsNum(v.carbs)) nums.push(fmt(v.carbs) + ' g carbs');
     if (fhIsNum(v.fat)) nums.push(fmt(v.fat) + ' g fat');
-    if (canFiber && fhIsNum(v.fiber)) nums.push(fmt(v.fiber, 1) + ' g fiber');
     var s = (FH_MEAL_LBL[meal] || 'Snacks') + (fix ? ' (' + fix + ')' : '') + ': ' + String(food || '').replace(/[|]/g, '/').trim();
     if (nums.length) s += (food ? ' ' : '') + '(' + nums.join(', ') + ')';
-    if (!canFiber && fhIsNum(v.fiber)) s += ' [Fiber: ' + fmt(v.fiber, 1) + ' g]';
+    if (fhIsNum(v.fiber)) s += ' [Fiber: ' + fhR1(v.fiber) + ' g]';   // v134: always kept in Notes (audit trail); fiber= also goes to the column when the server has it
     return s.replace(/\s+/g, ' ').trim();
   }
   function fhAfterWrite(msg) {
@@ -2414,6 +2445,7 @@
     var v = c.vals;
     if (c.kind === 'hm') return fhHmSave();
     if (c.kind === 'food') {
+      if (!fhIsNum(v.fiber) && !c.edited.fiber && String(v.food || '').trim()) { var fe = fiberEst(v.food); if (fe.g != null) v.fiber = fe.g; }   // v134: never save a meal without its fiber estimate
       var bad = fhCheckNums(v, FH_MACROS.concat(['fiber'])); if (bad) return fhMsg('Check ' + bad + ': use a positive number.', true);
       var anyNum = FH_MACROS.concat(['fiber']).some(function (k) { return fhIsNum(v[k]); }), food = String(v.food || '').trim();
       if (!food && !anyNum) return fhMsg('Say or type the food and/or its numbers.', true);
@@ -2541,7 +2573,7 @@
       if (!found) return;
       var vals = { meal: found.meal, food: found.food }; FH_MACROS.concat(['fiber']).forEach(function (k) { vals[k] = fhIsNum(found[k]) ? found[k] : null; });
       var orig = {}; for (var q in vals) orig[q] = vals[q];
-      return fhSheetOpen({ kind: 'food', title: 'Edit ' + (FH_MEAL_LBL[found.meal] || 'meal'), date: fk, fixedDate: true, id: mid, vals: vals, orig: orig, edited: { meal: true, food: true, calories: true, protein: true, carbs: true, fat: true, fiber: true }, saveLbl: fhSaveLabel });
+      return fhSheetOpen({ kind: 'food', title: 'Edit ' + (FH_MEAL_LBL[found.meal] || 'meal'), date: fk, fixedDate: true, id: mid, vals: vals, orig: orig, edited: { meal: true, food: true, calories: true, protein: true, carbs: true, fat: true, fiber: fhIsNum(found.fiber) }, saveLbl: fhSaveLabel });
     }
     if (a === 'addmeal' || a === 'micmeal') return fhSheetOpen({ kind: 'food', title: 'Add a meal', date: FH.date || tk, vals: { meal: '' }, mic: a === 'micmeal', saveLbl: fhSaveLabel });
     if (a === 'dayedit') {
@@ -6724,6 +6756,213 @@
     return R;
   }
 
+  /* ---- Fiber estimate (v134). Zac never says fiber numbers, so every meal path estimates fiber per food item from standard
+   * nutrition data (USDA FoodData Central / package labels, typical portions), adds it up, and writes it with the meal: the
+   * "[Fiber: N g]" tag in Notes always, plus fiber= once the server has the column (ext.write.fiber). A spoken or typed fiber
+   * number still wins. fiberEst(text) -> { g: total or null (no food recognised), items: [{ name, g }] }.
+   * Table rows: [regex, g per typical serving / item, { cup, oz, tbsp } per unit, count used for a bare plural, short name].
+   * Order matters: the first (most specific) row takes the words, so "sweet potato" never also counts as "potato". Rows with 0 g
+   * are there so "10 oz ground beef" or "2 eggs" use up their quantity instead of lending it to the next food. */
+  var FIB_DB = [
+    [/\b(?:low[\s-]*carb|keto|carb[\s-]*balance|carb[\s-]*counter|high[\s-]*fib(?:er|re)|xtreme\s+wellness)\s+(?:flour\s+|wheat\s+|street\s+taco\s+|soft\s+taco\s+|taco\s+)?(?:tortillas?|wraps?)\b/, 15, {}, 2, 'low-carb tortilla'],   // Mission Carb Balance: 19 g carbs, 15 g fiber each
+    [/\btortilla\s+chips?\b/, 1.5, { oz: 1.5 }, 0, 'tortilla chips'],
+    [/\btortilla\s+pizzas?\b/, 2, {}, 2, 'tortilla pizza'],
+    [/\bcorn\s+tortillas?\b/, 1.5, {}, 2, 'corn tortilla'],
+    [/\b(?:flour\s+)?tortillas?\b/, 1.5, {}, 2, 'tortilla'],
+    [/\btaco\s+salads?\b/, 7, {}, 0, 'taco salad'],
+    [/\bburrito\s+bowls?\b/, 10, {}, 0, 'burrito bowl'],
+    [/\bburritos?\b/, 7, {}, 0, 'burrito'],
+    [/\btacos?\b(?!.*\btortilla)/, 2, {}, 2, 'taco'],
+    [/\benchiladas?\b/, 2.5, { cup: 4 }, 2, 'enchiladas'],
+    [/\bquesadillas?\b/, 2, {}, 0, 'quesadilla'],
+    [/\bnachos\b/, 6, {}, 0, 'nachos'],
+    [/\bsweet\s+potato\s+sliders?\b/, 1.5, {}, 3, 'sweet potato sliders'],
+    [/\bsweet\s+potato\s+fries\b/, 4, {}, 0, 'sweet potato fries'],
+    [/\bsweet\s+potato(?:es)?\b|\byams?\b/, 4, { cup: 4 }, 0, 'sweet potato'],
+    [/\b(?:french\s+)?fries\b/, 3.5, {}, 0, 'fries'],
+    [/\bhash\s*browns?\b|\btater\s+tots\b/, 2, {}, 0, 'hash browns'],
+    [/\bmashed\s+potato(?:es)?\b/, 2, { cup: 3 }, 0, 'mashed potatoes'],
+    [/\bbaked\s+potato(?:es)?\b/, 4, {}, 0, 'baked potato'],
+    [/\bpotato\s+salad\b/, 2, { cup: 3 }, 0, 'potato salad'],
+    [/\bpotato\s+chips?\b|\bchips\b/, 1.2, { oz: 1.2 }, 0, 'chips'],
+    [/\bpotato(?:es)?\b/, 1.5, { cup: 3 }, 0, 'potatoes'],
+    [/\bspaghetti\s+squash\b/, 2.2, { cup: 2.2 }, 0, 'spaghetti squash'],
+    [/\b(?:white\s+)?(?:bean\s+)?(?:\w+\s+)?chili\b(?!\s+(?:flakes|powder|sauce|oil|lime))/, 7, { cup: 7 }, 0, 'chili'],
+    [/\bgreen\s+beans?\b/, 2, { cup: 4 }, 0, 'green beans'],
+    [/\b(?:black|pinto|kidney|white|navy|refried|baked|garbanzo|cannellini)\s+beans?\b|\bbeans\b|\bchickpeas\b|\blentils?\b/, 7, { cup: 14 }, 0, 'beans'],
+    [/\bhummus\b/, 2, { tbsp: 1 }, 0, 'hummus'],
+    [/\bedamame\b/, 4, { cup: 8 }, 0, 'edamame'],
+    [/\b(?:snap|snow|sugar\s+snap)\s+peas\b/, 2, { cup: 2.6 }, 0, 'snap peas'],
+    [/\bpeas\b/, 4, { cup: 8.8 }, 0, 'peas'],
+    [/\bpopcorn\b/, 3.5, { cup: 1.2 }, 0, 'popcorn'],
+    [/\bcorn\s+on\s+the\s+cob\b|\bears?\s+of\s+corn\b/, 2, {}, 2, 'corn on the cob'],
+    [/\bcorn\b/, 2, { cup: 3.6 }, 0, 'corn'],
+    [/\bbrown\s+rice\b|\bwild\s+rice\b/, 3.5, { cup: 3.5 }, 0, 'brown rice'],
+    [/\b(?:spanish|mexican|fried|cilantro\s+lime)\s+rice\b/, 1.5, { cup: 1.5 }, 0, 'seasoned rice'],
+    [/\brice\s+noodles?\b/, 1.8, { cup: 1.8 }, 0, 'rice noodles'],
+    [/\brice\s+cakes?\b/, 0.4, {}, 2, 'rice cake'],
+    [/\brice\b/, 0.6, { cup: 0.6 }, 0, 'rice'],
+    [/\bquinoa\b/, 4, { cup: 5.2 }, 0, 'quinoa'],
+    [/\bcouscous\b/, 2, { cup: 2.2 }, 0, 'couscous'],
+    [/\borzo\b/, 2, { cup: 2.5 }, 0, 'orzo'],
+    [/\b(?:pasta|spaghetti|penne|linguine|fettuccine|rigatoni|macaroni|mac|lasagna|ravioli|tortellini|gnocchi)\b/, 3.5, { cup: 2.5 }, 0, 'pasta'],
+    [/\b(?:noodles|ramen|lo\s+mein|pad\s+thai|pho)\b/, 3, { cup: 2 }, 0, 'noodles'],
+    [/\bmeatballs?\b/, 1, {}, 0, 'meatballs'],
+    [/\bpizzas?\b/, 2, {}, 2, 'pizza'],
+    [/\blettuce\s+wraps?\b/, 0.5, {}, 2, 'lettuce wraps'],
+    [/\bchicken\s+salad\b|\begg\s+salad\b|\btuna\s+salad\b/, 1, { cup: 1.5 }, 0, 'chicken salad'],
+    [/\bcaesar\s+salad\b/, 3, {}, 0, 'caesar salad'],
+    [/\bside\s+salad\b/, 2, {}, 0, 'side salad'],
+    [/\bcole\s*slaw\b/, 2, {}, 0, 'coleslaw'],
+    [/\bsalads?\b/, 3, {}, 0, 'salad'],
+    [/\bsliders?\b/, 1, {}, 3, 'sliders'],
+    [/\b(?:sandwich(?:es)?|subs?|hoagies?|french\s+dips?|burgers?|cheeseburgers?|gyros?|wraps?|hot\s+dogs?|buns?)\b/, 2, {}, 0, 'sandwich/bun'],
+    [/\bbagels?\b|\benglish\s+muffins?\b/, 2, {}, 0, 'bagel'],
+    [/\bbanana\s+bread\b/, 1, {}, 2, 'banana bread'],
+    [/\bmuffins?\b|\bcroissants?\b/, 1.5, {}, 0, 'muffin'],
+    [/\bpancakes?\b/, 0.7, {}, 3, 'pancakes'],
+    [/\bwaffles?\b/, 0.8, {}, 2, 'waffles'],
+    [/\bfrench\s+toast\b/, 0.8, {}, 2, 'french toast'],
+    [/\b(?:whole[\s-]*(?:wheat|grain)|multigrain|wheat|ezekiel|rye|seeded)\s+(?:toast|bread)\b/, 2, {}, 2, 'whole wheat toast'],
+    [/\b(?:toast|bread|sourdough)\b/, 1, {}, 2, 'toast'],
+    [/\bcrackers?\b|\bpretzels?\b/, 1, {}, 0, 'crackers'],
+    [/\b(?:overnight\s+)?oat(?:meal|s)\b/, 4, { cup: 4 }, 0, 'oatmeal'],
+    [/\bgranola\s+bars?\b/, 1.5, {}, 0, 'granola bar'],
+    [/\bgranola\b/, 3, { cup: 6 }, 0, 'granola'],
+    [/\bcereal\b/, 2, { cup: 2 }, 0, 'cereal'],
+    [/\bchia(?:\s+seeds?)?\b/, 4, { tbsp: 4 }, 0, 'chia'],
+    [/\bflax(?:\s*seeds?)?\b/, 2, { tbsp: 2 }, 0, 'flax'],
+    [/\bprotein\s+bars?\b/, 5, {}, 0, 'protein bar'],
+    [/\b(?:protein|energy)\s+(?:balls?|bites?)\b/, 2, {}, 2, 'protein balls'],
+    [/\b(?:protein\s+(?:shakes?|drinks?)|shakes?)\b/, 1, {}, 0, 'protein shake'],
+    [/\bsmoothies?\b/, 4, {}, 0, 'smoothie'],
+    [/\bcharcuterie(?:\s+boards?)?\b/, 3, {}, 0, 'charcuterie'],
+    [/\b(?:peanut|almond|cashew)\s+butter\b/, 1.6, { tbsp: 0.8 }, 0, 'nut butter'],
+    [/\balmonds?\b/, 3.5, { oz: 3.5 }, 0, 'almonds'],
+    [/\bcashews?\b/, 0.9, { oz: 0.9 }, 0, 'cashews'],
+    [/\bpeanuts?\b/, 2.4, { oz: 2.4 }, 0, 'peanuts'],
+    [/\b(?:walnuts?|pecans?)\b/, 2, { oz: 2 }, 0, 'walnuts'],
+    [/\bpistachios?\b/, 3, { oz: 3 }, 0, 'pistachios'],
+    [/\b(?:mixed\s+nuts|nuts|trail\s+mix)\b/, 2.5, { oz: 2.5 }, 0, 'nuts'],
+    [/\b(?:sunflower|pumpkin)\s+seeds\b/, 2, { oz: 2.5 }, 0, 'seeds'],
+    [/\bdark\s+chocolate\b/, 3, { oz: 3 }, 0, 'dark chocolate'],
+    [/\b(?:orange|apple|grape|cranberry)\s+juice\b|\bjuice\b/, 0.5, {}, 0, 'juice'],
+    [/\bapplesauce\b/, 1.5, { cup: 2.7 }, 0, 'applesauce'],
+    [/\bpineapple\b/, 1.2, { cup: 2.3 }, 0, 'pineapple'],
+    [/\bgrapefruit\b/, 2, {}, 0, 'grapefruit'],
+    [/\bgrapes?\b/, 1.4, { cup: 1.4 }, 0, 'grapes'],
+    [/\bbananas?\b/, 3, {}, 2, 'banana'],
+    [/\bapples?\b/, 4.4, {}, 2, 'apple'],
+    [/\b(?:clementines?|mandarins?|cuties)\b/, 1.3, {}, 2, 'clementine'],
+    [/\boranges?\b/, 3, {}, 2, 'orange'],
+    [/\bblueberries\b/, 1.8, { cup: 3.6 }, 0, 'blueberries'],
+    [/\bstrawberries\b/, 3, { cup: 3 }, 0, 'strawberries'],
+    [/\braspberries\b/, 4, { cup: 8 }, 0, 'raspberries'],
+    [/\bblackberries\b/, 4, { cup: 7.6 }, 0, 'blackberries'],
+    [/\b(?:mixed\s+)?berries\b/, 2, { cup: 4 }, 0, 'berries'],
+    [/\bmangos?(?:es)?\b/, 2.6, { cup: 2.6 }, 0, 'mango'],
+    [/\b(?:peach(?:es)?|nectarines?|plums?)\b/, 2, {}, 2, 'peach'],
+    [/\bpears?\b/, 5.5, {}, 2, 'pear'],
+    [/\b(?:watermelon|cantaloupe|honeydew|melon)\b/, 0.6, { cup: 0.6 }, 0, 'melon'],
+    [/\bkiwis?\b/, 2, {}, 2, 'kiwi'],
+    [/\bcherries\b/, 3, { cup: 3 }, 0, 'cherries'],
+    [/\bdates\b/, 3.2, {}, 0, 'dates'],
+    [/\braisins\b/, 1.5, {}, 0, 'raisins'],
+    [/\bavocados?\b/, 5, {}, 0, 'avocado'],
+    [/\bguac(?:amole)?\b/, 3, { tbsp: 0.8 }, 0, 'guacamole'],
+    [/\bsalsa\b|\bpico(?:\s+de\s+gallo)?\b/, 0.5, {}, 0, 'salsa'],
+    [/\bbroccoli(?:ni)?\b/, 2.5, { cup: 3.5 }, 0, 'broccoli'],
+    [/\bcauliflower\b/, 2, { cup: 2.5 }, 0, 'cauliflower'],
+    [/\bbrussels?\s+sprouts?\b/, 3, { cup: 4 }, 0, 'brussels sprouts'],
+    [/\basparagus\b/, 2, { cup: 3 }, 0, 'asparagus'],
+    [/\b(?:zucchini|squash)\b/, 1, { cup: 1.2 }, 0, 'zucchini'],
+    [/\bspinach\b/, 1, { cup: 1 }, 0, 'spinach'],
+    [/\bkale\b/, 2, { cup: 2.6 }, 0, 'kale'],
+    [/\bcarrots?\b/, 2, { cup: 3.6 }, 0, 'carrots'],
+    [/\bcelery\b/, 0.6, { cup: 1.6 }, 0, 'celery'],
+    [/\bcucumbers?\b/, 1, { cup: 0.5 }, 0, 'cucumber'],
+    [/\b(?:bell|red|green|yellow|orange|sweet|jalape\u00f1o|jalapeno)\s+peppers?\b/, 2, { cup: 2.5 }, 0, 'peppers'],
+    [/\btomato(?:es)?\b/, 1.5, { cup: 2 }, 0, 'tomato'],
+    [/\bonions?\b/, 0.5, { cup: 2.7 }, 0, 'onion'],
+    [/\bmushrooms?\b/, 0.7, { cup: 0.7 }, 0, 'mushrooms'],
+    [/\b(?:(?:iceberg|romaine|butter|green\s+leaf)\s+)?lettuce\b|\b(?:iceberg|romaine|(?:mixed\s+)?greens|arugula)\b/, 0.5, { cup: 0.5 }, 0, 'lettuce'],
+    [/\bpickles?\b/, 0.5, {}, 0, 'pickles'],
+    [/\b(?:veggies|vegetables)\b/, 3, { cup: 3.5 }, 0, 'vegetables'],
+    [/\bfruit\b/, 2.5, { cup: 2.5 }, 0, 'fruit'],
+    [/\bcookies?\b/, 0.7, {}, 2, 'cookie'],
+    [/\bbrownies?\b|\bcake\b|\bpie\b|\bice\s+cream\b|\bchocolate\b/, 1, {}, 0, 'dessert'],
+    // 0 g: they take their own quantity ("10 oz ground beef", "3 eggs")
+    [/\b(?:eggs?|egg\s+whites?|bacon|sausages?|ham|chicken|wings?|beef|steak|tri[\s-]*tip|prime\s+rib|ribs?|brisket|pastrami|pork|carnitas|turkey|salmon|tuna|fish|shrimp|lamb|meat|patt(?:y|ies)|jerky|pepperoni|salami|prosciutto)\b/, 0, {}, 0, ''],
+    [/\b(?:cheese|cottage\s+cheese|cream\s+cheese|yogh?urt|milk|cream|butter|protein\s+powder|scoops?\s+of\s+protein|whey|honey|sugar|syrup|oil|mayo|ranch|dressing)\b/, 0, {}, 0, ''],
+    [/\b(?:coffees?|lattes?|espresso|teas?|beers?|ipas?|lagers?|modelos?|bud\s+light|wine|cocktails?|margaritas?|seltzers?|whiskey|vodka|tequila|gin|rum|tonic|sodas?|pepsi|coke|kombucha|water)\b/, 0, {}, 0, '']
+  ];
+  var FIB_UNIT = { cup: 'cup', cups: 'cup', c: 'cup', oz: 'oz', ounce: 'oz', ounces: 'oz', tbsp: 'tbsp', tbsps: 'tbsp', tablespoon: 'tbsp', tablespoons: 'tbsp',
+    slice: 'n', slices: 'n', piece: 'n', pieces: 'n', pc: 'n', pcs: 'n', serving: 'n', servings: 'n', handful: 'n', handfuls: 'n', scoop: 'n', scoops: 'n',
+    bowl: 'bowl', bowls: 'bowl', plate: 'n', plates: 'n', small: 'n', medium: 'n', large: 'n', big: 'n' };
+  function fibNorm(text) {
+    var t = String(text || '').replace(/\s*\([^)]*\b(?:kcal|cals?|calories|protein|carbs?|fat|fiber)\b[^)]*\)/ig, ' ').replace(/\[[^\]]*\]/g, ' ');
+    t = sfNorm(t.replace(/[\u2013\u2014]/g, ', '));
+    t = t.replace(/\b(\d+)\s*\/\s*(\d+)/g, function (m, a, b) { return +b ? String(Math.round(a / b * 100) / 100) : m; })
+      .replace(/(\d)\s*c\b/g, '$1 cup').replace(/\b(?:a\s+)?couple(?:\s+of)?\b/g, '2').replace(/\b(?:a\s+)?few\b/g, '3')
+      .replace(/\bhalf\s+(?:an?\s+|of\s+(?:an?\s+|the\s+)?)?/g, '0.5 ').replace(/\b(?:an?|one)\s+(?=[a-z])/g, '1 ')
+      .replace(/\b(?:no|without|hold\s+the|minus)\s+[a-z-]+(?:\s+[a-z-]+)?/g, ' ')
+      .replace(/[~\u2248]/g, ' ').replace(/(\d)\s*-\s*(\d)/g, '$1 to $2').replace(/\b(\d+(?:\.\d+)?)\s+to\s+(\d+(?:\.\d+)?)\b/g, function (m, a, b) { return String((+a + +b) / 2); });
+    return t;
+  }
+  function fiberEst(text) {
+    var items = [], total = 0, any = false;
+    fibNorm(text).split(/[,;\n|]+|\s*\/\s*|\s+(?:and|with|plus|&|then|also)\s+|\.\s+/).forEach(function (seg) {
+      var s = ' ' + seg.replace(/[^a-z0-9.\u00f1' -]+/g, ' ').replace(/\s+/g, ' ') + ' ';
+      if (!/[a-z]/.test(s)) return;
+      var hits = [];
+      FIB_DB.forEach(function (r) {
+        var rx = new RegExp(r[0].source, 'g'), m;
+        while ((m = rx.exec(s))) {
+          if (!m[0]) { rx.lastIndex++; continue; }
+          var st = m.index, en = st + m[0].length;
+          if (hits.some(function (h) { return st < h.en && en > h.st; })) continue;
+          hits.push({ st: st, en: en, r: r, word: m[0] });
+        }
+      });
+      if (!hits.length) return;
+      hits.sort(function (a, b) { return a.st - b.st; });
+      // Quantities: each number (with an optional unit) belongs to the foods named in the next few words. A count goes to the last of
+      // them ("3 beef tacos" -> tacos); a cup / oz / tbsp amount is shared ("2 cups of eggs, sausage, potatoes" -> 2/3 cup each).
+      var qrx = /(\d+(?:\.\d+)?)(?:\s*([a-z]+))?/g, qm, qs = [];
+      while ((qm = qrx.exec(s))) {
+        var u = qm[2] && FIB_UNIT[qm[2]] ? FIB_UNIT[qm[2]] : '', qe = u ? qm.index + qm[0].length : qm.index + qm[1].length;
+        qs.push({ at: qm.index, end: qe, n: Number(qm[1]), u: u });
+        qrx.lastIndex = qe;
+      }
+      qs.forEach(function (q, qi) {
+        var lim = qi + 1 < qs.length ? qs[qi + 1].at : s.length, words = 0, stop = lim;
+        var wr = /[a-z0-9.\u00f1'-]+/g, w; wr.lastIndex = q.end;
+        while ((w = wr.exec(s)) && w.index < lim) {
+          if (/^(?:on|over|in|inside|into|topped|plus|then|also)$/.test(w[0]) && words) { stop = w.index; break; }
+          if (++words > 5) { stop = w.index; break; }
+        }
+        var mine = hits.filter(function (h) { return h.st >= q.end && h.st < stop && !h.q; });
+        if (!mine.length) return;
+        if (q.u === 'cup' || q.u === 'oz' || q.u === 'tbsp') mine.forEach(function (h) { h.q = { n: q.n / mine.length, u: q.u }; });
+        else { var last = mine[mine.length - 1]; last.q = { n: q.n, u: q.u === 'bowl' ? 'bowl' : 'n' }; mine.forEach(function (h) { if (h !== last) h.q = { n: 1, u: 'n', dflt: true }; }); }
+      });
+      hits.forEach(function (h) {
+        var r = h.r, per = r[2] || {}, g, q = h.q;
+        any = true;
+        if (!r[1] && !Object.keys(per).length) return;   // 0 g foods
+        if (q && !q.dflt && (q.u === 'cup' || q.u === 'oz' || q.u === 'tbsp') && per[q.u] != null) g = q.n * per[q.u];
+        else if (q && q.u === 'bowl') g = per.cup != null ? 1.5 * per.cup * q.n : r[1] * q.n;
+        else if (q && !q.dflt && q.u === 'n' && q.n > 0 && q.n <= 24) g = q.n * r[1];
+        else if (q && !q.dflt && (q.u === 'cup' || q.u === 'oz' || q.u === 'tbsp')) g = r[1];     // a measure this food has no value for: one serving
+        else g = /s\b|es\b/.test(h.word) && r[3] ? r[3] * r[1] : r[1];   // bare plural ("tortillas") -> the usual count
+        g = Math.round(g * 10) / 10;
+        if (g > 0) { items.push({ name: r[4], g: g }); total += g; }
+      });
+    });
+    return { g: any ? Math.round(total * 10) / 10 : null, items: items };
+  }
+  function fiberEstLine(e) { return e && e.items.length ? e.items.map(function (x) { return x.name + ' ' + fmt(x.g, 1) + ' g'; }).join(' \u00b7 ') : ''; }
+
   /* ---- Smart fill UI (v112): Daily Tracker > Dictate a log note. As the note is dictated or typed, sfParse() fills the Daily Log fields
    * shown under the note (editable); a chip says what was filled, with Undo (turns smart fill off for this note; Fill again re-runs it).
    * Save writes the fields through the normal actions (logday: workout text appended to the day's, minutes / hike added, macros added,
@@ -6734,7 +6973,7 @@
     ['breakfast', 'Breakfast', 't'], ['lunch', 'Lunch', 't'], ['dinner', 'Dinner', 't'], ['snacks', 'Snacks', 't'], ['drinks', 'Drinks', 't'],
     ['water', 'Water', 'n', 'oz'], ['workout', 'Workout', 't'], ['workoutMin', 'Workout min', 'n', 'min'], ['hike', 'Hike', 'n', 'mi'],
     ['steps', 'Steps', 'n', ''], ['weight', 'Weight', 'n', 'lb'], ['sleep', 'Sleep', 'n', 'h'],
-    ['calories', 'Calories', 'n', 'kcal'], ['protein', 'Protein', 'n', 'g'], ['carbs', 'Carbs', 'n', 'g'], ['fat', 'Fat', 'n', 'g'], ['notes', 'Notes', 't']
+    ['calories', 'Calories', 'n', 'kcal'], ['protein', 'Protein', 'n', 'g'], ['carbs', 'Carbs', 'n', 'g'], ['fat', 'Fat', 'n', 'g'], ['fiber', 'Fiber', 'n', 'g'], ['notes', 'Notes', 't']
   ];
   var SF_LBL = {}; SF_FIELDS.forEach(function (f) { SF_LBL[f[0]] = f[1]; });
   var sf = { auto: true, vals: {}, edited: {}, lastText: null, waterMode: 'add', t: 0, sig: '' };
@@ -6745,8 +6984,18 @@
     if (r.workouts.length) v.workout = r.workouts.map(function (w) { return w.label; }).join('; ');
     ['workoutMin', 'hike', 'steps', 'weight', 'sleep', 'calories', 'protein', 'carbs', 'fat'].forEach(function (k) { if (r[k] != null && r[k] !== '') v[k] = r[k]; });
     if (r.notes) v.notes = r.notes;
-    if (r.fiber != null) v.notes = (v.notes ? v.notes + '; ' : '') + '[Fiber: ' + r.fiber + ' g]';   // v122: no Fiber column yet: kept in Notes like the Food Log does
+    // v134: fiber is estimated per food item from the meals (a spoken "8 grams fiber" wins). It is written as "[Fiber: N g]" tags in Notes
+    // (per meal, see sfNotesText) and, once the server has the column, as fiber= too.
+    sf.fibSaid = r.fiber != null;
+    var fe = sfFiberEst(v);
+    if (r.fiber != null) v.fiber = r.fiber; else if (fe.g != null) v.fiber = fe.g;
     return v;
+  }
+  var SF_FOOD_KEYS = ['breakfast', 'lunch', 'dinner', 'snacks', 'drinks', 'notes'];
+  function sfFiberEst(v) {           // -> { g, per: { breakfast: g|null, ... } }
+    var per = {}, t = 0, any = false;
+    SF_FOOD_KEYS.forEach(function (k) { if (!v[k]) return; var e = fiberEst(String(v[k])); per[k] = e.g; if (e.g != null) { t += e.g; any = true; } });
+    return { g: any ? fhR1(t) : null, per: per };
   }
   function sfReset() { sf.auto = true; sf.vals = {}; sf.edited = {}; sf.lastText = null; sf.waterMode = 'add'; sf.sig = ''; clearTimeout(sf.t); sfRender(); }
   function sfSoon() { clearTimeout(sf.t); sf.t = setTimeout(function () { sfUpdate(); }, 250); }
@@ -6824,6 +7073,10 @@
       var v = e.target.value;
       if (v === '') delete sf.vals[k]; else sf.vals[k] = e.target.type === 'number' ? Number(v) : v;
       if (k === 'water') sfWaterNote();
+      if (SF_FOOD_KEYS.indexOf(k) >= 0 && !sf.edited.fiber && !sf.fibSaid) {   // v134: a meal edited by hand gets its fiber re-estimated
+        var fe = sfFiberEst(sf.vals); if (fe.g != null) sf.vals.fiber = fe.g; else delete sf.vals.fiber;
+        var fi = list.querySelector('[data-sf="fiber"]'); if (fi) fi.value = sf.vals.fiber == null ? '' : sf.vals.fiber; else { sf.sig = ''; sfRender(); }
+      }
       var sv = $('note-save'); if (sv) { sv.setAttribute('data-lbl', sf.auto && sfKeys().length ? 'Save to Daily Log' : 'Save to Voice notes'); micUi(); }
       $('sf-chip').querySelector('b') && ($('sf-chip').querySelector('span').innerHTML = '<b>Filled:</b> ' + esc(sfLabels().join(', ')));
     });
@@ -6841,16 +7094,23 @@
   })();
   function sfHash(s) { var h = 5381; for (var i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
   function sfNotesText(v) {
-    var parts = [];
-    ['breakfast', 'lunch', 'dinner', 'snacks', 'drinks'].forEach(function (k) { if (v[k]) parts.push(SF_LBL[k] + ': ' + String(v[k]).trim()); });
-    if (v.notes) parts.push(String(v.notes).trim());
+    var parts = [], fib = v.fiber != null && v.fiber !== '' && isFinite(Number(v.fiber)) ? fhR1(Number(v.fiber)) : null;
+    // v134: per-meal "[Fiber: N g]" tags when the fiber box still holds the per-item estimate; one tag for the total when it was said or edited.
+    var fe = fib != null && !sf.fibSaid && !sf.edited.fiber ? sfFiberEst(v) : null, perMeal = !!(fe && fe.g != null && Math.abs(fe.g - fib) < 0.05);
+    SF_FOOD_KEYS.forEach(function (k) {
+      if (!v[k]) return;
+      var t = (k === 'notes' ? '' : SF_LBL[k] + ': ') + String(v[k]).trim();
+      if (perMeal && fe.per[k] != null) t += ' [Fiber: ' + fhR1(fe.per[k]) + ' g]';
+      parts.push(t);
+    });
+    if (fib != null && !perMeal) parts.push('[Fiber: ' + fib + ' g]');
     return parts.join('; ');
   }
   // -> Promise of { ok: [labels], bad: [{label, msg}] }. Reads the day fresh first (so appends/adds use the sheet's current values).
   function sfWrite(text) {
     var v = {}; Object.keys(sf.vals).forEach(function (k) { v[k] = sf.vals[k]; });
     var mode = sf.waterMode, past = trkPast(), lim = { water: [0, 300], workoutMin: [0, 1000], hike: [0, 100], steps: [0, 100000], weight: [50, 600], sleep: [0, 24],
-      calories: [0, 20000], protein: [0, 2000], carbs: [0, 3000], fat: [0, 2000] }, badv = [];
+      calories: [0, 20000], protein: [0, 2000], carbs: [0, 3000], fat: [0, 2000], fiber: [0, 300] }, badv = [];
     Object.keys(lim).forEach(function (k) { if (v[k] == null) return; var x = Number(v[k]); if (!isFinite(x) || x < lim[k][0] || x > lim[k][1]) badv.push(SF_LBL[k] + ' ' + lim[k][0] + '\u2013' + lim[k][1]); });
     if (badv.length) { var be = new Error('Check the numbers: ' + badv.join(', ') + '. Nothing was saved.'); be.partial = true; return Promise.reject(be); }
     return apiGet(rcUrl('log', {})).then(function (t) {
@@ -6861,6 +7121,7 @@
       var base = 'sf' + sfHash(key + '|' + text + '|' + JSON.stringify(v) + '|' + mode), res = { ok: [], bad: [], date: key }, chain = Promise.resolve();
       var p = { date: key, mode: 'add', cid: base + 'd' }, dayLbl = [];
       ['calories', 'protein', 'carbs', 'fat'].forEach(function (k) { if (v[k] != null && isFinite(Number(v[k]))) { p[k] = Number(v[k]); dayLbl.push(SF_LBL[k]); } });
+      if (v.fiber != null && v.fiber !== '' && isFinite(Number(v.fiber))) { if (ext.write.fiber) p.fiber = fhR1(Number(v.fiber)); dayLbl.push(SF_LBL.fiber); }   // v134: the tag is in Notes either way
       if (v.workout || v.workoutMin != null) {
         var old = String(row.workout || '').replace(/\s*\u00b7\s*\d+(?:\.\d+)?\s*min$/, '').trim();
         if (/^(?:rest|none|rest \/ none)$/i.test(old)) old = '';
@@ -6876,6 +7137,7 @@
       if (nt) {
         p.notes = nt;
         ['breakfast', 'lunch', 'dinner', 'snacks', 'drinks', 'notes'].forEach(function (k) { if (v[k]) dayLbl.push(SF_LBL[k]); });
+        if (!v.notes && !SF_FOOD_KEYS.some(function (k) { return v[k]; }) && /\[Fiber:/.test(nt)) dayLbl.push(SF_LBL.notes);
       }
       if (dayLbl.length) chain = chain.then(function () {
         return apiRaw('logday', p).then(function (r) { trkRes(r); res.ok = res.ok.concat(dayLbl); }, function (e) { if (e instanceof AuthError) throw e; res.bad.push({ label: dayLbl.join(', '), msg: friendly(e) }); })
