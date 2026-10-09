@@ -113,7 +113,7 @@
   var RC_MAX_AGE = 3 * 864e5;       // older than this: ignored (the screen waits for the server like before)
   var RC_READS = { links: 1, log: 1, spend: 1, accounts: 1, vaultdebt: 1, biz: 1, re: 1, ins: 1, ltmacros: 1, notes: 1, punch: 1, lognotes: 1,
     fin: 1, insnotes: 1, wishlist: 1, orders: 1, ptclients: 1, receipts: 1, entity: 1, entitytax: 1, folder: 1, healthmetrics: 1 };
-  var RC_NOCACHE = { ping: 1, file: 1, filebytes: 1, invest: 1, lisareqlist: 1 };   // v130: lisareqlist (Lisa's change requests) is always asked fresh      // reads that are never stored (passcode check; file bytes are big)
+  var RC_NOCACHE = { ping: 1, file: 1, filebytes: 1, invest: 1, lisareqlist: 1, bizreceipts: 1 };   // v130: lisareqlist (Lisa's change requests) is always asked fresh      // reads that are never stored (passcode check; file bytes are big)
   var RC_MONEY = ['spend', 'accounts', 'vaultdebt', 'entity', 'entitytax', 'receipts', 'fin', 'insnotes'];
   var RC_DEBT = ['vaultdebt', 'spend', 'entity', 'entitytax', 'fin'];
   var RC_WRITES = {
@@ -128,6 +128,7 @@
     wishadd: ['wishlist'], wishset: ['wishlist'], wishdel: ['wishlist'],
     ptclientset: ['ptclients'], ptclientdel: ['ptclients'], ptworkoutset: ['ptclients'], ptworkoutdel: ['ptclients'],
     investsave: [],   // v121: Investments live outside the read cache (phone copy + Script Properties)
+    bizreceiptsave: ['folder'],   // v135: receipt into KiwiT / TiwiK › Expenses › Receipts (server patch v55)
     lisareq: []       // v130: Lisa's change requests (lisareqlist is never cached)
   };
   var rcGen = 0, rcInflight = {}, rcBusyList = [], rcPendingScr = {}, rcFlushT = 0, rcOfferScr = '', rcNoteT = 0, rcBypass = false;
@@ -265,7 +266,7 @@
     re: function () { state.reAt = 0; },
     ins: function () { state.insAt = 0; },
     ltmacros: function () { if (state.ltCache.macros) state.ltCache.macros.at = 0; },
-    folder: function () { state.folderCache = {}; if (state.trustCache) state.trustCache.at = 0; docs.at = 0; Object.keys(state.ltCache).forEach(function (k) { if (k !== 'macros' && state.ltCache[k]) state.ltCache[k].at = 0; }); },
+    folder: function () { if (typeof bd !== 'undefined' && bd) Object.keys(bd.fl).forEach(function (k) { if (bd.fl[k] && bd.fl[k].s !== 'load') bd.fl[k].at = 0; }); state.folderCache = {}; if (state.trustCache) state.trustCache.at = 0; docs.at = 0; Object.keys(state.ltCache).forEach(function (k) { if (k !== 'macros' && state.ltCache[k]) state.ltCache[k].at = 0; }); },
     ptclients: function () { pt.at = 0; },
     wishlist: function () { wl.listAt = 0; },
     notes: function () { notes.at = 0; },
@@ -4388,6 +4389,7 @@
   state.entDocs = { s: '', at: 0, msg: '' };
   function loadEntDocs(force) {
     var D = state.entDocs;
+    bdEnsure(state.entRoute.key);     // v135: Expenses / Receipts listed live (action=folder)
     if (!force && state.biz && (D.s === 'load' || Date.now() - D.at < 60000)) return renderEnt();
     var mine = state.entDocs = { s: 'load', at: state.biz ? D.at : 0, msg: '' };
     renderEnt();
@@ -4404,25 +4406,18 @@
     });
   }
   function entDocsView(E) {
-    var D = state.entDocs, d = state.biz, h = '';
+    var D = state.entDocs, d = state.biz, h = '', scr = 'ent:' + E.key;
     var b = d && (d.businesses || []).filter(function (x) { return x.slug === E.key; })[0];
     if (D.s === 'err') h += '<div class="foot warnfoot">Could not load documents: ' + esc(D.msg || '') + ' <button class="linkrow smallrow" data-ent-retry="1">Try again</button></div>';
     else if (!b && D.s !== 'ok') h += '<div class="loading">Loading…</div>';
     else if (!b) h += '<div class="card bizgroup"><h4 class="sechead">Business Documents</h4><div class="foot empty">No documents yet.</div></div>';
-    if (b) {
-      var groups = (b.groups || []).slice().sort(function (x, y) {
-        var a = /^business documents/i.test(x.name) ? 0 : 1, c = /^business documents/i.test(y.name) ? 0 : 1; return a - c;
-      });
-      var n = 0; groups.forEach(function (g) { n += (g.files || []).length; });
-      h += '<p class="hint">' + esc(b.name) + ' \u00b7 ' + n + ' document' + (n === 1 ? '' : 's') + ' \u00b7 tap to view</p>';
-      h += n ? bizGroupsHtml(groups) : '<div class="card bizgroup"><h4 class="sechead">Business Documents</h4><div class="foot empty">No documents yet \u2014 add files to Drive \u203a Business \u203a ' + esc(b.name) + '.</div></div>';
-    }
+    if (b) h += bdTreeHtml(scr, E.key, b);      // v135: collapsible folder tree incl. Expenses › Receipts
     var rel = ENT_RELATED[E.key];
     if (rel) {
-      h += '<div class="card bizgroup"><h4 class="sechead">Related documents</h4><ul class="doclist">' + rel.map(function (x) {
+      h += bdCard(scr, '~related', 'Related documents', rel.length, '<ul class="doclist">' + rel.map(function (x) {
         var url = x.folder ? 'https://drive.google.com/drive/folders/' + x.id : 'https://drive.google.com/file/d/' + x.id + '/view';
         return '<li><a href="' + esc(url) + '" data-title="' + esc(x.name) + '"><span class="ft">' + (x.folder ? 'DIR' : 'PDF') + '</span>' + esc(x.name) + '</a></li>';
-      }).join('') + '</ul></div>';
+      }).join('') + '</ul>', false);
     }
     if (b && b.folderUrl) h += '<a class="linkrow" data-title="' + esc(b.short || b.name) + '" href="' + esc(b.folderUrl) + '">Open ' + esc(b.short || b.name) + ' folder &rsaquo;</a>';
     return h;
@@ -4446,6 +4441,7 @@
     $('ent-body').innerHTML = h;
   }
   $('ent-body').addEventListener('click', function (e) {
+    if (!state.entRoute.kind && state.entRoute.tab === 'docs' && bdBodyClick('ent:' + state.entRoute.key, e)) return;   // v135: Business Documents folders
     var t = e.target.closest('.vtoggle, .vtot[data-tgl]');
     if (t) {
       var c = t.closest('.vsec'), key = c.getAttribute('data-vs'), open = !c.classList.contains('open');
@@ -4518,11 +4514,232 @@
     }
     $('biz-title').textContent = b.short || b.name;
     $('biz-title').classList.add('sub');
-    var h = '<p class="hint">' + esc(b.name) + ' · ' + b.count + ' documents · tap to view</p>';
-    h += bizGroupsHtml(b.groups);
+    var h;
+    if (BD_EXP[b.slug]) { bdEnsure(b.slug); h = bdTreeHtml('biz:' + b.slug, b.slug, b); }   // v135: KiwiT / TiwiK as the collapsible tree (same as their Business Documents tab)
+    else h = '<p class="hint">' + esc(b.name) + ' · ' + b.count + ' documents · tap to view</p>' + bizGroupsHtml(b.groups);
     if (b.folderUrl) h += '<a class="linkrow" data-title="' + esc(b.short || b.name) + '" href="' + esc(b.folderUrl) + '">Open ' + esc(b.short || b.name) + ' folder &rsaquo;</a>';
     $('biz-body').innerHTML = h;
   }
+
+  /* ---- v135: Business Documents as a collapsible folder tree (KiwiT / TiwiK, both #ent/<key>/docs and #biz/<key>) ----
+   * The `biz` groups come flat ("Machines & Maintenance › Equip Purchase › Archive"); they are rebuilt into a tree here. Every folder and
+   * item group is a collapsible card (same .ncard / .nchead / .cnt / .chev pattern as the Vault and Laundromat sections), collapsed at
+   * first; tap a heading to open it. Open folders are remembered per screen (ent:<key> / biz:<key>) while the app is open (memory only).
+   * Expenses › Receipts (created in Drive 2026-10-09) is added on the phone, because the server only reports folders that hold files
+   * (TiwiK is a fixed snapshot). Both folders are listed live through the existing action=folder. Receipts has "Add receipt":
+   * with the v55 server (backend/biz-receipts.patch, action bizreceiptsave) it opens the camera / file picker and files the photo or PDF
+   * straight into that Receipts folder; until then it opens the Receipts folder in Google Drive, where + > Scan / Upload adds it. */
+  var BD_EXP = {
+    kiwit: { under: 'Business Documents', expenses: '1Zq4WJ_IamecqJk5A5s5G7O8i4_dATUtr', receipts: '1kCEyz-1vCD8ffc5sF04uoXk7Uyp7YZJY' },
+    tiwik: { under: '', expenses: '14fu87P8z91yIS5yUyG0aW0SrxJsIvepg', receipts: '1m-e8g1IhEA8PLymp81lJfuplqY_hEFlj' }
+  };
+  var BD_TTL = 60000, BD_PROBE_WAIT = 30 * 60000;
+  var bd = { open: {}, fl: {}, up: null, probeAt: 0, probing: false, rc: {} };   // fl[id] = { s:'load'|'ok'|'err', at, items, msg }; up = server can file receipts (null = unknown)
+  function bdFolderUrl(id) { return 'https://drive.google.com/drive/folders/' + id; }
+  function bdOpenMap(scr) { return bd.open[scr] || (bd.open[scr] = {}); }
+  function bdRepaint() {
+    if (entActive() && state.entRoute.tab === 'docs' && !state.entRoute.kind) renderEnt();
+    else if ($('screen-biz').classList.contains('active') && BD_EXP[state.bizSlug] && state.biz) renderBiz();
+  }
+  function bdLoadFolder(id, force) {
+    var f = bd.fl[id];
+    if (f && (f.s === 'load' || (!force && f.s === 'ok' && Date.now() - f.at < BD_TTL))) return;
+    var mine = bd.fl[id] = { s: 'load', at: 0, items: f && f.items, msg: '' };
+    apiRaw('folder', { id: id }).then(function (j) {
+      if (bd.fl[id] !== mine) return;
+      if (j.error) bd.fl[id] = { s: 'err', at: Date.now(), items: mine.items, msg: j.error === 'bad_action' ? 'not available yet' : (j.message || j.error) };
+      else bd.fl[id] = { s: 'ok', at: Date.now(), items: (j.data && j.data.items) || [], msg: '' };
+      bdRepaint();
+    }, function (err) {
+      if (bd.fl[id] !== mine) return;
+      if (err instanceof AuthError) { setPc(''); lock('Passcode changed. Enter the new one.'); return; }
+      bd.fl[id] = { s: 'err', at: Date.now(), items: mine.items, msg: friendly(err) };
+      bdRepaint();
+    });
+  }
+  // Does the server file receipts (v55: read action bizreceipts answers canUpload)? Read-only, never cached. bad_action = not yet; asked again after 30 min.
+  function bdProbe() {
+    if (bd.up === true || bd.probing || (bd.probeAt && Date.now() - bd.probeAt < BD_PROBE_WAIT)) return;
+    bd.probing = true;
+    apiRaw('bizreceipts', {}).then(function (j) {
+      bd.probing = false; bd.probeAt = Date.now();
+      var was = bd.up; bd.up = !!(j && j.ok && j.data && j.data.canUpload);
+      if (was !== bd.up) bdRepaint();
+    }, function (err) {
+      bd.probing = false; bd.probeAt = Date.now();
+      if (err instanceof AuthError) { setPc(''); lock('Passcode changed. Enter the new one.'); }
+    });
+  }
+  function bdEnsure(key) {
+    var X = BD_EXP[key]; if (!X) return;
+    bdLoadFolder(X.expenses); bdLoadFolder(X.receipts); bdProbe();
+  }
+  function bdNode(name) { return { name: name, files: [], kids: [], folderUrl: '', decision: null }; }
+  function bdKid(n, name) {
+    var low = name.toLowerCase();
+    for (var i = 0; i < n.kids.length; i++) if (n.kids[i].name.toLowerCase() === low) return n.kids[i];
+    var k = bdNode(name); n.kids.push(k); return k;
+  }
+  function bdLiveItems(n, id) {      // merge a live folder listing into node n (files deduped by id; subfolders other than known kids as DIR rows)
+    var f = bd.fl[id]; n.fid = id; n.folderUrl = n.folderUrl || bdFolderUrl(id);
+    n.live = f || { s: 'load' };
+    if (!f || !f.items) return;
+    var have = {}; n.files.forEach(function (x) { if (x.id) have[x.id] = 1; });
+    f.items.forEach(function (x) {
+      if (x.folder || x.mime === 'application/vnd.google-apps.folder') {
+        if (n.kids.some(function (k) { return k.fid === x.id || k.name.toLowerCase() === String(x.name || '').toLowerCase(); })) return;
+        n.files.push({ name: x.name, id: x.id, url: bdFolderUrl(x.id), mime: 'application/vnd.google-apps.folder', dir: true });
+      } else if (!have[x.id]) { have[x.id] = 1; n.files.push({ name: x.name, id: x.id, url: 'https://drive.google.com/file/d/' + x.id + '/view', mime: x.mime }); }
+    });
+  }
+  function bdTree(key, groups) {
+    var root = bdNode('');
+    (groups || []).forEach(function (g) {
+      var n = root;
+      String(g.name || 'Documents').split(/\s*\u203a\s*/).forEach(function (p) { n = bdKid(n, p || 'Documents'); });
+      n.files = n.files.concat(g.files || []);
+      if (g.folderUrl) n.folderUrl = g.folderUrl;
+      if (g.decision) n.decision = g.decision;
+    });
+    var X = BD_EXP[key];
+    if (X) {
+      var host = X.under ? bdKid(root, X.under) : root;
+      var ex = bdKid(host, 'Expenses'), rc = bdKid(ex, 'Receipts');
+      ex.kids.splice(ex.kids.indexOf(rc), 1); ex.kids.unshift(rc);     // Receipts first inside Expenses
+      rc.receipts = key; bdLiveItems(rc, X.receipts); bdLiveItems(ex, X.expenses);
+    }
+    return root;
+  }
+  function bdCount(n) { return n.files.filter(function (f) { return !f.dir; }).length + n.kids.reduce(function (s, k) { return s + bdCount(k); }, 0); }
+  function bdFileLi(f) {
+    var href = /officedocument|msword|ms-excel|ms-powerpoint/.test(f.mime || '') && f.id ? 'https://drive.google.com/file/d/' + f.id + '/view' : f.url;
+    return '<li><a href="' + esc(href) + '" data-title="' + esc(f.name) + '"><span class="ft">' + fileKind(f.mime) + '</span>' + esc(f.name) + (f.dir ? ' <span class="chev">&rsaquo;</span>' : '') + '</a>' +
+      (f.synopsis ? '<p class="syn">' + esc(f.synopsis) + '</p>' : '') + '</li>';
+  }
+  function bdCard(scr, path, title, count, inner, nest, extraCls) {
+    var open = !!bdOpenMap(scr)[path];
+    return '<div class="card ncard bdnode' + (nest ? ' nest' : ' bizgroup') + (open ? ' open' : '') + (extraCls ? ' ' + extraCls : '') + '" data-bd="' + esc(path) + '">' +
+      '<button type="button" class="nchead bdtog" aria-expanded="' + open + '"><span>' + esc(title) + '</span><b class="cnt">' + count + '</b><i class="chev">&rsaquo;</i></button>' +
+      '<div class="ncbody">' + inner + '</div></div>';
+  }
+  function bdReceiptsBar(key, n) {
+    var url = bdFolderUrl(BD_EXP[key].receipts), r = bd.rc[key];
+    var h = '<div class="bdrcpt">';
+    if (r && r.b64 != null) return h + bdRcForm(key, r) + '</div>';
+    if (bd.up) {
+      h += '<div class="bdrbtns"><label class="bigsave bdrbtn">Add receipt<input type="file" accept="image/*" capture="environment" data-bdr-pick="' + key + '" hidden></label>' +
+        '<label class="navbtn bdrbtn2">Photo or PDF<input type="file" accept="image/*,application/pdf" data-bdr-pick="' + key + '" hidden></label></div>' +
+        '<p class="foot">Take a photo of the receipt, or pick a photo / scanned PDF. It is filed in this Receipts folder in Drive.</p>';
+    } else {
+      h += '<div class="bdrbtns"><a class="bigsave bdrbtn" data-external target="_blank" rel="noopener" href="' + esc(url) + '">Add receipt in Drive &#8599;</a></div>' +
+        '<p class="foot">Opens this Receipts folder in Google Drive: tap <b>+</b>, then <b>Scan</b> (camera) or <b>Upload</b> (photo or PDF). ' +
+        (bd.up === false ? 'Adding straight from the app comes with the next server update.' : '') + '</p>';
+    }
+    if (r && r.done) h += '<div class="noteflash show">' + r.done + '</div>';
+    if (r && r.msg) h += '<div class="noteflash show bad">' + esc(r.msg) + '</div>';
+    return h + '</div>';
+  }
+  function bdRcForm(key, r) {
+    var pdf = r.mime === 'application/pdf', kb = Math.round(r.b64.length * 0.75 / 1024);
+    return '<div class="vform bdrform"><h3>Receipt <small>' + (pdf ? 'PDF' : r.w + ' \u00d7 ' + r.h) + ' \u00b7 ' + kb + ' KB</small></h3>' +
+      (pdf ? '<div class="foot">' + esc(r.fname || 'receipt.pdf') + '</div>' : '<img class="vprev" alt="Receipt preview" src="' + r.url + '">') +
+      '<div class="vrow2">' + vField('Date', '<input id="bdr-date" type="date" value="' + esc(r.date || vToday()) + '">') + vField('Amount (optional)', '<input id="bdr-amount" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00" value="' + esc(r.amount || '') + '">') + '</div>' +
+      vField('Merchant (optional)', '<input id="bdr-merchant" type="text" maxlength="80" autocomplete="off" value="' + esc(r.merchant || '') + '">') +
+      '<div class="draftbtns"><button type="button" class="bigsave" data-bdr-save="' + key + '"' + (r.busy ? ' disabled' : '') + '>' + (r.busy ? 'Uploading\u2026' : 'Save receipt') + '</button>' +
+      '<button type="button" class="navbtn discard" data-bdr-cancel="' + key + '">Cancel</button></div>' +
+      (r.msg ? '<div class="noteflash show bad">' + esc(r.msg) + '</div>' : '') + '</div>';
+  }
+  function bdNodeHtml(scr, n, path, nest) {
+    var inner = '';
+    if (n.receipts) inner += bdReceiptsBar(n.receipts, n);
+    if (n.decision) inner += '<div class="decision"><b>Decision to make</b>' + (Array.isArray(n.decision)
+      ? '<ul>' + n.decision.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '<p>' + esc(n.decision) + '</p>') + '</div>';
+    if (n.files.length) inner += '<ul class="doclist">' + n.files.map(bdFileLi).join('') + '</ul>';
+    else if (n.live && n.live.s === 'load' && !n.kids.length) inner += '<div class="foot empty">Loading\u2026</div>';
+    else if (!n.kids.length) inner += '<div class="foot empty">' + (n.receipts ? 'No receipts yet.' : 'Nothing here yet.') + '</div>';
+    if (n.live && n.live.s === 'err') inner += '<div class="foot warnfoot">Could not list this folder: ' + esc(n.live.msg || '') + '</div>';
+    n.kids.forEach(function (k) { inner += bdNodeHtml(scr, k, path + '/' + k.name, true); });
+    if (n.folderUrl) inner += '<a class="foldlink" data-title="' + esc(n.name) + '" href="' + esc(n.folderUrl) + '">Open folder &rsaquo;</a>';
+    return bdCard(scr, path, n.name, bdCount(n), inner, nest);
+  }
+  // Business Documents body for one KiwiT / TiwiK business record b; scr = 'ent:<key>' or 'biz:<key>'.
+  function bdTreeHtml(scr, key, b) {
+    var groups = (b.groups || []).slice().sort(function (x, y) {
+      var a = /^business documents/i.test(x.name) ? 0 : 1, c = /^business documents/i.test(y.name) ? 0 : 1; return a - c;
+    });
+    var root = bdTree(key, groups), n = bdCount(root);
+    var h = '<p class="hint">' + esc(b.name) + ' \u00b7 ' + n + ' document' + (n === 1 ? '' : 's') + ' \u00b7 tap a folder to open it</p><div class="bdtree">';
+    root.kids.forEach(function (k) { h += bdNodeHtml(scr, k, k.name, false); });
+    return h + '</div>';
+  }
+  function bdToggle(scr, t) {
+    var c = t.closest('.bdnode'); if (!c) return false;
+    var open = !c.classList.contains('open');
+    c.classList.toggle('open', open); t.setAttribute('aria-expanded', open);
+    bdOpenMap(scr)[c.getAttribute('data-bd')] = open;
+    return true;
+  }
+  // Receipt upload (needs the v55 server; the buttons only show once the dry check answered).
+  var BDR_MAX_B64 = Math.ceil(8 * 1024 * 1024 / 3) * 4;
+  function bdrPick(key, file) {
+    if (!file || !BD_EXP[key]) return;
+    var r = bd.rc[key] = { b64: null, msg: '', done: '' };
+    if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '')) {
+      if (file.size > 8 * 1024 * 1024) { r.msg = 'That PDF is larger than 8 MB.'; bdRepaint(); return; }
+      var rd = new FileReader();
+      rd.onload = function () { var s = String(rd.result || ''), k = s.indexOf(','); r.b64 = s.slice(k + 1); r.mime = 'application/pdf'; r.fname = file.name; r.cid = vNewCid(); bdRepaint(); };
+      rd.onerror = function () { r.msg = 'That file could not be read.'; bdRepaint(); };
+      rd.readAsDataURL(file); return;
+    }
+    vcamShrink(file).then(function (o) { r.b64 = o.b64; r.url = o.url; r.w = o.w; r.h = o.h; r.mime = 'image/jpeg'; r.cid = vNewCid(); bdRepaint(); },
+      function (err) { r.msg = (err && err.message) || 'Could not prepare that photo.'; bdRepaint(); });
+  }
+  function bdrKeep(r) { var g = function (id) { var el = $(id); return el ? el.value.trim() : ''; }; r.date = g('bdr-date') || r.date; r.amount = g('bdr-amount'); r.merchant = g('bdr-merchant'); }
+  function bdrSave(key) {
+    var r = bd.rc[key]; if (!r || r.b64 == null || r.busy) return;
+    bdrKeep(r); r.msg = '';
+    if (!vDateOk(r.date || vToday())) { r.msg = 'Pick a valid date.'; return bdRepaint(); }
+    if (r.amount && vAmt(r.amount) === null) { r.msg = 'Amount should look like 42.50, or leave it blank.'; return bdRepaint(); }
+    if (r.b64.length > BDR_MAX_B64) { r.msg = 'The file is larger than 8 MB.'; return bdRepaint(); }
+    var body = { cid: r.cid, ent: key, date: r.date || vToday(), mime: r.mime, data: r.b64 };
+    if (r.amount) body.amount = vAmt(r.amount).toFixed(2);
+    if (r.merchant) body.merchant = r.merchant;
+    r.busy = true; bdRepaint();
+    apiPostRaw('bizreceiptsave', body, 90000).then(function (j) {
+      r.busy = false;
+      if (j.error === 'bad_action') { bd.up = false; bd.probeAt = Date.now(); bd.rc[key] = { b64: null, msg: 'The server can\u2019t file receipts yet. Use Add receipt in Drive for now.' }; return bdRepaint(); }
+      if (j.error) { r.msg = j.error === 'too_big' ? 'The file is too large for the server.' : (j.message || j.error); return bdRepaint(); }
+      var d = j.data || {};
+      bd.rc[key] = { b64: null, msg: '', done: (d.duplicate ? 'Already filed: ' : 'Filed in Receipts: ') + esc(d.name || '') +
+        (d.url ? ' \u00b7 <a href="' + esc(d.url) + '" data-title="' + esc(d.name || 'Receipt') + '">Open</a>' : '') };
+      bdLoadFolder(BD_EXP[key].receipts, true); bdRepaint();
+    }, function (err) {
+      r.busy = false;
+      if (vAuth(err)) return;
+      r.msg = friendly(err) + ' Tap Save receipt again to retry (it will not file twice).'; bdRepaint();
+    });
+  }
+  function bdBodyClick(scr, e) {
+    var t = e.target.closest('.bdtog'); if (t) { bdToggle(scr, t); return true; }
+    var s = e.target.closest('[data-bdr-save]'); if (s) { bdrSave(s.getAttribute('data-bdr-save')); return true; }
+    var c = e.target.closest('[data-bdr-cancel]'); if (c) { bd.rc[c.getAttribute('data-bdr-cancel')] = null; bdRepaint(); return true; }
+    return false;
+  }
+  function bdBodyChange(e) {
+    var inp = e.target.closest && e.target.closest('input[data-bdr-pick]'); if (!inp) return;
+    var f = inp.files && inp.files[0], key = inp.getAttribute('data-bdr-pick'); inp.value = '';
+    if (f) bdrPick(key, f);
+  }
+  function bdBodyInput(e) {      // keep typed values across repaints
+    var id = e.target && e.target.id; if (!/^bdr-/.test(id || '')) return;
+    Object.keys(bd.rc).forEach(function (k) { if (bd.rc[k] && bd.rc[k].b64 != null) bdrKeep(bd.rc[k]); });
+  }
+  ['ent-body', 'biz-body'].forEach(function (id) {
+    $(id).addEventListener('change', bdBodyChange);
+    $(id).addEventListener('input', bdBodyInput);
+  });
+  $('biz-body').addEventListener('click', function (e) { if (BD_EXP[state.bizSlug]) bdBodyClick('biz:' + state.bizSlug, e); });
+
 
   /* ---------------- Real Estate / Insurance (live from Drive) ---------------- */
   // #re = property buttons; #re/<slug> = property files + its Insurance/<Property> files; #ins = Insurance folder.

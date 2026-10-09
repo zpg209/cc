@@ -185,3 +185,26 @@ Lisa's Assistant, a few times a day:
 The Drive connector tools can read the sheet but cannot edit cells, so replies go through `lisareqset` (or someone types them into the Status / Reply cells; the app reads whatever is there).
 
 Check after deploying: `…/exec?api=1&pc=PASSCODE&action=lisareqlist` should return `{"ok":true,"data":{"exists":true,…,"items":[],…,"version":54}}`, and `…&action=lisareq&id=lrcheck1&text=TEST%20check&section=lt&dry=1` should return `"dry":true` without writing anything.
+
+## biz-receipts.patch (API v55, KiwiT / TiwiK: receipts into Expenses > Receipts)
+Patch against Api.gs v45 (independent of the other patches here; applies before or after them). Apply it, then redeploy the Apps Script web app (Zac signs in, Deploy > Manage deployments > edit > New version). It uses `DriveApp.createFile` in an existing folder, the same call `receiptsave` and `ltmenusave` make, so the existing Drive scope covers it and no new authorization should be needed.
+
+The folders (created 2026-10-09, nothing moved or shared):
+- KiwiT LLC > Business Documents > Expenses `1Zq4WJ_IamecqJk5A5s5G7O8i4_dATUtr` > Receipts `1kCEyz-1vCD8ffc5sF04uoXk7Uyp7YZJY`
+- TiwiK Laundromat > Expenses `14fu87P8z91yIS5yUyG0aW0SrxJsIvepg` > Receipts `1m-e8g1IhEA8PLymp81lJfuplqY_hEFlj`
+
+What it adds:
+- `bizreceipts` (read-only): `{ canUpload:true, ents:{ kiwit|tiwik:{ folderId, folderUrl, found, count } }, version:55 }`. The phone asks it (never cached) to know it can upload.
+- `bizreceiptsave` (admin, POST JSON body): `{ pc, action:'bizreceiptsave', cid, ent:'kiwit'|'tiwik', date, amount?, merchant?, mime, data }`.
+  - Writes only to the two Receipts folders above (`API_BIZRC.folders`); any other `ent` is `bad_value`.
+  - `mime` = `image/jpeg`, `image/png` or `application/pdf`; `data` = base64, up to 8 MB, and its first bytes must match the type.
+  - Name `<date> <merchant> $<amount>.<ext>` (for example `2026-10-09 Home Depot $42.50.jpg`; `2026-10-09 Receipt.jpg` with neither). It NEVER overwrites: ` (2)`, ` (3)` ... goes before the extension.
+  - `cid` is required. The same cid returns the first file (`duplicate:'cid'`), checked in the CC write log first, then in the file description (`CC bizreceiptsave {...}`).
+  - `dry=1` validates and returns the final name; it creates nothing.
+  - Journaled in the CC write log (`bizreceiptsave`, `KiwiT Receipts: <name>`, `<id> | <url> | <bytes>`, cid). It does not add a row to any sheet.
+
+Until it is deployed (front end v135): KiwiT and TiwiK > Business Documents show Expenses > Receipts (listed live through the existing `action=folder`). Receipts has "Add receipt in Drive", which opens that Receipts folder in Google Drive (tap + > Scan or Upload). The app asks `bizreceipts` at most every 30 minutes; the live server answers `bad_action`.
+
+After deploying, no front-end change is needed: the next check gets `canUpload:true` and Receipts shows "Add receipt" (camera) and "Photo or PDF" (library / Files). Photos are shrunk on the phone to a JPEG (as in the Vault), PDFs are sent as they are; then Date, Amount and Merchant (optional) and Save receipt.
+
+Check after deploying: `…/exec?api=1&pc=PASSCODE&action=bizreceipts` should return `"canUpload":true` with both folders `"found":true`, and `…&action=bizreceiptsave&ent=kiwit&dry=1&merchant=Test&amount=1` should return `"dry":true,…,"name":"<today> Test $1.00.jpg"` without writing anything.

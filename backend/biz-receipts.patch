@@ -1,0 +1,145 @@
+# KiwiT / TiwiK receipts (API v55): file a receipt photo or scanned PDF from the phone into <entity> > Expenses > Receipts.
+# Patch against Api.gs v45, independent of the other patches here. Hunks marked "(anchor)" sit next to v45 code that is not in
+# this repo: find the quoted line in Api.gs and insert there. Uses DriveApp.createFile in an existing folder, the same call
+# receiptsave and ltmenusave make, so the existing Drive scope covers it and no new authorization should be needed.
+--- a/Api.gs
++++ b/Api.gs
+@@ header comment (anchor: the " *   GET  <exec>?api=1&pc=123456&action=entity&entity=kiwit|tiwik&offset=0" line) @@
++ *   GET  <exec>?api=1&pc=123456&action=bizreceipts   (v55: read-only; {canUpload:true, ents:{kiwit|tiwik:{folderId,folderUrl,count}}, version:55}; the phone uses it to switch "Add receipt" from Drive to the camera)
++ *   POST <exec>  body (text/plain JSON) {"pc":..,"action":"bizreceiptsave","cid":"abc","ent":"kiwit|tiwik","date":"2026-10-09","amount":"42.50","merchant":"..","mime":"image/jpeg|image/png|application/pdf","data":"<base64>"[,"dry":1]}   (admin v55: file ONE receipt in <entity> > Expenses > Receipts; never overwrites; the same cid never files twice)
+  *   GET  <exec>?api=1&pc=123456&action=entity&entity=kiwit|tiwik&offset=0   (KiwiT LLC / TiwiK LLC separate books for one month; read-only)
+@@ apiDispatch_ action switch (anchor: "      case 'receiptsave': return apiReceiptSave_(extra.all || {});") @@
+       case 'receiptsave': return apiReceiptSave_(extra.all || {});
++      case 'bizreceipts':    return apiBizReceipts_();                        // v55: KiwiT / TiwiK Receipts folders (read-only)
++      case 'bizreceiptsave': return apiBizReceiptSave_(extra.all || {});      // v55: receipt -> <entity> > Expenses > Receipts
+@@ end of file (add below the last function) @@
++
++/* ======================================================================= */
++/* KiwiT / TiwiK receipts — action=bizreceipts / bizreceiptsave (v55)        */
++/* The two Receipts folders were created 2026-10-09 (Drive > Second Brain >  */
++/* Business > KiwiT LLC > Business Documents > Expenses > Receipts, and       */
++/* Business > TiwiK Laundromat > Expenses > Receipts). Only these two folder  */
++/* ids can be written; nothing else in Drive changes and nothing is shared.  */
++/* ======================================================================= */
++var API_BIZRC = {
++  folders: {
++    kiwit: { id: '1kCEyz-1vCD8ffc5sF04uoXk7Uyp7YZJY', label: 'KiwiT' },   // KiwiT LLC > Business Documents > Expenses > Receipts
++    tiwik: { id: '1m-e8g1IhEA8PLymp81lJfuplqY_hEFlj', label: 'TiwiK' }    // TiwiK Laundromat > Expenses > Receipts
++  },
++  MIME: { 'image/jpeg': 'jpg', 'image/png': 'png', 'application/pdf': 'pdf' },
++  MAX_BYTES: 8 * 1024 * 1024,
++  MAX_B64: Math.ceil(8 * 1024 * 1024 / 3) * 4 + 8,
++  DESC_TAG: 'CC bizreceiptsave '      // file description = tag + {"cid":..,"ent":..,"date":..,"amount":..,"merchant":..}
++};
++function apiBizRcFolder_(ent) {
++  var c = API_BIZRC.folders[String(ent || '').toLowerCase()];
++  if (!c) return null;
++  try { var f = DriveApp.getFolderById(c.id); f.getName(); return f; } catch (e) { return null; }
++}
++/** action=bizreceipts (read-only): which entities can take receipts, with the number of files in each Receipts folder. */
++function apiBizReceipts_() {
++  var ents = {};
++  Object.keys(API_BIZRC.folders).forEach(function (k) {
++    var c = API_BIZRC.folders[k], f = apiBizRcFolder_(k), n = 0;
++    if (f) { var it = f.getFiles(); while (it.hasNext() && n < 5000) { it.next(); n++; } }
++    ents[k] = { folderId: c.id, folderUrl: 'https://drive.google.com/drive/folders/' + c.id, found: !!f, count: n };
++  });
++  return { ok: true, data: { canUpload: true, ents: ents, version: 55 } };
++}
++function apiBizRcFindCid_(ss, folder, cid) {
++  var jt = ss.getSheetByName(API_SPENDFIX_CFG.journalTab);
++  if (jt && jt.getLastRow() >= 2) {
++    var v = jt.getRange(2, 1, jt.getLastRow() - 1, 7).getValues();
++    for (var i = v.length - 1; i >= 0; i--) {
++      if (String(v[i][1]) === 'bizreceiptsave' && String(v[i][6]) === cid) {
++        var m = String(v[i][5]).split(' | ');
++        try { var f = DriveApp.getFileById(m[0]); if (!f.isTrashed()) return f; } catch (e) { /* gone: look in the folder */ }
++      }
++    }
++  }
++  var it = folder.getFiles();
++  while (it.hasNext()) {
++    var g = it.next(), d = String(g.getDescription() || '');
++    if (d.indexOf(API_BIZRC.DESC_TAG) === 0) {
++      try { if (JSON.parse(d.slice(API_BIZRC.DESC_TAG.length)).cid === cid && !g.isTrashed()) return g; } catch (e2) { /* not ours */ }
++    }
++  }
++  return null;
++}
++/**
++ * action=bizreceiptsave  (admin; POST JSON body, or GET params for dry=1 checks)
++ *   ent       kiwit | tiwik (required)
++ *   cid       required when writing (idempotency key: a repeat returns the first file, duplicate:'cid')
++ *   date      yyyy-mm-dd (default today), amount (optional, e.g. 42.50), merchant (optional, max 80)
++ *   mime      image/jpeg | image/png | application/pdf;  data = base64 (a data: URL prefix is tolerated), decoded <= 8 MB
++ *   dry=1     validate + show the final name; nothing is created or logged (data optional)
++ * Name: "<date> <merchant> $<amount>.<ext>" (missing parts left out; "<date> Receipt.<ext>" when neither is given). An existing
++ * name is NEVER overwritten: " (2)", " (3)" ... is added before the extension.
++ * Response {ok:true,data:{id,url,name,folderUrl,ent,bytes,cid,dry,version:55[,duplicate:'cid']}}
++ */
++function apiBizReceiptSave_(p) {
++  p = p || {};
++  var dry = apiAdminBool_(p.dry), cid = apiAdminClean_(p.cid, 80), ent = String(p.ent || '').toLowerCase();
++  if (!API_BIZRC.folders[ent]) return { error: 'bad_value', message: 'ent must be kiwit or tiwik.' };
++  if (!dry && !cid) return { error: 'bad_value', message: 'cid is required when writing (idempotency key).' };
++  var date = p.date ? apiAdminDate_(p.date) : todayKey_();
++  if (!date) return { error: 'bad_value', message: 'date must look like 2026-10-09.' };
++  var amt = '';
++  if (p.amount != null && String(p.amount).trim() !== '') {
++    var a = Number(String(p.amount).replace(/[$,\s]/g, ''));
++    if (!isFinite(a) || a < 0 || a > 1e7) return { error: 'bad_value', message: 'amount should look like 42.50.' };
++    amt = a.toFixed(2);
++  }
++  var merchant = String(p.merchant == null ? '' : p.merchant).replace(/[\\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 80);
++  var mime = String(p.mime || 'image/jpeg').toLowerCase(), ext = API_BIZRC.MIME[mime];
++  if (!ext) return { error: 'bad_value', message: 'mime must be image/jpeg, image/png or application/pdf.' };
++  var bytes = null;
++  if (p.data != null && String(p.data) !== '') {
++    var b64 = String(p.data).replace(/^data:[^,]*,/, '').replace(/\s+/g, '');
++    if (b64.length > API_BIZRC.MAX_B64) return { error: 'too_big', message: 'The file is larger than 8 MB.' };
++    if (!/^[A-Za-z0-9+\/]+={0,2}$/.test(b64)) return { error: 'bad_value', message: 'data must be base64.' };
++    try { bytes = Utilities.base64Decode(b64); } catch (e1) { return { error: 'bad_value', message: 'data is not valid base64.' }; }
++    var n = bytes.length;
++    if (n > API_BIZRC.MAX_BYTES) return { error: 'too_big', message: 'The file is larger than 8 MB.' };
++    var b0 = bytes[0] & 255, b1 = bytes[1] & 255, b2 = bytes[2] & 255, b3 = bytes[3] & 255;
++    var okSig = ext === 'jpg' ? (b0 === 0xFF && b1 === 0xD8) : ext === 'png' ? (b0 === 0x89 && b1 === 0x50 && b2 === 0x4E && b3 === 0x47)
++      : String.fromCharCode(b0, b1, b2, b3, bytes[4] & 255) === '%PDF-';
++    if (n < 100 || !okSig) return { error: 'bad_value', message: 'data does not match ' + mime + '.' };
++  } else if (!dry) {
++    return { error: 'bad_value', message: 'data (base64 file) is required when writing.' };
++  }
++  var folder = apiBizRcFolder_(ent);
++  if (!folder) return { error: 'not_found', message: 'The Receipts folder was not found.' };
++  var base = [date, merchant, amt ? '$' + amt : ''].filter(String).join(' ');
++  if (base === date) base += ' Receipt';
++  var fid = API_BIZRC.folders[ent].id;
++  var out = { dry: dry, cid: cid, ent: ent, name: base + '.' + ext, folderUrl: 'https://drive.google.com/drive/folders/' + fid, version: 55 };
++  if (bytes) out.bytes = bytes.length;
++  var uniq = function () { var nm = base + '.' + ext, k = 2; while (folder.getFilesByName(nm).hasNext() && k < 100) { nm = base + ' (' + k + ').' + ext; k++; } return nm; };
++  if (dry) { out.name = uniq(); return { ok: true, data: out }; }
++
++  var lock = LockService.getScriptLock();
++  try { lock.waitLock(20000); } catch (e3) { return { error: 'busy', message: 'Another update is running. Try again.' }; }
++  var file = null;
++  try {
++    var ss = SpreadsheetApp.openById(CONFIG.SPEND.SHEET_ID);
++    var seen = apiBizRcFindCid_(ss, folder, cid);
++    if (seen) { out.duplicate = 'cid'; out.id = seen.getId(); out.url = seen.getUrl(); out.name = seen.getName(); return { ok: true, data: out }; }
++    var finalName = uniq();
++    try {
++      file = folder.createFile(Utilities.newBlob(bytes, mime, finalName));
++      file.setDescription(API_BIZRC.DESC_TAG + JSON.stringify({ cid: cid, ent: ent, date: date, amount: amt, merchant: merchant }));
++      if (file.getSize() !== bytes.length) throw new Error('size mismatch after upload (' + file.getSize() + ' vs ' + bytes.length + ')');
++    } catch (werr) {
++      var undone = true;
++      try { if (file) file.setTrashed(true); } catch (e5) { undone = false; }
++      return { error: 'write_failed', message: String(werr && werr.message || werr), rolledBack: undone };
++    }
++    out.name = finalName; out.id = file.getId(); out.url = file.getUrl();
++    try { apiSpendJournal_(ss, [new Date(), 'bizreceiptsave', '', API_BIZRC.folders[ent].label + ' Receipts: ' + finalName, '', out.id + ' | ' + out.url + ' | ' + bytes.length + ' bytes', cid]); }
++    catch (e7) { out.journalFailed = true; }   // the file carries the cid in its description, so a retry still finds it
++    return { ok: true, data: out };
++  } finally {
++    lock.releaseLock();
++  }
++}
