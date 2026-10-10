@@ -3005,6 +3005,7 @@
       if (e.category) vCatSeen('inc', e);
       return e;
     });
+    payRecord(d);   // v137: Payment type per Income-tab row, for the TiwiK books' Cash line
     var olA = ordLiveApply(income, olMonthKey(d));      // Lisa's Table income is live from Orders; superseded manual rows leave the totals
     income = olA.income;
     var names = ACCOUNTS.slice();
@@ -3161,6 +3162,54 @@
   function cashBtn(v, route, cls) {
     return '<button class="cashline' + (cls || '') + (v ? '' : ' zero') + '"' + goAttr(route) + '>' +
       (cls && cls.indexOf('mini') >= 0 ? 'Cash ' : 'of which Cash ') + money(v) + ' &rsaquo;</button>';
+  }
+  // v137: "Cash $X" in small muted print ABOVE an income total (TiwiK / Mono Village Laundromat). Hidden at $0 (e.g. a month with only the
+  // un-typed weekly lump), so it never shows "Cash $0.00" next to a real total.
+  function cashAbove(v, amtHtml) {
+    if (v == null || !(r2(v) > 0)) return amtHtml;
+    return '<span class="cashstk"><small class="cashabove">Cash ' + money(v) + '</small>' + amtHtml + '</span>';
+  }
+  // v137: Payment type per Income-tab row. The Vault's spend read returns method per income row (tab 'income', row, date, amount); the entity
+  // read does not (yet), so the TiwiK books look each row up here by row + date + amount (rows can shift after a delete, the key guards that).
+  var PAYROW = {}, PAYOFF = {};
+  function payKey(row, date, amt) { return row + '|' + date + '|' + (Number(amt) || 0).toFixed(2); }
+  function payRecord(d) {
+    (d && Array.isArray(d.income) ? d.income : []).forEach(function (x) {
+      if (String(x.tab || '') === 'income' && x.row) PAYROW[payKey(x.row, x.date, x.amount)] = String(x.method || '');
+    });
+  }
+  // TiwiK books: cash of the selected period (null while the Vault reads for those months are not in yet; they are fetched here, cached reads).
+  function entCashOf(M, key) {
+    if (key !== 'tiwik' || !M) return null;
+    var offs = M.ytd ? ytdOffsets() : [entSel(key).off], ready = true, need = [];
+    var hasAll = M.income.length > 0 && M.income.every(function (x) { return x.hasMethod; });   // a future entity read with method= needs no lookup
+    if (!hasAll) offs.forEach(function (o) {
+      var f = PAYOFF[o], age = f && f.at ? Date.now() - f.at : 0;
+      if (!f || (f.s === 'err' && age > 60000)) { ready = false; need.push(o); }
+      else if (f.s !== 'ok') ready = false;
+      else if (age > 300000) need.push(o);       // older than 5 min: re-read (cached, revalidated) but keep showing what we have
+    });
+    if (need.length) entPayFetch(need, key);
+    if (!ready) return null;
+    return r2(M.income.reduce(function (t, x) {
+      var m = x.hasMethod ? x.method : PAYROW[payKey(x.row, x.date, x.amount)];
+      return t + (String(m || '').trim().toLowerCase() === 'cash' ? x.amount : 0);
+    }, 0));
+  }
+  function entPayFetch(offs, key) {
+    var queue = offs.slice(), running = 0;
+    queue.forEach(function (o) { if (!PAYOFF[o] || PAYOFF[o].s !== 'ok') PAYOFF[o] = { s: 'load' }; else PAYOFF[o].at = Date.now(); });
+    var pump = function () {
+      while (running < 3 && queue.length) {
+        (function (o) {
+          running++;
+          api('spend', o).then(function (d) { payRecord(d); PAYOFF[o] = { s: 'ok', at: Date.now() }; done(); },
+            function () { PAYOFF[o] = { s: 'err', at: Date.now() }; done(); });
+        })(queue.shift());
+      }
+    };
+    var done = function () { running--; if (queue.length) return pump(); if (!running && entActive() && state.entRoute.key === key && !state.entRoute.kind) renderEnt(); };
+    pump();
   }
   // cashFn(name) -> { v, route } (omit for no cash line)
   function barRows(rows, routeFn, cls, cashFn) {
@@ -3701,7 +3750,9 @@
         var isLT = sx.name === INCOME_SOURCES[0];
         var b = incCompact(l, !!ds, isLT ? M.superseded : null) + (isLT ? olNoteHtml(M) : '') +
           sheetLink('Open in spend sheet', ds ? ds.tab : 'income', ds && ds.tab === 'ls' ? M.lsGid : '');
-        h += vSec('inc-' + sx.name, 'income incsrc', esc(sx.label), '<span class="amt-in">' + money(sx.amount) + '</span>', incomeRoute(sx.name), b);
+        var amtH = '<span class="amt-in">' + money(sx.amount) + '</span>';
+        if (sx.name === 'Mono Village Laundromat') amtH = cashAbove(cashOf(l), amtH);   // v137: TiwiK (MVL): Cash $X above the total
+        h += vSec('inc-' + sx.name, 'income incsrc', esc(sx.label), amtH, incomeRoute(sx.name), b);
       });
       var icats = sortedPairs(sumBy(M.income.map(function (x) { return { category: x.category || '-', amount: x.amount }; }), 'category'))
         .map(function (c) { return { name: c.name, label: c.name === '-' ? 'No category' : c.name, amount: c.amount }; });
@@ -3950,7 +4001,7 @@
   function entModel(d) {
     var inc = (Array.isArray(d.income) ? d.income : []).map(function (x) {
       return { date: x.date || '', label: x.label || x.date || '', source: String(x.source || 'Other'), client: x.client || '', amount: Number(x.amount) || 0,
-        notes: x.notes || '', expected: !!x.expected };
+        notes: x.notes || '', expected: !!x.expected, row: x.row, method: x.method != null ? String(x.method) : '', hasMethod: x.method != null };   // v137: row/method for the Cash line
     });
     var exp = (Array.isArray(d.expenses) ? d.expenses : []).map(function (x) {
       return { date: x.date || '', label: x.label || x.date || '', who: x.who || '', amount: Number(x.amount) || 0, category: String(x.category || '').trim() || 'Other',
@@ -4221,9 +4272,9 @@
   function entCurModel() { var c = state.entCache[entCk()]; return c && c.d; }
   function entMainView(E, M) {
     var k = E.key, ek = function (s) { return 'ent-' + k + '-' + s; }, h = '';
-    var n = M.net;
+    var n = M.net, cashV = entCashOf(M, k), withCash = function (html) { return cashAbove(cashV, html); };   // v137: TiwiK: Cash $X above the income totals
     h += '<div class="card entscore">' +
-      sumBtn('net cmp', entRoute(k, 'income', 'All'), 'Income' + (M.scheduled ? '<small>incl. ' + money(M.scheduled) + ' scheduled rent not yet logged</small>' : '<small>' + esc(E.sub) + '</small>'), '<span class="amt amt-in">' + money(M.incomeTotal) + '</span>') +
+      sumBtn('net cmp', entRoute(k, 'income', 'All'), 'Income' + (M.scheduled ? '<small>incl. ' + money(M.scheduled) + ' scheduled rent not yet logged</small>' : '<small>' + esc(E.sub) + '</small>'), withCash('<span class="amt amt-in">' + money(M.incomeTotal) + '</span>')) +
       sumBtn('net cmp', entRoute(k, 'exp'), 'Expenses<small>Daily Spend rows with Account = ' + esc(E.name) + '</small>', '<span class="amt amt-out">' + money(M.expenseTotal) + '</span>') +
       sumBtn('net cmp', entRoute(k, 'net'), 'Net profit<small>Income \u2212 expenses for ' + esc(M.monthLabel || entLocalMonth(entOffNow())) + '</small>', '<span class="amt ' + (n >= 0 ? 'pos' : 'neg') + '">' + signedMoney(n) + '</span>') + entPfNote(M, E) + '</div>';
     h += '<button class="enttax"' + goAttr(entRoute(k, 'tax')) + '><span>Tax export</span><small>Year-to-date category summary \u00b7 CSV</small><i class="chev">&rsaquo;</i></button>';
@@ -4232,14 +4283,14 @@
     var ib = M.sources.map(function (s) {
       return '<div class="entsrc"><button class="entsrchead"' + goAttr(entRoute(k, 'income', s.name)) + '><span class="n">' + esc(srcLabel(s.name)) + '</span><span class="amt amt-in">' + money(s.amount) + '</span><span class="chev">&rsaquo;</span></button>' + entIncRows(s.items, false) + '</div>';
     }).join('') || '<div class="foot empty">No income ' + esc(entNone(M)) + '</div>';
-    h += vSec(ek('income'), 'income', 'Income', '<span class="amt-in">' + money(M.incomeTotal) + '</span>', entRoute(k, 'income', 'All'), ib + sheetLink('Open Income tab', 'income'));
+    h += vSec(ek('income'), 'income', 'Income', withCash('<span class="amt-in">' + money(M.incomeTotal) + '</span>'), entRoute(k, 'income', 'All'), ib + sheetLink('Open Income tab', 'income'));
     // Expenses by category (red)
     var eb = M.cats.length ? barRows(M.cats, function (c) { return entRoute(k, 'cat', c); }, '') : '<div class="foot empty">No expenses ' + esc(entNone(M)) + '</div>';
     eb += totBtn(E.title + ' expenses', M.expenseTotal, entRoute(k, 'exp'));
     h += vSec(ek('exp'), 'acctsec', 'Expenses by category', '<span class="amt-out">' + money(M.expenseTotal) + '</span>', entRoute(k, 'exp'), eb + sheetLink('Open Daily Spend sheet'));
     // Net profit
     var X = entDebtFor(E), pay = r2(X.loans.reduce(function (t, l) { return t + (l.payment || 0); }, 0));
-    var nb = sumBtn('', entRoute(k, 'income', 'All'), 'Income', '<span class="amt amt-in">' + money(M.incomeTotal) + '</span>') +
+    var nb = sumBtn('', entRoute(k, 'income', 'All'), 'Income', withCash('<span class="amt amt-in">' + money(M.incomeTotal) + '</span>')) +
       sumBtn('', entRoute(k, 'exp'), 'Expenses', '<span class="amt amt-out">\u2212' + money(M.expenseTotal) + '</span>') +
       sumBtn('net', entRoute(k, 'net'), 'Net profit', '<span class="amt ' + (n >= 0 ? 'pos' : 'neg') + '">' + signedMoney(n) + '</span>');
     if (pay > 0 && !M.ytd && entOffNow() === 0) nb += '<div class="foot how">Loan payment this month: <span class="amt-out">' + money(pay) + '</span> (principal + interest, paid from the bank, not in the expenses above). Cash left after it: <b class="' + (n - pay >= 0 ? 'pos' : 'neg') + '">' + signedMoney(r2(n - pay)) + '</b>.</div>';

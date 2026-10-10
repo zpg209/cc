@@ -2759,3 +2759,8 @@ body.hl-busy { -webkit-user-select: none; user-select: none; cursor: grabbing; }
 .bdrform { margin: 0; padding: 0; background: transparent; border: 0; }
 .bdrform h3 { margin: 4px 0 8px; }
 .bdrform .vprev { max-height: 260px; }
+
+/* v137: "Cash $X" in small muted print above an income total (Vault TiwiK (MVL) row, TiwiK books) */
+.cashstk { display: inline-flex; flex-direction: column; align-items: flex-end; line-height: 1.15; flex: none; padding-left: 10px; }
+.cashstk .cashabove, .sumline .cashstk small.cashabove { display: block; margin: 0 0 2px; font-size: 11px; font-weight: 500; color: var(--muted) !important; white-space: nowrap; letter-spacing: .01em; }
+.sumline .cashstk .amt { padding-left: 0; }
