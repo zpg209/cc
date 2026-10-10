@@ -2767,3 +2767,16 @@ body.hl-busy { -webkit-user-select: none; user-select: none; cursor: grabbing; }
 .cashabove.cashblk { display: block; margin: 2px 0 0; font-size: 11.5px; font-weight: 500; color: var(--muted); }
 .calcpart .cashstk { margin-left: auto; }
 .foot.cashmonths { margin-top: 0; }
+
+/* v139: spending grouped by category (collapsed rows, tap to open the entries) */
+.cgroups { margin: 2px 0 4px; }
+.cgrp { border-bottom: 1px solid var(--line); }
+.cgrp > .cgtog { border-bottom: 0; }
+.cgtog .n small.cgn { display: block; margin-top: 1px; font-size: 11px; font-weight: 400; color: var(--muted); font-family: 'Inter', sans-serif; }
+.cgtog .chev { transition: transform .15s ease; font-style: normal; }
+.cgrp.open > .cgtog .chev { transform: rotate(90deg); }
+.cgrp > .cgbody { display: none; padding: 0 0 8px 10px; border-left: 2px solid var(--line); margin: 0 0 6px 4px; }
+.cgrp.open > .cgbody { display: block; }
+.cgbody .cglink { margin-top: 4px; }
+.cgrp > .cashline { display: block; margin-left: auto; padding: 8px 26px 0 10px; font-size: 13px; }
+.cgrp:last-child { border-bottom: 0; }

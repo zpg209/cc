@@ -3237,6 +3237,38 @@
       return cash ? '<div class="catwrap">' + cashBtn(cash.v, cash.route) + btn + '</div>' : btn;
     }).join('');
   }
+  /* v139: spending grouped by Category. Each category is a collapsed row (name, entry count, total, chevron; highest total first);
+   * tapping it opens its entries (newest first, the usual entry rows, so tap-to-edit / delete still work). Open categories are
+   * remembered per section while the app is open (state.vopen, key 'cg:<section>|<category>'). Totals are summed from the same rows,
+   * so the category totals add up to the section total. cashFn(name) -> { v, route } keeps the "of which Cash" line per category. */
+  function catGroups(list, key, opt, cashFn) {
+    if (!list.length) return '';
+    var t = function (x) { var v = Date.parse(x.date); return isNaN(v) ? 0 : v; };
+    var groups = {}, order = [];
+    list.forEach(function (x, i) { var c = x.category || 'Other'; if (!groups[c]) { groups[c] = []; order.push(c); } groups[c].push({ x: x, i: i }); });
+    var rows = order.map(function (c) { return { name: c, items: groups[c], amount: r2(groups[c].reduce(function (s2, r) { return s2 + (Number(r.x.amount) || 0); }, 0)) }; })
+      .sort(function (a, b) { return (b.amount - a.amount) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0); });
+    var max = rows.reduce(function (m, c) { return Math.max(m, c.amount); }, 0), om = vOpenMap();
+    return '<div class="cgroups">' + rows.map(function (c) {
+      var ck = 'cg:' + key + '|' + c.name, open = !!om[ck], n = c.items.length;
+      var pct = max > 0 && c.amount > 0 ? Math.max(2, (c.amount / max) * 100) : 0;
+      var cash = cashFn ? cashFn(c.name) : null;
+      var ents = c.items.slice().sort(function (a, b) { return (t(b.x) - t(a.x)) || (a.i - b.i); }).map(function (r) { return r.x; });
+      return '<div class="cgrp' + (open ? ' open' : '') + '" data-cg="' + esc(ck) + '">' + (cash ? cashBtn(cash.v, cash.route) : '') +
+        '<button type="button" class="catrow cgtog' + (cash ? ' hascash' : '') + '" aria-expanded="' + open + '">' +
+        '<span class="n">' + esc(c.name) + '<small class="cgn">' + n + ' entr' + (n === 1 ? 'y' : 'ies') + '</small></span>' +
+        '<span class="amt amt-out">' + money(c.amount) + '</span><i class="chev">&rsaquo;</i>' +
+        '<span class="bar"><i style="width:' + pct.toFixed(0) + '%"></i></span></button>' +
+        '<div class="cgbody">' + itemRows(ents, opt) + (opt.catLink ? '<button class="linkrow smallrow cglink"' + goAttr(opt.catLink(c.name)) + '>Open ' + esc(c.name) + ' page &rsaquo;</button>' : '') + '</div></div>';
+    }).join('') + '</div>';
+  }
+  function cgToggle(e) {
+    var t = e.target.closest('.cgtog'); if (!t) return false;
+    var g = t.closest('.cgrp'), open = !g.classList.contains('open');
+    g.classList.toggle('open', open); t.setAttribute('aria-expanded', open);
+    vOpenMap()[g.getAttribute('data-cg')] = open;
+    return true;
+  }
   // Collapsible Vault section (same .ncard / .ncbody / .chev pattern as the Laundromat screen). Collapsed by default: only the
   // heading + its total are visible. Heading / chevron toggle; the total button drills down. Open state survives Back.
   function vOpenMap() {
@@ -3779,8 +3811,9 @@
         var b = '';
         if (!a.cats.length) b += '<div class="foot empty">No entries ' + per + '</div>';
         var mine = inAcct(a.name);
-        b += barRows(a.cats, function (c) { return catRoute(c, a.name); }, '',
-          cashOK ? function (c) { return { v: cashOf(mine.filter(function (x) { return x.category === c; })), route: cashRoute(a.name, c) }; } : null);
+        var cfn = cashOK ? function (c) { return { v: cashOf(mine.filter(function (x) { return x.category === c; })), route: cashRoute(a.name, c) }; } : null;
+        b += M.full ? catGroups(mine, 'acct-' + a.name, { chip: false, acct: false, catPage: true, catLink: function (c) { return catRoute(c, a.name); } }, cfn)   // v139
+          : barRows(a.cats, function (c) { return catRoute(c, a.name); }, '', cfn);
         if (cashOK) b += '<div class="cashtot">' + cashBtn(cashOf(mine), cashRoute(a.name)) + '</div>';
         b += totBtn(acctLabel(a.name) + ' total', a.amount, acctRoute(a.name)).replace('totrow tapt', 'totrow tapt' + (cashOK ? ' hascash' : ''));
         h += vSec('acct-' + a.name, 'acctsec', esc(acctLabel(a.name)), '<span class="amt-out">' + money(a.amount) + '</span>', acctRoute(a.name), b);
@@ -3788,7 +3821,8 @@
 
       var allCats = sortedPairs(sumBy(M.items, 'category'));
       h += vSec('total', 'grand', 'Total spent', '<span class="amt-out">' + money(M.total) + '</span>', 'spend/all',
-        (allCats.length ? '<div class="foot bycat">By category \u00b7 all accounts</div>' + barRows(allCats, function (c) { return catRoute(c); }, '') : '') +
+        (allCats.length ? '<div class="foot bycat">By category \u00b7 all accounts</div>' + (M.full ? catGroups(M.items, 'total', { chip: false, acct: true, catPage: true, catLink: function (c) { return catRoute(c); } })   // v139
+          : barRows(allCats, function (c) { return catRoute(c); }, '')) : '') +
         (cashOK ? '<div class="cashtot">' + cashBtn(cashOf(M.items), cashRoute('All')) + '</div>' : '') +
         (cashOK && M.items.length ? '<div class="foot bycat">By payment type</div>' + barRows(sortedPairs(sumBy(M.items.map(function (x) { return { method: x.method || 'Not set', amount: x.amount }; }), 'method')),
           function (m) { return m === 'Cash' ? cashRoute('All') : 'spend/all'; }, '') : '') +
@@ -3965,12 +3999,14 @@
         (cashOK ? '<div class="cashtot left">' + cashBtn(cashOf(list), sr.kind === 'cat' ? cashRoute(sr.acct, sr.val) : sr.kind === 'acct' ? cashRoute(sr.val) :
           sr.kind === 'who' ? cashRoute('Household') : cashRoute('All')) + '</div>' : '') + '</div>';
       h += sheetLink('Open in spend sheet');
-      h += '<div class="card">' + itemRows(list, opt) + truncNote(M) + '</div>';
+      var grp = M.full && sr.kind !== 'cat';   // v139: account / paid-by / all pages grouped by category
+      h += '<div class="card">' + (grp ? catGroups(list, 'pg-' + sr.kind + '-' + (sr.val || 'all'), { chip: false, acct: opt.acct, catPage: true, catLink: function (c) { return catRoute(c, sr.kind === 'acct' ? sr.val : ''); } }) || itemRows(list, opt) : itemRows(list, opt)) + truncNote(M) + '</div>';
     }
     $('spend-body').innerHTML = h;
   }
 
   $('spend-body').addEventListener('click', function (e) {
+    if (cgToggle(e)) return;   // v139: category groups
     var t = e.target.closest('.vtoggle');
     if (!t) return;
     var c = t.closest('.vsec'), key = c.getAttribute('data-vs'), open = !c.classList.contains('open');
@@ -4299,7 +4335,7 @@
     }).join('') || '<div class="foot empty">No income ' + esc(entNone(M)) + '</div>';
     h += vSec(ek('income'), 'income', 'Income', withCash('<span class="amt-in">' + money(M.incomeTotal) + '</span>'), entRoute(k, 'income', 'All'), ib + sheetLink('Open Income tab', 'income'));
     // Expenses by category (red)
-    var eb = M.cats.length ? barRows(M.cats, function (c) { return entRoute(k, 'cat', c); }, '') : '<div class="foot empty">No expenses ' + esc(entNone(M)) + '</div>';
+    var eb = M.cats.length ? catGroups(M.exp, 'ent-' + k + '-exp', { chip: false, acct: false, catPage: true, paid: entPaid(M), catLink: function (c) { return entRoute(k, 'cat', c); } }) : '<div class="foot empty">No expenses ' + esc(entNone(M)) + '</div>';   // v139
     eb += totBtn(E.title + ' expenses', M.expenseTotal, entRoute(k, 'exp'));
     h += vSec(ek('exp'), 'acctsec', 'Expenses by category', '<span class="amt-out">' + money(M.expenseTotal) + '</span>', entRoute(k, 'exp'), eb + sheetLink('Open Daily Spend sheet'));
     // Net profit
@@ -4330,7 +4366,7 @@
         '<div class="card">' + itemRows(l, { chip: false, acct: false, paid: entPaid(M) }) + '</div>';
     } else if (R.kind === 'exp') {
       h += '<div class="card"><h3>' + esc(E.title) + ' expenses</h3><div class="big amt-out">' + money(M.expenseTotal) + '</div><div class="foot">' + M.exp.length + ' item' + (M.exp.length === 1 ? '' : 's') + ' \u00b7 Daily Spend rows with Account = ' + esc(E.name) + '</div>' + entPfNote(M, E) + '</div>' + sheetLink('Open Daily Spend sheet') +
-        '<div class="card">' + itemRows(M.exp, { chip: true, acct: false, paid: entPaid(M), chipRoute: function (c) { return entRoute(k, 'cat', c); } }) + '</div>';
+        '<div class="card">' + (catGroups(M.exp, 'ent-' + k + '-exppg', { chip: false, acct: false, catPage: true, paid: entPaid(M), catLink: function (c) { return entRoute(k, 'cat', c); } }) || itemRows(M.exp, { chip: true, acct: false, paid: entPaid(M) })) + '</div>';   // v139
     } else if (R.kind === 'income') {
       var all = R.val === 'All', li = all ? M.income : M.income.filter(function (x) { return x.source === R.val; });
       h += '<div class="card income"><h3>' + (all ? esc(E.title) + ' income' : esc(R.val)) + '</h3>' + cashBlock(entCashFor(li, k, M.ytd ? ytdOffsets() : [entSel(k).off])) + '<div class="big amt-in">' + money(sum(li)) + '</div><div class="foot">' + li.length + ' entr' + (li.length === 1 ? 'y' : 'ies') +
@@ -4509,6 +4545,7 @@
   }
   $('ent-body').addEventListener('click', function (e) {
     if (!state.entRoute.kind && state.entRoute.tab === 'docs' && bdBodyClick('ent:' + state.entRoute.key, e)) return;   // v135: Business Documents folders
+    if (cgToggle(e)) return;   // v139: expense category groups
     var t = e.target.closest('.vtoggle, .vtot[data-tgl]');
     if (t) {
       var c = t.closest('.vsec'), key = c.getAttribute('data-vs'), open = !c.classList.contains('open');
