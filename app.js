@@ -3165,9 +3165,10 @@
   }
   // v137: "Cash $X" in small muted print ABOVE an income total (TiwiK / Mono Village Laundromat). Hidden at $0 (e.g. a month with only the
   // un-typed weekly lump), so it never shows "Cash $0.00" next to a real total.
-  function cashAbove(v, amtHtml) {
+  function cashBlock(v) { return v == null || !(r2(v) > 0) ? '' : '<small class="cashabove cashblk">Cash ' + money(v) + '</small>'; }   // v138: above a .big total
+  function cashAbove(v, amtHtml, label, valText) {   // v138: label (e.g. 'TiwiK cash') / valText (e.g. '$12.34/day') for the Vault summary
     if (v == null || !(r2(v) > 0)) return amtHtml;
-    return '<span class="cashstk"><small class="cashabove">Cash ' + money(v) + '</small>' + amtHtml + '</span>';
+    return '<span class="cashstk"><small class="cashabove">' + esc(label || 'Cash') + ' ' + (valText || money(v)) + '</small>' + amtHtml + '</span>';
   }
   // v137: Payment type per Income-tab row. The Vault's spend read returns method per income row (tab 'income', row, date, amount); the entity
   // read does not (yet), so the TiwiK books look each row up here by row + date + amount (rows can shift after a delete, the key guards that).
@@ -3181,8 +3182,23 @@
   // TiwiK books: cash of the selected period (null while the Vault reads for those months are not in yet; they are fetched here, cached reads).
   function entCashOf(M, key) {
     if (key !== 'tiwik' || !M) return null;
-    var offs = M.ytd ? ytdOffsets() : [entSel(key).off], ready = true, need = [];
-    var hasAll = M.income.length > 0 && M.income.every(function (x) { return x.hasMethod; });   // a future entity read with method= needs no lookup
+    return entCashFor(M.income, key, M.ytd ? ytdOffsets() : [entSel(key).off]);
+  }
+  function entMethodOf(x) { return x.hasMethod ? x.method : PAYROW[payKey(x.row, x.date, x.amount)]; }
+  // v138: cash per calendar month (index 0-11) of `year` for the Tax export's month line; null while loading.
+  function entCashMonths(items, key, year, through) {
+    var now = new Date(), offs = [];
+    for (var m = 0; m < Math.max(1, through || 12); m++) offs.push((year - now.getFullYear()) * 12 + (m - now.getMonth()));
+    var tot = entCashFor(items, key, offs);
+    if (tot == null) return null;
+    var out = []; for (var i = 0; i < 12; i++) out.push(0);
+    items.forEach(function (x) { var mi = Number(String(x.date).slice(5, 7)) - 1; if (mi >= 0 && String(entMethodOf(x) || '').trim().toLowerCase() === 'cash') out[mi] = r2(out[mi] + x.amount); });
+    return { total: tot, months: out };
+  }
+  function entCashFor(items, key, offs) {
+    if (key !== 'tiwik') return null;
+    var ready = true, need = [];
+    var hasAll = items.length > 0 && items.every(function (x) { return x.hasMethod; });   // a future entity read with method= needs no lookup
     if (!hasAll) offs.forEach(function (o) {
       var f = PAYOFF[o], age = f && f.at ? Date.now() - f.at : 0;
       if (!f || (f.s === 'err' && age > 60000)) { ready = false; need.push(o); }
@@ -3191,10 +3207,7 @@
     });
     if (need.length) entPayFetch(need, key);
     if (!ready) return null;
-    return r2(M.income.reduce(function (t, x) {
-      var m = x.hasMethod ? x.method : PAYROW[payKey(x.row, x.date, x.amount)];
-      return t + (String(m || '').trim().toLowerCase() === 'cash' ? x.amount : 0);
-    }, 0));
+    return r2(items.reduce(function (t, x) { return t + (String(entMethodOf(x) || '').trim().toLowerCase() === 'cash' ? x.amount : 0); }, 0));
   }
   function entPayFetch(offs, key) {
     var queue = offs.slice(), running = 0;
@@ -3208,7 +3221,7 @@
         })(queue.shift());
       }
     };
-    var done = function () { running--; if (queue.length) return pump(); if (!running && entActive() && state.entRoute.key === key && !state.entRoute.kind) renderEnt(); };
+    var done = function () { running--; if (queue.length) return pump(); if (!running && entActive() && state.entRoute.key === key) renderEnt(); };   // v138: detail pages + Tax export show it too
     pump();
   }
   // cashFn(name) -> { v, route } (omit for no cash line)
@@ -3783,16 +3796,17 @@
         (M.daysLogged != null ? ' \u00b7 ' + M.daysLogged + ' days logged' : '') + ' &rsaquo;</button>');
       h += vgEnd();
 
+      var tkCash = cashOf(M.income.filter(function (x) { return x.source === 'Mono Village Laundromat'; }));   // v138: TiwiK cash in the summary
       var netLine = function (key, label, inc, sp, spLbl) {
-        var n = r2(inc - sp);
+        var n = r2(inc - sp), amtH = '<span class="amt ' + (n >= 0 ? 'pos' : 'neg') + '">' + signedMoney(n) + '</span>';
         return sumBtn('net cmp', calcRoute(key), esc(label) + '<small>Income <span class="amt-in">' + money(inc) + '</span> − ' + spLbl + ' <span class="amt-out">' + money(sp) + '</span></small>',
-          '<span class="amt ' + (n >= 0 ? 'pos' : 'neg') + '">' + signedMoney(n) + '</span>');
+          key === 'tiwik-net' ? cashAbove(tkCash, amtH, 'TiwiK cash') : amtH);   // v138
       };
       var monthNet = r2(M.incomeTotal - M.total);
       var sumBody = '<div class="foot sub-note">Over ' + days + ' day' + (days === 1 ? '' : 's') + '</div>' +
-        sumBtn('', incomeRoute('All'), 'Total income', '<span class="amt amt-in">' + money(M.incomeTotal) + '</span>') +
+        sumBtn('', incomeRoute('All'), 'Total income', cashAbove(tkCash, '<span class="amt amt-in">' + money(M.incomeTotal) + '</span>', 'TiwiK cash')) +   // v138
         sumBtn('', 'spend/all', 'Total spend', '<span class="amt amt-out">' + money(M.total) + '</span>') +
-        sumBtn('minor', calcRoute('avg-income'), 'Avg daily income', '<span class="amt amt-in">' + perDay(M.incomeTotal) + '</span>') +
+        sumBtn('minor', calcRoute('avg-income'), 'Avg daily income', cashAbove(tkCash, '<span class="amt amt-in">' + perDay(M.incomeTotal) + '</span>', 'TiwiK cash', perDay(tkCash) + '/day')) +
         sumBtn('minor', calcRoute('avg-spend'), 'Avg daily spend', '<span class="amt amt-out">' + perDay(M.total) + '</span>') +
         netLine('tiwik-net', 'TiwiK (MVL) net', srcTot('Mono Village Laundromat'), acctTot('TiwiK'), 'Spent') +
         netLine('kiwit-net', 'KiwiT net', srcTot(KR_SOURCE), acctTot('KiwiT'), 'Spent') +
@@ -3800,7 +3814,7 @@
         sumBtn('net cmp', calcRoute('hh-spend'), 'Household spend<small>Running month total · excludes groceries (counted in Lisa\'s Table net)</small>',
           '<span class="amt neg">\u2212' + money(Math.abs(r2(hhTot - groc))) + '</span>');
       h += vgHead('sum', 'Summary', '', '<span>Net ' + per + '</span><b class="amt ' + (monthNet >= 0 ? 'pos' : 'neg') + '">' + signedMoney(monthNet) + '</b>');
-      h += vSec('summary', 'summary', 'Summary', '<span class="amt ' + (monthNet >= 0 ? 'pos' : 'neg') + '">' + signedMoney(monthNet) + '</span>', calcRoute('month-net'), sumBody);
+      h += vSec('summary', 'summary', 'Summary', cashAbove(tkCash, '<span class="amt ' + (monthNet >= 0 ? 'pos' : 'neg') + '">' + signedMoney(monthNet) + '</span>', 'TiwiK cash'), calcRoute('month-net'), sumBody);   // v138
       h += vgEnd();
 
 
@@ -3818,7 +3832,7 @@
       var inc = all ? M.income : M.income.filter(function (x) { return x.source === src; });
       var unit = isPT ? ds.unit : all ? 'entr' : 'week';
       var hasLS = M.income.some(function (x) { return x.source === LS_SOURCE; });
-      h += '<div class="card income"><h3>' + (all ? 'Income total' : isPT ? esc(ds.title) : 'Income') + '</h3><div class="big amt-in">' + money(sum(inc)) + '</div>' +
+      h += '<div class="card income"><h3>' + (all ? 'Income total' : isPT ? esc(ds.title) : 'Income') + '</h3>' + (src === 'Mono Village Laundromat' && !all ? cashBlock(cashOf(inc)) : '') + '<div class="big amt-in">' + money(sum(inc)) + '</div>' +
         '<div class="foot">' + inc.length + ' ' + (all ? (inc.length === 1 ? 'entry' : 'entries') : unit + (inc.length === 1 ? '' : 's')) +
         (all ? ' · ' + M.sources.filter(function (s) { return s.count; }).map(function (s) { return esc(s.label) + ' ' + money(s.amount); }).join(' · ') : '') +
         '</div><div class="foot how">Source: ' + (isPT ? 'the ' + esc(ds.tabName) + ' tab (' + ds.what + ') of the spend sheet.'
@@ -4319,14 +4333,14 @@
         '<div class="card">' + itemRows(M.exp, { chip: true, acct: false, paid: entPaid(M), chipRoute: function (c) { return entRoute(k, 'cat', c); } }) + '</div>';
     } else if (R.kind === 'income') {
       var all = R.val === 'All', li = all ? M.income : M.income.filter(function (x) { return x.source === R.val; });
-      h += '<div class="card income"><h3>' + (all ? esc(E.title) + ' income' : esc(R.val)) + '</h3><div class="big amt-in">' + money(sum(li)) + '</div><div class="foot">' + li.length + ' entr' + (li.length === 1 ? 'y' : 'ies') +
+      h += '<div class="card income"><h3>' + (all ? esc(E.title) + ' income' : esc(R.val)) + '</h3>' + cashBlock(entCashFor(li, k, M.ytd ? ytdOffsets() : [entSel(k).off])) + '<div class="big amt-in">' + money(sum(li)) + '</div><div class="foot">' + li.length + ' entr' + (li.length === 1 ? 'y' : 'ies') +
         (M.scheduled && all ? ' \u00b7 incl. ' + money(M.scheduled) + ' scheduled rent (not logged)' : '') + '</div><div class="foot how">Source: the Income tab of the spend sheet' + (E.key === 'kiwit' ? ' (rent from the tenant)' : ' (laundromat weekly lump sums)') + '.</div></div>' +
         sheetLink('Open in spend sheet (Income tab)', 'income') + '<div class="card income">' + entIncRows(li, all) + '</div>';
     } else if (R.kind === 'net') {
       var nn = M.net, part = function (label, html, route) { return '<button class="calcpart"' + goAttr(route) + '><span>' + label + '</span>' + html + '<span class="chev">&rsaquo;</span></button>'; };
       h += '<div class="card calc"><h3>' + esc(E.title) + ' net profit <small>(' + esc(M.monthLabel) + ')</small></h3><div class="big ' + (nn >= 0 ? 'pos' : 'neg') + '">' + signedMoney(nn) + '</div>' +
         '<div class="foot how"><b>How it is computed:</b> income (Income tab' + (M.scheduled ? ' + scheduled rent not yet logged' : '') + ') \u2212 expenses (Daily Spend rows whose Account is ' + esc(E.name) + '). Loan principal/interest and owner draws are not included.</div>' +
-        '<div class="calcparts">' + part('Income', '<span class="amt amt-in">' + money(M.incomeTotal) + '</span>', entRoute(k, 'income', 'All')) +
+        '<div class="calcparts">' + part('Income', cashAbove(entCashOf(M, k), '<span class="amt amt-in">' + money(M.incomeTotal) + '</span>'), entRoute(k, 'income', 'All')) +
         part('Expenses', '<span class="amt amt-out">\u2212' + money(M.expenseTotal) + '</span>', entRoute(k, 'exp')) + '</div></div>' + sheetLink('Open Daily Spend sheet') +
         '<div class="card income"><h3>Income entries \u00b7 ' + M.income.length + ' \u00b7 ' + money(M.incomeTotal) + '</h3>' + entIncRows(M.income, true) + '</div>' +
         '<div class="card"><h3>Expense entries \u00b7 ' + M.exp.length + ' \u00b7 ' + money(M.expenseTotal) + '</h3>' + itemRows(M.exp, { chip: false, acct: false, paid: entPaid(M) }) + '</div>';
@@ -4360,9 +4374,10 @@
   function entTaxView(E) {
     var R = state.entRoute, c = state.entTaxCache[R.key + '|' + state.entYear] || { s: 'load' }, T = c.d, h = '';
     if (!T) return (c.s === 'na' ? '<div class="card entna"><b>Tax export is not available yet</b>The server update that adds the entity books is pending. Until then use the Daily Spend sheet filtered by Account = ' + esc(E.name) + '.</div>' + sheetLink('Open Daily Spend sheet') : entNotice(E, c));
+    var TC = entCashMonths(T.items.income, E.key, T.year, T.through);   // v138: TiwiK cash (total + per month), null while loading / KiwiT
     var n = T.net, thru = T.through < 12 || T.year === new Date().getFullYear() ? 'Jan\u2013' + MONTHS_SHORT[Math.max(0, T.through - 1)] + ' ' + T.year : 'Full year ' + T.year;
     h += '<div class="card entscore"><h3>' + esc(E.title) + ' \u00b7 ' + esc(thru) + '</h3>' +
-      '<div class="sumline"><span>Income</span><b class="amt amt-in">' + money(T.incomeTotal) + '</b></div>' +
+      '<div class="sumline"><span>Income</span>' + cashAbove(TC && TC.total, '<b class="amt amt-in">' + money(T.incomeTotal) + '</b>') + '</div>' +
       '<div class="sumline"><span>Expenses</span><b class="amt amt-out">' + money(T.expTotal) + '</b></div>' +
       '<div class="sumline net"><span>Net profit</span><b class="amt ' + (n >= 0 ? 'pos' : 'neg') + '">' + signedMoney(n) + '</b></div>' +
       (T.scheduled ? '<div class="foot warnfoot">' + money(T.scheduled) + ' of the income is scheduled rent that is not typed into the Income tab (shown as expected, not received). Log each rent receipt so the books show real deposits.</div>' : '') +
@@ -4370,7 +4385,8 @@
     h += '<button class="enttax csv" data-ent-csv="1"><span>Download CSV</span><small>Category summary + every entry</small><i class="chev">&darr;</i></button><div class="entcsvmsg" id="ent-csvmsg" hidden></div>';
     h += '<div class="enth">Income by source</div><div class="incgroup">' + (T.sources.map(function (s, i) {
       var l = T.items.income.filter(function (x) { return x.source === s.name; });
-      return vSec('ent-' + E.key + '-tx-i' + i, 'income incsrc', esc(srcLabel(s.name)), '<span class="amt-in">' + money(s.amount) + '</span>', '', entMonthsLine(s.months) + entIncRows(l, false), ' data-tgl="1"');
+      var sc = TC && s.name === 'Mono Village Laundromat' ? TC : null;   // v138: cash per month under the month line
+      return vSec('ent-' + E.key + '-tx-i' + i, 'income incsrc', esc(srcLabel(s.name)), cashAbove(sc && sc.total, '<span class="amt-in">' + money(s.amount) + '</span>'), '', entMonthsLine(s.months) + (sc ? entMonthsLine(sc.months).replace('foot how">', 'foot how cashmonths">Cash \u00b7 ') : '') + entIncRows(l, false), ' data-tgl="1"');
     }).join('') || '<div class="foot empty">No income</div>') + '</div>';
     h += '<div class="enth">Expenses by category</div>' + (T.cats.map(function (cat, i) {
       var l = T.items.exp.filter(function (x) { return x.category === cat.name; });
