@@ -2780,3 +2780,13 @@ body.hl-busy { -webkit-user-select: none; user-select: none; cursor: grabbing; }
 .cgbody .cglink { margin-top: 4px; }
 .cgrp > .cashline { display: block; margin-left: auto; padding: 8px 26px 0 10px; font-size: 13px; }
 .cgrp:last-child { border-bottom: 0; }
+
+/* v140: shared "Logging for <day>" banner (Daily Log, Tracker, Dictate / smart fill, Food Log) when the selected day isn't today */
+.ldbanner { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 12px; padding: 10px 12px; border-radius: var(--radius);
+  background: rgba(208,138,85,.16); border: 1px solid var(--copper-edge); color: var(--copper); font: 600 14px/1.3 'Inter', sans-serif; }
+.ldbanner b { font-weight: 800; }
+.ldbanner .ldtoday { flex: none; background: transparent; border: 1px solid var(--copper-edge); border-radius: 999px; padding: 6px 10px; color: var(--copper);
+  font: 700 12.5px/1 'Inter', sans-serif; cursor: pointer; }
+.ldbanner.sfldb { margin: 6px 0 10px; }
+.ldbanner.micldb { margin: 0 0 10px; }
+.sfcard.pastday { border-color: var(--copper-edge); }

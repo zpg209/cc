@@ -1580,15 +1580,22 @@
     }).join('') + '</div><div class="foot">Calories count finished days (today can still change); water and workouts count today once met. A day with no entry breaks a streak.</div></div>';
   }
   function renderLogTop(d) {   // Daily Log screen, top: totals, weight, streaks
+    ldCheck();
+    var pk0 = trkPast(), yk0 = trkAddDays(trkTodayKey(d), -1);   // v140: Today / Yesterday tab follows the shared day
+    if (pk0 === yk0 && state.logTot === 'today') state.logTot = 'yesterday';
+    else if (!pk0 && state.logTot === 'yesterday') state.logTot = 'today';
     var ov = ''; try { ov = fhOverviewHtml(d); } catch (e) { if (window.console) console.error('[cc] F&H overview failed', e); }   // v122: overview of Food / Workouts / Health Metrics first
-    $('log-top').innerHTML = ov + totalsCardHtml(d) + weightCardHtml(d) + streaksCardHtml(d);
+    $('log-top').innerHTML = ldBanner() + ov + totalsCardHtml(d) + weightCardHtml(d) + streaksCardHtml(d);
   }
   $('log-top').addEventListener('click', function (ev) {
     var g = ev.target.closest ? ev.target.closest('[data-logday]') : null;
-    if (g) { var gk = g.getAttribute('data-logday'); state.trkDate = gk && gk !== trkTodayKey(state.logData) ? gk : ''; state.trkFormsFor = ''; return; }   // then data-go opens the Tracker
+    if (g) { var gk = g.getAttribute('data-logday'); ldSet(gk && gk !== trkTodayKey(state.logData) ? gk : ''); return; }   // then data-go opens the Tracker (v140: shared day)
     var b = ev.target.closest ? ev.target.closest('[data-tot]') : null;
     if (!b || !state.logData || !state.logData.ext) return;
-    state.logTot = b.getAttribute('data-tot'); renderLogTop(state.logData);
+    state.logTot = b.getAttribute('data-tot');
+    if (state.logTot === 'yesterday') ldSet(trkAddDays(trkTodayKey(state.logData), -1));   // v140: the Daily Log's Today / Yesterday is the shared day
+    else if (state.logTot === 'today') ldSet('');
+    renderLogTop(state.logData);
   });
 
   function sparkSvg(series, goal) {
@@ -1633,7 +1640,8 @@
   }
   var VN_SUB = 'Ate \u00b7 drank \u00b7 workout \u00b7 weight \u00b7 sleep';
   function renderTrackProg(d) {
-    var ext = d.ext, T = fitTargets(d), t = trackToday(d), h = '', pk = ext ? trkPast() : '';
+    ldCheck();
+    var ext = d.ext, T = fitTargets(d), t = trackToday(d), h = ldBanner('trkldb'), pk = ext ? trkPast() : '';   // v140: banner on top when it is not today
     if (pk) { t = (ext.history || []).filter(function (x) { return x.date === pk; })[0] || { date: pk, label: logLbl(pk), logged: false, workout: '' }; }   // v117: the day picked under "Log for"
     var canWater = !pk && !!(ext && ext.write && ext.write.water);    // a past day's water: the +/- buttons in the "Log for" card
     var vs = document.querySelector('#vn-mic .sub'); if (vs) vs.textContent = pk ? 'Saves to ' + (pk === trkAddDays(trkTodayKey(d), -1) ? 'yesterday' : 'that day') + ' \u00b7 ' + trkDayLabel(pk) : VN_SUB;
@@ -1661,9 +1669,61 @@
   function trkTodayKey(d) { d = d || state.trackData; var t = d && d.ext && d.ext.today; if (t && t.date) return t.date; var n = new Date(); return n.getFullYear() + '-' + ('0' + (n.getMonth() + 1)).slice(-2) + '-' + ('0' + n.getDate()).slice(-2); }
   function trkAddDays(key, n) { var p = key.split('-'), t = new Date(+p[0], +p[1] - 1, +p[2] + n); return t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2); }
   function trkDayLabel(key) { var p = key.split('-'), t = new Date(+p[0], +p[1] - 1, +p[2]); return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][t.getDay()] + ' ' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][t.getMonth()] + ' ' + t.getDate(); }
-  function trkPast() { var d = state.trackData || state.logData; return state.trkDate && d && state.trkDate !== trkTodayKey(d) ? state.trkDate : ''; }
+  function trkPast() { var d = state.trackData || state.logData || (typeof FH !== 'undefined' && FH ? FH.data : null); return state.trkDate && d && state.trkDate !== trkTodayKey(d) ? state.trkDate : ''; }
   function trkWhen() { var k = trkPast(); return k ? (k === trkAddDays(trkTodayKey(), -1) ? 'yesterday' : trkDayLabel(k)) : 'today'; }
-  function trkWithDate(p) { var k = trkPast(); if (k) p.date = k; return p; }
+  function trkWithDate(p) { var k = trkPast(); if (k) { p.date = k; ldTouch(); } return p; }
+  /* v140: ONE selected day for the Daily Log, Tracker (forms, water, dictation / smart fill) and Food Log. state.trkDate '' = today, else
+   * YYYY-MM-DD; FH.date mirrors it. Every write in those flows already reads trkPast() / FH.date at save time. The choice is kept on this
+   * phone (localStorage cc_logday: day, the calendar day it was picked on, last use) so a reload mid-flow keeps it, and it goes back to
+   * today when the app is opened on a new calendar day or after 6 hours without use, so it never sticks on a past date. */
+  var LD_KEY = 'cc_logday', LD_IDLE = 6 * 3600 * 1000;
+  function ldLocalKey() { var n = new Date(); return n.getFullYear() + '-' + ('0' + (n.getMonth() + 1)).slice(-2) + '-' + ('0' + n.getDate()).slice(-2); }
+  var ldMem = null;   // in-memory copy, so a phone without localStorage still expires (and doesn't instantly reset) the choice
+  function ldSave() { ldMem = { k: state.trkDate || '', on: ldLocalKey(), at: Date.now() }; try { localStorage.setItem(LD_KEY, JSON.stringify(ldMem)); } catch (e) { /* private mode */ } }
+  function ldRead() { var r = null; try { r = JSON.parse(localStorage.getItem(LD_KEY) || 'null'); } catch (e) { r = null; } return r || ldMem; }
+  function ldSet(k) {
+    var t = trkTodayKey(); k = k && k < t ? k : '';
+    state.trkDate = k; state.trkFormsFor = '';
+    if (typeof FH !== 'undefined' && FH) FH.date = k || t;
+    ldSave();
+  }
+  function ldTouch() { if (state.trkDate) ldSave(); }
+  function ldCheck() {      // expire a past-day choice: new calendar day, or 6 h without use
+    var r = ldRead();
+    if (state.trkDate && (!r || r.k !== state.trkDate || r.on !== ldLocalKey() || Date.now() - (r.at || 0) > LD_IDLE)) { ldSet(''); return true; }
+    return false;
+  }
+  function ldRestore() {    // app start: bring back a fresh past-day choice
+    var r = ldRead();
+    if (r && r.k && r.on === ldLocalKey() && Date.now() - (r.at || 0) <= LD_IDLE) { state.trkDate = r.k; if (typeof FH !== 'undefined' && FH) FH.date = r.k; }
+    else if (r && r.k) { try { localStorage.removeItem(LD_KEY); } catch (e) {} }
+  }
+  function ldWhenLbl(k) { var t = trkTodayKey(); return k === trkAddDays(t, -1) ? 'yesterday' : (function () { var p = k.split('-'), a = new Date(+p[0], +p[1] - 1, +p[2]), b = new Date(+t.split('-')[0], +t.split('-')[1] - 1, +t.split('-')[2]); return Math.round((b - a) / 864e5) + ' days ago'; })(); }
+  function ldShort(k) { var p = k.split('-'), t = new Date(+p[0], +p[1] - 1, +p[2]); return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][t.getDay()] + ' ' + (+p[1]) + '/' + (+p[2]); }
+  // Copper banner for a past day ('' for today): "Logging for Fri 10/9 (yesterday) · Switch to today"
+  function ldBanner(extraCls) {
+    var k = trkPast(); if (!k) return '';
+    return '<div class="ldbanner' + (extraCls ? ' ' + extraCls : '') + '" role="status"><span>Logging for <b>' + esc(ldShort(k)) + '</b> (' + esc(ldWhenLbl(k)) + ')</span>' +
+      '<button type="button" class="ldtoday" data-ld-today="1">Switch to today</button></div>';
+  }
+  function ldRepaint() {
+    var act = function (id) { var el = $('screen-' + id); return el && el.classList.contains('active'); };
+    if (state.trackData && act('track')) { renderTrackForms(state.trackData); renderTrackProg(state.trackData); }
+    if (state.logData && act('log')) renderLogTop(state.logData);
+    if (FH.data && act('food')) fhRenderFood(FH.data);
+    if (act('mic') && state.micLog) { ldMicBanner(); sfRender(); }
+  }
+  function ldMicBanner() {   // the Dictate page in Daily-log mode: banner above the note box
+    var host = $('mic-ldb');
+    if (!host) { var dc = $('draft-card'); if (!dc) return; host = document.createElement('div'); host.id = 'mic-ldb'; dc.parentNode.insertBefore(host, dc); }
+    host.innerHTML = state.micLog ? ldBanner('micldb') : '';
+    var st = $('mic-state'); if (st && state.micLog && !mic.on) st.textContent = trkPast() ? 'Tap the mic · saves to ' + ldShort(trkPast()) + ' (' + ldWhenLbl(trkPast()) + ')' : 'Tap the mic to dictate a note';
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('[data-ld-today]') : null; if (!b) return;
+    e.preventDefault(); e.stopPropagation(); ldSet(''); ldRepaint();
+  }, true);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden && ldCheck()) ldRepaint(); });
   var TRK_BODY = { hike: ['Hike miles', '0.1'], steps: ['Steps', '1'], weight: ['Weight (lb)', '0.1'], sleep: ['Sleep (hours)', '0.1'] };
   function renderTrackForms(d) {
     var ext = d.ext, h = '';
@@ -1794,7 +1854,7 @@
     var i = ev.target; if (!i || i.id !== 'qa-datepick') return;
     var tk = trkTodayKey();
     if (!i.value || i.value > tk) { i.value = state.trkDate || tk; return; }
-    state.trkDate = i.value === tk ? '' : i.value;
+    ldSet(i.value === tk ? '' : i.value);   // v140: shared day
     renderTrackForms(state.trackData); renderTrackProg(state.trackData);
   });
   $('trk-forms').addEventListener('click', function (ev) {
@@ -1804,9 +1864,9 @@
     else if (t.id === 'qa-body-go') trkBody(t);
     else if (t.getAttribute('data-day')) {
       var dk = t.getAttribute('data-day'), tk = trkTodayKey();
-      if (dk === 'today') state.trkDate = '';
-      else if (dk === 'yesterday') state.trkDate = trkAddDays(tk, -1);
-      else { var pk = $('qa-datepick'); state.trkDate = pk && pk.value && pk.value < tk ? pk.value : trkAddDays(tk, -2); }
+      if (dk === 'today') ldSet('');   // v140: shared day
+      else if (dk === 'yesterday') ldSet(trkAddDays(tk, -1));
+      else { var pk = $('qa-datepick'); ldSet(pk && pk.value && pk.value < tk ? pk.value : trkAddDays(tk, -2)); }
       renderTrackForms(state.trackData); renderTrackProg(state.trackData);
     }
     else if (t.getAttribute('data-wd')) {
@@ -1878,6 +1938,7 @@
    *     opens the sheet; add / edit switch on by themselves once the actions answer.
    * Day totals always come from the Phone Log; meal rows are the itemized part (the rest shows as "not itemized"). */
   var FH = { data: null, seq: 0, date: '', foodOff: 0, woOff: 0, open: {}, hm: null, hmState: 'idle', hmMsg: '', hmSeq: 0, hmAt: 0, sheet: null, mic: null, busy: false, vnAsked: 0 };
+  ldRestore();   // v140: a past day picked earlier today (< 6 h) survives a reload; otherwise today
   var FH_TGT_KEY = 'cc_fh_targets', FH_MEALS_KEY = 'cc_fh_meals';
   var FH_SHEET_ID = '1NMxPbmskd-yfP3PNg5qgFiivwZFWmyGF2dEL-CIxTgQ';
   var FH_SHEET_URL = 'https://docs.google.com/spreadsheets/d/' + FH_SHEET_ID + '/edit';
@@ -2060,8 +2121,8 @@
     var el = $('food-body'); if (!el) return;
     if (!d) { el.innerHTML = fhNoExt(); return; }
     var T = fhTargets(d), today = fhToday(d), vm = fhVoiceMeals(today), nuts = fhNutsShown(d);
-    if (!FH.date || FH.date > today) FH.date = today;
-    var day = fhFoodDay(d, FH.date, vm), h = '';
+    ldCheck(); FH.date = trkPast() || today;   // v140: the shared day (Daily Log / Tracker / Food Log)
+    var day = fhFoodDay(d, FH.date, vm), h = ldBanner('fhldb');   // v140
     // 1. the selected day vs targets, its meals
     h += '<div class="card fitcard"><h3>' + esc(fhWhen(FH.date, d)) + (FH.date === today ? ' \u00b7 ' + esc(day.label) : '') + ' \u00b7 targets vs actual</h3>' + fhDayChips(FH.date, d, 'data-fday') +
       '<input type="date" class="fhdate" id="food-date" max="' + today + '" value="' + FH.date + '" aria-label="Pick a day">';
@@ -2479,7 +2540,7 @@
         FH_MACROS.concat(['fiber']).forEach(function (k) { if (fhIsNum(v[k])) e[k] = v[k]; });
         (jr[key] = jr[key] || []).push(e); fhJournalSave(jr);
       }
-      FH.date = key;
+      ldTouch();
       return fhAfterWrite('Saved ' + (FH_MEAL_LBL[meal] || 'meal') + ' to ' + trkDayLabel(key) + ' \u2713');
     });
   }
@@ -2565,7 +2626,7 @@
   function fhFoodClick(ev) {
     var b = ev.target.closest ? ev.target.closest('button') : null; if (!b || !FH.data) return;
     var d = FH.data, tk = fhToday(d), a = b.getAttribute('data-fh-act'), fd = b.getAttribute('data-fday');
-    if (fd) { FH.date = fd === 'today' ? tk : fd === 'yesterday' ? trkAddDays(tk, -1) : (FH.date < trkAddDays(tk, -1) ? FH.date : trkAddDays(tk, -2)); fhRenderFood(d); if (fd === 'pick') { var p = $('food-date'); if (p) try { p.showPicker ? p.showPicker() : p.focus(); } catch (e) { p.focus(); } } return; }
+    if (fd) { ldSet(fd === 'today' ? '' : fd === 'yesterday' ? trkAddDays(tk, -1) : (FH.date < trkAddDays(tk, -1) ? FH.date : trkAddDays(tk, -2))); fhRenderFood(d); if (fd === 'pick') { var p = $('food-date'); if (p) try { p.showPicker ? p.showPicker() : p.focus(); } catch (e) { p.focus(); } } return; }
     var op = b.getAttribute('data-fh-open'); if (op) { FH.open[op] = !FH.open[op]; fhRenderFood(d); return; }
     var mid = b.getAttribute('data-fh-meal');
     if (mid) {
@@ -2592,7 +2653,7 @@
     }
     if (a === 'fprev') { FH.foodOff--; fhRenderFood(d); return; }
     if (a === 'fnext') { if (FH.foodOff < 0) FH.foodOff++; fhRenderFood(d); return; }
-    if (a === 'seeday') { FH.date = b.getAttribute('data-day'); fhRenderFood(d); window.scrollTo(0, 0); return; }
+    if (a === 'seeday') { ldSet(b.getAttribute('data-day')); fhRenderFood(d); window.scrollTo(0, 0); return; }
   }
   function fhWoClick(ev) {
     var b = ev.target.closest ? ev.target.closest('button') : null; if (!b || !FH.data) return;
@@ -2625,7 +2686,7 @@
     var f = $('food-body'), w = $('wo-body'), hm = $('hm-body');
     if (f) {
       f.addEventListener('click', fhFoodClick);
-      f.addEventListener('change', function (e) { if (e.target.id !== 'food-date' || !FH.data) return; var tk = fhToday(); if (!e.target.value || e.target.value > tk) { e.target.value = FH.date; return; } FH.date = e.target.value; fhRenderFood(FH.data); });
+      f.addEventListener('change', function (e) { if (e.target.id !== 'food-date' || !FH.data) return; var tk = fhToday(); if (!e.target.value || e.target.value > tk) { e.target.value = FH.date; return; } ldSet(e.target.value); fhRenderFood(FH.data); });
     }
     if (w) w.addEventListener('click', fhWoClick);
     if (hm) hm.addEventListener('click', fhHmClick);
@@ -6543,6 +6604,7 @@
     $('note-text').setAttribute('placeholder', MIC_PH_LOG);
     $('mic-hint').hidden = false;
     $('note-save').setAttribute('data-lbl', 'Save to Voice notes');
+    ldCheck(); ldMicBanner();   // v140: which day this dictation saves to
     if (!mic.on && !$('note-text').value) sfReset(); else sfUpdate(true);
   }
   function micLogReset() {
@@ -6551,6 +6613,7 @@
     $('note-text').setAttribute('placeholder', MIC_PH);
     $('mic-hint').hidden = true;
     $('note-save').removeAttribute('data-lbl');
+    var lb = $('mic-ldb'); if (lb) lb.innerHTML = '';   // v140
     sfReset();
   }
   function renderProj() {
@@ -7352,6 +7415,9 @@
     if (on && sv) { sv.setAttribute('data-lbl', sf.auto && keys.length ? 'Save to Daily Log' : 'Save to Voice notes'); micUi(); }
     if (card.hidden) { sf.sig = ''; return; }
     $('sf-when').textContent = sfDayLabel();
+    var sfb = $('sf-ldb'); if (!sfb) { var hd = card.querySelector('.sfhead'); if (hd) { sfb = document.createElement('div'); sfb.id = 'sf-ldb'; hd.parentNode.insertBefore(sfb, hd.nextSibling); } }
+    if (sfb) sfb.innerHTML = ldBanner('sfldb');   // v140: "Logging for Fri 10/9 (yesterday)" on the smart-fill confirm
+    $('sf-card').classList.toggle('pastday', !!trkPast());
     var chip = $('sf-chip');
     if (!sf.auto) chip.innerHTML = '<span>Smart fill off \u00b7 saved as a voice note only</span><button type="button" class="sfbtn" data-sf-act="again">Fill again</button>';
     else if (keys.length) chip.innerHTML = '<span><b>Filled:</b> ' + esc(sfLabels().join(', ')) + '</span><button type="button" class="sfbtn" data-sf-act="undo">Undo</button>';
@@ -7431,6 +7497,7 @@
   // -> Promise of { ok: [labels], bad: [{label, msg}] }. Reads the day fresh first (so appends/adds use the sheet's current values).
   function sfWrite(text) {
     var v = {}; Object.keys(sf.vals).forEach(function (k) { v[k] = sf.vals[k]; });
+    ldTouch();   // v140
     var mode = sf.waterMode, past = trkPast(), lim = { water: [0, 300], workoutMin: [0, 1000], hike: [0, 100], steps: [0, 100000], weight: [50, 600], sleep: [0, 24],
       calories: [0, 20000], protein: [0, 2000], carbs: [0, 3000], fat: [0, 2000], fiber: [0, 300] }, badv = [];
     Object.keys(lim).forEach(function (k) { if (v[k] == null) return; var x = Number(v[k]); if (!isFinite(x) || x < lim[k][0] || x > lim[k][1]) badv.push(SF_LBL[k] + ' ' + lim[k][0] + '\u2013' + lim[k][1]); });
