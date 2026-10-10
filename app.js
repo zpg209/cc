@@ -4531,7 +4531,7 @@
    * straight into that Receipts folder; until then it opens the Receipts folder in Google Drive, where + > Scan / Upload adds it. */
   var BD_EXP = {
     kiwit: { under: 'Business Documents', expenses: '1Zq4WJ_IamecqJk5A5s5G7O8i4_dATUtr', receipts: '1kCEyz-1vCD8ffc5sF04uoXk7Uyp7YZJY' },
-    tiwik: { under: '', expenses: '14fu87P8z91yIS5yUyG0aW0SrxJsIvepg', receipts: '1m-e8g1IhEA8PLymp81lJfuplqY_hEFlj' }
+    tiwik: { under: '', expenses: '14fu87P8z91yIS5yUyG0aW0SrxJsIvepg', receipts: '1m-e8g1IhEA8PLymp81lJfuplqY_hEFlj', income: '125fsN75KpPlVb2wPVqxwSGcGB2bf4Wv7' }   // v136: TiwiK Laundromat > Income (monthly revenue screenshots), listed live like Expenses
   };
   var BD_TTL = 60000, BD_PROBE_WAIT = 30 * 60000;
   var bd = { open: {}, fl: {}, up: null, probeAt: 0, probing: false, rc: {} };   // fl[id] = { s:'load'|'ok'|'err', at, items, msg }; up = server can file receipts (null = unknown)
@@ -4572,7 +4572,7 @@
   }
   function bdEnsure(key) {
     var X = BD_EXP[key]; if (!X) return;
-    bdLoadFolder(X.expenses); bdLoadFolder(X.receipts); bdProbe();
+    bdLoadFolder(X.expenses); bdLoadFolder(X.receipts); if (X.income) bdLoadFolder(X.income); bdProbe();
   }
   function bdNode(name) { return { name: name, files: [], kids: [], folderUrl: '', decision: null }; }
   function bdKid(n, name) {
@@ -4607,6 +4607,7 @@
       var ex = bdKid(host, 'Expenses'), rc = bdKid(ex, 'Receipts');
       ex.kids.splice(ex.kids.indexOf(rc), 1); ex.kids.unshift(rc);     // Receipts first inside Expenses
       rc.receipts = key; bdLiveItems(rc, X.receipts); bdLiveItems(ex, X.expenses);
+      if (X.income) bdLiveItems(bdKid(host, 'Income'), X.income);     // v136: Income folder (TiwiK), live listing, collapsible like Expenses
     }
     return root;
   }
