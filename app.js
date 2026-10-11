@@ -18689,6 +18689,9 @@
   // last modified 10/11/2026 ~4:32 AM PT (doc says 'Verified October 2026'). Only facts stated in that doc are used.
   // Where the older 'Ownership Flowchart.pdf' (Drive 1W9s5Bu3Ydz-fJnRzKuEmi1rVdJcErSWG, plotted 3/25/2026; IMG_2806.PNG is a crop of
   // the same drawing) says something different, the doc wins and the PDF version is kept in the `pdf` field so it shows as a note.
+  // Corrections from Zac on 10/11/2026 override the doc (marked 'Zac 10/11' below): Garman Trust owns 70% of Sierra Consultants (S-corp);
+  // Garman Trust owns Wetumka; KiwiT owns 105 S. Stewart St. (Sierra = tenant, NNN lease); Mono Way is one 3-unit building owned by KiwiT;
+  // the KiwiT -> TiwiK lease exists for loan purposes only (TiwiK pays no rent to KiwiT), so it is a note, not an edge.
   // Layout: level = row (0 owners, 1 trust / personal, 2 entities, 3 properties & business); col = column (0..3, may be fractional).
   // Edge kinds: own (ownership / membership), personal (held personally), op (operates / occupies), lease (lease between entities).
   // links = existing Command Center routes; docs = Drive links listed in the doc (open in the in-app viewer).
@@ -18698,26 +18701,26 @@
   var OWNERSHIP = {
     nodes: [
       { id: 'zac', label: 'Zac Garman', sub: 'Owner', kind: 'owner', level: 0, col: 0.75,
-        facts: [['Role', 'Owner (\u201cyou\u201d in the doc); shown with Lisa above the Garman Trust'], ['Holds personally', 'Wetumka Rd. (with Lisa)']],
+        facts: [['Role', 'Owner (\u201cyou\u201d in the doc); shown with Lisa above the Garman Trust'], ['Holds personally', 'Nothing on this chart: Wetumka, Sierra (70%), KiwiT and TiwiK are held through the Garman Trust (Zac 10/11)']],
         notes: ['The KiwiT and TiwiK Statements of Information list Zac & Lisa as members, while both operating agreements name the Garman Trust as sole member (open item 1, reconcile with Brandon Meyer).'],
         links: [['Vault \u00b7 Household', 'spend/acct/Household'], ['Trust & Estate', 'trust'], ['Insurance \u00b7 Personal & Autos', 'insn/personal']] },
       { id: 'lisa', label: 'Lisa Garman', sub: 'Spouse', kind: 'owner', level: 0, col: 1.75,
-        facts: [['Role', 'Spouse; shown with Zac above the Garman Trust'], ['Holds personally', 'Wetumka Rd. (with Zac)']],
+        facts: [['Role', 'Spouse; shown with Zac above the Garman Trust'], ['Holds personally', 'Nothing on this chart: Wetumka, Sierra (70%), KiwiT and TiwiK are held through the Garman Trust (Zac 10/11)']],
         notes: ['Filed SOIs 2/27/2025 for KiwiT and TiwiK: \u201cAddition of Lisa\u201d. Both SOIs list Zac & Lisa as members (mismatch with the operating agreements, open item 1).'],
         docs: [['KiwiT SOI 2/27/2025 \u2014 Addition of Lisa', ownD('16zb3nONtjg8gDxKsVdzYmIR9PbpkbliJ')], ['TiwiK SOI 2/27/2025 \u2014 Addition of Lisa', ownD('16EKkMNZt4zuM7psQctNwVBtTT1PTzvmT')],
           ['L. Garman Huebsch Financial App', ownD('1qY9c8gETirolCFwtMxM12vjP-VRPPSGZ')]],
         links: [['Vault \u00b7 Household', 'spend/acct/Household'], ['Trust & Estate', 'trust']] },
       { id: 'trust', label: 'Garman Trust', sub: 'Sole member, both LLCs', kind: 'trust', level: 1, col: 1.25,
         facts: [['Role', 'Sole member of KiwiT LLC and TiwiK LLC (per both operating agreements, executed 2/28/2025)'],
-          ['Also owns', '70% of Sierra Consultants (S-corp; confirmed by Zac 10/11/2026)'], ['Why', 'Membership interests sit in the trust, so the businesses pass to heirs without probate under the trust\u2019s terms']],
+          ['Also owns', '70% of Sierra Consultants (S-corp) and Wetumka Rd. (personal residence), per Zac 10/11/2026'], ['Why', 'Membership interests sit in the trust, so the businesses pass to heirs without probate under the trust\u2019s terms']],
         notes: ['Membership Interest Purchase Agreement signed 5/1/2025 via Adobe Sign (Jason Pink as other party) transferring the membership interests to the trust. Original not located in Drive; retrieve from MeyerPink (open item 4).',
           'The SOIs still list Zac & Lisa as members (open item 1).'],
-        pdf: 'The PDF calls it \u201cGarman Family Trust\u201d and also shows it owning Wetumka (100%; the doc says Wetumka is held personally).',
+        pdf: 'The PDF calls it \u201cGarman Family Trust\u201d (same ownership of Wetumka at 100% and Sierra at 70% that Zac confirmed).',
         links: [['Trust & Estate', 'trust']] },
       { id: 'wetumka', label: 'Wetumka Rd.', sub: 'Personal residence', kind: 'asset', level: 1, col: 3,
-        facts: [['Held by', 'Zac & Lisa Garman personally (not in an LLC)'], ['Use', 'Personal residence'], ['Liability', 'Not reachable by claims against TiwiK or KiwiT']],
+        facts: [['Owned by', 'Garman Trust (Zac 10/11/2026)'], ['Use', 'Personal residence'], ['Liability', 'Not reachable by claims against TiwiK or KiwiT']],
         notes: ['Travelers Homeowners policy includes a May 2026 change adding trust coverage.'],
-        pdf: 'The PDF shows Wetumka 100% owned by the Garman Family Trust (Function: primary residence).',
+        pdf: 'The PDF also shows Wetumka 100% owned by the Garman Family Trust. The doc said \u201cheld personally by Zac & Lisa\u201d; Zac corrected it on 10/11/2026.',
         docs: [['Travelers Homeowners (12/9/2025 \u2013 12/9/2026)', ownD('16FMIMN5mXX2KfROt5I4bG1RUSMo2ZepA')], ['Travelers Homeowners Policy Change (May 2026)', ownD('19MO-mZ3t6B4zsnBAtZ5rXteZq2Vm4GBS')],
           ['Travelers Personal Liability Umbrella (9/15/2026 \u2013 9/15/2027)', ownD('1hjzUT1EA2IMmYF2C2Nxz7IWm_tNizpj0')], ['Travelers Umbrella Policy Change (5/4/2026)', ownD('18zWl0sMlyCC8uU3QLC6RLhmRYYE3r0kM')],
           ['California FAIR Plan Dwelling Fire (2025\u20132026)', ownD('1QnvimIHpXtWRAoC-ThwNkJD-mZ6CsobG')], ['FAIR Plan Dwelling Fire Endorsement', ownD('1EYyX2OSasbV5qDL2JVHP1Sx0iQ1aajIt')],
@@ -18725,20 +18728,21 @@
         links: [['Property \u00b7 Wetumka', 're/wetumka'], ['Insurance \u00b7 Wetumka', 'insn/wetumka']] },
       { id: 'kiwit', label: 'KiwiT LLC', sub: 'Real estate holding', kind: 'entity', level: 2, col: 0.5,
         facts: [['Business type (SOI)', 'Real Estate holding'], ['Members', 'Garman Trust (per operating agreement); SOI lists Zac & Lisa (mismatch)'],
-          ['Owns', '14791 Mono Way (office building) and 14797 Mono Way (laundromat building)'], ['Lease', 'Lessor to TiwiK, 8-yr term, $2,000/mo, Aug 2025 \u2013 Jul 2033'],
+          ['Owns', 'Mono Way building (3 units) and 105 S. Stewart St. (Zac 10/11)'],
           ['Mailing address', '105 S. Stewart Street, Sonora'], ['Liability', 'A claim against the real estate reaches only KiwiT\u2019s assets']],
-        pdf: 'The PDF labels KiwiT \u201cHolding company \u00b7 Passive \u00b7 Function: own real estate\u201d, and shows KiwiT leasing Stewart Street (Sierra Consultants as tenant).',
+        notes: ['Lease doc exists for loan purposes only; TiwiK pays no rent to KiwiT.'],
+        pdf: 'The PDF labels KiwiT \u201cHolding company \u00b7 Passive \u00b7 Function: own real estate\u201d, with Stewart Street and Mono Village as its properties.',
         docs: [['Filed Articles of Organization', ownD('1eGSbWCygAKAVSTtmgxo_IvBGeJ4x1fi0')], ['Operating Agreement (executed 2/28/2025)', ownD('1zf3aRj6JJa11reCaELSG3aQk1FGb2ovS')],
           ['Filed SOI 2/27/2025 \u2014 Addition of Lisa', ownD('16zb3nONtjg8gDxKsVdzYmIR9PbpkbliJ')], ['Mono Way Business Lease (KiwiT \u2192 TiwiK, 8/1/2025)', ownD('1msUgH6s-3dEcw7pAG7GsG8Y8o1AMAGCK')],
           ['Bank of Stockton refinance (5/27/2026)', ownD('1-gDqVllz2apDP_xZzspJpdlVPGUJoyGt')], ['THREE \u2014 Business Policy 2026\u20132027', ownD('1CQ0Tgi9XZWpz4iuZvzbs_g_hpNHhvScu')],
           ['THREE \u2014 Policy Change 3 (Updated Building)', ownD('1nVCRTZvVocUI1py37IUY8A3x4dRfKI8n')], ['THREE \u2014 Loss Control Survey Recommendations (3/16/2026)', ownD('1vGeisPUhet58kKMhDYDclpcTJ_RMDPyb')],
           ['FTB letter \u2014 KiwiT & TiwiK (10/6/2026)', ownD('1f2P-l1g2yEllgyBtt0sQ3yO3oV2l11e9')]],
-        links: [['KiwiT books', 'ent/kiwit'], ['KiwiT Business Documents', 'ent/kiwit/docs'], ['Vault \u00b7 KiwiT', 'spend/acct/KiwiT'], ['Insurance \u00b7 KiwiT', 'insn/kiwit'], ['Property \u00b7 Mono Way', 're/mono-way']] },
+        links: [['KiwiT books', 'ent/kiwit'], ['KiwiT Business Documents', 'ent/kiwit/docs'], ['Vault \u00b7 KiwiT', 'spend/acct/KiwiT'], ['Insurance \u00b7 KiwiT', 'insn/kiwit'], ['Property \u00b7 Mono Way', 're/mono-way'], ['Property \u00b7 Stewart Street', 're/stewart-street']] },
       { id: 'tiwik', label: 'TiwiK LLC', sub: 'Laundromat operations', kind: 'entity', level: 2, col: 2,
         facts: [['Business type (SOI)', 'Laundry'], ['Members', 'Garman Trust (per operating agreement); SOI lists Zac & Lisa (mismatch)'],
-          ['S-corp election', 'Form 2553 filed early April 2025, IRS-accepted effective 2/19/2025 (CP261 notice)'], ['Operates', 'Laundromat at 14797 Mono Way; leases the building from KiwiT'],
+          ['S-corp election', 'Form 2553 filed early April 2025, IRS-accepted effective 2/19/2025 (CP261 notice)'], ['Operates', 'The laundromat, in one unit of KiwiT\u2019s Mono Way building (doc: 14797 Mono Way)'],
           ['Mailing address', '105 S. Stewart Street, Sonora'], ['Liability', 'A claim against the laundromat reaches only TiwiK\u2019s assets']],
-        notes: ['Debt: Alliance Laundry Systems Finance (+ personal financial statement) and Huebsch loan documents (DocuSign).'],
+        notes: ['Lease doc exists for loan purposes only; TiwiK pays no rent to KiwiT.', 'Debt: Alliance Laundry Systems Finance (+ personal financial statement) and Huebsch loan documents (DocuSign).'],
         pdf: 'The PDF labels it \u201cTiwiK, LLC \u00b7 Laundromat \u00b7 S-Corp \u00b7 Active\u201d (same facts).',
         docs: [['Filed Articles of Organization', ownD('17EGvY7jcywMJZrFjIq1P4HTH3K8s-qd3')], ['Operating Agreement (executed 2/28/2025)', ownD('1aFngRdm1ZYCHoDAvNT9m9bJEoe9G28sk')],
           ['Filed SOI 2/27/2025 \u2014 Addition of Lisa', ownD('16EKkMNZt4zuM7psQctNwVBtTT1PTzvmT')], ['S-corp Election (Form 2553)', ownD('1nZNsQ0uoQXNPFapeWXXep7v4vOgEYyW6')],
@@ -18748,72 +18752,72 @@
           ['Huebsch loan documents (2)', ownD('1mM2206A2ioEzJV_BhVQRagnquzg57AKU')]],
         links: [['TiwiK books', 'ent/tiwik'], ['TiwiK Business Documents', 'ent/tiwik/docs'], ['Vault \u00b7 TiwiK', 'spend/acct/TiwiK'], ['Insurance \u00b7 TiwiK', 'insn/tiwik']] },
       { id: 'sierra', label: 'Sierra Consultants', sub: 'Engineering firm', kind: 'entity', level: 2, col: 3,
-        facts: [['Owned by', '70% Garman Trust (confirmed by Zac 10/11/2026)'], ['Tax', 'S-corp'], ['Type', 'Engineering firm (not an LLC)'], ['Owned by LLCs?', 'No, not owned by KiwiT or TiwiK'], ['Office', '105 S. Stewart Street, Sonora (mailing address for both LLCs)'],
+        facts: [['Owned by', '70% Garman Trust (confirmed by Zac 10/11/2026)'], ['Tax', 'S-corp'], ['Type', 'Engineering firm (not an LLC)'], ['Owned by LLCs?', 'No, not owned by KiwiT or TiwiK'], ['Office', '105 S. Stewart Street, Sonora (mailing address for both LLCs); tenant of KiwiT, NNN lease (Zac 10/11)'],
           ['Liability', 'Not reachable by claims against TiwiK or KiwiT']],
-        pdf: 'The PDF shows \u201cSierra Consultants Inc. DBA: Land & Structure\u201d (Eng/Surv, S-Corp), 70% owned by the Garman Family Trust (same 70% Zac confirmed), and a tenant at Stewart Street.',
+        pdf: 'The PDF shows \u201cSierra Consultants Inc. DBA: Land & Structure\u201d (Eng/Surv, S-Corp), 70% owned by the Garman Family Trust, and a tenant at Stewart Street (both confirmed by Zac 10/11/2026).',
         docs: [['The Hartford BOP & Umbrella (2026\u20132027)', ownD('1yZ858dqyi4A4-57504DHl1nIRfUzoLCN')], ['The Hartford Commercial Auto (2026\u20132027)', ownD('12LIGnidFPfiob-kc5xOYgnBheTdpcWq3')],
           ['The Hartford Workers Comp & Employers Liability (9/11/2026 \u2013 9/11/2027)', ownD('1cGBm0Q2LbcJYDUhfTUNybMxA-b389nsV')], ['The Hartford Unmanned Aircraft Endorsements', ownD('1mD8IZcWD7RzqnT_grAxz5hqk9mWnKPfG')],
           ['2024 PL \u2014 U.S. Specialty Insurance', ownD('12M-0tSfkmYvus-UPs7z_SXmL_CWPb8Qf')]],
         links: [['Sierra Consultants documents', 'biz/sierra'], ['Insurance \u00b7 Sierra Consultants', 'insn/sierra']] },
-      { id: 'mw14791', label: '14791 Mono Way', sub: 'Office building', kind: 'asset', level: 3, col: 0,
-        facts: [['Owned by', 'KiwiT LLC'], ['Use', 'Office building']],
-        notes: ['The doc\u2019s chart says KiwiT leases 14791 Mono Way to TiwiK; its TiwiK section says TiwiK leases the laundromat building (14797). Which address the lease covers is unclear.'],
-        pdf: 'The PDF has one \u201cMono Village\u201d building (investment property, KiwiT lease, TiwiK tenant) and no separate 14791 / 14797.',
-        links: [['Property \u00b7 Mono Way', 're/mono-way'], ['Insurance \u00b7 Mono Way', 'insn/monoway']] },
-      { id: 'mw14797', label: '14797 Mono Way', sub: 'Laundromat building', kind: 'asset', level: 3, col: 1,
-        facts: [['Owned by', 'KiwiT LLC'], ['Use', 'Laundromat building; TiwiK operates the laundromat here and leases the building from KiwiT']],
-        pdf: 'The PDF calls it \u201cMono Village\u201d (Function: investment property).',
-        links: [['Property \u00b7 Mono Way', 're/mono-way'], ['Insurance \u00b7 Mono Way', 'insn/monoway']] },
-      { id: 'laundry', label: 'Laundromat', sub: 'Business at 14797', kind: 'biz', level: 3, col: 2,
-        facts: [['Operated by', 'TiwiK LLC'], ['Location', '14797 Mono Way']],
+      { id: 'monoway', label: 'Mono Way building', sub: '3 units', kind: 'asset', level: 3, col: 0.5,
+        facts: [['Owned by', 'KiwiT LLC'], ['Units', '3 units, one building (Zac 10/11/2026)'],
+          ['Addresses', '14791 Mono Way \u00b7 14797 Mono Way \u00b7 third address unknown (needs cleanup)'], ['Laundromat', 'TiwiK operates the laundromat in one unit (doc: 14797 Mono Way)']],
+        notes: ['The doc listed 14791 (office building) and 14797 (laundromat building) as two buildings; Zac corrected it to one 3-unit building on 10/11/2026. Open item: clean up Mono Way addresses (3 units, 3 addresses).'],
+        pdf: 'The PDF shows one \u201cMono Village\u201d building (investment property) owned through KiwiT.',
+        links: [['Property \u00b7 Mono Way', 're/mono-way'], ['Insurance \u00b7 Mono Way', 'insn/monoway'], ['KiwiT books', 'ent/kiwit']] },
+      { id: 'laundry', label: 'Laundromat', sub: 'One Mono Way unit', kind: 'biz', level: 3, col: 2,
+        facts: [['Operated by', 'TiwiK LLC'], ['Location', 'One unit of the Mono Way building (doc: 14797 Mono Way)'], ['Rent', 'None: TiwiK pays no rent to KiwiT (Zac 10/11)']],
         notes: ['Shown in the app as Mono Village Laundromat (TiwiK books).'],
         docs: [['Machine Maintenance working page', 'https://docs.google.com/document/d/1kSS6PjWiWWob2PlWNabFjrpPTu4vmYh7eLovwqVErQE/edit'],
           ['Finances \u2014 Laundromat (Working Page)', 'https://docs.google.com/document/d/1sf4Kqe_a-fXxGkPJm9WU5DM8dLoDc2qVzLk-rEJ6lSc/edit'],
           ['Finances \u2014 Equipment Payoff Options', 'https://docs.google.com/document/d/1qgX-uzO4Ghd-aypEbCie00AHniWxBu3ChLwr0RSWCs4/edit']],
         links: [['TiwiK books', 'ent/tiwik'], ['Finances \u00b7 Laundromat', 'fin/laundromat'], ['Vault \u00b7 TiwiK', 'spend/acct/TiwiK']] },
-      { id: 'stewart', label: '105 S. Stewart St.', sub: 'Sierra office', kind: 'asset', level: 3, col: 3,
-        facts: [['Use', 'Sierra Consultants\u2019 office; mailing address for both LLCs'], ['Owned by LLCs?', 'No, NOT owned by either LLC'], ['Owner', 'Not stated in the doc']],
-        notes: ['Open item 3: if the original plan called for it to transfer into KiwiT, that transfer has not happened; ask Brandon.'],
-        pdf: 'The PDF shows Stewart Street as a KiwiT investment property (lease) with Sierra Consultants as tenant, insured Gen. Liab. 1M / Building 1M.',
-        links: [['Property \u00b7 Stewart Street', 're/stewart-street'], ['Insurance \u00b7 Stewart Street', 'insn/stewart'], ['Sierra Consultants documents', 'biz/sierra']] }
+      { id: 'stewart', label: '105 S. Stewart St.', sub: 'KiwiT \u00b7 Sierra tenant', kind: 'asset', level: 3, col: 3,
+        facts: [['Owned by', 'KiwiT LLC (Zac 10/11/2026)'], ['Tenant', 'Sierra Consultants, NNN lease (Zac 10/11/2026)'], ['Use', 'Sierra Consultants\u2019 office; mailing address for both LLCs']],
+        notes: ['The doc said 105 S. Stewart was not owned by either LLC and the transfer into KiwiT hadn\u2019t happened; Zac corrected it on 10/11/2026. Open item: confirm the Stewart Street transfer to KiwiT was recorded.'],
+        pdf: 'The PDF also shows Stewart Street as a KiwiT investment property with Sierra Consultants as tenant.',
+        links: [['Property \u00b7 Stewart Street', 're/stewart-street'], ['Insurance \u00b7 Stewart Street', 'insn/stewart'], ['KiwiT books', 'ent/kiwit'], ['Sierra Consultants documents', 'biz/sierra']] }
     ],
     edges: [
       { from: 'zac', to: 'trust', kind: 'own', label: '', rel: 'Zac & Lisa \u2192 Garman Trust',
         detail: 'The doc\u2019s chart draws Zac & Lisa above the Garman Trust. It does not state their role in the trust (trustee / settlor / beneficiary) or a percentage.' },
       { from: 'lisa', to: 'trust', kind: 'own', label: '', rel: 'Zac & Lisa \u2192 Garman Trust',
         detail: 'The doc\u2019s chart draws Zac & Lisa above the Garman Trust. It does not state their role in the trust (trustee / settlor / beneficiary) or a percentage.' },
-      { from: 'zac', to: 'wetumka', kind: 'personal', label: 'personal', rel: 'Held personally',
-        detail: 'Wetumka Rd. is held by Zac & Lisa Garman personally (not in an LLC). No split is stated.', pdf: '100% owned by the Garman Family Trust.' },
-      { from: 'lisa', to: 'wetumka', kind: 'personal', label: 'personal', rel: 'Held personally',
-        detail: 'Wetumka Rd. is held by Zac & Lisa Garman personally (not in an LLC). No split is stated.', pdf: '100% owned by the Garman Family Trust.' },
-      // 10/11/2026: Zac confirmed the Garman Trust owns 70% of Sierra Consultants (S-corp); matches the older PDF. Not in the doc.
-      { from: 'trust', to: 'sierra', kind: 'own', label: '70%', sub: 'S-corp', lt: 0.72, rel: '70% owner \u00b7 S-corp',
-        detail: 'The Garman Trust owns 70% of Sierra Consultants, an S-corp (confirmed by Zac 10/11/2026). Sierra is not owned by either LLC.', pdf: 'Ownership 70% (Garman Family Trust); Sierra Consultants Inc., S-Corp.' },
+      // Zac 10/11: Wetumka is owned by the Garman Trust (replaces the doc's Zac / Lisa 'held personally' lines)
+      { from: 'trust', to: 'wetumka', kind: 'own', label: 'owns', rel: 'Owns \u00b7 personal residence',
+        detail: 'Personal residence. The Garman Trust owns Wetumka Rd. (confirmed by Zac 10/11/2026; the doc had said held personally by Zac & Lisa).', pdf: 'Ownership 100% (Garman Family Trust).' },
       { from: 'trust', to: 'kiwit', kind: 'own', label: '100%', sub: 'sole member', rel: 'Sole member (100%)',
         detail: 'Garman Trust is the sole member per the KiwiT Operating Agreement (executed 2/28/2025). The SOI filed 2/27/2025 lists Zac & Lisa as members, a mismatch to reconcile with Brandon Meyer.', pdf: 'Ownership 100%.' },
       { from: 'trust', to: 'tiwik', kind: 'own', label: '100%', sub: 'sole member', rel: 'Sole member (100%)',
         detail: 'Garman Trust is the sole member per the TiwiK Operating Agreement (executed 2/28/2025). The SOI filed 2/27/2025 lists Zac & Lisa as members, the same mismatch as KiwiT.', pdf: 'Ownership 100%.' },
-      { from: 'kiwit', to: 'mw14791', kind: 'own', label: 'owns', rel: 'Owns', detail: 'KiwiT LLC owns 14791 Mono Way (office building).' },
-      { from: 'kiwit', to: 'mw14797', kind: 'own', label: 'owns', rel: 'Owns', detail: 'KiwiT LLC owns 14797 Mono Way (laundromat building).' },
-      { from: 'tiwik', to: 'laundry', kind: 'op', label: 'operates', rel: 'Operates', detail: 'TiwiK LLC operates the laundromat business at 14797 Mono Way.' },
-      { from: 'sierra', to: 'stewart', kind: 'op', label: 'office', rel: 'Office (occupies)',
-        detail: '105 S. Stewart Street, Sonora is Sierra Consultants\u2019 office and the mailing address for both LLCs. It is NOT owned by either LLC; the doc doesn\u2019t say who owns it.',
-        pdf: 'KiwiT leases Stewart Street; Sierra Consultants is the tenant.' },
-      { from: 'kiwit', to: 'tiwik', kind: 'lease', label: 'Lease', sub: '$2,000/mo', rel: 'Lease: KiwiT (Lessor) \u2192 TiwiK (Lessee)',
-        detail: 'Mono Way Business Lease dated 8/1/2025: 8-year term, $2,000/mo, Aug 2025 \u2013 Jul 2033. The doc\u2019s chart says the premises are 14791 Mono Way; its TiwiK section says TiwiK leases the laundromat building (14797).',
-        doc: ['Mono Way Business Lease (KiwiT \u2192 TiwiK, 8/1/2025)', ownD('1msUgH6s-3dEcw7pAG7GsG8Y8o1AMAGCK')], pdf: 'KiwiT \u201cLease\u201d to Mono Village, TiwiK \u201cTenant\u201d (no terms).' }
+      // 10/11/2026: Zac confirmed the Garman Trust owns 70% of Sierra Consultants (S-corp); matches the older PDF. Not in the doc.
+      { from: 'trust', to: 'sierra', kind: 'own', label: '70%', sub: 'S-corp', lt: 0.72, rel: '70% owner \u00b7 S-corp',
+        detail: 'The Garman Trust owns 70% of Sierra Consultants, an S-corp (confirmed by Zac 10/11/2026). Sierra is not owned by either LLC.', pdf: 'Ownership 70% (Garman Family Trust); Sierra Consultants Inc., S-Corp.' },
+      { from: 'kiwit', to: 'monoway', kind: 'own', label: 'owns', rel: 'Owns',
+        detail: 'KiwiT LLC owns the Mono Way building: 3 units (14791 and 14797 Mono Way plus a third address still to clean up).' },
+      // Zac 10/11: KiwiT owns 105 S. Stewart St. (the doc had said not owned by either LLC)
+      { from: 'kiwit', to: 'stewart', kind: 'own', label: 'owns', lt: 0.3, rel: 'Owns',
+        detail: 'KiwiT LLC owns 105 S. Stewart Street, Sonora (confirmed by Zac 10/11/2026). Still to confirm the transfer to KiwiT was recorded.', pdf: 'KiwiT investment property (lease).' },
+      { from: 'tiwik', to: 'laundry', kind: 'op', label: 'operates', lt: 0.3, rel: 'Operates',
+        detail: 'TiwiK LLC operates the laundromat business in one unit of the Mono Way building. ' + 'Lease doc exists for loan purposes only; TiwiK pays no rent to KiwiT.' },
+      { from: 'sierra', to: 'stewart', kind: 'op', label: 'tenant', sub: 'NNN lease', rel: 'Tenant \u00b7 NNN lease',
+        detail: 'Sierra Consultants is the tenant at 105 S. Stewart Street on a triple-net (NNN) lease (Zac 10/11/2026). It is Sierra\u2019s office and the mailing address for both LLCs.',
+        pdf: 'Sierra Consultants \u201cTenant\u201d of Stewart Street.' }
     ],
     openItems: [
       'SOI member mismatch: both KiwiT and TiwiK SOIs list Zac & Lisa as members; both operating agreements name the Garman Trust as sole member. Reconcile with Brandon Meyer.',
       'FTB letter: standard withholding notice (7% on CA-source income paid to nonresidents). Likely not applicable; confirm with Doreen.',
-      'Stewart Street: 105 S. Stewart is Sierra Consultants\u2019 office and NOT owned by either LLC. If it was meant to transfer into KiwiT, that hasn\u2019t happened; ask Brandon.',
-      'Membership Interest Purchase Agreement: signed 5/1/2025 via Adobe Sign (Jason Pink as other party) transferring membership interests to the trust. Original not in Drive; retrieve from MeyerPink.'
+      'Confirm the Stewart Street transfer to KiwiT was recorded.',
+      'Clean up Mono Way addresses (3 units, 3 addresses).',
+      'Membership Interest Purchase Agreement: signed 5/1/2025 via Adobe Sign (Jason Pink as other party) transferring membership interests to the trust. Original not in Drive; retrieve from MeyerPink.',
+      'Resolved by Zac 10/11/2026: Stewart Street is owned by KiwiT (Sierra = tenant, NNN lease); replaces the doc\u2019s \u201cNOT owned by either LLC / ask Brandon\u201d item.'
     ],
     pdfDiffs: [
-      'Sierra Consultants: doc = personal, not an LLC. PDF = Sierra Consultants Inc. DBA Land & Structure, S-Corp, 70% owned by the trust. Zac confirmed 10/11/2026: Garman Trust owns 70%, S-corp (chart uses this).',
-      'Wetumka: doc = held by Zac & Lisa personally. PDF = 100% owned by the Garman Family Trust.',
-      'Stewart Street: doc = Sierra\u2019s office, NOT owned by either LLC. PDF = KiwiT leases it, Sierra is the tenant.',
-      'Mono Way: doc = two buildings (14791 office, 14797 laundromat), both owned by KiwiT. PDF = one \u201cMono Village\u201d building.',
+      'Resolved by Zac 10/11/2026 \u2014 Sierra Consultants: Garman Trust owns 70%, S-corp (as the PDF showed; the doc said personal, not an LLC).',
+      'Resolved by Zac 10/11/2026 \u2014 Wetumka: owned by the Garman Trust (as the PDF showed; the doc said held personally by Zac & Lisa).',
+      'Resolved by Zac 10/11/2026 \u2014 Stewart Street: owned by KiwiT, Sierra is the tenant on a NNN lease (as the PDF showed; the doc said NOT owned by either LLC).',
+      'Resolved by Zac 10/11/2026 \u2014 Lease: the KiwiT \u2192 TiwiK lease ($2,000/mo in the doc) exists for loan purposes only; TiwiK pays no rent to KiwiT. Shown as a note, not a line.',
+      'Mono Way: doc = two buildings (14791 office, 14797 laundromat). PDF = one \u201cMono Village\u201d building. Zac 10/11/2026: one building, 3 units owned by KiwiT; addresses need cleanup.',
       'Trust name: doc = Garman Trust. PDF = Garman Family Trust.',
       'Insurance limits (e.g. Gen. Liab. 2M / Building 1M for KiwiT) appear only in the PDF and are not shown on the chart.'
     ]
@@ -18866,7 +18870,7 @@
       if (!vis[n.id]) return;
       var p = ownPos(n), on = own.sel && own.sel.t === 'n' && own.sel.id === n.id ? ' on' : '';
       h += '<g class="own-n k-' + n.kind + on + '" data-own-n="' + esc(n.id) + '"><rect x="' + p.x + '" y="' + p.y + '" width="' + OWN_W + '" height="' + OWN_H + '" rx="6"/>' +
-        ownTxt(n.label, p.cx, p.y + 23, 'own-nl') + ownTxt(n.sub, p.cx, p.y + 39, 'own-ns') + '</g>';
+        ownTxt(n.label, p.cx, p.y + 23, 'own-nl' + (n.label.length > 15 ? ' sm' : '')) + ownTxt(n.sub, p.cx, p.y + 39, 'own-ns') + '</g>';
       if (ownKids(n.id).length) {
         var c = own.collapsed[n.id], ty = p.b + 1;
         h += '<g class="own-tog' + (c ? ' c' : '') + '" data-own-t="' + esc(n.id) + '"><circle cx="' + p.cx + '" cy="' + ty + '" r="13" class="own-hit2"/><circle cx="' + p.cx + '" cy="' + ty + '" r="8"/>' +
@@ -18921,7 +18925,7 @@
         ins.map(function (e) { return '<tr><th>From ' + esc(ownNode(e.from).label) + '</th><td>' + esc(e.rel) + '</td></tr>'; }).join('') +
         outs.map(function (e) { return '<tr><th>To ' + esc(ownNode(e.to).label) + '</th><td>' + esc(e.rel) + '</td></tr>'; }).join('') + '</table>';
       if (n.notes && n.notes.length) h += ownList(n.notes);
-      if (n.pdf) h += '<div class="own-pdf"><b>Older PDF (Mar 2026):</b> ' + esc(n.pdf) + ' The doc wins.</div>';
+      if (n.pdf) h += '<div class="own-pdf"><b>Older PDF (Mar 2026):</b> ' + esc(n.pdf) + '</div>';
       if (n.docs && n.docs.length) h += '<h4 class="own-h4">Documents (from the source doc)</h4>' + ownDocLinks(n.docs);
     } else {
       var e = OWNERSHIP.edges[s.i];
@@ -18985,11 +18989,12 @@
       delete own.ptrs[ev.pointerId];
       var n = Object.keys(own.ptrs).length;
       if (n < 2) own.pinch = null;
-      if (n === 0) { var d = own.drag; own.drag = null; if (d && !d.moved && ev.type === 'pointerup') ownTap(d.target); }
+      if (n === 0) { var d = own.drag; own.drag = null; if (d && !d.moved && ev.type === 'pointerup') { own.tapXY = [ev.clientX, ev.clientY]; ownTap(d.target); } }
       else if (n === 1) { var k = Object.keys(own.ptrs)[0]; own.drag = { p: own.ptrs[k], v: { x: own.view.x, y: own.view.y }, moved: true }; }
     }
     window.addEventListener('click', function (ev) {      // no ghost click: a tap on the chart must not also press a button of the card it opens
-      if (own.tapAt && Date.now() - own.tapAt < 600 && ev.target.closest && ev.target.closest('#own-card')) { ev.preventDefault(); ev.stopPropagation(); }
+      var q = own.tapXY;
+      if (own.tapAt && Date.now() - own.tapAt < 600 && q && Math.abs(ev.clientX - q[0]) < 20 && Math.abs(ev.clientY - q[1]) < 20 && ev.target.closest && ev.target.closest('#own-card')) { own.tapAt = 0; ev.preventDefault(); ev.stopPropagation(); }
     }, true);
     st.addEventListener('pointerup', up); st.addEventListener('pointercancel', up);
     st.addEventListener('wheel', function (ev) { ev.preventDefault(); var p = pt(ev); ownZoom(ev.deltaY < 0 ? 1.12 : 1 / 1.12, p.x, p.y); }, { passive: false });
