@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lora:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=140">
+<link rel="stylesheet" href="app.css?v=141">
 </head>
 <body>
   <div class="bg"></div>
@@ -353,6 +353,23 @@
     <div id="vcam-body"></div>
   </section>
 
-  <script src="app.js?v=140"></script>
+  <!-- ============ OWNERSHIP CHART (#ownership; Business > Ownership): interactive SVG tree, data = OWNERSHIP in app.js ============ -->
+  <section id="screen-ownership" class="screen ownscreen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="own-back" data-go="biz">&lsaquo; Back</button><h2>Ownership</h2></div>
+    <p class="hint own-meta" id="own-meta"></p>
+    <div class="own-bar" role="group" aria-label="Chart controls">
+      <button type="button" class="homebtn" id="own-out" aria-label="Zoom out">&minus;</button>
+      <span class="own-zoom" id="own-zoom">100%</span>
+      <button type="button" class="homebtn" id="own-in" aria-label="Zoom in">+</button>
+      <button type="button" class="homebtn" id="own-fit">Fit</button>
+      <button type="button" class="homebtn" id="own-all">Collapse</button>
+    </div>
+    <div class="own-stage" id="own-stage"></div>
+    <a class="linkrow own-srcl" id="own-src" href="#">Open source doc &rsaquo;</a>
+    <div id="own-extra"></div>
+    <div class="own-card" id="own-card" hidden></div>
+  </section>
+
+  <script src="app.js?v=141"></script>
 </body>
 </html>

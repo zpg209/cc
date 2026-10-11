@@ -2790,3 +2790,75 @@ body.hl-busy { -webkit-user-select: none; user-select: none; cursor: grabbing; }
 .ldbanner.sfldb { margin: 6px 0 10px; }
 .ldbanner.micldb { margin: 0 0 10px; }
 .sfcard.pastday { border-color: var(--copper-edge); }
+
+/* v141: Ownership chart (#ownership) — copper / black on charcoal */
+.own-meta { margin: 0 2px 8px; }
+.own-bar { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+.own-bar .homebtn { min-height: 40px; padding: 0 12px; font-size: 17px; font-weight: 700; }
+.own-bar #own-all { margin-left: auto; font-size: 14px; }
+.own-zoom { color: var(--muted); font-size: 12px; min-width: 40px; text-align: center; font-variant-numeric: tabular-nums; }
+.own-stage { position: relative; height: calc(100vh - 290px); height: calc(100dvh - 290px); min-height: 340px; background: #1f1f1f;
+  border: 1px solid rgba(240,122,42,.28); border-radius: var(--radius); overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab;
+  background-image: radial-gradient(rgba(255,255,255,.05) 1px, transparent 1px); background-size: 18px 18px; }
+.own-svg { display: block; }
+.own-n rect { fill: #0b0b0b; stroke: rgba(240,122,42,.55); stroke-width: 1.2; }
+.own-n.k-owner rect { fill: #F07A2A; stroke: #FFC48A; }
+.own-n.k-owner .own-nl { fill: #0b0b0b; } .own-n.k-owner .own-ns { fill: #3a1d08; }
+.own-n.k-trust rect { fill: #3a2414; stroke: #F07A2A; stroke-width: 1.8; }
+.own-n.k-asset rect, .own-n.k-biz rect { fill: #141414; stroke: rgba(255,255,255,.28); }
+.own-n.k-biz rect { stroke-dasharray: 4 3; }
+.own-n.on rect { stroke: #fff; stroke-width: 2.4; }
+.own-n { cursor: pointer; }
+.own-nl { fill: #F07A2A; font: 700 12px Inter, sans-serif; text-anchor: middle; }
+.own-n.k-trust .own-nl { fill: #FFC48A; }
+.own-n.k-asset .own-nl, .own-n.k-biz .own-nl { fill: #f2f2f2; }
+.own-ns { fill: #a8a8a8; font: 400 9.5px Inter, sans-serif; text-anchor: middle; }
+.own-ln { fill: none; stroke: #F07A2A; stroke-width: 1.6; }
+.own-e.k-personal .own-ln { stroke: #c9a07e; stroke-dasharray: 5 4; }
+.own-e.k-op .own-ln { stroke: #8a8a8a; }
+.own-e.k-lease .own-ln { stroke: #d9c2a8; stroke-dasharray: 3 3; }
+.own-e.on .own-ln { stroke: #fff; stroke-width: 2.6; }
+.own-hit { fill: none; stroke: transparent; stroke-width: 18; }
+.own-e { cursor: pointer; }
+.own-pill { fill: #0b0b0b; stroke: rgba(240,122,42,.7); stroke-width: 1; }
+.own-e.on .own-pill { stroke: #fff; }
+.own-pt { fill: #FFC48A; font: 700 10.5px Inter, sans-serif; text-anchor: middle; }
+.own-ps { fill: #a8a8a8; font: 400 8px Inter, sans-serif; text-anchor: middle; }
+.own-tog circle { fill: #0b0b0b; stroke: #F07A2A; stroke-width: 1.2; }
+.own-tog circle.own-hit2 { fill: transparent; stroke: none; }
+.own-tog.c circle { fill: #F07A2A; }
+.own-tt { fill: #F07A2A; font: 700 12px Inter, sans-serif; text-anchor: middle; }
+.own-tog.c .own-tt { fill: #0b0b0b; }
+.own-th { fill: #c9a07e; font: 400 9px Inter, sans-serif; }
+.own-tog { cursor: pointer; }
+.own-srcl { font-size: 18px; margin-top: 10px; }
+.own-det { padding: 10px 12px; }
+.own-det summary { color: var(--red); font-weight: 700; cursor: pointer; }
+.own-ul { margin: 8px 0 4px; padding-left: 18px; font-size: 13px; line-height: 1.45; }
+.own-ul li { margin-bottom: 5px; }
+.own-cav { margin: 6px 2px 0; }
+.own-card { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; max-width: 640px; margin: 0 auto; max-height: 62vh; max-height: 62dvh; overflow-y: auto;
+  background: #0f0f0f; border-top: 2px solid #F07A2A; border-radius: 10px 10px 0 0; padding: 12px 14px calc(env(safe-area-inset-bottom, 0px) + 16px);
+  box-shadow: 0 -8px 28px rgba(0,0,0,.6); animation: fade .16s ease-out; }
+.own-card[hidden] { display: none; }
+.own-ch { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.own-ch h3 { margin: 2px 0 2px; font-family: 'Playfair Display', Georgia, serif; font-size: 22px; color: var(--red); }
+.own-ck { font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; color: #c9a07e; }
+.own-cs { color: var(--muted); font-size: 13px; }
+.own-x { min-height: 36px; padding: 0 12px; }
+.own-tb { width: 100%; border-collapse: collapse; margin: 10px 0 4px; font-size: 13px; }
+.own-tb th { text-align: left; color: #c9a07e; font-weight: 600; vertical-align: top; padding: 5px 8px 5px 0; width: 36%; }
+.own-tb td { padding: 5px 0; border-bottom: 1px solid var(--line); }
+.own-tb th { border-bottom: 1px solid var(--line); }
+.own-p { font-size: 14px; line-height: 1.45; margin: 10px 0; }
+.own-pdf { font-size: 12.5px; color: #d9c2a8; background: rgba(240,122,42,.08); border-left: 3px solid #F07A2A; padding: 7px 9px; margin: 8px 0; line-height: 1.4; }
+.own-lk { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
+.own-lk .homebtn { min-height: 38px; padding: 0 10px; font-size: 14px; font-weight: 600; }
+.own-h4 { margin: 12px 0 4px; font-size: 13px; color: #c9a07e; text-transform: uppercase; letter-spacing: 1px; }
+.own-docs a { font-size: 14px; }
+.own-bar .homebtn, .own-lk .homebtn, .own-x { min-width: 0; }
+.own-bar .homebtn { flex: 1 1 0; padding: 0 6px; }
+.own-bar #own-all { flex: 1.6 1 0; }
+.own-tb td { overflow-wrap: anywhere; }
+.own-lk .homebtn { white-space: normal; text-align: left; line-height: 1.2; padding: 6px 10px; }
+.own-n.k-trust .own-ns { font-size: 8.6px; }

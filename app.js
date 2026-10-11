@@ -14,7 +14,7 @@
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', ovKey: '', invAcct: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
-  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring'];
+  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring', 'ownership'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -568,6 +568,7 @@
     if (name === 'pc') pcOpen();
     if (name === 'lr') lrOpen();
     if (name === 'hiring') hiringOpen();
+    if (name === 'ownership') ownOpen();     // v141: interactive ownership chart
     if (name === 'doc') { state.docKey = String(route || '').replace(/^#/, ''); openDocScreen(qparams(R.query)); }
     else restoreScroll(String(route || '').replace(/^#/, '') || 'home');
   }
@@ -18678,6 +18679,345 @@
     else tmHubCounts();
   });
 
+  /* ---------------- Ownership chart (#ownership; Business folder tile 'Ownership') ---------------- */
+  // v141: interactive ownership flow chart. Top-down tree (owners -> trust / personal -> entities -> properties & business),
+  // SVG drawn from the OWNERSHIP data object below; tap a node for its detail card, tap a line for the relationship,
+  // pinch / + / - to zoom, drag to pan, Fit resets, the -/+ under a node collapses / expands its branch.
+  //
+  // ===== OWNERSHIP DATA (edit here to update the chart) =====
+  // Source: Google Doc 'Ownership Structure Flowchart \u2014 Garman Entities' (Drive id 1oRjkENOuovJHsqptpSx3vU-fa0R5Xb1jWw4XU_Np3Iw),
+  // last modified 10/11/2026 ~4:32 AM PT (doc says 'Verified October 2026'). Only facts stated in that doc are used.
+  // Where the older 'Ownership Flowchart.pdf' (Drive 1W9s5Bu3Ydz-fJnRzKuEmi1rVdJcErSWG, plotted 3/25/2026; IMG_2806.PNG is a crop of
+  // the same drawing) says something different, the doc wins and the PDF version is kept in the `pdf` field so it shows as a note.
+  // Layout: level = row (0 owners, 1 trust / personal, 2 entities, 3 properties & business); col = column (0..3, may be fractional).
+  // Edge kinds: own (ownership / membership), personal (held personally), op (operates / occupies), lease (lease between entities).
+  // links = existing Command Center routes; docs = Drive links listed in the doc (open in the in-app viewer).
+  var OWN_SRC = { id: '1oRjkENOuovJHsqptpSx3vU-fa0R5Xb1jWw4XU_Np3Iw', title: 'Ownership Structure Flowchart \u2014 Garman Entities', date: '10/11/2026',
+    url: 'https://docs.google.com/document/d/1oRjkENOuovJHsqptpSx3vU-fa0R5Xb1jWw4XU_Np3Iw/edit' };
+  function ownD(id) { return 'https://drive.google.com/file/d/' + id + '/view'; }
+  var OWNERSHIP = {
+    nodes: [
+      { id: 'zac', label: 'Zac Garman', sub: 'Owner', kind: 'owner', level: 0, col: 0.75,
+        facts: [['Role', 'Owner (\u201cyou\u201d in the doc); shown with Lisa above the Garman Trust'], ['Holds personally', 'Wetumka Rd. (with Lisa); Sierra Consultants (personal, not an LLC)']],
+        notes: ['The KiwiT and TiwiK Statements of Information list Zac & Lisa as members, while both operating agreements name the Garman Trust as sole member (open item 1, reconcile with Brandon Meyer).'],
+        links: [['Vault \u00b7 Household', 'spend/acct/Household'], ['Trust & Estate', 'trust'], ['Insurance \u00b7 Personal & Autos', 'insn/personal']] },
+      { id: 'lisa', label: 'Lisa Garman', sub: 'Spouse', kind: 'owner', level: 0, col: 1.75,
+        facts: [['Role', 'Spouse; shown with Zac above the Garman Trust'], ['Holds personally', 'Wetumka Rd. (with Zac)']],
+        notes: ['Filed SOIs 2/27/2025 for KiwiT and TiwiK: \u201cAddition of Lisa\u201d. Both SOIs list Zac & Lisa as members (mismatch with the operating agreements, open item 1).'],
+        docs: [['KiwiT SOI 2/27/2025 \u2014 Addition of Lisa', ownD('16zb3nONtjg8gDxKsVdzYmIR9PbpkbliJ')], ['TiwiK SOI 2/27/2025 \u2014 Addition of Lisa', ownD('16EKkMNZt4zuM7psQctNwVBtTT1PTzvmT')],
+          ['L. Garman Huebsch Financial App', ownD('1qY9c8gETirolCFwtMxM12vjP-VRPPSGZ')]],
+        links: [['Vault \u00b7 Household', 'spend/acct/Household'], ['Trust & Estate', 'trust']] },
+      { id: 'trust', label: 'Garman Trust', sub: 'Sole member, both LLCs', kind: 'trust', level: 1, col: 1.25,
+        facts: [['Role', 'Sole member of KiwiT LLC and TiwiK LLC (per both operating agreements, executed 2/28/2025)'],
+          ['Why', 'Membership interests sit in the trust, so the businesses pass to heirs without probate under the trust\u2019s terms']],
+        notes: ['Membership Interest Purchase Agreement signed 5/1/2025 via Adobe Sign (Jason Pink as other party) transferring the membership interests to the trust. Original not located in Drive; retrieve from MeyerPink (open item 4).',
+          'The SOIs still list Zac & Lisa as members (open item 1).'],
+        pdf: 'The PDF calls it \u201cGarman Family Trust\u201d and also shows it owning Wetumka (100%) and Sierra Consultants (70%).',
+        links: [['Trust & Estate', 'trust']] },
+      { id: 'wetumka', label: 'Wetumka Rd.', sub: 'Personal residence', kind: 'asset', level: 1, col: 3,
+        facts: [['Held by', 'Zac & Lisa Garman personally (not in an LLC)'], ['Use', 'Personal residence'], ['Liability', 'Not reachable by claims against TiwiK or KiwiT']],
+        notes: ['Travelers Homeowners policy includes a May 2026 change adding trust coverage.'],
+        pdf: 'The PDF shows Wetumka 100% owned by the Garman Family Trust (Function: primary residence).',
+        docs: [['Travelers Homeowners (12/9/2025 \u2013 12/9/2026)', ownD('16FMIMN5mXX2KfROt5I4bG1RUSMo2ZepA')], ['Travelers Homeowners Policy Change (May 2026)', ownD('19MO-mZ3t6B4zsnBAtZ5rXteZq2Vm4GBS')],
+          ['Travelers Personal Liability Umbrella (9/15/2026 \u2013 9/15/2027)', ownD('1hjzUT1EA2IMmYF2C2Nxz7IWm_tNizpj0')], ['Travelers Umbrella Policy Change (5/4/2026)', ownD('18zWl0sMlyCC8uU3QLC6RLhmRYYE3r0kM')],
+          ['California FAIR Plan Dwelling Fire (2025\u20132026)', ownD('1QnvimIHpXtWRAoC-ThwNkJD-mZ6CsobG')], ['FAIR Plan Dwelling Fire Endorsement', ownD('1EYyX2OSasbV5qDL2JVHP1Sx0iQ1aajIt')],
+          ['Wetumka Mortgage Statement (Sept 2026)', ownD('1OjI44ZNwrObvM_1-9Dk70JQ9QC7pJig-')], ['Wetumka Improvements spreadsheet', 'https://docs.google.com/spreadsheets/d/0B1-7gBo1qYlxRF9rME0zLWZ5cVU/edit']],
+        links: [['Property \u00b7 Wetumka', 're/wetumka'], ['Insurance \u00b7 Wetumka', 'insn/wetumka']] },
+      { id: 'kiwit', label: 'KiwiT LLC', sub: 'Real estate holding', kind: 'entity', level: 2, col: 0.5,
+        facts: [['Business type (SOI)', 'Real Estate holding'], ['Members', 'Garman Trust (per operating agreement); SOI lists Zac & Lisa (mismatch)'],
+          ['Owns', '14791 Mono Way (office building) and 14797 Mono Way (laundromat building)'], ['Lease', 'Lessor to TiwiK, 8-yr term, $2,000/mo, Aug 2025 \u2013 Jul 2033'],
+          ['Mailing address', '105 S. Stewart Street, Sonora'], ['Liability', 'A claim against the real estate reaches only KiwiT\u2019s assets']],
+        pdf: 'The PDF labels KiwiT \u201cHolding company \u00b7 Passive \u00b7 Function: own real estate\u201d, and shows KiwiT leasing Stewart Street (Sierra Consultants as tenant).',
+        docs: [['Filed Articles of Organization', ownD('1eGSbWCygAKAVSTtmgxo_IvBGeJ4x1fi0')], ['Operating Agreement (executed 2/28/2025)', ownD('1zf3aRj6JJa11reCaELSG3aQk1FGb2ovS')],
+          ['Filed SOI 2/27/2025 \u2014 Addition of Lisa', ownD('16zb3nONtjg8gDxKsVdzYmIR9PbpkbliJ')], ['Mono Way Business Lease (KiwiT \u2192 TiwiK, 8/1/2025)', ownD('1msUgH6s-3dEcw7pAG7GsG8Y8o1AMAGCK')],
+          ['Bank of Stockton refinance (5/27/2026)', ownD('1-gDqVllz2apDP_xZzspJpdlVPGUJoyGt')], ['THREE \u2014 Business Policy 2026\u20132027', ownD('1CQ0Tgi9XZWpz4iuZvzbs_g_hpNHhvScu')],
+          ['THREE \u2014 Policy Change 3 (Updated Building)', ownD('1nVCRTZvVocUI1py37IUY8A3x4dRfKI8n')], ['THREE \u2014 Loss Control Survey Recommendations (3/16/2026)', ownD('1vGeisPUhet58kKMhDYDclpcTJ_RMDPyb')],
+          ['FTB letter \u2014 KiwiT & TiwiK (10/6/2026)', ownD('1f2P-l1g2yEllgyBtt0sQ3yO3oV2l11e9')]],
+        links: [['KiwiT books', 'ent/kiwit'], ['KiwiT Business Documents', 'ent/kiwit/docs'], ['Vault \u00b7 KiwiT', 'spend/acct/KiwiT'], ['Insurance \u00b7 KiwiT', 'insn/kiwit'], ['Property \u00b7 Mono Way', 're/mono-way']] },
+      { id: 'tiwik', label: 'TiwiK LLC', sub: 'Laundromat operations', kind: 'entity', level: 2, col: 2,
+        facts: [['Business type (SOI)', 'Laundry'], ['Members', 'Garman Trust (per operating agreement); SOI lists Zac & Lisa (mismatch)'],
+          ['S-corp election', 'Form 2553 filed early April 2025, IRS-accepted effective 2/19/2025 (CP261 notice)'], ['Operates', 'Laundromat at 14797 Mono Way; leases the building from KiwiT'],
+          ['Mailing address', '105 S. Stewart Street, Sonora'], ['Liability', 'A claim against the laundromat reaches only TiwiK\u2019s assets']],
+        notes: ['Debt: Alliance Laundry Systems Finance (+ personal financial statement) and Huebsch loan documents (DocuSign).'],
+        pdf: 'The PDF labels it \u201cTiwiK, LLC \u00b7 Laundromat \u00b7 S-Corp \u00b7 Active\u201d (same facts).',
+        docs: [['Filed Articles of Organization', ownD('17EGvY7jcywMJZrFjIq1P4HTH3K8s-qd3')], ['Operating Agreement (executed 2/28/2025)', ownD('1aFngRdm1ZYCHoDAvNT9m9bJEoe9G28sk')],
+          ['Filed SOI 2/27/2025 \u2014 Addition of Lisa', ownD('16EKkMNZt4zuM7psQctNwVBtTT1PTzvmT')], ['S-corp Election (Form 2553)', ownD('1nZNsQ0uoQXNPFapeWXXep7v4vOgEYyW6')],
+          ['FTB letter \u2014 KiwiT & TiwiK (10/6/2026)', ownD('1f2P-l1g2yEllgyBtt0sQ3yO3oV2l11e9')], ['Scottsdale CGL (2/28/2026 \u2013 2/28/2027)', ownD('12Gb7f-G8K3Xo50aUsOY2Psw8sRJgebYQ')],
+          ['California FAIR Plan Commercial (10/23/2026 \u2013 10/23/2027)', ownD('1Vh9yv2DHZZyEL0n5gVH9uE0LIXGMobDI')], ['Alliance Laundry Systems Finance', ownD('1hokXjD0TjoUTEJPOwz_H_EohrHKk-axe')],
+          ['Alliance Laundry Personal Financial Statement', ownD('1hP50stXLQItbqd-7ksfBJL_bCavQ1j2Z')], ['Huebsch loan documents (1)', ownD('19eClQwm_6-SDvj-7_nJFFc42dgwD0iFc')],
+          ['Huebsch loan documents (2)', ownD('1mM2206A2ioEzJV_BhVQRagnquzg57AKU')]],
+        links: [['TiwiK books', 'ent/tiwik'], ['TiwiK Business Documents', 'ent/tiwik/docs'], ['Vault \u00b7 TiwiK', 'spend/acct/TiwiK'], ['Insurance \u00b7 TiwiK', 'insn/tiwik']] },
+      { id: 'sierra', label: 'Sierra Consultants', sub: 'Engineering firm', kind: 'entity', level: 2, col: 3,
+        facts: [['Type', 'Engineering firm, personal (not an LLC)'], ['Owned by LLCs?', 'No, not owned by KiwiT or TiwiK'], ['Office', '105 S. Stewart Street, Sonora (mailing address for both LLCs)'],
+          ['Liability', 'Not reachable by claims against TiwiK or KiwiT']],
+        notes: ['The doc does not give an ownership percentage.'],
+        pdf: 'The PDF shows \u201cSierra Consultants Inc. DBA: Land & Structure\u201d (Eng/Surv, S-Corp), 70% owned by the Garman Family Trust, and a tenant at Stewart Street.',
+        docs: [['The Hartford BOP & Umbrella (2026\u20132027)', ownD('1yZ858dqyi4A4-57504DHl1nIRfUzoLCN')], ['The Hartford Commercial Auto (2026\u20132027)', ownD('12LIGnidFPfiob-kc5xOYgnBheTdpcWq3')],
+          ['The Hartford Workers Comp & Employers Liability (9/11/2026 \u2013 9/11/2027)', ownD('1cGBm0Q2LbcJYDUhfTUNybMxA-b389nsV')], ['The Hartford Unmanned Aircraft Endorsements', ownD('1mD8IZcWD7RzqnT_grAxz5hqk9mWnKPfG')],
+          ['2024 PL \u2014 U.S. Specialty Insurance', ownD('12M-0tSfkmYvus-UPs7z_SXmL_CWPb8Qf')]],
+        links: [['Sierra Consultants documents', 'biz/sierra'], ['Insurance \u00b7 Sierra Consultants', 'insn/sierra']] },
+      { id: 'mw14791', label: '14791 Mono Way', sub: 'Office building', kind: 'asset', level: 3, col: 0,
+        facts: [['Owned by', 'KiwiT LLC'], ['Use', 'Office building']],
+        notes: ['The doc\u2019s chart says KiwiT leases 14791 Mono Way to TiwiK; its TiwiK section says TiwiK leases the laundromat building (14797). Which address the lease covers is unclear.'],
+        pdf: 'The PDF has one \u201cMono Village\u201d building (investment property, KiwiT lease, TiwiK tenant) and no separate 14791 / 14797.',
+        links: [['Property \u00b7 Mono Way', 're/mono-way'], ['Insurance \u00b7 Mono Way', 'insn/monoway']] },
+      { id: 'mw14797', label: '14797 Mono Way', sub: 'Laundromat building', kind: 'asset', level: 3, col: 1,
+        facts: [['Owned by', 'KiwiT LLC'], ['Use', 'Laundromat building; TiwiK operates the laundromat here and leases the building from KiwiT']],
+        pdf: 'The PDF calls it \u201cMono Village\u201d (Function: investment property).',
+        links: [['Property \u00b7 Mono Way', 're/mono-way'], ['Insurance \u00b7 Mono Way', 'insn/monoway']] },
+      { id: 'laundry', label: 'Laundromat', sub: 'Business at 14797', kind: 'biz', level: 3, col: 2,
+        facts: [['Operated by', 'TiwiK LLC'], ['Location', '14797 Mono Way']],
+        notes: ['Shown in the app as Mono Village Laundromat (TiwiK books).'],
+        docs: [['Machine Maintenance working page', 'https://docs.google.com/document/d/1kSS6PjWiWWob2PlWNabFjrpPTu4vmYh7eLovwqVErQE/edit'],
+          ['Finances \u2014 Laundromat (Working Page)', 'https://docs.google.com/document/d/1sf4Kqe_a-fXxGkPJm9WU5DM8dLoDc2qVzLk-rEJ6lSc/edit'],
+          ['Finances \u2014 Equipment Payoff Options', 'https://docs.google.com/document/d/1qgX-uzO4Ghd-aypEbCie00AHniWxBu3ChLwr0RSWCs4/edit']],
+        links: [['TiwiK books', 'ent/tiwik'], ['Finances \u00b7 Laundromat', 'fin/laundromat'], ['Vault \u00b7 TiwiK', 'spend/acct/TiwiK']] },
+      { id: 'stewart', label: '105 S. Stewart St.', sub: 'Sierra office', kind: 'asset', level: 3, col: 3,
+        facts: [['Use', 'Sierra Consultants\u2019 office; mailing address for both LLCs'], ['Owned by LLCs?', 'No, NOT owned by either LLC'], ['Owner', 'Not stated in the doc']],
+        notes: ['Open item 3: if the original plan called for it to transfer into KiwiT, that transfer has not happened; ask Brandon.'],
+        pdf: 'The PDF shows Stewart Street as a KiwiT investment property (lease) with Sierra Consultants as tenant, insured Gen. Liab. 1M / Building 1M.',
+        links: [['Property \u00b7 Stewart Street', 're/stewart-street'], ['Insurance \u00b7 Stewart Street', 'insn/stewart'], ['Sierra Consultants documents', 'biz/sierra']] }
+    ],
+    edges: [
+      { from: 'zac', to: 'trust', kind: 'own', label: '', rel: 'Zac & Lisa \u2192 Garman Trust',
+        detail: 'The doc\u2019s chart draws Zac & Lisa above the Garman Trust. It does not state their role in the trust (trustee / settlor / beneficiary) or a percentage.' },
+      { from: 'lisa', to: 'trust', kind: 'own', label: '', rel: 'Zac & Lisa \u2192 Garman Trust',
+        detail: 'The doc\u2019s chart draws Zac & Lisa above the Garman Trust. It does not state their role in the trust (trustee / settlor / beneficiary) or a percentage.' },
+      { from: 'zac', to: 'wetumka', kind: 'personal', label: 'personal', rel: 'Held personally',
+        detail: 'Wetumka Rd. is held by Zac & Lisa Garman personally (not in an LLC). No split is stated.', pdf: '100% owned by the Garman Family Trust.' },
+      { from: 'lisa', to: 'wetumka', kind: 'personal', label: 'personal', rel: 'Held personally',
+        detail: 'Wetumka Rd. is held by Zac & Lisa Garman personally (not in an LLC). No split is stated.', pdf: '100% owned by the Garman Family Trust.' },
+      { from: 'zac', to: 'sierra', kind: 'personal', label: 'personal', rel: 'Personal business (not an LLC)',
+        detail: 'Sierra Consultants is listed as personal, not an LLC, and not owned by either LLC. The doc gives no owner percentage.', pdf: '70% owned by the Garman Family Trust.' },
+      { from: 'trust', to: 'kiwit', kind: 'own', label: '100%', sub: 'sole member', rel: 'Sole member (100%)',
+        detail: 'Garman Trust is the sole member per the KiwiT Operating Agreement (executed 2/28/2025). The SOI filed 2/27/2025 lists Zac & Lisa as members, a mismatch to reconcile with Brandon Meyer.', pdf: 'Ownership 100%.' },
+      { from: 'trust', to: 'tiwik', kind: 'own', label: '100%', sub: 'sole member', rel: 'Sole member (100%)',
+        detail: 'Garman Trust is the sole member per the TiwiK Operating Agreement (executed 2/28/2025). The SOI filed 2/27/2025 lists Zac & Lisa as members, the same mismatch as KiwiT.', pdf: 'Ownership 100%.' },
+      { from: 'kiwit', to: 'mw14791', kind: 'own', label: 'owns', rel: 'Owns', detail: 'KiwiT LLC owns 14791 Mono Way (office building).' },
+      { from: 'kiwit', to: 'mw14797', kind: 'own', label: 'owns', rel: 'Owns', detail: 'KiwiT LLC owns 14797 Mono Way (laundromat building).' },
+      { from: 'tiwik', to: 'laundry', kind: 'op', label: 'operates', rel: 'Operates', detail: 'TiwiK LLC operates the laundromat business at 14797 Mono Way.' },
+      { from: 'sierra', to: 'stewart', kind: 'op', label: 'office', rel: 'Office (occupies)',
+        detail: '105 S. Stewart Street, Sonora is Sierra Consultants\u2019 office and the mailing address for both LLCs. It is NOT owned by either LLC; the doc doesn\u2019t say who owns it.',
+        pdf: 'KiwiT leases Stewart Street; Sierra Consultants is the tenant.' },
+      { from: 'kiwit', to: 'tiwik', kind: 'lease', label: 'Lease', sub: '$2,000/mo', rel: 'Lease: KiwiT (Lessor) \u2192 TiwiK (Lessee)',
+        detail: 'Mono Way Business Lease dated 8/1/2025: 8-year term, $2,000/mo, Aug 2025 \u2013 Jul 2033. The doc\u2019s chart says the premises are 14791 Mono Way; its TiwiK section says TiwiK leases the laundromat building (14797).',
+        doc: ['Mono Way Business Lease (KiwiT \u2192 TiwiK, 8/1/2025)', ownD('1msUgH6s-3dEcw7pAG7GsG8Y8o1AMAGCK')], pdf: 'KiwiT \u201cLease\u201d to Mono Village, TiwiK \u201cTenant\u201d (no terms).' }
+    ],
+    openItems: [
+      'SOI member mismatch: both KiwiT and TiwiK SOIs list Zac & Lisa as members; both operating agreements name the Garman Trust as sole member. Reconcile with Brandon Meyer.',
+      'FTB letter: standard withholding notice (7% on CA-source income paid to nonresidents). Likely not applicable; confirm with Doreen.',
+      'Stewart Street: 105 S. Stewart is Sierra Consultants\u2019 office and NOT owned by either LLC. If it was meant to transfer into KiwiT, that hasn\u2019t happened; ask Brandon.',
+      'Membership Interest Purchase Agreement: signed 5/1/2025 via Adobe Sign (Jason Pink as other party) transferring membership interests to the trust. Original not in Drive; retrieve from MeyerPink.'
+    ],
+    pdfDiffs: [
+      'Sierra Consultants: doc = personal, not an LLC, no % stated. PDF = Sierra Consultants Inc. DBA Land & Structure, S-Corp, 70% owned by the trust.',
+      'Wetumka: doc = held by Zac & Lisa personally. PDF = 100% owned by the Garman Family Trust.',
+      'Stewart Street: doc = Sierra\u2019s office, NOT owned by either LLC. PDF = KiwiT leases it, Sierra is the tenant.',
+      'Mono Way: doc = two buildings (14791 office, 14797 laundromat), both owned by KiwiT. PDF = one \u201cMono Village\u201d building.',
+      'Trust name: doc = Garman Trust. PDF = Garman Family Trust.',
+      'Insurance limits (e.g. Gen. Liab. 2M / Building 1M for KiwiT) appear only in the PDF and are not shown on the chart.'
+    ]
+  };
+  // ===== end OWNERSHIP DATA =====
+
+  var OWN_W = 104, OWN_H = 54, OWN_COLX = 130, OWN_ROWY = 124, OWN_PAD = 18;
+  var own = { collapsed: {}, view: null, sel: null, ptrs: {}, pinch: null, drag: null, bound: false };
+  function ownNode(id) { return OWNERSHIP.nodes.filter(function (n) { return n.id === id; })[0]; }
+  function ownPos(n) { var x = OWN_PAD + n.col * OWN_COLX, y = OWN_PAD + n.level * OWN_ROWY; return { x: x, y: y, cx: x + OWN_W / 2, cy: y + OWN_H / 2, b: y + OWN_H }; }
+  function ownKids(id) { return OWNERSHIP.edges.filter(function (e) { return e.from === id && e.kind !== 'lease'; }); }
+  function ownVisible() {
+    var vis = {}, nodes = OWNERSHIP.nodes.slice().sort(function (a, b) { return a.level - b.level; });
+    nodes.forEach(function (n) {
+      var inc = OWNERSHIP.edges.filter(function (e) { return e.to === n.id && e.kind !== 'lease'; });
+      if (!inc.length || inc.some(function (e) { return vis[e.from] && !own.collapsed[e.from]; })) vis[n.id] = 1;
+    });
+    return vis;
+  }
+  function ownHidden(id) {   // how many nodes disappear when `id` is collapsed (for the + badge)
+    var save = own.collapsed[id]; own.collapsed[id] = false; var a = ownVisible();
+    own.collapsed[id] = true; var b = ownVisible(); own.collapsed[id] = save;
+    return Object.keys(a).length - Object.keys(b).length;
+  }
+  function ownTxt(s, x, y, cls) { return '<text x="' + x + '" y="' + y + '" class="' + cls + '">' + esc(s) + '</text>'; }
+  function ownSvg() {
+    var vis = ownVisible(), h = '';
+    var W = OWN_PAD * 2 + 3 * OWN_COLX + OWN_W, H = OWN_PAD * 2 + 3 * OWN_ROWY + OWN_H + 14;
+    OWNERSHIP.edges.forEach(function (e, i) {
+      if (!vis[e.from] || !vis[e.to] || (e.kind !== 'lease' && own.collapsed[e.from])) return;
+      var a = ownPos(ownNode(e.from)), b = ownPos(ownNode(e.to)), d, mx, my;
+      if (e.kind === 'lease') {
+        var x1 = a.x + OWN_W, x2 = b.x; d = 'M' + x1 + ' ' + a.cy + ' L' + x2 + ' ' + b.cy; mx = (x1 + x2) / 2; my = a.cy;
+      } else {
+        var y1 = a.b, y2 = b.y, k = (y2 - y1) * 0.5;
+        d = 'M' + a.cx + ' ' + y1 + ' C' + a.cx + ' ' + (y1 + k) + ' ' + b.cx + ' ' + (y2 - k) + ' ' + b.cx + ' ' + y2; mx = (a.cx + b.cx) / 2; my = (y1 + y2) / 2;
+      }
+      var on = own.sel && own.sel.t === 'e' && own.sel.i === i ? ' on' : '';
+      h += '<g class="own-e k-' + e.kind + on + '" data-own-e="' + i + '"><path class="own-hit" d="' + d + '"/><path class="own-ln" d="' + d + '"' + (e.kind === 'lease' ? ' marker-end="url(#own-arr)"' : '') + '/>';
+      if (e.label) {
+        var lw = Math.max(e.label.length, e.sub ? e.sub.length * 0.82 : 0) * 6.2 + 14, lh = e.sub ? 26 : 16;
+        h += '<rect class="own-pill" x="' + (mx - lw / 2) + '" y="' + (my - lh / 2) + '" width="' + lw + '" height="' + lh + '" rx="8"/>' +
+          ownTxt(e.label, mx, my + (e.sub ? -2 : 4), 'own-pt') + (e.sub ? ownTxt(e.sub, mx, my + 9, 'own-ps') : '');
+      }
+      h += '</g>';
+    });
+    OWNERSHIP.nodes.forEach(function (n) {
+      if (!vis[n.id]) return;
+      var p = ownPos(n), on = own.sel && own.sel.t === 'n' && own.sel.id === n.id ? ' on' : '';
+      h += '<g class="own-n k-' + n.kind + on + '" data-own-n="' + esc(n.id) + '"><rect x="' + p.x + '" y="' + p.y + '" width="' + OWN_W + '" height="' + OWN_H + '" rx="6"/>' +
+        ownTxt(n.label, p.cx, p.y + 23, 'own-nl') + ownTxt(n.sub, p.cx, p.y + 39, 'own-ns') + '</g>';
+      if (ownKids(n.id).length) {
+        var c = own.collapsed[n.id], ty = p.b + 1;
+        h += '<g class="own-tog' + (c ? ' c' : '') + '" data-own-t="' + esc(n.id) + '"><circle cx="' + p.cx + '" cy="' + ty + '" r="13" class="own-hit2"/><circle cx="' + p.cx + '" cy="' + ty + '" r="8"/>' +
+          ownTxt(c ? '+' : '\u2212', p.cx, ty + 4, 'own-tt') + (c ? ownTxt('+' + ownHidden(n.id) + ' hidden', p.cx + 14, ty + 4, 'own-th') : '') + '</g>';
+      }
+    });
+    return { W: W, H: H, svg: '<svg class="own-svg" id="own-svg" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">' +
+      '<defs><marker id="own-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#d9c2a8"/></marker></defs>' +
+      '<g id="own-world">' + h + '</g></svg>' };
+  }
+  function ownBounds() {
+    var vis = ownVisible(), x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    OWNERSHIP.nodes.forEach(function (n) { if (!vis[n.id]) return; var p = ownPos(n); x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x + OWN_W); y1 = Math.max(y1, p.b + 12); });
+    return { x: x0 - 8, y: y0 - 8, w: x1 - x0 + 16, h: y1 - y0 + 16 };
+  }
+  function ownFit() {
+    var st = $('own-stage'); if (!st) return;
+    var r = st.getBoundingClientRect(), b = ownBounds(), s = Math.min(r.width / b.w, r.height / b.h, 2.2);
+    own.view = { s: s, x: (r.width - b.w * s) / 2 - b.x * s, y: (r.height - b.h * s) / 2 - b.y * s };
+    ownApply();
+  }
+  function ownApply() {
+    var g = $('own-world'); if (!g || !own.view) return;
+    g.setAttribute('transform', 'translate(' + own.view.x.toFixed(1) + ' ' + own.view.y.toFixed(1) + ') scale(' + own.view.s.toFixed(4) + ')');
+    var z = $('own-zoom'); if (z) z.textContent = Math.round(own.view.s * 100) + '%';
+  }
+  function ownZoom(f, px, py) {
+    var st = $('own-stage'); if (!st || !own.view) return;
+    var r = st.getBoundingClientRect(); if (px == null) { px = r.width / 2; py = r.height / 2; }
+    var v = own.view, ns = Math.max(0.35, Math.min(4, v.s * f)); f = ns / v.s;
+    own.view = { s: ns, x: px - (px - v.x) * f, y: py - (py - v.y) * f };
+    ownApply();
+  }
+  function ownDraw() {
+    var o = ownSvg(); $('own-stage').innerHTML = o.svg;
+    if (own.view) ownApply(); else ownFit();
+  }
+  function ownList(arr) { return '<ul class="own-ul">' + arr.map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('') + '</ul>'; }
+  function ownDocLinks(docs) {
+    return '<ul class="doclist own-docs">' + docs.map(function (d) { return '<li><a href="' + esc(d[1]) + '" data-title="' + esc(d[0]) + '"><span class="ft">DOC</span>' + esc(d[0]) + '</a></li>'; }).join('') + '</ul>';
+  }
+  function ownCard() {
+    var c = $('own-card'), s = own.sel, h = '';
+    if (!s) { c.hidden = true; c.innerHTML = ''; return; }
+    if (s.t === 'n') {
+      var n = ownNode(s.id);
+      h += '<div class="own-ch"><div><div class="own-ck">' + esc({ owner: 'Owner', trust: 'Trust', entity: 'Entity', asset: 'Property', biz: 'Business' }[n.kind] || '') + '</div><h3>' + esc(n.label) + '</h3><div class="own-cs">' + esc(n.sub) + '</div></div>' +
+        '<button type="button" class="homebtn own-x" id="own-x" aria-label="Close">\u2715</button></div>';
+      if (n.links && n.links.length) h += '<div class="own-lk">' + n.links.map(function (l) { return '<button type="button" class="homebtn" data-go="' + esc(l[1]) + '">' + esc(l[0]) + ' \u203a</button>'; }).join('') + '</div>';
+      var ins = OWNERSHIP.edges.filter(function (e) { return e.to === n.id; }), outs = OWNERSHIP.edges.filter(function (e) { return e.from === n.id; });
+      h += '<table class="own-tb">' + (n.facts || []).map(function (f) { return '<tr><th>' + esc(f[0]) + '</th><td>' + esc(f[1]) + '</td></tr>'; }).join('') +
+        ins.map(function (e) { return '<tr><th>From ' + esc(ownNode(e.from).label) + '</th><td>' + esc(e.rel) + '</td></tr>'; }).join('') +
+        outs.map(function (e) { return '<tr><th>To ' + esc(ownNode(e.to).label) + '</th><td>' + esc(e.rel) + '</td></tr>'; }).join('') + '</table>';
+      if (n.notes && n.notes.length) h += ownList(n.notes);
+      if (n.pdf) h += '<div class="own-pdf"><b>Older PDF (Mar 2026):</b> ' + esc(n.pdf) + ' The doc wins.</div>';
+      if (n.docs && n.docs.length) h += '<h4 class="own-h4">Documents (from the source doc)</h4>' + ownDocLinks(n.docs);
+    } else {
+      var e = OWNERSHIP.edges[s.i];
+      h += '<div class="own-ch"><div><div class="own-ck">Relationship</div><h3>' + esc(e.rel) + '</h3><div class="own-cs">' + esc(ownNode(e.from).label) + ' \u2192 ' + esc(ownNode(e.to).label) + '</div></div>' +
+        '<button type="button" class="homebtn own-x" id="own-x" aria-label="Close">\u2715</button></div><p class="own-p">' + esc(e.detail) + '</p>';
+      if (e.pdf) h += '<div class="own-pdf"><b>Older PDF (Mar 2026):</b> ' + esc(e.pdf) + '</div>';
+      h += '<div class="own-lk"><button type="button" class="homebtn" data-own-sel="' + esc(e.from) + '">' + esc(ownNode(e.from).label) + '</button><button type="button" class="homebtn" data-own-sel="' + esc(e.to) + '">' + esc(ownNode(e.to).label) + '</button></div>';
+      if (e.doc) h += ownDocLinks([e.doc]);
+    }
+    c.innerHTML = h; c.hidden = false; c.scrollTop = 0;
+  }
+  function ownSelect(sel) { own.sel = sel; ownDraw(); ownCard(); ownReveal(); }
+  function ownReveal() {   // keep the tapped box / line above the detail card (pans the chart up when the card would cover it)
+    var c = $('own-card'), s = own.sel; if (!s || c.hidden || !own.view) return;
+    var el = document.querySelector(s.t === 'n' ? '[data-own-n="' + s.id + '"] rect' : '[data-own-e="' + s.i + '"] .own-ln'); if (!el) return;
+    var r = el.getBoundingClientRect(), top = c.getBoundingClientRect().top, st = $('own-stage').getBoundingClientRect();
+    var mid = s.t === 'n' ? r.bottom : r.top + r.height / 2, room = Math.min(top, st.bottom) - 14;
+    if (mid > room) { own.view.y -= Math.min(mid - room, Math.max(0, mid - st.top - 30)); ownApply(); }
+  }
+  function ownTap(t) {
+    own.tapAt = Date.now();   // the browser's click for this tap lands where the card opens: swallowed by the capture listener below
+    var tg = t && t.closest && t.closest('[data-own-t]');
+    if (tg) { var id = tg.getAttribute('data-own-t'); own.collapsed[id] = !own.collapsed[id]; if (own.sel && own.sel.t === 'n' && !ownVisible()[own.sel.id]) own.sel = null; ownDraw(); ownCard(); return; }
+    var ng = t && t.closest && t.closest('[data-own-n]');
+    if (ng) return ownSelect({ t: 'n', id: ng.getAttribute('data-own-n') });
+    var eg = t && t.closest && t.closest('[data-own-e]');
+    if (eg) return ownSelect({ t: 'e', i: +eg.getAttribute('data-own-e') });
+    if (own.sel) ownSelect(null);
+  }
+  function ownBind() {
+    if (own.bound) return; own.bound = true;
+    var st = $('own-stage');
+    function pt(ev) { var r = st.getBoundingClientRect(); return { x: ev.clientX - r.left, y: ev.clientY - r.top }; }
+    st.addEventListener('pointerdown', function (ev) {
+      try { st.setPointerCapture(ev.pointerId); } catch (e) {}
+      own.ptrs[ev.pointerId] = pt(ev);
+      var ids = Object.keys(own.ptrs);
+      if (ids.length === 1) own.drag = { p: pt(ev), v: { x: own.view.x, y: own.view.y }, moved: false, target: ev.target };
+      else if (ids.length === 2) {
+        var a = own.ptrs[ids[0]], b = own.ptrs[ids[1]];
+        own.pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, s: own.view.s, m: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, v: { x: own.view.x, y: own.view.y } };
+        if (own.drag) own.drag.moved = true;
+      }
+    });
+    st.addEventListener('pointermove', function (ev) {
+      if (!own.ptrs[ev.pointerId]) return;
+      own.ptrs[ev.pointerId] = pt(ev);
+      var ids = Object.keys(own.ptrs);
+      if (ids.length >= 2 && own.pinch) {
+        var a = own.ptrs[ids[0]], b = own.ptrs[ids[1]], P = own.pinch, d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+        var ns = Math.max(0.35, Math.min(4, P.s * d / P.d)), f = ns / P.s, m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        own.view = { s: ns, x: m.x - (P.m.x - P.v.x) * f, y: m.y - (P.m.y - P.v.y) * f }; ownApply();
+      } else if (own.drag) {
+        var q = pt(ev), dx = q.x - own.drag.p.x, dy = q.y - own.drag.p.y;
+        if (Math.abs(dx) + Math.abs(dy) > 6) own.drag.moved = true;
+        if (own.drag.moved) { own.view.x = own.drag.v.x + dx; own.view.y = own.drag.v.y + dy; ownApply(); }
+      }
+    });
+    function up(ev) {
+      if (!own.ptrs[ev.pointerId]) return;
+      delete own.ptrs[ev.pointerId];
+      var n = Object.keys(own.ptrs).length;
+      if (n < 2) own.pinch = null;
+      if (n === 0) { var d = own.drag; own.drag = null; if (d && !d.moved && ev.type === 'pointerup') ownTap(d.target); }
+      else if (n === 1) { var k = Object.keys(own.ptrs)[0]; own.drag = { p: own.ptrs[k], v: { x: own.view.x, y: own.view.y }, moved: true }; }
+    }
+    window.addEventListener('click', function (ev) {      // no ghost click: a tap on the chart must not also press a button of the card it opens
+      if (own.tapAt && Date.now() - own.tapAt < 600 && ev.target.closest && ev.target.closest('#own-card')) { ev.preventDefault(); ev.stopPropagation(); }
+    }, true);
+    st.addEventListener('pointerup', up); st.addEventListener('pointercancel', up);
+    st.addEventListener('wheel', function (ev) { ev.preventDefault(); var p = pt(ev); ownZoom(ev.deltaY < 0 ? 1.12 : 1 / 1.12, p.x, p.y); }, { passive: false });
+    $('own-in').addEventListener('click', function () { ownZoom(1.25); });
+    $('own-out').addEventListener('click', function () { ownZoom(0.8); });
+    $('own-fit').addEventListener('click', ownFit);
+    $('own-all').addEventListener('click', function () {
+      var any = Object.keys(own.collapsed).some(function (k) { return own.collapsed[k]; });
+      if (any) own.collapsed = {}; else OWNERSHIP.nodes.forEach(function (n) { if (n.level === 2 && ownKids(n.id).length) own.collapsed[n.id] = true; });
+      if (own.sel && own.sel.t === 'n' && !ownVisible()[own.sel.id]) own.sel = null;
+      ownDraw(); ownCard(); ownFit(); ownAllLabel();
+    });
+    $('own-card').addEventListener('click', function (ev) {
+      if (ev.target.closest('#own-x')) { ownSelect(null); return; }
+      var b = ev.target.closest('[data-own-sel]'); if (b) ownSelect({ t: 'n', id: b.getAttribute('data-own-sel') });
+    });
+    window.addEventListener('resize', function () { if ($('screen-ownership').classList.contains('active')) ownFit(); });
+  }
+  function ownAllLabel() { var any = Object.keys(own.collapsed).some(function (k) { return own.collapsed[k]; }); $('own-all').textContent = any ? 'Expand all' : 'Collapse'; }
+  function ownOpen() {
+    $('own-back').setAttribute('data-go', hlItemBack('ownership', 'biz'));
+    var src = $('own-src'); src.href = OWN_SRC.url; src.setAttribute('data-title', OWN_SRC.title);
+    $('own-meta').textContent = 'From \u201c' + OWN_SRC.title + '\u201d (updated ' + OWN_SRC.date + '). Tap a box or a line for details.';
+    $('own-extra').innerHTML = '<details class="card own-det"><summary>Open items (from the doc)</summary>' + ownList(OWNERSHIP.openItems) + '</details>' +
+      '<details class="card own-det"><summary>Differences from the older PDF (Mar 2026)</summary>' + ownList(OWNERSHIP.pdfDiffs) + '<p class="foot">The doc is followed where they differ.</p></details>' +
+      '<p class="foot own-cav">Summary of filings and correspondence, not legal advice. Brandon Meyer should confirm the trust-member reconciliation before relying on it.</p>';
+    ownBind(); ownAllLabel();
+    setTimeout(function () { ownDraw(); ownCard(); }, 0);
+  }
+
   /* ---------------- Init ---------------- */
   /* ---------------- Home layout: folders + press-and-hold drag (reorder, move into folders) ---------------- */
   // Every Home button (and the Plan Checks and Hiring buttons in L&S projects) is a layout item keyed by its route. Folder items
@@ -18715,7 +19055,8 @@
     'pc':        { label: 'Plan Checks', go: 'pc', sub: 'Mic checklist \u00b7 fullscreen plan \u00b7 pins & notes', cls: 'pc-entry' },
     'hiring':    { label: 'Hiring', go: 'hiring', sub: 'Structural Engineer \u00b7 docs', cls: 'hiring-entry' },   // v132: L&S projects > Hiring (#hiring)
     'f:archive': { label: 'Archive', go: 'hf/archive', folder: true },
-    'tm':        { label: 'Task Manager', go: 'tm' },   // v131: Today + Suggestions (was the task list at the top of Home)
+    'tm':        { label: 'Task Manager', go: 'tm' },
+    'ownership': { label: 'Ownership', go: 'ownership', sub: 'Trust \u00b7 LLCs \u00b7 properties' },   // v141: Business > Ownership (interactive chart, #ownership)   // v131: Today + Suggestions (was the task list at the top of Home)
     'f:lisa':    { label: 'Lisa', go: 'hf/lisa', folder: true },   // v113: Home folder (v130: holds Change requests by default; drag buttons in)
     'lr':        { label: 'Change requests', go: 'lr', sub: 'Ask for a change \u00b7 see replies', cls: 'lr-entry' },   // v130: Lisa's change requests (#lr)
     'f:fh':      { label: 'Fitness & Health', go: 'hf/fh', folder: true },   // v122: Daily Log (overview), Food Log, Workout Log, Medical
@@ -18735,7 +19076,7 @@
     'f:fh': HL_FH_IN.slice(),
     'f:medical': ['health'],
     'f:lisa': ['lr'],   // v130: saved layouts get it too (hlNormalize slots new items into their default folder)
-    biz: ['f:archive'],
+    biz: ['ownership', 'f:archive'],   // v141: Ownership first in Business (saved layouts get it too: hlNormalize slots it in)
     fin: ['fin/ledger', 'fin/invest'],
     'f:archive': HL_TO_ARCHIVE.slice()
   };
