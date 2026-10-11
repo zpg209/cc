@@ -516,7 +516,6 @@
     if (!(name === 'lt' && R.kind === 'menu-add')) maMicStop(true);
     if (name !== 'punch') pmicStop();
     if (name !== 'doc') { state.docPushed = false; state.docSeq++; closeDoc(); }
-    if (name === 'ownership' && !fromHistory) { var ownCur = document.querySelector('.screen.active'); state.ownFrom = ownCur && ownCur.id === 'screen-trust' ? 'trust' : ''; }   // v146: opened from Trust & Estate -> Back returns there
     if (FH.sheet) fhSheetClose();               // v122: the Food / Workout / Health Metrics entry sheet never outlives its screen
     activate(name);
     rcPill();                                  // v107: the Updating… pill only shows for the screen on view
@@ -19196,7 +19195,7 @@
   }
   function ownAllLabel() { var any = Object.keys(own.collapsed).some(function (k) { return own.collapsed[k]; }); $('own-all').textContent = any ? 'Expand all' : 'Collapse'; }
   function ownOpen() {
-    $('own-back').setAttribute('data-go', state.ownFrom === 'trust' ? 'trust' : hlItemBack('ownership', 'biz'));   // v146: Trust & Estate's 'Ownership chart' tile, else the folder the Ownership tile sits in
+    $('own-back').setAttribute('data-go', 'trust');   // v147: the chart lives only on Trust & Estate (its 'Ownership chart' tile), so Back always returns there
     var src = $('own-src'); src.href = OWN_SRC.url; src.setAttribute('data-title', OWN_SRC.title);
     $('own-meta').textContent = 'From \u201c' + OWN_SRC.title + '\u201d (updated ' + OWN_SRC.date + '). Tap a box or a line for details.';
     $('own-extra').innerHTML = '<details class="card own-det"><summary>Open items (from the doc)</summary>' + ownList(OWNERSHIP.openItems) + '</details>' +
@@ -19243,8 +19242,7 @@
     'pc':        { label: 'Plan Checks', go: 'pc', sub: 'Mic checklist \u00b7 fullscreen plan \u00b7 pins & notes', cls: 'pc-entry' },
     'hiring':    { label: 'Hiring', go: 'hiring', sub: 'Structural Engineer \u00b7 docs', cls: 'hiring-entry' },   // v132: L&S projects > Hiring (#hiring)
     'f:archive': { label: 'Archive', go: 'hf/archive', folder: true },
-    'tm':        { label: 'Task Manager', go: 'tm' },
-    'ownership': { label: 'Ownership', go: 'ownership', sub: 'Trust \u00b7 LLCs \u00b7 properties' },   // v141: Business > Ownership (interactive chart, #ownership)   // v131: Today + Suggestions (was the task list at the top of Home)
+    'tm':        { label: 'Task Manager', go: 'tm' },   // v131: Today + Suggestions (was the task list at the top of Home)
     'f:lisa':    { label: 'Lisa', go: 'hf/lisa', folder: true },   // v113: Home folder (v130: holds Change requests by default; drag buttons in)
     'lr':        { label: 'Change requests', go: 'lr', sub: 'Ask for a change \u00b7 see replies', cls: 'lr-entry' },   // v130: Lisa's change requests (#lr)
     'f:fh':      { label: 'Fitness & Health', go: 'hf/fh', folder: true },   // v122: Daily Log (overview), Food Log, Workout Log, Medical
@@ -19264,7 +19262,7 @@
     'f:fh': HL_FH_IN.slice(),
     'f:medical': ['health'],
     'f:lisa': ['lr'],   // v130: saved layouts get it too (hlNormalize slots new items into their default folder)
-    biz: ['ownership', 'f:archive'],   // v141: Ownership first in Business (saved layouts get it too: hlNormalize slots it in)
+    biz: ['f:archive'],   // v147: the v141-v146 'ownership' tile is gone from Business (it now lives only on Trust & Estate); hlNormalize drops it from saved layouts
     fin: ['fin/ledger', 'fin/invest'],
     'f:archive': HL_TO_ARCHIVE.slice()
   };
