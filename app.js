@@ -475,7 +475,7 @@
       var entKey = ENTS[R.kind] ? R.kind : 'kiwit', entSub = ENT_SUBS.test(R.val) ? R.val : '';
       state.entRoute = { key: entKey, kind: entSub, val: entSub ? R.acct : '', tab: !entSub && R.val === 'docs' ? 'docs' : '' };
     }
-    if (name === 'fin') { state.finKind = (R.kind === 'ledger' || R.kind === 'overview' || R.kind === 'laundromat' || R.kind === 'invest') ? R.kind : ''; state.ovKey = state.finKind === 'overview' && OV_HEADS[R.val] ? R.val : ''; state.invAcct = state.finKind === 'invest' && INV_ACCTS[R.val] ? R.val : ''; }
+    if (name === 'fin') { state.finKind = (R.kind === 'ledger' || R.kind === 'overview' || R.kind === 'laundromat' || R.kind === 'invest') ? R.kind : ''; state.ovKey = state.finKind === 'overview' && OV_HEADS[R.val] ? R.val : ''; state.invAcct = state.finKind === 'invest' && (INV_ACCTS[R.val] || INV_VIEWS[R.val]) ? R.val : ''; }
     if (name === 'insn') state.insSlug = R.kind || '';
     if (name === 'lt' && R.kind === 'orders' && R.query) {      // #lt/orders?tab=summary&week=yyyy-mm-dd (tap-through from the Vault's live Lisa's Table income)
       var oq = qparams(R.query), ow = OL_ISO.test(oq.week || '') ? olMonday(oq.week) : '';
@@ -3412,7 +3412,7 @@
       if (state.acct !== mine) return;
       var m = String((err && err.message) || '');
       state.acct = /bad_action/.test(m) ? { s: 'na', d: null, at: Date.now() } : { s: 'err', d: prev ? prev.d : null, at: Date.now(), msg: m };
-    }).then(function () { if (state.spendData && $('screen-spend').classList.contains('active')) renderSpend(); if (state.finKind === 'overview' && $('screen-fin').classList.contains('active')) renderOv(); if (ledActive()) renderLed(); });
+    }).then(function () { if (state.spendData && $('screen-spend').classList.contains('active')) renderSpend(); if (state.finKind === 'overview' && $('screen-fin').classList.contains('active')) renderOv(); if (ledActive()) renderLed(); invRerender(); });
   }
   function balRoute(v) { return 'spend/bal/' + encodeURIComponent(v || 'All'); }
   function balBtn(label, route, cls) { return '<button class="' + (cls || 'acbtn') + '"' + goAttr(route) + '>' + label + ' &rsaquo;</button>'; }
@@ -3536,7 +3536,7 @@
       if (state.debt !== mine) return;
       var m = String((err && err.message) || '');
       state.debt = /bad_action/.test(m) ? { s: 'na', d: null, at: Date.now() } : { s: 'err', d: prev ? prev.d : null, at: Date.now(), msg: m };
-    }).then(function () { if (state.spendData && $('screen-spend').classList.contains('active')) renderSpend(); if ($('screen-ent').classList.contains('active')) renderEnt(); if (state.finKind === 'overview' && $('screen-fin').classList.contains('active')) renderOv(); if (ledActive()) renderLed(); });
+    }).then(function () { if (state.spendData && $('screen-spend').classList.contains('active')) renderSpend(); if ($('screen-ent').classList.contains('active')) renderEnt(); if (state.finKind === 'overview' && $('screen-fin').classList.contains('active')) renderOv(); if (ledActive()) renderLed(); invRerender(); });
   }
   function dbBadge(status, id, needsOn) {
     status = dbStat(status);
@@ -8262,7 +8262,7 @@
     // v111: Ledger / Overview / Laundromat are Home-layout items; Back returns to the folder that holds the button
     // (Overview and Laundromat default to Business > Archive). The Finances hub's own Back follows Finances' folder.
     var finUp = kind ? hlItemBack('fin/' + kind, 'fin') : hlBackOf('fin');
-    $('fin-back').setAttribute('data-go', ovd ? 'fin/overview' : kind === 'invest' && state.invAcct ? 'fin/invest' : finUp);
+    $('fin-back').setAttribute('data-go', ovd ? 'fin/overview' : kind === 'invest' && state.invAcct ? (INV_ACCTS[state.invAcct] ? 'fin/invest/byacct' : 'fin/invest') : finUp);   // v145: account pages sit under By account
     $('fin-back').hidden = kind ? false : finUp === 'home';
     if ($('hl-fin')) $('hl-fin').hidden = !!kind || !$('hl-fin').querySelector('.tile');
     $('fin-refresh').hidden = !kind;
@@ -8411,13 +8411,17 @@
   function loadInv() {
     invLoad();
     if (inv.edit && inv.edit !== invAcctKey()) { inv.edit = ''; inv.draft = null; }
+    if (!invAcctKey() && invViewKey() !== 'byacct') {   // v145: the asset-class views also read the Vault balances and the Finances Overview (read only)
+      loadAccounts(false);
+      finApi('overview', false, function (err, data, fresh) { if (fresh) invRerender(); });
+    }
     renderInv();
     if (inv.srv === 'unk' || inv.srv === 'err') invSync();
   }
   function renderInv() {
-    var k = invAcctKey();
-    $('fin-title').textContent = k ? INV_ACCTS[k].label : FIN_PAGES.invest.label;
-    $('fin-body').innerHTML = k ? (inv.edit === k ? invFormHtml(k) : invAcctHtml(k)) : invHubHtml();
+    var k = invAcctKey(), vk = invViewKey();
+    $('fin-title').textContent = k ? INV_ACCTS[k].label : vk && vk !== 'byacct' ? INV_VIEWS[vk] : FIN_PAGES.invest.label;
+    $('fin-body').innerHTML = k ? (inv.edit === k ? invFormHtml(k) : invAcctHtml(k)) : vk === 'byacct' ? invTabs('acct') + invHubHtml() : vk ? invClassPageHtml(vk.slice(3)) : invClassHubHtml();   // v145
   }
   function invHubHtml() {
     var d = invLoad(), h = '<div class="grid2 homegrid inv-grid">', tot = 0, nTot = 0;
@@ -8531,6 +8535,182 @@
     renderInv(); window.scrollTo(0, 0);
     if (inv.srv === 'ok') invPush(k).then(function (ok) { if (!ok) { inv.srv = inv.srv === 'na' ? 'na' : 'err'; invRerender(); } });
     return true;
+  }
+  // ---- v145: Investments by ASSET CLASS (approved by Zac 10/11/2026) ----
+  // The asset-class folders are VIEWS over the same records: the three investsave accounts (holdings), the Vault Accounts/Balances read
+  // (bank accounts, read only) and the Finances Overview read (property values, loans, equipment note). Nothing is copied or stored twice.
+  // The server's investsave keeps only ticker / name / shares / value per holding, so the assetClass and account tags are derived here on the
+  // phone (invClassOf), never saved. No figures are in this file except the published 2040 Target Date asset mix below.
+  var INV_CLASSES = [
+    { k: 'eq', label: 'Equities', sub: 'Stocks and stock funds' },
+    { k: 'bc', label: 'Bonds & cash', sub: 'Bond funds, money market, bank accounts' },
+    { k: 'cr', label: 'Crypto', sub: 'Wallet / exchange' },
+    { k: 're', label: 'Real estate', sub: 'Equity: value minus loan' },
+    { k: 'biz', label: 'Businesses', sub: 'Not valued yet' }
+  ];
+  var INV_VIEWS = { byacct: 'By account', 'ac-eq': 'Equities', 'ac-bc': 'Bonds & cash', 'ac-cr': 'Crypto', 'ac-re': 'Real estate', 'ac-biz': 'Businesses' };
+  // Published asset mix of the American Funds 2040 Target Date Retirement Fund (same portfolio for every share class, incl. R-3).
+  var INV_TD = { stock: 76.4, bond: 20.3, cash: 3.4, asof: '9/30/26', read: '10/11/2026',
+    src: 'Capital Group fund page, American Funds 2040 Target Date Retirement Fund R-3, Asset mix as of 9/30/26 (U.S. equities 54.3%, non-U.S. equities 22.1%, U.S. bonds 17.3%, non-U.S. bonds 3.0%, cash & other 3.4%), read 10/11/2026',
+    url: 'https://www.capitalgroup.com/individual/investments/mutual-funds/details/aftd40-r3' };
+  var INV_TD_NOTE = 'Approximate, to discuss with Zac: split by the fund\u2019s published asset mix (' + INV_TD.stock + '% stocks; ' + INV_TD.bond + '% bonds + ' + INV_TD.cash + '% cash & other) as of ' + INV_TD.asof + '.';
+  var INV_PROPS = [   // values come from the Finances Overview ledger (per-property refs if Zac adds them, else the one re.total lump); loans from the same ledger
+    { id: 'wet', name: 'Wetumka Rd. (residence)', owner: 'Garman Trust', valRef: 're.wet', debtRef: 'wet.bal', debtLabel: 'Rocket Mortgage' },
+    { id: 'st', name: '105 S. Stewart St.', owner: 'KiwiT', valRef: 're.st', debtRef: '', debtLabel: 'No loan (Zac 10/1/2026)' },
+    { id: 'mono', name: 'Mono Way building (3 units)', owner: 'KiwiT', valRef: 're.mono', debtRef: 'mono.bal', debtLabel: 'Bank of Stockton (about)' }
+  ];
+  var INV_BIZ = [   // value: null = not valued. Equity = value - debt once a value is agreed.
+    { id: 'sierra', name: 'Sierra Consultants (S-corp)', owner: '70% Garman Trust', value: null, debtRef: '', none: 'Not valued' },
+    { id: 'tiwik', name: 'TiwiK \u00b7 Mono Village Laundromat', owner: 'TiwiK (Garman Trust)', value: null, debtRef: 'all.bal', debtLabel: 'Equipment note (Alliance)', none: 'Value TBD, to discuss with Zac', infoRef: 'eq.value' }
+  ];
+  function invViewKey() { return INV_VIEWS[state.invAcct] ? state.invAcct : ''; }
+  function invLed(ref) {   // Finances Overview ledger row -> { val, status, source } or null
+    var c = fin.cache.overview, rows = c && c.data && Array.isArray(c.data.ledger) ? c.data.ledger : [];
+    for (var i = 0; i < rows.length; i++) if (rows[i].ref === ref) {
+      var n = rows[i].num === null || rows[i].num === '' || rows[i].num === undefined ? NaN : Number(rows[i].num);
+      return isFinite(n) ? { val: n, status: String(rows[i].status || ''), source: String(rows[i].source || '') } : null;
+    }
+    return null;
+  }
+  function invClassOf(k, h) {   // account key + holding -> asset class ('split' = the target-date fund)
+    var s = (h.ticker + ' ' + h.name).toLowerCase();
+    if (k === 'crypto') return 'cr';
+    if (/target date/.test(s)) return 'split';
+    if (h.ticker === 'CASH' || /money market|\bcash\b|deposit program|bank deposit/.test(s)) return 'bc';
+    if (/\bbond|treasury|fixed income/.test(s)) return 'bc';
+    return 'eq';
+  }
+  var INV_ACCT_TAG = { etrade: 'E*TRADE', af: '401(k)', crypto: 'Wallet / exchange' };
+  function invRecords() {
+    var d = invLoad(), R = [];
+    INV_ORDER.forEach(function (k) {
+      var a = d.accts[k], asof = a.asof ? ' \u00b7 as of ' + fmtDate(a.asof) : '';
+      a.holdings.forEach(function (h, i) {
+        if (h.value === '') return;
+        var v = Number(h.value), cls = invClassOf(k, h), base = { acct: INV_ACCT_TAG[k], acctKey: k, ticker: h.ticker, shares: h.shares, name: h.name || h.ticker,
+          shelter: k === 'af', src: 'Investments \u203a ' + INV_ACCTS[k].label + asof };
+        if (cls === 'split') {
+          var st = Math.round(v * INV_TD.stock) / 100;
+          R.push(Object.assign({}, base, { id: k + i + 's', cls: 'eq', value: st, part: 'Stock portion (' + INV_TD.stock + '% of ' + invUsd(String(v)) + ')', note: INV_TD_NOTE, td: true }));
+          R.push(Object.assign({}, base, { id: k + i + 'b', cls: 'bc', value: Math.round((v - st) * 100) / 100, part: 'Bond & cash portion (' + (Math.round((100 - INV_TD.stock) * 10) / 10) + '% of ' + invUsd(String(v)) + ')', note: INV_TD_NOTE, td: true }));
+        } else R.push(Object.assign(base, { id: k + i, cls: cls, value: v }));
+      });
+    });
+    var A = state.acct && state.acct.d ? state.acct.d : null;
+    (A ? A.accounts : []).forEach(function (a, i) {
+      if (a.balance === null) return;
+      var ent = /^(kiwit|tiwik)$/i.test(a.group) ? a.group : '';
+      R.push({ id: 'bank' + i, cls: 'bc', value: Number(a.balance), name: a.name, acct: 'Bank' + (ent ? ' \u00b7 ' + ent : ''), bank: true,
+        shelter: /\bhsa\b/i.test(a.type + ' ' + a.name), part: [a.bank, a.type].filter(Boolean).join(' \u00b7 '),
+        src: 'Vault \u203a Accounts / Balances' + (a.asOf ? ' \u00b7 as of ' + fmtDate(a.asOf) : '') });
+    });
+    return R;
+  }
+  function invRealEstate() {   // -> { props, value, debt, equity, lump, src }
+    var per = INV_PROPS.map(function (p) { return invLed(p.valRef); }), all = per.every(function (x) { return x; }), lump = all ? null : invLed('re.total');
+    var props = INV_PROPS.map(function (p, i) {
+      var dl = p.debtRef ? invLed(p.debtRef) : null, debt = p.debtRef ? (dl ? dl.val : null) : 0;
+      var val = all ? per[i].val : null;
+      return { p: p, val: val, valSrc: all ? per[i].source + ' (' + per[i].status + ')' : '', debt: debt, debtSrc: dl ? dl.source + ' (' + dl.status + ')' : p.debtRef ? 'Loan balance not loaded' : 'Zac 10/1/2026',
+        equity: val !== null && debt !== null ? val - debt : null };
+    });
+    var debt = props.reduce(function (t, x) { return x.debt === null ? t : t + x.debt; }, 0), debtOk = props.every(function (x) { return x.debt !== null; });
+    var value = all ? props.reduce(function (t, x) { return t + x.val; }, 0) : lump ? lump.val : null;
+    return { props: props, value: value, debt: debt, debtOk: debtOk, equity: value !== null && debtOk ? value - debt : null, lump: lump, all: all };
+  }
+  function invBiz() {
+    return INV_BIZ.map(function (b) {
+      var dl = b.debtRef ? invLed(b.debtRef) : null, info = b.infoRef ? invLed(b.infoRef) : null;
+      return { b: b, debt: dl ? dl.val : null, debtSrc: dl ? dl.source + ' (' + dl.status + ')' : '', info: info, equity: b.value !== null && b.value !== undefined ? b.value - (dl ? dl.val : 0) : null };
+    });
+  }
+  function invClassModel() {
+    var R = invRecords(), RE = invRealEstate(), B = invBiz(), tot = {}, grand = 0;
+    INV_CLASSES.forEach(function (c) { tot[c.k] = 0; });
+    R.forEach(function (r) { tot[r.cls] += r.value; });
+    tot.re = RE.equity === null ? 0 : RE.equity;
+    tot.biz = B.reduce(function (t, x) { return x.equity === null ? t : t + x.equity; }, 0);
+    INV_CLASSES.forEach(function (c) { tot[c.k] = Math.round(tot[c.k] * 100) / 100; grand += tot[c.k]; });
+    var shel = 0, taxable = 0;
+    R.forEach(function (r) { if (r.shelter) shel += r.value; else taxable += r.value; });
+    return { R: R, RE: RE, B: B, tot: tot, grand: Math.round(grand * 100) / 100, shel: Math.round(shel * 100) / 100, taxable: Math.round(taxable * 100) / 100 };
+  }
+  function invPct(v, t) { return t > 0 ? (Math.round(v / t * 1000) / 10).toFixed(1) + '%' : '\u2014'; }
+  function invTabs(on) {
+    return '<div class="inv-tabs" role="tablist"><button type="button" role="tab" class="inv-tab' + (on === 'cls' ? ' on' : '') + '" data-go="fin/invest">By asset class</button>' +
+      '<button type="button" role="tab" class="inv-tab' + (on === 'acct' ? ' on' : '') + '" data-go="fin/invest/byacct">By account</button></div>';
+  }
+  function invLoadingLine() {
+    var w = [];
+    if (!state.acct || state.acct.s === 'load' && !state.acct.d) w.push('Vault bank balances');
+    if (!fin.cache.overview) w.push('Finances property values and loans');
+    return w.length ? '<div class="foot inv-srv">Loading ' + esc(w.join(' and ')) + '\u2026</div>' : '';
+  }
+  function invClassHubHtml() {
+    var M = invClassModel(), h = invTabs('cls');
+    h += '<div class="card inv-grand"><span>Total (net of property loans)</span><b>' + esc(ovWhole(M.grand)) + '</b></div>';
+    h += '<div class="card inv-bars">';
+    INV_CLASSES.forEach(function (c) {
+      var v = M.tot[c.k], p = M.grand > 0 ? Math.max(0, v / M.grand * 100) : 0, none = c.k === 'biz' && !v;
+      h += '<button type="button" class="inv-bar" data-go="fin/invest/ac-' + c.k + '"><span class="inv-bl">' + esc(c.label) + '</span>' +
+        '<span class="inv-bv">' + (none ? '<i>Not valued</i>' : esc(ovWhole(v)) + ' <small>' + esc(invPct(v, M.grand)) + '</small>') + ' \u203a</span>' +
+        '<span class="inv-track"><span class="inv-fill inv-c-' + c.k + '" style="width:' + p.toFixed(1) + '%"></span></span></button>';
+    });
+    h += '</div>';
+    var fa = M.shel + M.taxable;
+    h += '<div class="card inv-card"><h3>Tax-sheltered vs taxable <small>investments + cash</small></h3>' +
+      '<div class="inv-split"><span class="inv-sh" style="width:' + (fa > 0 ? (M.shel / fa * 100).toFixed(1) : 0) + '%"></span></div>' +
+      invKv('Tax-sheltered (401(k), HSA)', ovWhole(M.shel) + ' \u00b7 ' + invPct(M.shel, fa)) +
+      invKv('Taxable (E*TRADE, bank, crypto)', ovWhole(M.taxable) + ' \u00b7 ' + invPct(M.taxable, fa)) +
+      '<div class="foot inv-srv">Real estate and businesses are not in this split.</div></div>';
+    h += invLoadingLine();
+    h += '<div class="foot inv-srv">Folders are views over the same entries: the three accounts (By account), the Vault\u2019s Accounts/Balances (read only) and the Finances Overview. ' + esc(invSrvLine()) + '</div>';
+    h += '<a class="linkrow" data-title="Investments" href="' + esc(INV_FOLDER) + '">Open Investments folder &rsaquo;</a>';
+    return h;
+  }
+  function invRowHtml(r) {
+    return '<div class="inv-ar"><div class="inv-ar1"><span class="n">' + esc(r.ticker && r.ticker !== 'CASH' ? r.ticker + ' \u00b7 ' + r.name : r.name) + '</span><b>' + esc(invUsd(String(r.value))) + '</b></div>' +
+      '<div class="inv-ar2"><span class="inv-chip' + (r.shelter ? ' sh' : '') + '">' + esc(r.acct) + '</span>' + (r.part ? '<span>' + esc(r.part) + '</span>' : r.shares ? '<span>' + esc(invQty(r.shares)) + ' sh</span>' : '') + '</div>' +
+      (r.note ? '<div class="inv-ar3 inv-approx">' + esc(r.note) + '</div>' : '') + '<div class="inv-ar3">' + esc(r.src) + '</div></div>';
+  }
+  function invSubLine(label, val, src) { return '<div class="inv-sl"><span>' + esc(label) + '</span><b>' + esc(val) + '</b></div>' + (src ? '<div class="inv-ar3">' + esc(src) + '</div>' : ''); }
+  function invClassPageHtml(ck) {
+    var M = invClassModel(), c = INV_CLASSES.filter(function (x) { return x.k === ck; })[0], v = M.tot[ck], h = invTabs('cls');
+    h += '<div class="card inv-grand"><span>' + esc(c.label) + (ck === 'biz' && !v ? '' : ' \u00b7 ' + esc(invPct(v, M.grand)) + ' of total') + '</span><b>' + (ck === 'biz' && !v ? 'Not valued' : esc(ovWhole(v))) + '</b></div>';
+    if (ck === 're') {
+      var RE = M.RE;
+      h += '<div class="card inv-card"><h3>Equity <small>value \u2212 loans</small></h3>' +
+        invSubLine('Value' + (RE.all ? '' : ' (3 properties, one lump sum)'), RE.value === null ? 'Not loaded' : invUsd(String(RE.value)), RE.lump ? RE.lump.source + ' (' + RE.lump.status + ')' : '') +
+        invSubLine('Loans', RE.debtOk ? '\u2212' + invUsd(String(RE.debt)) : 'Not loaded', 'Finances Overview loan rows') +
+        invSubLine('Equity', RE.equity === null ? '\u2014' : invUsd(String(RE.equity)), '') + '</div>';
+      RE.props.forEach(function (x) {
+        h += '<div class="card inv-card"><h3>' + esc(x.p.name) + ' <small>' + esc(x.p.owner) + '</small></h3>' +
+          invSubLine('Value', x.val !== null ? invUsd(String(x.val)) : 'In the lump sum above', x.valSrc || 'No per-property value in Finances yet') +
+          invSubLine('Loan \u00b7 ' + x.p.debtLabel, x.debt === null ? 'Not loaded' : x.debt ? '\u2212' + invUsd(String(x.debt)) : '$0.00', x.debtSrc) +
+          invSubLine('Equity', x.equity !== null ? invUsd(String(x.equity)) : '\u2014 (needs a per-property value)', '') + '</div>';
+      });
+    } else if (ck === 'biz') {
+      M.B.forEach(function (x) {
+        h += '<div class="card inv-card"><h3>' + esc(x.b.name) + ' <small>' + esc(x.b.owner) + '</small></h3>' +
+          invSubLine('Value', x.b.value !== null && x.b.value !== undefined ? invUsd(String(x.b.value)) : x.b.none, '') +
+          (x.b.debtRef ? invSubLine('Debt \u00b7 ' + x.b.debtLabel, x.debt === null ? 'Not loaded' : '\u2212' + invUsd(String(x.debt)), x.debtSrc) +
+            invSubLine('Equity (value \u2212 debt)', x.equity !== null ? invUsd(String(x.equity)) : '\u2014 once a value is agreed', '') : '') +
+          (x.info ? '<div class="inv-ar3">Finances also lists the laundromat equipment at ' + esc(invUsd(String(x.info.val))) + ' (' + esc(x.info.status) + '); not counted here until a business value is agreed.</div>' : '') + '</div>';
+      });
+    } else {
+      var rows = M.R.filter(function (r) { return r.cls === ck; }).sort(function (a, b) { return b.value - a.value; });
+      var groups = ck === 'bc' ? [{ t: 'Funds & brokerage cash', f: function (r) { return !r.bank; } }, { t: 'Bank accounts (Vault, read only)', f: function (r) { return r.bank; } }] : [{ t: '', f: function () { return true; } }];
+      groups.forEach(function (g) {
+        var gr = rows.filter(g.f); if (!gr.length && !g.t) { h += '<div class="card inv-card"><div class="inv-empty">' + (ck === 'cr' ? 'Nothing in Crypto yet.' : 'Nothing here yet.') + '</div></div>'; return; }
+        if (!gr.length) return;
+        var gt = gr.reduce(function (t, r) { return t + r.value; }, 0);
+        h += '<div class="card inv-card">' + (g.t ? '<h3>' + esc(g.t) + ' <small>' + esc(ovWhole(gt)) + '</small></h3>' : '') + gr.map(invRowHtml).join('') + '</div>';
+      });
+      if (rows.some(function (r) { return r.td; })) h += '<div class="foot inv-srv">2040 Target Date split source: ' + esc(INV_TD.src) + '. <a href="' + esc(INV_TD.url) + '" target="_blank" rel="noopener">Fund page</a></div>';
+    }
+    h += invLoadingLine();
+    h += '<button type="button" class="linkrow smallrow" data-go="fin/invest/byacct">Edit holdings in By account &rsaquo;</button>';
+    return h;
   }
   // ---- Overview v4 (FIN2): document ledger (fin page "overview", Finances - Overview v4 Doc) + live Vault (`spend` API) ----
   // No figures live in this file. Every number is fetched at runtime: Vault numbers drill to the #spend/... routes, document numbers
