@@ -8337,7 +8337,7 @@
   };
   var INV_DOC = { url: 'https://docs.google.com/document/d/1u-8DTE-WQSoyj2XOgErIZJf1riqgsTYGtsf48Dcx51s/edit', title: 'Investments \u2013 Discussion & Review' };
   var INV_FOLDER = 'https://drive.google.com/drive/folders/1h8Pvt_1mfgWhloUtPzQ-k_wESP3Ehtvc';
-  var INV_TYPES = ['Brokerage (taxable)', 'Traditional IRA', 'Roth IRA', 'Rollover IRA', 'SEP IRA', '529', 'Exchange account', 'Self-custody wallet', 'Other'];
+  var INV_TYPES = ['Brokerage (taxable)', '401(k)', 'Traditional IRA', 'Roth IRA', 'Rollover IRA', 'SEP IRA', '529', 'Exchange account', 'Self-custody wallet', 'Other'];
   var INV_ASK = 'Send Big Dog a statement or holdings screenshot to fill this in.';
   var inv = { d: null, srv: 'unk', edit: '', draft: null, msg: '', bad: false, busy: false };   // srv: unk | load | ok | na | err
 
@@ -8460,7 +8460,7 @@
     h += '</div>';
     h += '<div class="card inv-card"><h3>Notes</h3>' + (a.notes ? '<div class="inv-notes">' + esc(a.notes) + '</div>' : '<div class="inv-empty">No notes yet.</div>') + '</div>';
     h += '<button type="button" class="linkrow smallrow inv-editbtn" data-inv="edit">Edit ' + esc(INV_ACCTS[k].label) + '</button>';
-    if (a.updated) h += '<div class="foot inv-srv">Last edited ' + esc(new Date(a.updated).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })) + '. ' + esc(invSrvLine()) + '</div>';
+    if (a.updated) h += '<div class="foot inv-srv">' + (a.updated > Date.now() + 60000 ? '' : 'Last edited ' + esc(new Date(a.updated).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })) + '. ') + esc(invSrvLine()) + '</div>';   // v142: a future stamp (clock ahead) is not shown as an edit time
     h += '<a class="linkrow" data-title="' + esc(INV_ACCTS[k].label + ' statements') + '" href="' + esc(INV_ACCTS[k].folder) + '">' + esc(INV_ACCTS[k].label) + ' statements folder &rsaquo;</a>';
     h += '<a class="linkrow" data-title="' + esc(INV_DOC.title) + '" href="' + esc(INV_DOC.url) + '">Investment discussion &rsaquo;</a>';
     return h;
@@ -8525,7 +8525,7 @@
     });
     if (/\b\d{8,}\b/.test(cur.notes || '')) bad.push('Notes look like they contain an account number');
     if (bad.length) { inv.draft = invRawDraft(cur); inv.msg = 'Check: ' + bad.join(', ') + '.'; inv.bad = true; renderInv(); return true; }
-    var a = invClean(cur); a.updated = Date.now();
+    var a = invClean(cur), prevU = (inv.d.accts[k] && inv.d.accts[k].updated) || 0; a.updated = Math.max(Date.now(), prevU + 1);   // v142: an edit always beats the copy it was made from (another device's clock may run ahead)
     inv.d.accts[k] = a; inv.edit = ''; inv.draft = null;
     if (!invSaveLocal()) { inv.edit = k; inv.draft = invRawDraft(cur); inv.msg = 'Could not save on this phone (storage full or private browsing).'; inv.bad = true; renderInv(); return true; }
     renderInv(); window.scrollTo(0, 0);
