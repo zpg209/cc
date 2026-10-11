@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lora:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=148">
+<link rel="stylesheet" href="app.css?v=149">
 </head>
 <body>
   <div class="bg"></div>
@@ -189,6 +189,17 @@
   <section id="screen-tm" class="screen">
     <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="tm-back" data-go="home" hidden>&lsaquo; Back</button><h2 id="tm-title">Task Manager</h2></div>
     <div id="tm-body"></div>
+  </section>
+
+  <!-- ============ ZAC > WETUMKA LISTS (#zl/<garage|connex|landscaping>): checklist per project (v149) ============ -->
+  <section id="screen-zl" class="screen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="zl-back" data-go="hf/wetumka">&lsaquo; Back</button><h2 id="zl-title">List</h2></div>
+    <p class="hint zl-path" id="zl-path"></p>
+    <div class="tk-add zl-add"><input class="tk-input" id="zl-text" type="text" maxlength="300" placeholder="Add an item" aria-label="New item" autocomplete="off" enterkeyhint="done"><button type="button" class="tk-mic" id="zl-mic" aria-pressed="false" aria-label="Dictate an item"></button><button type="button" class="tk-addbtn" id="zl-add" disabled>Add</button></div>
+    <div class="zl-micstate" id="zl-micstate" hidden></div>
+    <div id="zl-list"></div>
+    <p class="foot zl-sync" id="zl-sync"></p>
+    <div class="zl-undo" id="zl-undo" hidden></div>
   </section>
 
   <!-- ============ MONO FOLD (#mf / #mf/home|orders|customers|design) ============ -->
@@ -379,6 +390,6 @@
     <div class="own-card" id="own-card" hidden></div>
   </section>
 
-  <script src="app.js?v=148"></script>
+  <script src="app.js?v=149"></script>
 </body>
 </html>

@@ -208,3 +208,14 @@ Until it is deployed (front end v135): KiwiT and TiwiK > Business Documents show
 After deploying, no front-end change is needed: the next check gets `canUpload:true` and Receipts shows "Add receipt" (camera) and "Photo or PDF" (library / Files). Photos are shrunk on the phone to a JPEG (as in the Vault), PDFs are sent as they are; then Date, Amount and Merchant (optional) and Save receipt.
 
 Check after deploying: `…/exec?api=1&pc=PASSCODE&action=bizreceipts` should return `"canUpload":true` with both folders `"found":true`, and `…&action=bizreceiptsave&ent=kiwit&dry=1&merchant=Test&amount=1` should return `"dry":true,…,"name":"<today> Test $1.00.jpg"` without writing anything.
+
+## zac-lists.patch (API v56, Zac > Wetumka project lists sync)
+Independent of the other patches (applies before or after them). Apply it, then redeploy the Apps Script web app (Zac signs in, Deploy > Manage deployments > edit > New version). It uses only PropertiesService and LockService (same as investments.patch), so no new authorization should be needed.
+
+What it adds:
+- `action=lists` (read): `{ lists: { <slug>: { slug, items:[{id,text,note,done,doneAt,updated,del}], order:[ids], orderAt, updated } }, version: 56 }`. Lists never saved are simply missing.
+- `action=listsave` (POST body or GET params): `slug=garage|connex|landscaping|<any lowercase slug>`, `json=<list object>`. The server MERGES it into the stored copy (per item the newer `updated` wins; a delete is an item with `del:true`, remembered 60 days; the order comes from the copy with the newer `orderAt`) and returns the merged list. One Script Property per list (`CC_LIST_<slug>`, at most about 8.8 KB, roughly 60 to 80 items with short notes; max 40 lists).
+
+Until it is deployed (front end v149): Home > Zac > Wetumka > Garage organization / Connex box / Landscaping work fully on the phone. Items are saved in that browser's localStorage (`cc_zlists_v1`) and each list says "Saved on this phone only". When the server answers `lists`, the phone merges, pushes its copy up, and then saves every change to the server too (Zac's and Lisa's devices then see the same lists). No front-end change is needed. Garage organization is seeded on every device with the same five items (same ids), so they never double up.
+
+Check after deploying: `…/exec?api=1&pc=PASSCODE&action=lists` should return `{"ok":true,"data":{"lists":{},"version":56}}` until a phone has opened a list.

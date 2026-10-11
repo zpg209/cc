@@ -1,0 +1,74 @@
+# Zac > Wetumka project lists sync (API v56). Independent of the other patches here (applies before or after them).
+# Context lines are v45 code (see vault-category.patch for the same dispatch block). Hunks marked "(anchor)" go next to the quoted line.
+# Storage: Script Properties (PropertiesService.getScriptProperties()), one key per list (CC_LIST_<slug>), so no new OAuth scope and no Sheet / Drive writes.
+--- a/Api.gs
++++ b/Api.gs
+@@ header comment (anchor: the " *   GET  <exec>?api=1&pc=123456&action=spendcol" line) @@
++ *   GET  <exec>?api=1&pc=123456&action=lists   (v56 project lists: {lists:{<slug>:{slug,items[{id,text,note,done,doneAt,updated,del}],order[],orderAt,updated}}, version:56}; read-only)
++ *   POST {pc, action:'listsave', slug:'garage', json:'<list object>'}   (v56: MERGE one list into the stored copy (per item newest `updated` wins, order from the newest reorder) and return the merged list)
+@@ dispatch switch (anchor: "case 'investsave': return apiInvestSave_(extra.all || {});") @@
+       case 'investsave': return apiInvestSave_(extra.all || {});       // v49: replace one account (GET params or POST body)
++      case 'lists':      return apiLists_();                           // v56 (Zac > Wetumka lists): read every list
++      case 'listsave':   return apiListSave_(extra.all || {});         // v56: merge one list (POST body or GET params)
+@@ new functions (add at the end of Api.gs) @@
++/* ---------------- v56 Project lists (Zac > Wetumka: Garage organization, Connex box, Landscaping; any slug) ----------------
++ * The phone keeps its own copy (localStorage cc_zlists_v1) and works without this. With it, the lists sync across devices.
++ * One Script Property per list: CC_LIST_<slug> = JSON (Script Properties allow ~9 KB per value; enforced below).
++ * Merge (same rule as the phone): items by id, the newer `updated` wins (a delete is an item with del:true, kept 60 days so a
++ * stale phone can't bring it back); order = the order of whichever copy has the newer orderAt, then any id it doesn't know.
++ */
++var API_LIST_RE = /^[a-z0-9][a-z0-9-]{0,29}$/, API_LIST_ID_RE = /^[A-Za-z0-9_-]{1,40}$/, API_LIST_TOMB_MS = 60 * 864e5, API_LIST_MAX = 8800;
++function apiListClean_(l, slug) {
++  l = l && typeof l === 'object' ? l : {};
++  var items = [];
++  (Array.isArray(l.items) ? l.items : []).slice(0, 300).forEach(function (x) {
++    x = x || {}; var id = String(x.id || '');
++    if (!API_LIST_ID_RE.test(id)) return;
++    var it = { id: id, text: String(x.text || '').replace(/\s+/g, ' ').trim().slice(0, 300), note: String(x.note || '').slice(0, 1000),
++               done: !!x.done, doneAt: Number(x.doneAt) || 0, updated: Number(x.updated) || 0, del: !!x.del };
++    if (it.del) { it.text = ''; it.note = ''; }
++    if (it.del || it.text) items.push(it);
++  });
++  var order = (Array.isArray(l.order) ? l.order : []).map(String).filter(function (id) { return API_LIST_ID_RE.test(id); }).slice(0, 300);
++  return { slug: slug, items: items, order: order, orderAt: Number(l.orderAt) || 0, updated: Number(l.updated) || 0 };
++}
++function apiListMerge_(a, b) {
++  var by = {}, ids = [];
++  [a, b].forEach(function (l) { l.items.forEach(function (x) { var c = by[x.id]; if (!c) { by[x.id] = x; ids.push(x.id); } else if (x.updated > c.updated) by[x.id] = x; }); });
++  var first = b.orderAt > a.orderAt ? b : a, second = first === a ? b : a, order = [], seen = {}, cut = Date.now() - API_LIST_TOMB_MS;
++  first.order.concat(second.order, ids).forEach(function (id) { if (!seen[id] && by[id]) { seen[id] = 1; order.push(id); } });
++  var items = ids.map(function (id) { return by[id]; }).filter(function (x) { return !(x.del && x.updated < cut); }), keep = {};
++  items.forEach(function (x) { keep[x.id] = 1; });
++  return { slug: a.slug || b.slug, items: items, order: order.filter(function (id) { return keep[id]; }), orderAt: Math.max(a.orderAt, b.orderAt), updated: Math.max(a.updated, b.updated) };
++}
++function apiLists_() {
++  var all = PropertiesService.getScriptProperties().getProperties(), lists = {};
++  Object.keys(all).forEach(function (k) {
++    var m = /^CC_LIST_(.+)$/.exec(k); if (!m || !API_LIST_RE.test(m[1])) return;
++    try { lists[m[1]] = apiListClean_(JSON.parse(all[k]), m[1]); } catch (e) {}
++  });
++  return { ok: true, data: { lists: lists, version: 56 } };
++}
++function apiListSave_(p) {
++  p = p || {};
++  var slug = String(p.slug || '').toLowerCase();
++  if (!API_LIST_RE.test(slug)) return { error: 'bad_value', message: 'slug must be lowercase letters, digits or dashes.' };
++  var inc;
++  try { inc = apiListClean_(JSON.parse(String(p.json || '')), slug); } catch (e) { return { error: 'bad_value', message: 'json must be the list object.' }; }
++  var lock = LockService.getScriptLock();
++  lock.waitLock(10000);
++  try {
++    var props = PropertiesService.getScriptProperties(), raw = props.getProperty('CC_LIST_' + slug), cur = null;
++    if (raw) { try { cur = apiListClean_(JSON.parse(raw), slug); } catch (e) { cur = null; } }
++    if (!cur && Object.keys(props.getProperties()).filter(function (k) { return /^CC_LIST_/.test(k); }).length >= 40) return { error: 'too_many', message: 'At most 40 lists.' };
++    var merged = cur ? apiListMerge_(cur, inc) : apiListMerge_(inc, inc);
++    var json = JSON.stringify(merged);
++    if (json.length > API_LIST_MAX) {   // drop delete-markers (oldest first), then refuse
++      var tombs = merged.items.filter(function (x) { return x.del; }).sort(function (x, y) { return x.updated - y.updated; });
++      while (json.length > API_LIST_MAX && tombs.length) { var t = tombs.shift(); merged.items = merged.items.filter(function (x) { return x !== t; }); merged.order = merged.order.filter(function (id) { return id !== t.id; }); json = JSON.stringify(merged); }
++      if (json.length > API_LIST_MAX) return { error: 'too_long', message: 'This list is full (shorten notes or remove done items).' };
++    }
++    props.setProperty('CC_LIST_' + slug, json);
++    return { ok: true, data: { slug: slug, list: merged } };
++  } finally { lock.releaseLock(); }
++}

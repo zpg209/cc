@@ -14,7 +14,7 @@
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', ovKey: '', invAcct: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
-  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring', 'ownership'];
+  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring', 'ownership', 'zl'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -113,7 +113,7 @@
   var RC_MAX_AGE = 3 * 864e5;       // older than this: ignored (the screen waits for the server like before)
   var RC_READS = { links: 1, log: 1, spend: 1, accounts: 1, vaultdebt: 1, biz: 1, re: 1, ins: 1, ltmacros: 1, notes: 1, punch: 1, lognotes: 1,
     fin: 1, insnotes: 1, wishlist: 1, orders: 1, ptclients: 1, receipts: 1, entity: 1, entitytax: 1, folder: 1, healthmetrics: 1 };
-  var RC_NOCACHE = { ping: 1, file: 1, filebytes: 1, invest: 1, lisareqlist: 1, bizreceipts: 1 };   // v130: lisareqlist (Lisa's change requests) is always asked fresh      // reads that are never stored (passcode check; file bytes are big)
+  var RC_NOCACHE = { ping: 1, file: 1, filebytes: 1, invest: 1, lists: 1, lisareqlist: 1, bizreceipts: 1 };   // v130: lisareqlist (Lisa's change requests) is always asked fresh      // reads that are never stored (passcode check; file bytes are big)
   var RC_MONEY = ['spend', 'accounts', 'vaultdebt', 'entity', 'entitytax', 'receipts', 'fin', 'insnotes'];
   var RC_DEBT = ['vaultdebt', 'spend', 'entity', 'entitytax', 'fin'];
   var RC_WRITES = {
@@ -127,6 +127,7 @@
     orderset: ['orders'], orderpaid: ['orders'], orderdel: ['orders'], weekmenuset: ['orders'], menusave: ['folder'], ltmenusave: ['folder'],
     wishadd: ['wishlist'], wishset: ['wishlist'], wishdel: ['wishlist'],
     ptclientset: ['ptclients'], ptclientdel: ['ptclients'], ptworkoutset: ['ptclients'], ptworkoutdel: ['ptclients'],
+    listsave: [],     // v149: Zac's project lists (phone copy + Script Properties, server patch v56)
     investsave: [],   // v121: Investments live outside the read cache (phone copy + Script Properties)
     bizreceiptsave: ['folder'],   // v135: receipt into KiwiT / TiwiK › Expenses › Receipts (server patch v55)
     lisareq: []       // v130: Lisa's change requests (lisareqlist is never cached)
@@ -510,6 +511,8 @@
     if (name !== 'pt') { ptMicStop(true); spellMicStop(true); }
     if (name !== 'mf') mfMicStop(true);
     if (name !== 'pc') pcMicStop(true);
+    if (name !== 'zl') zlMicStop(true);
+    if (name === 'zl') state.zlSlug = ZL[R.kind] ? R.kind : 'garage';   // #zl/<garage|connex|landscaping>
     if (name !== 'lr') lrMicStop(true);
     if (!(name === 'lt' && R.kind === 'orders')) odMicStop(true);
     if (!(name === 'lt' && (R.kind === 'macros' || R.kind === 'recipes'))) macClose(true);
@@ -534,6 +537,7 @@
         name === 'lt' ? '#lt' + (R.kind ? '/' + encodeURIComponent(R.kind) : '') :
         name === 'pt' ? '#pt' + (state.ptRoute.kind ? '/' + encodeURIComponent(state.ptRoute.kind) + (state.ptRoute.id ? '/' + encodeURIComponent(state.ptRoute.id) : '') : '') :
         name === 'hf' ? '#hf/' + encodeURIComponent(state.hfId.replace(/^f:/, '')) :
+        name === 'zl' ? '#zl/' + state.zlSlug :
         name === 'tm' ? '#tm' + (state.tmView ? '/' + state.tmView : '') :
         name === 'mf' ? (state.mfTab && state.mfTab !== 'home' ? '#mf/' + state.mfTab : '#mf') :
         name === 'pc' ? (state.pcRoute && state.pcRoute.kind === 'new' ? '#pc/new' : state.pcRoute && state.pcRoute.kind === 'edit' && state.pcRoute.id ? '#pc/' + encodeURIComponent(state.pcRoute.id) : '#pc') :
@@ -568,6 +572,7 @@
     if (name === 'pc') pcOpen();
     if (name === 'lr') lrOpen();
     if (name === 'hiring') hiringOpen();
+    if (name === 'zl') zlOpen();               // v149: Zac > Wetumka to-do lists
     if (name === 'ownership') ownOpen();     // v141: interactive ownership chart
     if (name === 'doc') { state.docKey = String(route || '').replace(/^#/, ''); openDocScreen(qparams(R.query)); }
     else restoreScroll(String(route || '').replace(/^#/, '') || 'home');
@@ -19319,6 +19324,275 @@
     if (v === 'chart') setTimeout(function () { ownDraw(); ownCard(); }, 0);
   }
 
+  /* ---------------- Zac > Wetumka project to-do lists (#zl/<slug>) ---------------- */
+  // v149: Home folder 'Zac' (f:zac) > folder 'Wetumka' (f:wetumka) > three list tiles: Garage organization, Connex box, Landscaping.
+  // Each opens a checklist: tap the circle to check / uncheck, add by typing or with the mic, tap an item to edit it (text + optional
+  // note) or delete it (with Undo), drag the grip to reorder, and a collapsible Done section.
+  // Storage: this phone's localStorage 'cc_zlists_v1' always; once backend/zac-lists.patch (API v56: actions lists / listsave, Script
+  // Properties) is deployed, every list also syncs across devices (Zac's and Lisa's). Merge is per item (newest `updated` wins, deletes
+  // kept as short-lived tombstones) and the order follows the newest reorder, so two phones editing different items never lose each other's edits.
+  // Until then the live server answers bad_action and the screen says "Saved on this phone only".
+  var ZL = {
+    garage:      { title: 'Garage organization', seed: ['Chainsaws', 'Generators', 'Bunker', 'Workbench', 'Lawnmower'] },
+    connex:      { title: 'Connex box', seed: [] },
+    landscaping: { title: 'Landscaping', seed: [] }
+  };
+  var ZL_KEY = 'cc_zlists_v1', ZL_SEED_AT = 1791676800000;   // fixed seed time (10/11/2026 00:00 UTC), so every device seeds the same items with the same ids
+  var ZL_TOMB_MS = 60 * 864e5;                               // deleted items are remembered this long (so a sync never brings them back)
+  var zl = { d: null, srv: 'unk', edit: '', undo: null, undoT: 0, pushT: {}, on: false, rec: null, base: '', committed: '', interim: '', micMsg: '', drag: null };
+  state.zlSlug = 'garage';
+  function zlNow() { return Date.now(); }
+  function zlSeed(slug) {
+    var cfg = ZL[slug], items = cfg.seed.map(function (t) { return { id: 's-' + slug + '-' + t.toLowerCase().replace(/[^a-z0-9]+/g, '-'), text: t, note: '', done: false, doneAt: 0, updated: ZL_SEED_AT, del: false }; });
+    return { slug: slug, items: items, order: items.map(function (x) { return x.id; }), orderAt: items.length ? ZL_SEED_AT : 0, updated: items.length ? ZL_SEED_AT : 0 };
+  }
+  function zlCleanItem(x) {
+    x = x || {}; var id = String(x.id || '');
+    if (!/^[A-Za-z0-9_-]{1,40}$/.test(id)) return null;
+    return { id: id, text: String(x.text || '').replace(/\s+/g, ' ').trim().slice(0, 300), note: String(x.note || '').slice(0, 1000), done: !!x.done,
+      doneAt: Number(x.doneAt) || 0, updated: Number(x.updated) || 0, del: !!x.del };
+  }
+  function zlClean(l, slug) {
+    l = l && typeof l === 'object' ? l : {};
+    var items = (Array.isArray(l.items) ? l.items : []).map(zlCleanItem).filter(function (x) { return x && (x.del || x.text); }).slice(0, 300);
+    return { slug: slug, items: items, order: (Array.isArray(l.order) ? l.order : []).map(String).filter(function (id) { return /^[A-Za-z0-9_-]{1,40}$/.test(id); }).slice(0, 300),
+      orderAt: Number(l.orderAt) || 0, updated: Number(l.updated) || 0 };
+  }
+  function zlMerge(a, b) {   // per item newest wins; order from the newer reorder, then any id it doesn't know
+    var by = {}, ids = [];
+    [a, b].forEach(function (l) { (l.items || []).forEach(function (x) { var c = by[x.id]; if (!c) { by[x.id] = x; ids.push(x.id); } else if (x.updated > c.updated) by[x.id] = x; }); });
+    var first = (b.orderAt > a.orderAt ? b : a), second = first === a ? b : a, order = [], seen = {};
+    first.order.concat(second.order, ids).forEach(function (id) { if (!seen[id] && by[id]) { seen[id] = 1; order.push(id); } });
+    var cut = zlNow() - ZL_TOMB_MS;
+    var items = ids.map(function (id) { return by[id]; }).filter(function (x) { return !(x.del && x.updated < cut); });
+    var keep = {}; items.forEach(function (x) { keep[x.id] = 1; });
+    return { slug: a.slug || b.slug, items: items, order: order.filter(function (id) { return keep[id]; }), orderAt: Math.max(a.orderAt, b.orderAt), updated: Math.max(a.updated, b.updated) };
+  }
+  function zlLoad() {
+    if (zl.d) return zl.d;
+    var raw = null; try { raw = JSON.parse(localStorage.getItem(ZL_KEY) || 'null'); } catch (e) { raw = null; }
+    var d = { lists: {}, doneOpen: (raw && raw.doneOpen) || {} };
+    Object.keys(ZL).forEach(function (k) { var l = raw && raw.lists && raw.lists[k]; d.lists[k] = l ? zlClean(l, k) : zlSeed(k); });   // seeded only when this phone has no copy yet
+    zl.d = d; return d;
+  }
+  function zlSaveLocal() { try { localStorage.setItem(ZL_KEY, JSON.stringify(zl.d)); return true; } catch (e) { return false; } }
+  function zlList() { return zlLoad().lists[state.zlSlug]; }
+  function zlItem(id) { return zlList().items.filter(function (x) { return x.id === id; })[0]; }
+  function zlChanged(slug) {
+    var l = zl.d.lists[slug]; l.updated = zlNow();
+    zlSaveLocal(); zlRender();
+    if (zl.srv === 'ok') { clearTimeout(zl.pushT[slug]); zl.pushT[slug] = setTimeout(function () { zlPush(slug); }, 700); }
+  }
+  // ---- server sync (only when the server knows action=lists) ----
+  function zlSync() {
+    if (zl.srv === 'load' || zl.srv === 'na') return;
+    zl.srv = 'load'; zlSrvUi();
+    apiRaw('lists', {}).then(function (j) {
+      if (j.error === 'bad_action' || j.error === 'bad_page') { zl.srv = 'na'; return zlSrvUi(); }
+      if (j.error) { zl.srv = 'err'; return zlSrvUi(); }
+      zl.srv = 'ok';
+      var s = (j.data && j.data.lists) || {}, d = zlLoad();
+      Object.keys(ZL).forEach(function (k) {
+        var sv = s[k] ? zlClean(s[k], k) : null, lc = d.lists[k];
+        var pristine = lc.updated <= ZL_SEED_AT;   // untouched seed on this phone: the server's copy wins as-is (so a long-gone delete can't come back)
+        var m = sv ? (pristine ? sv : zlMerge(lc, sv)) : lc;
+        d.lists[k] = m;
+        if (m.updated && (!sv || JSON.stringify(m) !== JSON.stringify(zlMerge(sv, sv)))) zlPush(k);
+      });
+      zlSaveLocal(); zlRerender();
+    }, function (err) {
+      if (err instanceof AuthError) { setPc(''); return lock('Passcode changed. Enter the new one.'); }
+      zl.srv = 'err'; zlSrvUi();
+    });
+  }
+  function zlPush(k) {
+    return apiPostRaw('listsave', { slug: k, json: JSON.stringify(zl.d.lists[k]) }, 60000).then(function (j) {
+      if (j && j.error === 'bad_action') { zl.srv = 'na'; zlSrvUi(); return; }
+      if (j && j.ok && j.data && j.data.list) { zl.d.lists[k] = zlMerge(zl.d.lists[k], zlClean(j.data.list, k)); zlSaveLocal(); zlRerender(); }
+    }, function () { zl.srv = 'err'; zlSrvUi(); });
+  }
+  function zlSrvUi() {
+    var el = $('zl-sync'); if (!el) return;
+    el.textContent = zl.srv === 'ok' ? 'Synced with Command Center (Zac\u2019s and Lisa\u2019s devices).' : zl.srv === 'load' ? 'Checking the server\u2026' :
+      zl.srv === 'err' ? 'Saved on this phone. The server couldn\u2019t be reached; it will sync next time.' : 'Saved on this phone only. Syncing across devices needs a server update (backend/zac-lists.patch).';
+  }
+  function zlRerender() { if ($('screen-zl').classList.contains('active') && !zl.edit && !zl.drag) zlRender(); }
+  // ---- screen ----
+  function zlOpen() {
+    zlLoad();
+    var cfg = ZL[state.zlSlug];
+    $('zl-title').textContent = cfg.title;
+    $('zl-title').classList.toggle('long', cfg.title.length > 12);
+    $('zl-back').setAttribute('data-go', hlItemBack('zl/' + state.zlSlug, 'hf/wetumka'));
+    $('zl-path').textContent = hlPath(hlParent('zl/' + state.zlSlug) || 'f:wetumka') ;
+    zl.edit = ''; zlUndoHide();
+    var inp = $('zl-text'); if (inp && inp.getAttribute('data-for') !== state.zlSlug) { inp.value = ''; inp.setAttribute('data-for', state.zlSlug); }
+    zlAddUi(); zlSrvUi(); zlRender();
+    if (zl.srv !== 'load' && zl.srv !== 'na') zlSync();
+  }
+  function zlRowHtml(x, done) {
+    if (zl.edit === x.id) {
+      return '<li class="zl-row zl-editing" data-zl-id="' + esc(x.id) + '"><div class="zl-ed">' +
+        '<input class="tk-input" id="zl-ed-text" maxlength="300" value="' + esc(x.text) + '" aria-label="Item">' +
+        '<textarea class="tk-input zl-ed-note" id="zl-ed-note" rows="3" maxlength="1000" placeholder="Notes (optional)" aria-label="Notes">' + esc(x.note) + '</textarea>' +
+        '<div class="zl-ed-btns"><button type="button" class="tk-addbtn" data-zl="save">Save</button><button type="button" class="tk-addbtn" data-zl="cancel">Cancel</button>' +
+        '<button type="button" class="tk-addbtn zl-del" data-zl="del">Delete</button></div></div></li>';
+    }
+    return '<li class="zl-row' + (done ? ' done' : '') + '" data-zl-id="' + esc(x.id) + '">' +
+      '<button type="button" class="zl-check" data-zl="tog" role="checkbox" aria-checked="' + done + '" aria-label="' + (done ? 'Mark not done: ' : 'Mark done: ') + esc(x.text) + '">' + (done ? '\u2713' : '') + '</button>' +
+      '<button type="button" class="zl-text" data-zl="edit" aria-label="Edit ' + esc(x.text) + '"><span class="zl-t">' + esc(x.text) + '</span>' + (x.note ? '<span class="zl-note">' + esc(x.note) + '</span>' : '') + '</button>' +
+      (done ? '' : '<span class="zl-grip" data-zl-grip="' + esc(x.id) + '" aria-label="Drag to reorder" role="button">\u2261</span>') + '</li>';
+  }
+  function zlRender() {
+    var l = zlList(), by = {}; l.items.forEach(function (x) { by[x.id] = x; });
+    var live = l.order.map(function (id) { return by[id]; }).filter(function (x) { return x && !x.del; });
+    var open = live.filter(function (x) { return !x.done; }), done = live.filter(function (x) { return x.done; }).sort(function (a, b) { return b.doneAt - a.doneAt; });
+    var dOpen = !!zl.d.doneOpen[state.zlSlug], h = '';
+    if (!live.length) h += '<div class="zl-empty"><b>Add your first item</b><span>Type it above or tap the mic.</span></div>';
+    else {
+      h += '<div class="zl-sum">' + open.length + ' to do' + (done.length ? ' \u00b7 ' + done.length + ' done' : '') + '</div>';
+      h += open.length ? '<ul class="zl-ul" id="zl-open">' + open.map(function (x) { return zlRowHtml(x, false); }).join('') + '</ul>' : '<div class="zl-alldone">All done. Nice.</div>';
+      if (done.length) h += '<div class="zl-donebox' + (dOpen ? ' open' : '') + '"><button type="button" class="zl-donehead" data-zl="done-tog" aria-expanded="' + dOpen + '">' +
+        '<span>Done (' + done.length + ')</span><span class="zl-chev">' + (dOpen ? '\u25be' : '\u25b8') + '</span></button>' +
+        (dOpen ? '<ul class="zl-ul">' + done.map(function (x) { return zlRowHtml(x, true); }).join('') + '</ul>' : '') + '</div>';
+    }
+    $('zl-list').innerHTML = h;
+    if (zl.edit) { var t = $('zl-ed-text'); if (t) { t.focus(); try { t.setSelectionRange(t.value.length, t.value.length); } catch (e) {} } }
+  }
+  function zlAdd() {
+    var inp = $('zl-text'), v = String(inp.value || '').replace(/\s+/g, ' ').trim();
+    if (zl.on) zlMicStop(true);
+    if (!v) { inp.focus(); return; }
+    var l = zlList(), now = zlNow(), id = 'i' + now.toString(36) + Math.random().toString(36).slice(2, 6);
+    l.items.push({ id: id, text: v.charAt(0).toUpperCase() + v.slice(1), note: '', done: false, doneAt: 0, updated: now, del: false });
+    l.order.unshift(id); l.orderAt = now;
+    inp.value = ''; zlAddUi(); zlChanged(state.zlSlug);
+  }
+  function zlAddUi() { var b = $('zl-add'), i = $('zl-text'); if (b && i) b.disabled = !i.value.trim(); }
+  function zlToggle(id) {
+    var x = zlItem(id); if (!x) return; var now = zlNow();
+    x.done = !x.done; x.doneAt = x.done ? now : 0; x.updated = now;
+    if (!x.done) { var l = zlList(); l.order = [id].concat(l.order.filter(function (k) { return k !== id; })); l.orderAt = now; }   // unchecked: back to the top of the list
+    zlChanged(state.zlSlug);
+  }
+  function zlSaveEdit() {
+    var x = zlItem(zl.edit); if (!x) { zl.edit = ''; return zlRender(); }
+    var t = String($('zl-ed-text').value || '').replace(/\s+/g, ' ').trim(), n = String($('zl-ed-note').value || '').trim();
+    if (!t) { $('zl-ed-text').focus(); return; }
+    if (t !== x.text || n !== x.note) { x.text = t; x.note = n; x.updated = zlNow(); zl.edit = ''; zlChanged(state.zlSlug); } else { zl.edit = ''; zlRender(); }
+  }
+  function zlDelete(id) {
+    var x = zlItem(id); if (!x) return;
+    var prev = JSON.parse(JSON.stringify(x)), slug = state.zlSlug;
+    x.del = true; x.updated = zlNow(); zl.edit = '';
+    zlChanged(slug);
+    zlUndoShow('Deleted \u201c' + (prev.text.length > 40 ? prev.text.slice(0, 40) + '\u2026' : prev.text) + '\u201d', function () {
+      var y = zl.d.lists[slug].items.filter(function (k) { return k.id === id; })[0]; if (!y) return;
+      y.del = false; y.text = prev.text; y.note = prev.note; y.done = prev.done; y.doneAt = prev.doneAt; y.updated = zlNow();
+      zlChanged(slug);
+    });
+  }
+  function zlUndoShow(msg, fn) {
+    var u = $('zl-undo'); clearTimeout(zl.undoT); zl.undo = fn;
+    u.innerHTML = '<span>' + esc(msg) + '</span><button type="button" data-zl="undo">Undo</button>'; u.hidden = false;
+    zl.undoT = setTimeout(zlUndoHide, 7000);
+  }
+  function zlUndoHide() { clearTimeout(zl.undoT); zl.undo = null; var u = $('zl-undo'); if (u) { u.hidden = true; u.innerHTML = ''; } }
+  // ---- drag to reorder (the grip on the right of an open item) ----
+  function zlDragStart(ev, grip) {
+    var row = grip.closest('.zl-row'), ul = $('zl-open'); if (!row || !ul) return;
+    var rows = Array.prototype.slice.call(ul.children), rects = rows.map(function (r) { return r.getBoundingClientRect(); });
+    zl.drag = { id: grip.getAttribute('data-zl-grip'), row: row, rows: rows, rects: rects, from: rows.indexOf(row), to: rows.indexOf(row), y0: ev.clientY, pid: ev.pointerId };
+    try { grip.setPointerCapture(ev.pointerId); } catch (e) {}
+    row.classList.add('zl-dragging'); ev.preventDefault();
+  }
+  function zlDragMove(ev) {
+    var g = zl.drag; if (!g || ev.pointerId !== g.pid) return;
+    var dy = ev.clientY - g.y0, r0 = g.rects[g.from], mid = r0.top + r0.height / 2 + dy, to = g.from;
+    g.rects.forEach(function (r, i) { if (i < g.from && mid < r.top + r.height / 2) to = Math.min(to, i); if (i > g.from && mid > r.top + r.height / 2) to = Math.max(to, i); });
+    g.to = to; g.row.style.transform = 'translateY(' + dy + 'px)';
+    var hgt = r0.height + 6;
+    g.rows.forEach(function (r, i) { if (r === g.row) return; var s = 0; if (g.from < to && i > g.from && i <= to) s = -hgt; if (g.from > to && i < g.from && i >= to) s = hgt; r.style.transform = s ? 'translateY(' + s + 'px)' : ''; });
+    ev.preventDefault();
+  }
+  function zlDragEnd(ev) {
+    var g = zl.drag; if (!g || ev.pointerId !== g.pid) return;
+    zl.drag = null;
+    if (g.to !== g.from) {
+      var l = zlList(), openIds = g.rows.map(function (r) { return r.getAttribute('data-zl-id'); });
+      openIds.splice(g.from, 1); openIds.splice(g.to, 0, g.id);
+      var rest = l.order.filter(function (id) { return openIds.indexOf(id) < 0; });
+      l.order = openIds.concat(rest); l.orderAt = zlNow();
+      zlChanged(state.zlSlug);
+    } else zlRender();
+  }
+  // ---- mic (same pattern as the other dictation boxes: words go into the box; nothing is added until Add) ----
+  function zlMicUi() {
+    var b = $('zl-mic'), st = $('zl-micstate'); if (!b) return;
+    b.classList.toggle('rec', zl.on); b.setAttribute('aria-pressed', zl.on ? 'true' : 'false'); b.setAttribute('aria-label', zl.on ? 'Stop dictation' : 'Dictate an item');
+    if (st) { st.hidden = !zl.on && !zl.micMsg; st.textContent = zl.on ? 'Listening\u2026' : (zl.micMsg || ''); st.classList.toggle('warn', !zl.on && !!zl.micMsg); }
+  }
+  function zlMicFail(msg) { zl.on = false; var r = zl.rec; zl.rec = null; try { r && r.abort(); } catch (e) {} zl.micMsg = msg; zlMicUi(); var i = $('zl-text'); if (i) i.focus(); setTimeout(function () { zl.micMsg = ''; zlMicUi(); }, 6000); }
+  function zlMicStart() {
+    var inp = $('zl-text'); if (!inp) return;
+    zl.micMsg = '';
+    if (!SR) return zlMicFail(MIC_NA);
+    zl.base = inp.value ? inp.value.replace(/\s+$/, '') + ' ' : ''; zl.committed = ''; zl.interim = '';
+    var rec; try { rec = new SR(); } catch (e) { return zlMicFail(MIC_NA); }
+    rec.continuous = false; rec.interimResults = true; rec.lang = 'en-US'; rec.maxAlternatives = 1;
+    rec.onresult = function (ev) {
+      var interim = '';
+      for (var i = ev.resultIndex; i < ev.results.length; i++) { var r = ev.results[i], t = r[0] ? r[0].transcript : ''; if (r.isFinal) zl.committed = micSpace(zl.committed, t.trim() + ' '); else interim += t; }
+      zl.interim = interim.replace(/^\s+/, ''); inp.value = zl.base + zl.committed + zl.interim; zlAddUi();
+    };
+    rec.onerror = function (ev) {
+      var er = ev && ev.error;
+      if (er === 'not-allowed' || er === 'service-not-allowed' || er === 'audio-capture' || er === 'language-not-supported') return zlMicFail(MIC_NA);
+      if (er === 'network') return zlMicFail('The speech service couldn\u2019t be reached. Use the keyboard\u2019s mic key.');
+      if (er === 'no-speech') zl.micMsg = 'Didn\u2019t catch anything. Tap the mic and try again.';
+    };
+    rec.onend = function () {
+      if (zl.rec !== rec) return;
+      zl.committed = micSpace(zl.committed, zl.interim ? zl.interim.trim() + ' ' : ''); zl.interim = '';
+      zl.on = false; zl.rec = null;
+      var v = (zl.base + zl.committed).replace(/\s+$/, ''); if (v) inp.value = v.charAt(0).toUpperCase() + v.slice(1);
+      zlAddUi(); zlMicUi();
+      if (zl.micMsg) setTimeout(function () { zl.micMsg = ''; zlMicUi(); }, 5000);
+    };
+    zl.rec = rec; zl.on = true;
+    try { rec.start(); } catch (e2) { return zlMicFail(MIC_NA); }
+    zlMicUi();
+  }
+  function zlMicStop(quiet) {
+    var r = zl.rec;
+    if (quiet) { zl.rec = null; zl.on = false; try { r && r.abort(); } catch (e) {} zlMicUi(); return; }
+    if (r) { try { r.stop(); } catch (e2) { zl.rec = null; zl.on = false; zlMicUi(); } }
+  }
+  (function zlBind() {
+    var scr = $('screen-zl'); if (!scr) return;
+    $('zl-text').addEventListener('input', zlAddUi);
+    $('zl-text').addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); zlAdd(); } });
+    $('zl-add').addEventListener('click', zlAdd);
+    $('zl-mic').innerHTML = vsvg('mic', 20);
+    $('zl-mic').addEventListener('click', function () { if (zl.on) zlMicStop(false); else zlMicStart(); });
+    scr.addEventListener('click', function (ev) {
+      var b = ev.target.closest('[data-zl]'); if (!b) return;
+      var a = b.getAttribute('data-zl'), row = b.closest('[data-zl-id]'), id = row ? row.getAttribute('data-zl-id') : '';
+      if (a === 'tog') zlToggle(id);
+      else if (a === 'edit') { if (zl.edit && zl.edit !== id) zlSaveEdit(); zl.edit = id; zlRender(); }
+      else if (a === 'save') zlSaveEdit();
+      else if (a === 'cancel') { zl.edit = ''; zlRender(); }
+      else if (a === 'del') zlDelete(id);
+      else if (a === 'undo') { var f = zl.undo; zlUndoHide(); if (f) f(); }
+      else if (a === 'done-tog') { zl.d.doneOpen[state.zlSlug] = !zl.d.doneOpen[state.zlSlug]; zlSaveLocal(); zlRender(); }
+    });
+    scr.addEventListener('keydown', function (ev) { if (ev.key === 'Enter' && ev.target && ev.target.id === 'zl-ed-text') { ev.preventDefault(); zlSaveEdit(); } });
+    $('zl-list').addEventListener('pointerdown', function (ev) { var g = ev.target.closest('[data-zl-grip]'); if (g) zlDragStart(ev, g); });
+    $('zl-list').addEventListener('pointermove', zlDragMove);
+    $('zl-list').addEventListener('pointerup', zlDragEnd);
+    $('zl-list').addEventListener('pointercancel', zlDragEnd);
+  })();
+
   /* ---------------- Init ---------------- */
   /* ---------------- Home layout: folders + press-and-hold drag (reorder, move into folders) ---------------- */
   // Every Home button (and the Plan Checks and Hiring buttons in L&S projects) is a layout item keyed by its route. Folder items
@@ -19357,7 +19631,12 @@
     'hiring':    { label: 'Hiring', go: 'hiring', sub: 'Structural Engineer \u00b7 docs', cls: 'hiring-entry' },   // v132: L&S projects > Hiring (#hiring)
     'f:archive': { label: 'Archive', go: 'hf/archive', folder: true },
     'tm':        { label: 'Task Manager', go: 'tm' },   // v131: Today + Suggestions (was the task list at the top of Home)
-    'f:lisa':    { label: 'Lisa', go: 'hf/lisa', folder: true },   // v113: Home folder (v130: holds Change requests by default; drag buttons in)
+    'f:lisa':    { label: 'Lisa', go: 'hf/lisa', folder: true },
+    'f:zac':     { label: 'Zac', go: 'hf/zac', folder: true },           // v149: Home folder (next to Lisa); holds Wetumka
+    'f:wetumka': { label: 'Wetumka', go: 'hf/wetumka', folder: true },   // v149: Zac > Wetumka (project lists)
+    'zl/garage':      { label: 'Garage organization', go: 'zl/garage' },   // v149: to-do lists (#zl/<slug>)
+    'zl/connex':      { label: 'Connex box', go: 'zl/connex' },
+    'zl/landscaping': { label: 'Landscaping', go: 'zl/landscaping' },   // v113: Home folder (v130: holds Change requests by default; drag buttons in)
     'lr':        { label: 'Change requests', go: 'lr', sub: 'Ask for a change \u00b7 see replies', cls: 'lr-entry' },   // v130: Lisa's change requests (#lr)
     'f:fh':      { label: 'Fitness & Health', go: 'hf/fh', folder: true },   // v122: Daily Log (overview), Food Log, Workout Log, Medical
     'food':      { label: 'Food Log', go: 'food' },
@@ -19371,11 +19650,13 @@
     'fin/invest':     { label: FIN_PAGES.invest.label, go: 'fin/invest', sub: FIN_PAGES.invest.sub }   // v121: Finances > Investments (slots in after Ledger on saved layouts too)
   };
   var HL_DEFAULT = {
-    home: ['tm', 'projects', 'f:fh', 'spend', 'fin', 'insn', 'lt', 'pt', 'trust', 'ent/kiwit', 'ent/tiwik', 'mf', 'biz', 'f:lisa'],
+    home: ['tm', 'projects', 'f:fh', 'spend', 'fin', 'insn', 'lt', 'pt', 'trust', 'ent/kiwit', 'ent/tiwik', 'mf', 'biz', 'f:lisa', 'f:zac'],   // v149: Zac right after Lisa (saved layouts too: hlNormalize slots it in after wherever Lisa is)
     projects: ['pc', 'hiring'],   // v132: Hiring after Plan Checks (saved layouts get it too: hlNormalize slots it in after Plan Checks)
     'f:fh': HL_FH_IN.slice(),
     'f:medical': ['health'],
-    'f:lisa': ['lr'],   // v130: saved layouts get it too (hlNormalize slots new items into their default folder)
+    'f:lisa': ['lr'],
+    'f:zac': ['f:wetumka'],                                            // v149
+    'f:wetumka': ['zl/garage', 'zl/connex', 'zl/landscaping'],         // v149   // v130: saved layouts get it too (hlNormalize slots new items into their default folder)
     biz: ['f:archive'],   // v147: the v141-v146 'ownership' tile is gone from Business (it now lives only on Trust & Estate); hlNormalize drops it from saved layouts
     fin: ['fin/ledger', 'fin/invest'],
     'f:archive': HL_TO_ARCHIVE.slice()
