@@ -2896,3 +2896,5 @@ body.hl-busy { -webkit-user-select: none; user-select: none; cursor: grabbing; }
 .inv-card h3 + .inv-sl { border-top: 0; margin-top: 0; }
 .inv-sl span { color: var(--muted); }
 .inv-sl b { text-align: right; font-variant-numeric: tabular-nums; }
+/* v146: 'Ownership chart' tile at the top of Trust & Estate (#trust) */
+.tile.own-entry { width: 100%; min-height: 84px; margin: 0 0 12px; border-color: rgba(240,122,42,.6); box-shadow: inset 0 0 0 1px rgba(240,122,42,.15); }

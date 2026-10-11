@@ -516,6 +516,7 @@
     if (!(name === 'lt' && R.kind === 'menu-add')) maMicStop(true);
     if (name !== 'punch') pmicStop();
     if (name !== 'doc') { state.docPushed = false; state.docSeq++; closeDoc(); }
+    if (name === 'ownership' && !fromHistory) { var ownCur = document.querySelector('.screen.active'); state.ownFrom = ownCur && ownCur.id === 'screen-trust' ? 'trust' : ''; }   // v146: opened from Trust & Estate -> Back returns there
     if (FH.sheet) fhSheetClose();               // v122: the Food / Workout / Health Metrics entry sheet never outlives its screen
     activate(name);
     rcPill();                                  // v107: the Updating… pill only shows for the screen on view
@@ -19195,7 +19196,7 @@
   }
   function ownAllLabel() { var any = Object.keys(own.collapsed).some(function (k) { return own.collapsed[k]; }); $('own-all').textContent = any ? 'Expand all' : 'Collapse'; }
   function ownOpen() {
-    $('own-back').setAttribute('data-go', hlItemBack('ownership', 'biz'));
+    $('own-back').setAttribute('data-go', state.ownFrom === 'trust' ? 'trust' : hlItemBack('ownership', 'biz'));   // v146: Trust & Estate's 'Ownership chart' tile, else the folder the Ownership tile sits in
     var src = $('own-src'); src.href = OWN_SRC.url; src.setAttribute('data-title', OWN_SRC.title);
     $('own-meta').textContent = 'From \u201c' + OWN_SRC.title + '\u201d (updated ' + OWN_SRC.date + '). Tap a box or a line for details.';
     $('own-extra').innerHTML = '<details class="card own-det"><summary>Open items (from the doc)</summary>' + ownList(OWNERSHIP.openItems) + '</details>' +
