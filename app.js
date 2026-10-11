@@ -18698,7 +18698,7 @@
   var OWNERSHIP = {
     nodes: [
       { id: 'zac', label: 'Zac Garman', sub: 'Owner', kind: 'owner', level: 0, col: 0.75,
-        facts: [['Role', 'Owner (\u201cyou\u201d in the doc); shown with Lisa above the Garman Trust'], ['Holds personally', 'Wetumka Rd. (with Lisa); Sierra Consultants (personal, not an LLC)']],
+        facts: [['Role', 'Owner (\u201cyou\u201d in the doc); shown with Lisa above the Garman Trust'], ['Holds personally', 'Wetumka Rd. (with Lisa)']],
         notes: ['The KiwiT and TiwiK Statements of Information list Zac & Lisa as members, while both operating agreements name the Garman Trust as sole member (open item 1, reconcile with Brandon Meyer).'],
         links: [['Vault \u00b7 Household', 'spend/acct/Household'], ['Trust & Estate', 'trust'], ['Insurance \u00b7 Personal & Autos', 'insn/personal']] },
       { id: 'lisa', label: 'Lisa Garman', sub: 'Spouse', kind: 'owner', level: 0, col: 1.75,
@@ -18709,10 +18709,10 @@
         links: [['Vault \u00b7 Household', 'spend/acct/Household'], ['Trust & Estate', 'trust']] },
       { id: 'trust', label: 'Garman Trust', sub: 'Sole member, both LLCs', kind: 'trust', level: 1, col: 1.25,
         facts: [['Role', 'Sole member of KiwiT LLC and TiwiK LLC (per both operating agreements, executed 2/28/2025)'],
-          ['Why', 'Membership interests sit in the trust, so the businesses pass to heirs without probate under the trust\u2019s terms']],
+          ['Also owns', '70% of Sierra Consultants (S-corp; confirmed by Zac 10/11/2026)'], ['Why', 'Membership interests sit in the trust, so the businesses pass to heirs without probate under the trust\u2019s terms']],
         notes: ['Membership Interest Purchase Agreement signed 5/1/2025 via Adobe Sign (Jason Pink as other party) transferring the membership interests to the trust. Original not located in Drive; retrieve from MeyerPink (open item 4).',
           'The SOIs still list Zac & Lisa as members (open item 1).'],
-        pdf: 'The PDF calls it \u201cGarman Family Trust\u201d and also shows it owning Wetumka (100%) and Sierra Consultants (70%).',
+        pdf: 'The PDF calls it \u201cGarman Family Trust\u201d and also shows it owning Wetumka (100%; the doc says Wetumka is held personally).',
         links: [['Trust & Estate', 'trust']] },
       { id: 'wetumka', label: 'Wetumka Rd.', sub: 'Personal residence', kind: 'asset', level: 1, col: 3,
         facts: [['Held by', 'Zac & Lisa Garman personally (not in an LLC)'], ['Use', 'Personal residence'], ['Liability', 'Not reachable by claims against TiwiK or KiwiT']],
@@ -18748,10 +18748,9 @@
           ['Huebsch loan documents (2)', ownD('1mM2206A2ioEzJV_BhVQRagnquzg57AKU')]],
         links: [['TiwiK books', 'ent/tiwik'], ['TiwiK Business Documents', 'ent/tiwik/docs'], ['Vault \u00b7 TiwiK', 'spend/acct/TiwiK'], ['Insurance \u00b7 TiwiK', 'insn/tiwik']] },
       { id: 'sierra', label: 'Sierra Consultants', sub: 'Engineering firm', kind: 'entity', level: 2, col: 3,
-        facts: [['Type', 'Engineering firm, personal (not an LLC)'], ['Owned by LLCs?', 'No, not owned by KiwiT or TiwiK'], ['Office', '105 S. Stewart Street, Sonora (mailing address for both LLCs)'],
+        facts: [['Owned by', '70% Garman Trust (confirmed by Zac 10/11/2026)'], ['Tax', 'S-corp'], ['Type', 'Engineering firm (not an LLC)'], ['Owned by LLCs?', 'No, not owned by KiwiT or TiwiK'], ['Office', '105 S. Stewart Street, Sonora (mailing address for both LLCs)'],
           ['Liability', 'Not reachable by claims against TiwiK or KiwiT']],
-        notes: ['The doc does not give an ownership percentage.'],
-        pdf: 'The PDF shows \u201cSierra Consultants Inc. DBA: Land & Structure\u201d (Eng/Surv, S-Corp), 70% owned by the Garman Family Trust, and a tenant at Stewart Street.',
+        pdf: 'The PDF shows \u201cSierra Consultants Inc. DBA: Land & Structure\u201d (Eng/Surv, S-Corp), 70% owned by the Garman Family Trust (same 70% Zac confirmed), and a tenant at Stewart Street.',
         docs: [['The Hartford BOP & Umbrella (2026\u20132027)', ownD('1yZ858dqyi4A4-57504DHl1nIRfUzoLCN')], ['The Hartford Commercial Auto (2026\u20132027)', ownD('12LIGnidFPfiob-kc5xOYgnBheTdpcWq3')],
           ['The Hartford Workers Comp & Employers Liability (9/11/2026 \u2013 9/11/2027)', ownD('1cGBm0Q2LbcJYDUhfTUNybMxA-b389nsV')], ['The Hartford Unmanned Aircraft Endorsements', ownD('1mD8IZcWD7RzqnT_grAxz5hqk9mWnKPfG')],
           ['2024 PL \u2014 U.S. Specialty Insurance', ownD('12M-0tSfkmYvus-UPs7z_SXmL_CWPb8Qf')]],
@@ -18787,8 +18786,9 @@
         detail: 'Wetumka Rd. is held by Zac & Lisa Garman personally (not in an LLC). No split is stated.', pdf: '100% owned by the Garman Family Trust.' },
       { from: 'lisa', to: 'wetumka', kind: 'personal', label: 'personal', rel: 'Held personally',
         detail: 'Wetumka Rd. is held by Zac & Lisa Garman personally (not in an LLC). No split is stated.', pdf: '100% owned by the Garman Family Trust.' },
-      { from: 'zac', to: 'sierra', kind: 'personal', label: 'personal', rel: 'Personal business (not an LLC)',
-        detail: 'Sierra Consultants is listed as personal, not an LLC, and not owned by either LLC. The doc gives no owner percentage.', pdf: '70% owned by the Garman Family Trust.' },
+      // 10/11/2026: Zac confirmed the Garman Trust owns 70% of Sierra Consultants (S-corp); matches the older PDF. Not in the doc.
+      { from: 'trust', to: 'sierra', kind: 'own', label: '70%', sub: 'S-corp', lt: 0.72, rel: '70% owner \u00b7 S-corp',
+        detail: 'The Garman Trust owns 70% of Sierra Consultants, an S-corp (confirmed by Zac 10/11/2026). Sierra is not owned by either LLC.', pdf: 'Ownership 70% (Garman Family Trust); Sierra Consultants Inc., S-Corp.' },
       { from: 'trust', to: 'kiwit', kind: 'own', label: '100%', sub: 'sole member', rel: 'Sole member (100%)',
         detail: 'Garman Trust is the sole member per the KiwiT Operating Agreement (executed 2/28/2025). The SOI filed 2/27/2025 lists Zac & Lisa as members, a mismatch to reconcile with Brandon Meyer.', pdf: 'Ownership 100%.' },
       { from: 'trust', to: 'tiwik', kind: 'own', label: '100%', sub: 'sole member', rel: 'Sole member (100%)',
@@ -18810,7 +18810,7 @@
       'Membership Interest Purchase Agreement: signed 5/1/2025 via Adobe Sign (Jason Pink as other party) transferring membership interests to the trust. Original not in Drive; retrieve from MeyerPink.'
     ],
     pdfDiffs: [
-      'Sierra Consultants: doc = personal, not an LLC, no % stated. PDF = Sierra Consultants Inc. DBA Land & Structure, S-Corp, 70% owned by the trust.',
+      'Sierra Consultants: doc = personal, not an LLC. PDF = Sierra Consultants Inc. DBA Land & Structure, S-Corp, 70% owned by the trust. Zac confirmed 10/11/2026: Garman Trust owns 70%, S-corp (chart uses this).',
       'Wetumka: doc = held by Zac & Lisa personally. PDF = 100% owned by the Garman Family Trust.',
       'Stewart Street: doc = Sierra\u2019s office, NOT owned by either LLC. PDF = KiwiT leases it, Sierra is the tenant.',
       'Mono Way: doc = two buildings (14791 office, 14797 laundromat), both owned by KiwiT. PDF = one \u201cMono Village\u201d building.',
@@ -18849,7 +18849,9 @@
         var x1 = a.x + OWN_W, x2 = b.x; d = 'M' + x1 + ' ' + a.cy + ' L' + x2 + ' ' + b.cy; mx = (x1 + x2) / 2; my = a.cy;
       } else {
         var y1 = a.b, y2 = b.y, k = (y2 - y1) * 0.5;
-        d = 'M' + a.cx + ' ' + y1 + ' C' + a.cx + ' ' + (y1 + k) + ' ' + b.cx + ' ' + (y2 - k) + ' ' + b.cx + ' ' + y2; mx = (a.cx + b.cx) / 2; my = (y1 + y2) / 2;
+        d = 'M' + a.cx + ' ' + y1 + ' C' + a.cx + ' ' + (y1 + k) + ' ' + b.cx + ' ' + (y2 - k) + ' ' + b.cx + ' ' + y2;
+        var t = e.lt || 0.5, u = 1 - t;   // lt = where along the line the label sits (0..1, default the middle)
+        mx = u * u * u * a.cx + 3 * u * u * t * a.cx + 3 * u * t * t * b.cx + t * t * t * b.cx; my = u * u * u * y1 + 3 * u * u * t * (y1 + k) + 3 * u * t * t * (y2 - k) + t * t * t * y2;
       }
       var on = own.sel && own.sel.t === 'e' && own.sel.i === i ? ' on' : '';
       h += '<g class="own-e k-' + e.kind + on + '" data-own-e="' + i + '"><path class="own-hit" d="' + d + '"/><path class="own-ln" d="' + d + '"' + (e.kind === 'lease' ? ' marker-end="url(#own-arr)"' : '') + '/>';
