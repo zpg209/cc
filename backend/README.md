@@ -219,3 +219,23 @@ What it adds:
 Until it is deployed (front end v149): Home > Zac > Wetumka > Garage organization / Connex box / Landscaping work fully on the phone. Items are saved in that browser's localStorage (`cc_zlists_v1`) and each list says "Saved on this phone only". When the server answers `lists`, the phone merges, pushes its copy up, and then saves every change to the server too (Zac's and Lisa's devices then see the same lists). No front-end change is needed. Garage organization is seeded on every device with the same five items (same ids), so they never double up.
 
 Check after deploying: `…/exec?api=1&pc=PASSCODE&action=lists` should return `{"ok":true,"data":{"lists":{},"version":56}}` until a phone has opened a list.
+
+## family-chase.patch (API v57, Vault > Family Chase card review)
+Patch against the live Api.gs v55 (independent of zac-lists v56; applies before or after it). It adds two actions and touches ONE spreadsheet: **Family Chase 1982 — 2026 Review** in Drive > Financial > Bank Accounts > Chase-Personal, id `1CQLMaheQMkUf2-emOaF_6UEjemsbcNzvCXiK7gNS33c` (created 2026-10-11; `API_FC.sheetId`, with a find-by-name fallback in folder `1Qr-LloEiCbuI7vvgSEteCB11hfPDVHk9`). It never opens the Vault's Daily Spend / Accounts tabs, never calls spendadd / acctadd, and writes nothing to the CC write log. No transaction data is in this repo: the rows live only in that private Sheet.
+
+Easiest way to deploy (no merge with other patches): in the Apps Script editor add a new script file **FamilyChase** and paste all of `backend/FamilyChase.gs` into it; then in Api.gs, inside `switch (String(action || ''))`, add these two lines just above `default:` and redeploy (Deploy > Manage deployments > edit > New version):
+```
+      case 'ccrev':    return apiCcRev_(extra.all || {});      // v57
+      case 'ccrevset': return apiCcRevSet_(extra.all || {});   // v57
+```
+(Or apply `family-chase.patch`, which puts the same code at the end of Api.gs plus the two lines. Do one or the other, not both.)
+
+What it adds:
+- `ccrev` (read-only): `{ exists, sheetUrl, cols:[header names], rows:[[...]], payCols, pays:[[...]], counts:{Unreviewed,Confirmed,Changed}, total, version:57 }` from the Review and Card payments tabs. Dates come back as `yyyy-MM-dd`.
+- `ccrevset` (admin): POST JSON body `{ pc, action:'ccrevset', cid, items:[{ id, review:'Confirmed'|'Changed'|'Unreviewed', category, account:'Household'|'TiwiK'|'KiwiT'|'', note }] }` (max 500), or GET `id=&review=&category=&account=&note=&cid=` for one row. Writes ONLY the five review columns (review status, reviewed category, reviewed account, review note, reviewed at) of the rows found by id, as plain text (a leading = + - @ gets an apostrophe). `review=Unreviewed` clears the other four (Undo). LockService; the same cid within 6 h returns the first answer (`duplicate:'cid'`), and the write is idempotent anyway (it sets cells, it never appends). Unknown ids -> `not_found`, bad review/account -> `bad_value`, missing or split review columns -> `no_columns`. `dry=1` validates and changes nothing.
+
+Until it is deployed (front end v150): Finances > Family Chase (and the link at the bottom of the Vault) already works. The live server answers `ccrev` with bad_action, so the phone reads the private CSV snapshot of the Sheet (`Family Chase 1982 — 2026 Review (app snapshot).csv`, id `1dvhKKxtEejQwDAY9_kExt3pmR5-xxPUf`, same folder) through the existing passcode-checked `action=filebytes` (Financial is an allowed life-area folder). Every Confirm / change / note is kept in that phone's localStorage (`cc_fchase_v1`, the choices only) with the chip "On this phone", and the screen says "Needs the next server update to save to Drive".
+
+After deploying, no front-end change is needed: the next open gets `ccrev`, reads the Sheet itself, and sends every waiting choice with `ccrevset` (batches of up to 400, one cid each). Choices made offline queue the same way and go when the phone is back online.
+
+Check after deploying: `…/exec?api=1&pc=PASSCODE&action=ccrev` should return `"exists":true,…,"total":1338,…,"version":57`, and `…&action=ccrevset&id=<any id from the sheet>&review=Confirmed&cid=check1&dry=1` should return `"dry":true` and change nothing.
