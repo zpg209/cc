@@ -18872,8 +18872,11 @@
   // Corrections from Zac on 10/11/2026 override the doc (marked 'Zac 10/11' below): Garman Trust owns 70% of Sierra Consultants (S-corp);
   // Garman Trust owns Wetumka; KiwiT owns 105 S. Stewart St. (Sierra = tenant, NNN lease); Mono Way is one 3-unit building owned by KiwiT;
   // the KiwiT -> TiwiK lease exists for loan purposes only (TiwiK pays no rent to KiwiT), so it is a note, not an edge.
+  // full (optional) = longer name used in the List view.
+  // v148 entity row: Sierra | KiwiT | TiwiK, with 105 S. Stewart St. left under KiwiT so the owns line and Sierra's dashed tenant line stay short.
   // Layout: level = row (0 owners, 1 trust / personal, 2 entities, 3 properties & business); col = column (0..3, may be fractional).
-  // Edge kinds: own (ownership / membership), personal (held personally), op (operates / occupies), lease (lease between entities).
+  // Edge kinds: own (ownership / membership, solid copper), op (operates, solid grey), tenant (leases / occupies, dashed muted; not part of
+  // the tree, so the property sits under its owner), personal (held personally), lease (lease between entities, same row).
   // links = existing Command Center routes; docs = Drive links listed in the doc (open in the in-app viewer).
   var OWN_SRC = { id: '1oRjkENOuovJHsqptpSx3vU-fa0R5Xb1jWw4XU_Np3Iw', title: 'Ownership Structure Flowchart \u2014 Garman Entities', date: '10/11/2026',
     url: 'https://docs.google.com/document/d/1oRjkENOuovJHsqptpSx3vU-fa0R5Xb1jWw4XU_Np3Iw/edit' };
@@ -18906,7 +18909,7 @@
           ['California FAIR Plan Dwelling Fire (2025\u20132026)', ownD('1QnvimIHpXtWRAoC-ThwNkJD-mZ6CsobG')], ['FAIR Plan Dwelling Fire Endorsement', ownD('1EYyX2OSasbV5qDL2JVHP1Sx0iQ1aajIt')],
           ['Wetumka Mortgage Statement (Sept 2026)', ownD('1OjI44ZNwrObvM_1-9Dk70JQ9QC7pJig-')], ['Wetumka Improvements spreadsheet', 'https://docs.google.com/spreadsheets/d/0B1-7gBo1qYlxRF9rME0zLWZ5cVU/edit']],
         links: [['Property \u00b7 Wetumka', 're/wetumka'], ['Insurance \u00b7 Wetumka', 'insn/wetumka']] },
-      { id: 'kiwit', label: 'KiwiT LLC', sub: 'Real estate holding', kind: 'entity', level: 2, col: 0.5,
+      { id: 'kiwit', label: 'KiwiT LLC', sub: 'Real estate holding', kind: 'entity', level: 2, col: 1.25,
         facts: [['Business type (SOI)', 'Real Estate holding'], ['Members', 'Garman Trust (per operating agreement); SOI lists Zac & Lisa (mismatch)'],
           ['Owns', 'Mono Way building (3 units) and 105 S. Stewart St. (Zac 10/11)'],
           ['Mailing address', '105 S. Stewart Street, Sonora'], ['Liability', 'A claim against the real estate reaches only KiwiT\u2019s assets']],
@@ -18918,7 +18921,7 @@
           ['THREE \u2014 Policy Change 3 (Updated Building)', ownD('1nVCRTZvVocUI1py37IUY8A3x4dRfKI8n')], ['THREE \u2014 Loss Control Survey Recommendations (3/16/2026)', ownD('1vGeisPUhet58kKMhDYDclpcTJ_RMDPyb')],
           ['FTB letter \u2014 KiwiT & TiwiK (10/6/2026)', ownD('1f2P-l1g2yEllgyBtt0sQ3yO3oV2l11e9')]],
         links: [['KiwiT books', 'ent/kiwit'], ['KiwiT Business Documents', 'ent/kiwit/docs'], ['Vault \u00b7 KiwiT', 'spend/acct/KiwiT'], ['Insurance \u00b7 KiwiT', 'insn/kiwit'], ['Property \u00b7 Mono Way', 're/mono-way'], ['Property \u00b7 Stewart Street', 're/stewart-street']] },
-      { id: 'tiwik', label: 'TiwiK LLC', sub: 'Laundromat operations', kind: 'entity', level: 2, col: 2,
+      { id: 'tiwik', label: 'TiwiK LLC', sub: 'Laundromat operations', kind: 'entity', level: 2, col: 3,
         facts: [['Business type (SOI)', 'Laundry'], ['Members', 'Garman Trust (per operating agreement); SOI lists Zac & Lisa (mismatch)'],
           ['S-corp election', 'Form 2553 filed early April 2025, IRS-accepted effective 2/19/2025 (CP261 notice)'], ['Operates', 'The laundromat, in one unit of KiwiT\u2019s Mono Way building (doc: 14797 Mono Way)'],
           ['Mailing address', '105 S. Stewart Street, Sonora'], ['Liability', 'A claim against the laundromat reaches only TiwiK\u2019s assets']],
@@ -18931,29 +18934,29 @@
           ['Alliance Laundry Personal Financial Statement', ownD('1hP50stXLQItbqd-7ksfBJL_bCavQ1j2Z')], ['Huebsch loan documents (1)', ownD('19eClQwm_6-SDvj-7_nJFFc42dgwD0iFc')],
           ['Huebsch loan documents (2)', ownD('1mM2206A2ioEzJV_BhVQRagnquzg57AKU')]],
         links: [['TiwiK books', 'ent/tiwik'], ['TiwiK Business Documents', 'ent/tiwik/docs'], ['Vault \u00b7 TiwiK', 'spend/acct/TiwiK'], ['Insurance \u00b7 TiwiK', 'insn/tiwik']] },
-      { id: 'sierra', label: 'Sierra Consultants', sub: 'Engineering firm', kind: 'entity', level: 2, col: 3,
-        facts: [['Owned by', '70% Garman Trust (confirmed by Zac 10/11/2026)'], ['Tax', 'S-corp'], ['Type', 'Engineering firm (not an LLC)'], ['Owned by LLCs?', 'No, not owned by KiwiT or TiwiK'], ['Office', '105 S. Stewart Street, Sonora (mailing address for both LLCs); tenant of KiwiT, NNN lease (Zac 10/11)'],
+      { id: 'sierra', label: 'Sierra Consultants', sub: 'Engineering firm', kind: 'entity', level: 2, col: 0,
+        facts: [['Owned by', '70% Garman Trust (confirmed by Zac 10/11/2026)'], ['Tax', 'S-corp'], ['Type', 'Engineering firm (not an LLC)'], ['Owned by LLCs?', 'No, not owned by KiwiT or TiwiK'], ['Office', 'Leases office at 105 S. Stewart St. (owned by KiwiT)'], ['Lease', 'Tenant (NNN lease); not an owner of the building (Zac 10/11)'],
           ['Liability', 'Not reachable by claims against TiwiK or KiwiT']],
         pdf: 'The PDF shows \u201cSierra Consultants Inc. DBA: Land & Structure\u201d (Eng/Surv, S-Corp), 70% owned by the Garman Family Trust, and a tenant at Stewart Street (both confirmed by Zac 10/11/2026).',
         docs: [['The Hartford BOP & Umbrella (2026\u20132027)', ownD('1yZ858dqyi4A4-57504DHl1nIRfUzoLCN')], ['The Hartford Commercial Auto (2026\u20132027)', ownD('12LIGnidFPfiob-kc5xOYgnBheTdpcWq3')],
           ['The Hartford Workers Comp & Employers Liability (9/11/2026 \u2013 9/11/2027)', ownD('1cGBm0Q2LbcJYDUhfTUNybMxA-b389nsV')], ['The Hartford Unmanned Aircraft Endorsements', ownD('1mD8IZcWD7RzqnT_grAxz5hqk9mWnKPfG')],
           ['2024 PL \u2014 U.S. Specialty Insurance', ownD('12M-0tSfkmYvus-UPs7z_SXmL_CWPb8Qf')]],
         links: [['Sierra Consultants documents', 'biz/sierra'], ['Insurance \u00b7 Sierra Consultants', 'insn/sierra']] },
-      { id: 'monoway', label: 'Mono Way building', sub: '3 units', kind: 'asset', level: 3, col: 0.5,
+      { id: 'monoway', label: 'Mono Way building', full: 'Mono Way building (3 units)', sub: '3 units', kind: 'asset', level: 3, col: 1.75,
         facts: [['Owned by', 'KiwiT LLC'], ['Units', '3 units, one building (Zac 10/11/2026)'],
           ['Addresses', '14791 Mono Way \u00b7 14797 Mono Way \u00b7 third address unknown (needs cleanup)'], ['Laundromat', 'TiwiK operates the laundromat in one unit (doc: 14797 Mono Way)']],
         notes: ['The doc listed 14791 (office building) and 14797 (laundromat building) as two buildings; Zac corrected it to one 3-unit building on 10/11/2026. Open item: clean up Mono Way addresses (3 units, 3 addresses).'],
         pdf: 'The PDF shows one \u201cMono Village\u201d building (investment property) owned through KiwiT.',
         links: [['Property \u00b7 Mono Way', 're/mono-way'], ['Insurance \u00b7 Mono Way', 'insn/monoway'], ['KiwiT books', 'ent/kiwit']] },
-      { id: 'laundry', label: 'Laundromat', sub: 'One Mono Way unit', kind: 'biz', level: 3, col: 2,
+      { id: 'laundry', label: 'Laundromat', sub: 'One Mono Way unit', kind: 'biz', level: 3, col: 3,
         facts: [['Operated by', 'TiwiK LLC'], ['Location', 'One unit of the Mono Way building (doc: 14797 Mono Way)'], ['Rent', 'None: TiwiK pays no rent to KiwiT (Zac 10/11)']],
         notes: ['Shown in the app as Mono Village Laundromat (TiwiK books).'],
         docs: [['Machine Maintenance working page', 'https://docs.google.com/document/d/1kSS6PjWiWWob2PlWNabFjrpPTu4vmYh7eLovwqVErQE/edit'],
           ['Finances \u2014 Laundromat (Working Page)', 'https://docs.google.com/document/d/1sf4Kqe_a-fXxGkPJm9WU5DM8dLoDc2qVzLk-rEJ6lSc/edit'],
           ['Finances \u2014 Equipment Payoff Options', 'https://docs.google.com/document/d/1qgX-uzO4Ghd-aypEbCie00AHniWxBu3ChLwr0RSWCs4/edit']],
         links: [['TiwiK books', 'ent/tiwik'], ['Finances \u00b7 Laundromat', 'fin/laundromat'], ['Vault \u00b7 TiwiK', 'spend/acct/TiwiK']] },
-      { id: 'stewart', label: '105 S. Stewart St.', sub: 'KiwiT \u00b7 Sierra tenant', kind: 'asset', level: 3, col: 3,
-        facts: [['Owned by', 'KiwiT LLC (Zac 10/11/2026)'], ['Tenant', 'Sierra Consultants, NNN lease (Zac 10/11/2026)'], ['Use', 'Sierra Consultants\u2019 office; mailing address for both LLCs']],
+      { id: 'stewart', label: '105 S. Stewart St.', sub: 'Owned by KiwiT', kind: 'asset', level: 3, col: 0.75,
+        facts: [['Owned by', 'KiwiT LLC (Zac 10/11/2026)'], ['Tenant', 'Sierra Consultants (NNN lease)'], ['Use', 'Sierra Consultants\u2019 office; mailing address for both LLCs (105 S. Stewart Street, Sonora)']],
         notes: ['The doc said 105 S. Stewart was not owned by either LLC and the transfer into KiwiT hadn\u2019t happened; Zac corrected it on 10/11/2026. Open item: confirm the Stewart Street transfer to KiwiT was recorded.'],
         pdf: 'The PDF also shows Stewart Street as a KiwiT investment property with Sierra Consultants as tenant.',
         links: [['Property \u00b7 Stewart Street', 're/stewart-street'], ['Insurance \u00b7 Stewart Street', 'insn/stewart'], ['KiwiT books', 'ent/kiwit'], ['Sierra Consultants documents', 'biz/sierra']] }
@@ -18971,17 +18974,18 @@
       { from: 'trust', to: 'tiwik', kind: 'own', label: '100%', sub: 'sole member', rel: 'Sole member (100%)',
         detail: 'Garman Trust is the sole member per the TiwiK Operating Agreement (executed 2/28/2025). The SOI filed 2/27/2025 lists Zac & Lisa as members, the same mismatch as KiwiT.', pdf: 'Ownership 100%.' },
       // 10/11/2026: Zac confirmed the Garman Trust owns 70% of Sierra Consultants (S-corp); matches the older PDF. Not in the doc.
-      { from: 'trust', to: 'sierra', kind: 'own', label: '70%', sub: 'S-corp', lt: 0.72, rel: '70% owner \u00b7 S-corp',
+      { from: 'trust', to: 'sierra', kind: 'own', label: '70%', sub: 'S-corp', rel: '70% owner \u00b7 S-corp',
         detail: 'The Garman Trust owns 70% of Sierra Consultants, an S-corp (confirmed by Zac 10/11/2026). Sierra is not owned by either LLC.', pdf: 'Ownership 70% (Garman Family Trust); Sierra Consultants Inc., S-Corp.' },
       { from: 'kiwit', to: 'monoway', kind: 'own', label: 'owns', rel: 'Owns',
         detail: 'KiwiT LLC owns the Mono Way building: 3 units (14791 and 14797 Mono Way plus a third address still to clean up).' },
       // Zac 10/11: KiwiT owns 105 S. Stewart St. (the doc had said not owned by either LLC)
-      { from: 'kiwit', to: 'stewart', kind: 'own', label: 'owns', lt: 0.3, rel: 'Owns',
+      { from: 'kiwit', to: 'stewart', kind: 'own', label: 'owns', rel: 'Owns',
         detail: 'KiwiT LLC owns 105 S. Stewart Street, Sonora (confirmed by Zac 10/11/2026). Still to confirm the transfer to KiwiT was recorded.', pdf: 'KiwiT investment property (lease).' },
       { from: 'tiwik', to: 'laundry', kind: 'op', label: 'operates', lt: 0.3, rel: 'Operates',
         detail: 'TiwiK LLC operates the laundromat business in one unit of the Mono Way building. ' + 'Lease doc exists for loan purposes only; TiwiK pays no rent to KiwiT.' },
-      { from: 'sierra', to: 'stewart', kind: 'op', label: 'tenant', sub: 'NNN lease', rel: 'Tenant \u00b7 NNN lease',
-        detail: 'Sierra Consultants is the tenant at 105 S. Stewart Street on a triple-net (NNN) lease (Zac 10/11/2026). It is Sierra\u2019s office and the mailing address for both LLCs.',
+      // Not ownership: Sierra leases its office from KiwiT (dashed). Ownership of Stewart is Garman Trust -> KiwiT LLC -> 105 S. Stewart St.
+      { from: 'sierra', to: 'stewart', kind: 'tenant', label: 'tenant (leases)', sub: 'NNN', rel: 'Tenant (leases) \u00b7 NNN lease',
+        detail: 'Not ownership. Sierra Consultants leases its office at 105 S. Stewart Street from KiwiT LLC, the owner, on a triple-net (NNN) lease (Zac 10/11/2026). Ownership runs Garman Trust \u2192 KiwiT LLC \u2192 105 S. Stewart St.',
         pdf: 'Sierra Consultants \u201cTenant\u201d of Stewart Street.' }
     ],
     openItems: [
@@ -19008,11 +19012,12 @@
   var own = { collapsed: {}, view: null, sel: null, ptrs: {}, pinch: null, drag: null, bound: false };
   function ownNode(id) { return OWNERSHIP.nodes.filter(function (n) { return n.id === id; })[0]; }
   function ownPos(n) { var x = OWN_PAD + n.col * OWN_COLX, y = OWN_PAD + n.level * OWN_ROWY; return { x: x, y: y, cx: x + OWN_W / 2, cy: y + OWN_H / 2, b: y + OWN_H }; }
-  function ownKids(id) { return OWNERSHIP.edges.filter(function (e) { return e.from === id && e.kind !== 'lease'; }); }
+  function ownTreeKind(k) { return k !== 'lease' && k !== 'tenant'; }   // v148: lease / tenant lines are side relationships, not part of the tree
+  function ownKids(id) { return OWNERSHIP.edges.filter(function (e) { return e.from === id && ownTreeKind(e.kind); }); }
   function ownVisible() {
     var vis = {}, nodes = OWNERSHIP.nodes.slice().sort(function (a, b) { return a.level - b.level; });
     nodes.forEach(function (n) {
-      var inc = OWNERSHIP.edges.filter(function (e) { return e.to === n.id && e.kind !== 'lease'; });
+      var inc = OWNERSHIP.edges.filter(function (e) { return e.to === n.id && ownTreeKind(e.kind); });
       if (!inc.length || inc.some(function (e) { return vis[e.from] && !own.collapsed[e.from]; })) vis[n.id] = 1;
     });
     return vis;
@@ -19027,7 +19032,7 @@
     var vis = ownVisible(), h = '';
     var W = OWN_PAD * 2 + 3 * OWN_COLX + OWN_W, H = OWN_PAD * 2 + 3 * OWN_ROWY + OWN_H + 14;
     OWNERSHIP.edges.forEach(function (e, i) {
-      if (!vis[e.from] || !vis[e.to] || (e.kind !== 'lease' && own.collapsed[e.from])) return;
+      if (!vis[e.from] || !vis[e.to] || (ownTreeKind(e.kind) && own.collapsed[e.from])) return;
       var a = ownPos(ownNode(e.from)), b = ownPos(ownNode(e.to)), d, mx, my;
       if (e.kind === 'lease') {
         var x1 = a.x + OWN_W, x2 = b.x; d = 'M' + x1 + ' ' + a.cy + ' L' + x2 + ' ' + b.cy; mx = (x1 + x2) / 2; my = a.cy;
@@ -19068,7 +19073,8 @@
   }
   function ownFit() {
     var st = $('own-stage'); if (!st) return;
-    var r = st.getBoundingClientRect(), b = ownBounds(), s = Math.min(r.width / b.w, r.height / b.h, 2.2);
+    var r = st.getBoundingClientRect(); if (!r.width || !r.height) return;   // v148: hidden (List view): fit when the chart is shown
+    var b = ownBounds(), s = Math.min(r.width / b.w, r.height / b.h, 2.2);
     own.view = { s: s, x: (r.width - b.w * s) / 2 - b.x * s, y: (r.height - b.h * s) / 2 - b.y * s };
     ownApply();
   }
@@ -19194,15 +19200,123 @@
     window.addEventListener('resize', function () { if ($('screen-ownership').classList.contains('active')) ownFit(); });
   }
   function ownAllLabel() { var any = Object.keys(own.collapsed).some(function (k) { return own.collapsed[k]; }); $('own-all').textContent = any ? 'Expand all' : 'Collapse'; }
+  /* ---- v148: List view (Chart | List toggle). Built from the SAME OWNERSHIP {nodes, edges} as the chart, so the two can't disagree. ----
+     Outline: owners (roots) -> what they point to -> each node's outgoing edges. A node with several incoming lines is listed once, under
+     its first incoming edge (data order), with the other relationships added to its line; under the other parent it gets a short
+     'listed under ...' reference that jumps to it. Choice of view is kept on this phone (localStorage 'cc_own_view', default Chart). */
+  var OWN_VIEW_KEY = 'cc_own_view';
+  own.lcol = { owners: true }; own.lview = '';   // owner details start folded so the trust tree is on screen first
+  function ownGetView() { try { return localStorage.getItem(OWN_VIEW_KEY) === 'list' ? 'list' : 'chart'; } catch (e) { return 'chart'; } }
+  function ownEdgeTxt(e) { return e.label ? e.label + (e.sub ? ' \u00b7 ' + e.sub : '') : e.rel; }
+  function ownShort(n) { return n.short || String(n.label).split(' ')[0]; }
+  function ownIn(id) { return OWNERSHIP.edges.filter(function (e) { return e.to === id && ownTreeKind(e.kind); }); }
+  function ownOut(id) { return OWNERSHIP.edges.filter(function (e) { return e.from === id && ownTreeKind(e.kind); }); }
+  function ownRoots() { return OWNERSHIP.nodes.filter(function (n) { return !ownIn(n.id).length; }); }
+  function ownRootName(rs) {
+    var last = rs.map(function (n) { var w = n.label.split(' '); return w[w.length - 1]; });
+    if (rs.length > 1 && last.every(function (l) { return l === last[0]; })) return rs.map(function (n) { return n.label.split(' ')[0]; }).join(' & ') + ' ' + last[0];
+    return rs.map(function (n) { return n.label; }).join(' & ');
+  }
+  function ownLineTxt(n, e) {   // relationship text on a node's line: primary edge + the other incoming relationships
+    var t = e && e.label ? ownEdgeTxt(e) : '';
+    ownIn(n.id).forEach(function (x) { if (x !== e && x.label && ownNode(x.from).level > 0) t += (t ? ' \u00b7 ' : '') + ownShort(ownNode(x.from)) + ' ' + x.label + (x.sub ? ', ' + x.sub : ''); });
+    return t;
+  }
+  function ownFactsHtml(n, withName) {
+    var h = '';
+    if (withName) h += '<div class="own-lname">' + esc(n.label) + (n.sub ? ' <span>\u00b7 ' + esc(n.sub) + '</span>' : '') + '</div>';
+    else if (n.sub) h += '<div class="own-lsub">' + esc(n.sub) + '</div>';
+    var b = (n.facts || []).map(function (f) { return '<li><b>' + esc(f[0]) + ':</b> ' + esc(f[1]) + '</li>'; }).concat((n.notes || []).map(function (x) { return '<li class="own-lnote">' + esc(x) + '</li>'; }));
+    if (b.length) h += '<ul class="own-lul">' + b.join('') + '</ul>';
+    if (n.links && n.links.length) h += '<div class="own-chips">' + n.links.map(function (l) { return '<button type="button" class="own-chip" data-go="' + esc(l[1]) + '">' + esc(l[0]) + ' \u203a</button>'; }).join('') + '</div>';
+    if (n.docs && n.docs.length) h += '<details class="own-ldocs"><summary>Documents (' + n.docs.length + ')</summary>' + ownDocLinks(n.docs) + '</details>';
+    return h;
+  }
+  function ownItem(key, head, rel, body, kids, depth) {
+    var c = !!own.lcol[key];
+    return '<li class="own-li d' + depth + (c ? ' c' : '') + '" data-own-li="' + esc(key) + '"><button type="button" class="own-lh" data-own-lt="' + esc(key) + '" aria-expanded="' + !c + '">' +
+      '<span class="own-chev" aria-hidden="true">' + (c ? '\u25b8' : '\u25be') + '</span><span class="own-lt"><b>' + esc(head) + '</b>' + (rel ? '<span class="own-lr">: ' + esc(rel) + '</span>' : '') + '</span></button>' +
+      (c ? '' : '<div class="own-lb">' + body + '</div>' + (kids ? '<ul class="own-ol">' + kids + '</ul>' : '')) + '</li>';
+  }
+  function ownNodeItem(n, e, depth, seen) {
+    seen[n.id] = 1;
+    var kids = ownOut(n.id).map(function (x) {
+      var ch = ownNode(x.to);
+      if (ownIn(ch.id)[0] === x && !seen[ch.id]) return ownNodeItem(ch, x, depth + 1, seen);
+      var main = ownIn(ch.id)[0], under = main ? ownNode(main.from).label : '';
+      return '<li class="own-li own-ref d' + (depth + 1) + '"><button type="button" class="own-lh" data-own-jump="' + esc(ch.id) + '"><span class="own-chev" aria-hidden="true">\u21b3</span><span class="own-lt"><b>' + esc(ch.label) + '</b><span class="own-lr">: ' + esc(ownEdgeTxt(x)) + '</span>' +
+        (under ? ' <span class="own-lsee">listed under ' + esc(under) + ' \u203a</span>' : '') + '</span></button></li>';
+    }).join('');
+    return ownItem(n.id, n.full || n.label, ownLineTxt(n, e), ownFactsHtml(n, false), kids, depth);   // full = longer list-view name (optional)
+  }
+  function ownListHtml() {
+    var rs = ownRoots(), seen = {}, h = '';
+    rs.forEach(function (r) { seen[r.id] = 1; });
+    var tgt = [];   // what the owners point to (in edge order, once each)
+    rs.forEach(function (r) { ownOut(r.id).forEach(function (e) { if (tgt.indexOf(e.to) < 0) tgt.push(e.to); }); });
+    var rel = {}; rs.forEach(function (r) { ownOut(r.id).forEach(function (e) { rel[e.detail] = 1; }); });
+    var body = Object.keys(rel).map(function (d) { return '<p class="own-lrel">' + esc(d) + '</p>'; }).join('');
+    var kids = ownItem('owners', 'Owner details', rs.map(function (r) { return r.label; }).join(', '),
+      rs.map(function (r) { return '<div class="own-lroot">' + ownFactsHtml(r, true) + '</div>'; }).join(''), '', 1) +
+      tgt.map(function (id) { return ownNodeItem(ownNode(id), ownIn(id)[0], 1, seen); }).join('');
+    h += '<ul class="own-ol own-top">' + ownItem('root', ownRootName(rs) + ' \u2192 ' + tgt.map(function (id) { return ownNode(id).label; }).join(', '), '', body, kids, 0) + '</ul>';
+    var left = OWNERSHIP.nodes.filter(function (n) { return !seen[n.id]; });   // safety: anything not reached from the owners
+    if (left.length) h += '<ul class="own-ol own-top">' + left.map(function (n) { return ownNodeItem(n, null, 0, seen); }).join('') + '</ul>';
+    return h;
+  }
+  function ownListKeys() { var k = ['root', 'owners']; OWNERSHIP.nodes.forEach(function (n) { if (ownIn(n.id).length) k.push(n.id); }); return k; }
+  function ownListAnyFolded() { return ownListKeys().some(function (k) { return k !== 'owners' && own.lcol[k]; }); }   // owner details alone being folded (the default) still counts as expanded
+  function ownListAllLabel() { var any = ownListAnyFolded(); $('own-lall').textContent = any ? 'Expand all' : 'Collapse all'; }
+  function ownRenderList() {
+    $('own-list').innerHTML = ownListHtml();
+    ownListAllLabel();
+  }
+  function ownExtraHtml(v) {
+    var cav = '<p class="foot own-cav">Summary of filings and correspondence, not legal advice. Brandon Meyer should confirm the trust-member reconciliation before relying on it.</p>';
+    if (v === 'list') return '<div class="card own-lsec"><h4 class="sechead">Open items</h4>' + ownList(OWNERSHIP.openItems) + '</div>' +
+      '<div class="card own-lsec"><h4 class="sechead">Differences from the older PDF (Mar 2026)</h4>' + ownList(OWNERSHIP.pdfDiffs) + '</div>' + cav;
+    return '<details class="card own-det"><summary>Open items (from the doc)</summary>' + ownList(OWNERSHIP.openItems) + '</details>' +
+      '<details class="card own-det"><summary>Differences from the older PDF (Mar 2026)</summary>' + ownList(OWNERSHIP.pdfDiffs) + '<p class="foot">The doc is followed where they differ, except where Zac corrected it.</p></details>' + cav;
+  }
+  function ownSetView(v, save) {
+    if (save) { try { localStorage.setItem(OWN_VIEW_KEY, v); } catch (e) {} }
+    own.lview = v;
+    Array.prototype.forEach.call($('own-seg').querySelectorAll('button'), function (b) { var on = b.getAttribute('data-v') === v; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+    $('own-chartv').hidden = v !== 'chart'; $('own-listv').hidden = v !== 'list';
+    $('own-meta').textContent = 'From \u201c' + OWN_SRC.title + '\u201d (updated ' + OWN_SRC.date + ', with Zac\u2019s 10/11 corrections). ' +
+      (v === 'list' ? 'Tap a line to fold or unfold it.' : 'Tap a box or a line for details.');
+    $('own-extra').innerHTML = ownExtraHtml(v);
+    if (v === 'list') { own.sel = null; ownCard(); ownRenderList(); }
+    else { ownDraw(); ownCard(); }
+  }
+  function ownListBind() {
+    if (own.lbound) return; own.lbound = true;
+    $('own-seg').addEventListener('click', function (ev) { var b = ev.target.closest('[data-v]'); if (b && b.getAttribute('data-v') !== own.lview) { ownSetView(b.getAttribute('data-v'), true); window.scrollTo(0, 0); } });
+    $('own-lall').addEventListener('click', function () {
+      var ks = ownListKeys(), any = ownListAnyFolded();
+      own.lcol = {}; if (!any) ks.forEach(function (k) { var n = ownNode(k); if (k !== 'root' && !(n && n.level <= 1 && n.kind === 'trust')) own.lcol[k] = true; });
+      ownRenderList();
+    });
+    $('own-list').addEventListener('click', function (ev) {
+      var t = ev.target.closest('[data-own-lt]');
+      if (t) { var k = t.getAttribute('data-own-lt'); own.lcol[k] = !own.lcol[k]; ownRenderList(); var el = document.querySelector('[data-own-li="' + k + '"]'); if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: 'start' }); return; }
+      var j = ev.target.closest('[data-own-jump]');
+      if (j) {
+        var id = j.getAttribute('data-own-jump');
+        for (var p = id, g = 0; p && g < 20; g++) { own.lcol[p] = false; var e = ownIn(p)[0]; p = e ? e.from : ''; if (p && !ownIn(p).length) { own.lcol.root = false; break; } }
+        ownRenderList();
+        var li = document.querySelector('[data-own-li="' + id + '"]');
+        if (li) { li.scrollIntoView({ block: 'start', behavior: 'smooth' }); li.classList.add('flash'); setTimeout(function () { li.classList.remove('flash'); }, 1400); }
+      }
+    });
+  }
   function ownOpen() {
     $('own-back').setAttribute('data-go', 'trust');   // v147: the chart lives only on Trust & Estate (its 'Ownership chart' tile), so Back always returns there
     var src = $('own-src'); src.href = OWN_SRC.url; src.setAttribute('data-title', OWN_SRC.title);
-    $('own-meta').textContent = 'From \u201c' + OWN_SRC.title + '\u201d (updated ' + OWN_SRC.date + '). Tap a box or a line for details.';
-    $('own-extra').innerHTML = '<details class="card own-det"><summary>Open items (from the doc)</summary>' + ownList(OWNERSHIP.openItems) + '</details>' +
-      '<details class="card own-det"><summary>Differences from the older PDF (Mar 2026)</summary>' + ownList(OWNERSHIP.pdfDiffs) + '<p class="foot">The doc is followed where they differ.</p></details>' +
-      '<p class="foot own-cav">Summary of filings and correspondence, not legal advice. Brandon Meyer should confirm the trust-member reconciliation before relying on it.</p>';
-    ownBind(); ownAllLabel();
-    setTimeout(function () { ownDraw(); ownCard(); }, 0);
+    ownBind(); ownListBind(); ownAllLabel();
+    var v = ownGetView();   // v148: Chart | List, remembered on this phone (default Chart)
+    ownSetView(v, false);
+    if (v === 'chart') setTimeout(function () { ownDraw(); ownCard(); }, 0);
   }
 
   /* ---------------- Init ---------------- */

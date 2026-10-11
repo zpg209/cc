@@ -2797,7 +2797,7 @@ body.hl-busy { -webkit-user-select: none; user-select: none; cursor: grabbing; }
 .own-bar .homebtn { min-height: 40px; padding: 0 12px; font-size: 17px; font-weight: 700; }
 .own-bar #own-all { margin-left: auto; font-size: 14px; }
 .own-zoom { color: var(--muted); font-size: 12px; min-width: 40px; text-align: center; font-variant-numeric: tabular-nums; }
-.own-stage { position: relative; height: calc(100vh - 290px); height: calc(100dvh - 290px); min-height: 340px; background: #1f1f1f;
+.own-stage { position: relative; height: calc(100vh - 372px); height: calc(100dvh - 372px); min-height: 330px; background: #1f1f1f;
   border: 1px solid rgba(240,122,42,.28); border-radius: var(--radius); overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab;
   background-image: radial-gradient(rgba(255,255,255,.05) 1px, transparent 1px); background-size: 18px 18px; }
 .own-svg { display: block; }
@@ -2898,3 +2898,54 @@ body.hl-busy { -webkit-user-select: none; user-select: none; cursor: grabbing; }
 .inv-sl b { text-align: right; font-variant-numeric: tabular-nums; }
 /* v146: 'Ownership chart' tile at the top of Trust & Estate (#trust) */
 .tile.own-entry { width: 100%; min-height: 84px; margin: 0 0 12px; border-color: rgba(240,122,42,.6); box-shadow: inset 0 0 0 1px rgba(240,122,42,.15); }
+/* v148: Ownership Chart | List toggle + List view (outline built from OWNERSHIP) */
+.own-seg { margin: 0 0 10px; }
+.own-seg button { min-height: 42px; }
+#own-chartv[hidden], #own-listv[hidden] { display: none; }
+.own-lbar { display: flex; justify-content: flex-end; margin: 0 0 8px; }
+.own-lbar .homebtn { min-height: 38px; min-width: 0; font-size: 14px; padding: 0 12px; }
+#own-list { background: var(--card); border: 1px solid rgba(240,122,42,.22); border-radius: var(--radius); padding: 6px 8px 8px 4px; overflow-wrap: anywhere; }
+.own-ol { list-style: none; margin: 0; padding: 0; }
+.own-ol .own-ol { margin-left: 9px; padding-left: 9px; border-left: 1px solid rgba(240,122,42,.35); }
+.own-li { margin: 2px 0; border-radius: 4px; transition: background .4s; }
+.own-li.flash { background: rgba(240,122,42,.18); }
+.own-lh { display: flex; align-items: flex-start; gap: 6px; width: 100%; text-align: left; background: none; border: 0; color: var(--text); font: 400 15px/1.35 'Inter', sans-serif; padding: 7px 4px; cursor: pointer; }
+.own-lh:active { background: rgba(240,122,42,.08); }
+.own-chev { flex: 0 0 14px; color: var(--red); font-size: 13px; line-height: 20px; }
+.own-lt { min-width: 0; }
+.own-lt b { color: var(--red); font-weight: 700; }
+.own-li.d0 > .own-lh .own-lt b { font-family: 'Playfair Display', Georgia, serif; font-size: 19px; }
+.own-li.d1 > .own-lh .own-lt b { font-size: 16.5px; }
+.own-li.d3 > .own-lh .own-lt b, .own-li.own-ref .own-lt b { color: #f2f2f2; }
+.own-lr { color: #FFC48A; font-weight: 600; }
+.own-lsee { display: inline-block; color: var(--muted); font-size: 12.5px; }
+.own-ref .own-lh { font-size: 14px; padding: 5px 4px; }
+.own-ref .own-chev { color: var(--muted); }
+.own-lb { padding: 0 4px 6px 24px; }
+.own-lsub { color: var(--muted); font-size: 13px; margin: -2px 0 2px; }
+.own-lname { color: #FFC48A; font-weight: 700; font-size: 14px; margin: 4px 0 0; }
+.own-lname span { color: var(--muted); font-weight: 400; }
+.own-lroot { margin-bottom: 4px; }
+.own-lrel { color: var(--muted); font-size: 12.5px; line-height: 1.4; margin: 4px 0; }
+.own-lul { margin: 4px 0 2px; padding-left: 16px; font-size: 13.5px; line-height: 1.42; color: #e6e6e6; }
+.own-lul li { margin-bottom: 3px; }
+.own-lul li::marker { color: var(--red); }
+.own-lul b { color: #c9a07e; font-weight: 600; }
+.own-lnote { color: #d9c2a8; font-style: italic; }
+.own-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
+.own-chip { background: #0b0b0b; color: var(--red); border: 1px solid rgba(240,122,42,.45); border-radius: 15px; font: 600 13px/1.2 'Inter', sans-serif; padding: 7px 11px; cursor: pointer; text-align: left; }
+.own-chip:active { background: var(--btn-press); }
+.own-ldocs { margin: 6px 0 0; font-size: 13px; }
+.own-ldocs summary { color: #c9a07e; cursor: pointer; font-weight: 600; padding: 4px 0; }
+.own-lsec { padding: 10px 12px; }
+.own-lsec .sechead { font-size: 17px; }
+/* v148: tenant (leases / occupies) line = dashed, thinner, muted; legend under the chart */
+.own-e.k-tenant .own-ln { stroke: #8f8f8f; stroke-width: 1.1; stroke-dasharray: 5 4; }
+.own-e.k-tenant .own-pill { stroke: rgba(255,255,255,.3); }
+.own-e.k-tenant .own-pt { fill: #bdbdbd; font-weight: 600; }
+.own-e.k-tenant.on .own-ln { stroke: #fff; stroke-width: 2; }
+.own-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; margin: 7px 0 0; font-size: 12px; color: var(--muted); }
+.own-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.own-legend .lg { display: inline-block; width: 26px; height: 0; border-top: 2px solid #F07A2A; }
+.own-legend .lg.op { border-top-color: #8a8a8a; }
+.own-legend .lg.ten { border-top: 1.5px dashed #8f8f8f; }
