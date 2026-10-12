@@ -2711,6 +2711,7 @@
   var PT_LABEL = "Lisa's Personal Training";
   var KR_SOURCE = 'KiwiT rent';   // KiwiT's rent check (Income tab, Source = "KiwiT rent"): fifth income card, after Mono Village Laundromat
   var LS_SOURCE = 'Land & Structure Pay';   // Zac's pay (twice a month): own spend-sheet tab, same list/tap-through as Personal Training; hidden until the API returns it
+  var K1_SOURCE = 'Land & Structure K-1';   // v153: K-1 distributions from Land & Structure (Income tab, Source = "Land & Structure K-1"): own income card after Land & Structure Pay
   // Income sources that live on their own spend-sheet tab and list per-entry (description/client, method, notes)
   var DETAIL_SRC = {};
   DETAIL_SRC[PT_SOURCE] = { label: PT_LABEL, title: 'Personal Training', unit: 'payment', tab: 'pt', tabName: 'Personal Training', what: 'client payments' };
@@ -2831,6 +2832,7 @@
     s = String(s || '').trim() || 'Other';
     var l = loose(s);
     if (/personaltraining|^pt$/.test(l)) return PT_SOURCE;
+    if (/landstructure.*k1|\bk1\b|^k1/.test(l)) return K1_SOURCE;   // v153: before the L&S Pay test ("Land & Structure K-1" is not pay)
     if (/landstructure/.test(l)) return LS_SOURCE;
     if (/kiwit|monoway|hatler|standardfit|^rents?$|^rental/.test(l)) return KR_SOURCE;   // before the mono/laundr test below: "Mono Way rent" is KiwiT, not the laundromat
     for (var i = 0; i < INCOME_SOURCES.length; i++) {
@@ -2882,10 +2884,10 @@
       'Interest (mortgage)', 'Interest (other)', 'Legal & professional', 'Office expense', 'Rent (property)', 'Rent (equipment)', 'Taxes & licenses',
       'Meals (business)', 'Wages', 'Postage & shipping', 'Equipment', 'Laundry supplies', 'Mortgage', 'HOA', 'Clothing', 'Gifts', 'Charity', 'Pets', 'Education', 'Other'],
     inc: ['Gross receipts', 'Sales', 'Catering', 'Personal training', 'Laundry revenue', 'Wash & fold', 'Rental income', 'Wages', 'Salary',
-      'Interest income', 'Dividends', 'Refunds', 'Reimbursement', 'Tips', 'Other income']
+      'K-1 income', 'Interest income', 'Dividends', 'Refunds', 'Reimbursement', 'Tips', 'Other income']
   };
   // default category per income button (prefilled, editable)
-  var VCAT_INC_DEF = { "Lisa's Table": 'Gross receipts', 'Mono Village Laundromat': 'Gross receipts', 'KiwiT rent': 'Rental income', 'Land & Structure': 'Wages', 'Personal Training': 'Personal training' };
+  var VCAT_INC_DEF = { "Lisa's Table": 'Gross receipts', 'Mono Village Laundromat': 'Gross receipts', 'KiwiT rent': 'Rental income', 'Land & Structure': 'Wages', 'Land & Structure K-1': 'K-1 income', 'Personal Training': 'Personal training' };
   function vCatClean(c) { return String(c == null ? '' : c).replace(/[\[\]\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60); }
   function vCatSplit(notes) { var t = String(notes == null ? '' : notes), m = VCAT_RX.exec(t); return m ? { cat: vCatClean(m[1]), rest: t.slice(m[0].length) } : { cat: '', rest: t }; }
   function vCatJoin(cat, notes) { cat = vCatClean(cat); notes = String(notes == null ? '' : notes).trim(); return cat ? ('[' + cat + ']' + (notes ? ' ' + notes : '')).slice(0, 300) : notes; }
@@ -3093,7 +3095,8 @@
     var hh = items.filter(function (x) { return x.account === 'Household'; });
     var who = full ? Object.keys(sumBy(hh, 'who')).map(function (k) { return { name: k, amount: r2(sumBy(hh, 'who')[k]) }; })
       : (d.byWho || []).map(function (w) { return { name: w.name, amount: w.amount }; });
-    var srcNames = [PT_SOURCE, INCOME_SOURCES[0], LS_SOURCE, INCOME_SOURCES[1], KR_SOURCE];   // fixed display order; each shown even at $0
+    var srcNames = [PT_SOURCE, INCOME_SOURCES[0], LS_SOURCE, INCOME_SOURCES[1], KR_SOURCE];
+    if (income.some(function (x) { return x.source === K1_SOURCE; })) srcNames.splice(3, 0, K1_SOURCE);   // v153: L&S K-1 card right after L&S Pay (only when it has rows)   // fixed display order; each shown even at $0
     income.forEach(function (x) { if (srcNames.indexOf(x.source) < 0) srcNames.push(x.source); });
     var lsGid = ''; income.forEach(function (x) { if (x.source === LS_SOURCE && x.gid) lsGid = x.gid; });
     return {
@@ -9246,7 +9249,7 @@
     var l;
     put('mw.rent_lease', inc(/kiwit rent/i), 'rent received', incomeRoute(KR_SOURCE));
     put('ld.rev', inc(/laundromat/i), 'laundromat income logged (not a full month)', incomeRoute('Mono Village Laundromat'));
-    put('inc.w2', inc(/land & structure/i), 'pay checks logged', incomeRoute(LS_SOURCE));
+    put('inc.w2', M.income.filter(function (x) { return x.amount && x.source === LS_SOURCE; }), 'pay checks logged', incomeRoute(LS_SOURCE));
     l = inc(/stewart|sierra/i); if (l.length) put('st.rent', l, 'Stewart Street rent logged', incomeRoute(l[0].source));
     l = exp('TiwiK', /repair|plumb|maint|hvac/i); if (l.length) put('ld.rep', l, 'laundromat repairs logged', cat(l, 'TiwiK'));
     l = exp('TiwiK', /util|pg&e|pge|water|gas|sewer|trash|power/i); if (l.length) put('ld.util', l, 'laundromat utilities logged', cat(l, 'TiwiK'));
