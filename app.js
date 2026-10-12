@@ -19495,7 +19495,7 @@
       '<div class="foot">' + esc(fcLongDate(dmin)) + ' \u2013 ' + esc(fcLongDate(dmax)) + ' \u00b7 ' + fmt(N) + ' charges' + (refunds ? ' \u00b7 refunds \u2212' + money(refunds) : '') + '</div>' +
       '<div class="fc-prog" role="progressbar" aria-valuemin="0" aria-valuemax="' + N + '" aria-valuenow="' + nRev + '"><i style="width:' + pct + '%"></i></div>' +
       '<div class="fc-progl"><b>' + fmt(nRev) + ' of ' + fmt(N) + ' reviewed</b><span>' + fmt(nConf) + ' confirmed \u00b7 ' + fmt(nChg) + ' changed</span></div>' +
-      '<div class="fc-src' + (fc.srv === 'ok' ? ' live' : '') + '">' + fcSrcLine() + '</div></div>';
+      '<div class="fc-src' + (fc.srv === 'ok' ? ' live' : '') + '">' + fcSrcLine() + '</div>' + (fc.srv === 'ok' && !fcPendingN() ? '' : rvExportHtml()) + '</div>';   // v152: Export my review
     var fl = [['all', 'All'], ['unrev', 'Unreviewed'], ['maybe', 'Maybe'], ['dup', 'Duplicates']];
     var cnt = { all: N, unrev: N - nRev, maybe: rows.filter(function (x) { return x.status === 'maybe'; }).length, dup: rows.filter(function (x) { return x.status === 'dup'; }).length };
     h += '<div class="fc-filt" role="group" aria-label="Show">' + fl.map(function (f) {
@@ -19878,7 +19878,7 @@
       ((bk.bank === 'all' || bk.bank === 'Joint Savings') ? '<div class="bk-warn"><b>August Joint Savings statement is missing.</b> The September statement does not start where July ended, so that month\u2019s savings activity isn\u2019t shown here. Upload it to Bank Accounts \u203a Bank of Stockton - Joint Savings and it can be added.</div>' : '') +
       '<div class="fc-prog" role="progressbar" aria-valuemin="0" aria-valuemax="' + N + '" aria-valuenow="' + nRev + '"><i style="width:' + pct + '%"></i></div>' +
       '<div class="fc-progl"><b>' + fmt(nRev) + ' of ' + fmt(N) + ' reviewed</b><span>' + fmt(nConf) + ' confirmed \u00b7 ' + fmt(nChg) + ' changed \u00b7 ' + qDone + '/' + QV.length + ' answered</span></div>' +
-      '<div class="fc-src' + (bk.srv === 'ok' ? ' live' : '') + '">' + bkSrcLine() + '</div></div>';
+      '<div class="fc-src' + (bk.srv === 'ok' ? ' live' : '') + '">' + bkSrcLine() + '</div>' + (bk.srv === 'ok' && !bkPendingN() ? '' : rvExportHtml()) + '</div>';   // v152: Export my review
     var fl = [['all', 'All'], ['unrev', 'Unreviewed'], ['maybe', 'Maybe'], ['dup', 'Duplicates']];
     var cnt = { all: N, unrev: N - nRev, maybe: sel.filter(function (x) { return x.status === 'maybe'; }).length, dup: sel.filter(function (x) { return x.status === 'dup'; }).length };
     h += '<div class="fc-filt" role="group" aria-label="Show">' + fl.map(function (f) {
@@ -20093,6 +20093,53 @@
     } else if (e.target && e.target.id === 'bk-note' && bk.form) bk.form.note = e.target.value;
   });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && bk.sel) bkSheetClose(); });
+
+  /* ---------------- v152: Export my review (Family Chase + Bank Review) ---------------- */
+  // The server cannot take review choices yet (ccrev/ccrevset = API v57 not deployed), so they live only in this phone's
+  // localStorage. 'Export my review' puts BOTH screens' choices (cc_fchase_v1 + cc_bank_v1) in one JSON file and opens the
+  // share sheet (Mail / Messages / AirDrop / Save to Files / Drive); browsers without file sharing download it instead.
+  // Read-only: nothing is sent to the server and nothing on the phone changes. Rows are named by id (+ date / merchant /
+  // amount when that screen's rows are loaded) so the import can be matched to the private review Sheets.
+  function rvExportData() {
+    var now = new Date(), out = { app: 'Command Center', kind: 'review-export', version: 152, exportedAt: now.toISOString(), device: navigator.userAgent, sheets: {} };
+    [['fchase', FC_KEY, fc, '1CQLMaheQMkUf2-emOaF_6UEjemsbcNzvCXiK7gNS33c', fcRow], ['bank', BK_KEY, bk, '15WDC1pzG8X4yVjogg_RlExwhgnnt_pveipANRMDceyc', bkRow]].forEach(function (S) {
+      var raw = null; try { raw = JSON.parse(localStorage.getItem(S[1]) || 'null'); } catch (e) { raw = null; }
+      var edits = (raw && raw.edits && typeof raw.edits === 'object') ? raw.edits : {}, items = [], c = { Confirmed: 0, Changed: 0, Answered: 0, Unreviewed: 0 };
+      Object.keys(edits).forEach(function (id) {
+        var e = edits[id] || {}, x = S[2].rows ? S[4](id) : null;
+        c[e.rs] = (c[e.rs] || 0) + 1;
+        items.push({ id: id, review: e.rs || '', category: e.rc || '', account: e.ra || '', note: e.rn || '', at: e.t ? new Date(e.t).toISOString() : '',
+          date: x ? x.date : '', merchant: x ? x.merchant : '', amount: x ? x.amount : '', suggestedCategory: x ? x.category : '', suggestedAccount: x ? x.account : '' });
+      });
+      out.sheets[S[0]] = { sheetId: S[3], storageKey: S[1], count: items.length, counts: c, items: items };
+    });
+    return out;
+  }
+  function rvExport(btn) {
+    var d = rvExportData(), n = d.sheets.fchase.count + d.sheets.bank.count;
+    var p2 = function (v) { return (v < 10 ? '0' : '') + v; }, t = new Date();
+    var name = 'cc-review-export-' + t.getFullYear() + '-' + p2(t.getMonth() + 1) + '-' + p2(t.getDate()) + '-' + p2(t.getHours()) + p2(t.getMinutes()) + '.json';
+    var text = JSON.stringify(d, null, 1), blob = new Blob([text], { type: 'application/json' }), msg = btn && btn.parentNode ? btn.parentNode.querySelector('.rv-expmsg') : null;
+    var say = function (h) { if (msg) { msg.innerHTML = h; msg.hidden = false; } };
+    if (!n) return say('Nothing to export: no choices are saved on this phone. (Choices stay on the device and browser where you made them; export from there.)');
+    var sum = d.sheets.fchase.count + ' Family Chase + ' + d.sheets.bank.count + ' Bank Review choices';
+    var file = null; try { file = new File([blob], name, { type: 'application/json' }); } catch (e) { file = null; }
+    if (file && daCanShareFiles(file)) {
+      try {
+        navigator.share({ files: [file], title: 'Command Center review export' }).then(function () { say('Sent ' + esc(name) + ' (' + sum + '). Your choices are still on this phone.'); },
+          function (err) { if (err && err.name === 'AbortError') return; daSaveBlob({ blob: blob, name: name }); say('Couldn\u2019t open the share sheet, so ' + esc(name) + ' was downloaded (' + sum + ').'); });
+        return;
+      } catch (e) {}
+    }
+    daSaveBlob({ blob: blob, name: name });
+    say('Downloaded ' + esc(name) + ' (' + sum + '). Email it to yourself or put it in Drive.');
+  }
+  function rvExportHtml() {
+    var n = 0; [FC_KEY, BK_KEY].forEach(function (k) { try { var r = JSON.parse(localStorage.getItem(k) || 'null'); n += r && r.edits ? Object.keys(r.edits).length : 0; } catch (e) {} });
+    return '<div class="rv-exp"><button type="button" class="fc-bulk rv-expbtn" data-rv-export="1">\u2191 Export my review' + (n ? ' (' + n + ' choice' + (n === 1 ? '' : 's') + ')' : '') + '</button>' +
+      '<div class="foot rv-expnote">One file with your Family Chase and Bank Review choices. Tap, then pick Mail (send it to yourself) or Save to Files / Drive.</div><div class="foot rv-expmsg" hidden></div></div>';
+  }
+  document.addEventListener('click', function (e) { var b = e.target && e.target.closest && e.target.closest('[data-rv-export]'); if (b) { e.preventDefault(); rvExport(b); } });
 
   /* ---------------- Zac > Wetumka project to-do lists (#zl/<slug>) ---------------- */
   // v149: Home folder 'Zac' (f:zac) > folder 'Wetumka' (f:wetumka) > three list tiles: Garage organization, Connex box, Landscaping.

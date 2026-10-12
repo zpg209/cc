@@ -3126,3 +3126,9 @@ body.fc-modal { overflow: hidden; }
 .fc-chip.bk-a-transfer { color: #9fb6d9; border-color: rgba(159,182,217,.4); }
 .fc-chip.bk-bank { color: var(--muted); }
 .bk-segs { grid-template-columns: repeat(4, 1fr); }
+
+/* v152: Export my review (Family Chase + Bank Review) */
+.rv-exp { margin-top: 10px; }
+.rv-exp .rv-expbtn { margin: 0; }
+.rv-expnote { margin-top: 4px; }
+.rv-expmsg { margin-top: 6px; color: #8fe0aa; }
