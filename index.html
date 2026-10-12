@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lora:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=150">
+<link rel="stylesheet" href="app.css?v=151">
 </head>
 <body>
   <div class="bg"></div>
@@ -210,6 +210,14 @@
     <div class="fc-sheet" id="fc-sheet" hidden></div>
   </section>
 
+  <!-- ============ BANK REVIEW (#bankrev) — v151 ============ -->
+  <section id="screen-bankrev" class="screen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" data-go="fin">&lsaquo; Back</button><h2>Bank Review</h2></div>
+    <div id="bk-body"><div class="loading">Loading…</div></div>
+    <div class="fc-undo" id="bk-undo" hidden></div>
+    <div class="fc-sheet" id="bk-sheet" hidden></div>
+  </section>
+
   <!-- ============ MONO FOLD (#mf / #mf/home|orders|customers|design) ============ -->
   <section id="screen-mf" class="screen">
     <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><h2 id="mf-title">Mono Fold</h2></div>
@@ -398,6 +406,6 @@
     <div class="own-card" id="own-card" hidden></div>
   </section>
 
-  <script src="app.js?v=150"></script>
+  <script src="app.js?v=151"></script>
 </body>
 </html>

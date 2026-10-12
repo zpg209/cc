@@ -14,7 +14,7 @@
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', ovKey: '', invAcct: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
-  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring', 'ownership', 'zl', 'fchase'];
+  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring', 'ownership', 'zl', 'fchase', 'bankrev'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -574,6 +574,7 @@
     if (name === 'hiring') hiringOpen();
     if (name === 'zl') zlOpen();               // v149: Zac > Wetumka to-do lists
     if (name === 'fchase') fcOpen(); else if (fc.sel) fcSheetClose();   // v150: Vault > Family Chase card review
+    if (name === 'bankrev') bkOpen(); else if (bk.sel) bkSheetClose();   // v151: Vault > Bank Review (Bank of Stockton)
     if (name === 'ownership') ownOpen();     // v141: interactive ownership chart
     if (name === 'doc') { state.docKey = String(route || '').replace(/^#/, ''); openDocScreen(qparams(R.query)); }
     else restoreScroll(String(route || '').replace(/^#/, '') || 'home');
@@ -3919,6 +3920,7 @@
       h += vSec('summary', 'summary', 'Summary', cashAbove(tkCash, '<span class="amt ' + (monthNet >= 0 ? 'pos' : 'neg') + '">' + signedMoney(monthNet) + '</span>', 'TiwiK cash'), calcRoute('month-net'), sumBody);   // v138
       h += vgEnd();
       h += '<button class="linkrow smallrow fc-vlink"' + goAttr('fchase') + '>Family Chase card review &rsaquo;</button>';   // v150
+      h += '<button class="linkrow smallrow fc-vlink bk-vlink"' + goAttr('bankrev') + '>Bank Review \u00b7 Bank of Stockton &rsaquo;</button>';   // v151
 
 
       if (d.missingColumns && d.missingColumns.length) h += '<div class="foot">Columns not found: ' + esc(d.missingColumns.join(', ')) + '</div>';
@@ -19701,6 +19703,397 @@
   });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && fc.sel) fcSheetClose(); });
 
+  /* ---------------- Vault > Bank Review: Bank of Stockton household accounts (#bankrev) ---------------- */
+  // v151: Finances > Bank Review (next to Family Chase; also a link at the bottom of the Vault). Joint Checking ··2618, Lisa Checking
+  // ··2626 and Joint Savings ··4811, Jan–Sep 2026. Tabs per account; 'Needs clarification' questions at the top (type an answer on
+  // each); spend grouped by category with totals; transfers, card payments, payroll and deposits grouped separately and never
+  // counted as spend. Tap a row to Confirm it or change its category / account (Household · TiwiK · KiwiT · Transfer) and add a note;
+  // 'Confirm all' per group and 'Apply to all N <merchant>' have Undo.
+  // NO transaction data lives in this file or the repo. Rows come from Zac's Drive through the passcode-checked server only:
+  //  - after backend/family-chase.patch (API v57, sheet=bank) is deployed: ccrev&sheet=bank reads 'Bank of Stockton — 2026 Review'
+  //    (Review + Questions tabs) and ccrevset with sheet:'bank' writes ONLY their five review columns, by id, with a cid;
+  //  - until then: action=filebytes returns the private CSV snapshot of that Sheet, and every choice / answer stays on this phone
+  //    (localStorage 'cc_bank_v1', choices only) until the server answers. Nothing here ever writes to the Vault.
+  var BK_SNAPSHOT_ID = '11YSBbk-VmsLHmfomsYcIAJkcPyQb5smV';   // Drive: 'Bank of Stockton — 2026 Review (app snapshot).csv' (private; read via the server)
+  var BK_SHEET_URL = 'https://docs.google.com/spreadsheets/d/15WDC1pzG8X4yVjogg_RlExwhgnnt_pveipANRMDceyc/edit';
+  var BK_KEY = 'cc_bank_v1', BK_ACCTS = ['Household', 'TiwiK', 'KiwiT', 'Transfer'];
+  var BK_BANKS = [['Joint Checking', 'Joint Checking', '2618'], ['Lisa Checking', 'Lisa Checking', '2626'], ['Joint Savings', 'Joint Savings', '4811']];
+  var bk = { rows: null, qs: [], src: '', srv: 'unk', st: 'idle', msg: '', bank: 'all', f: 'all', acct: 'all', open: { '__q': true }, sel: '', selQ: '',
+    pushing: false, local: null, undo: null, undoT: 0, retryT: 0, form: null };
+  function bkLocal() {
+    if (bk.local) return bk.local;
+    var raw = null; try { raw = JSON.parse(localStorage.getItem(BK_KEY) || 'null'); } catch (e) { raw = null; }
+    bk.local = { edits: (raw && raw.edits && typeof raw.edits === 'object') ? raw.edits : {} };
+    return bk.local;
+  }
+  function bkSaveLocal() { try { localStorage.setItem(BK_KEY, JSON.stringify(bkLocal())); return true; } catch (e) { return false; } }
+  function bkPendingN() { return Object.keys(bkLocal().edits).length; }
+  function bkParse(cols, rows) {
+    var ix = {}; (cols || []).forEach(function (h, i) { ix[String(h).trim().toLowerCase()] = i; });
+    var g = function (r, k) { var i = ix[k]; return i == null || r[i] == null ? '' : String(r[i]).trim(); };
+    return (rows || []).filter(function (r) { return r && g(r, 'id'); }).map(function (r) {
+      var rs = g(r, 'review status'); rs = /^(confirmed|changed|answered)$/i.test(rs) ? rs.charAt(0).toUpperCase() + rs.slice(1).toLowerCase() : 'Unreviewed';
+      return { id: g(r, 'id'), date: g(r, 'date').slice(0, 10), merchant: g(r, 'merchant') || g(r, 'question'), amount: Number(g(r, 'amount')) || 0,
+        type: (g(r, 'type') || 'purchase').toLowerCase(), category: g(r, 'category'), account: g(r, 'account'), status: g(r, 'status').toLowerCase(),
+        match: g(r, 'match note'), rs: rs, rc: g(r, 'reviewed category'), ra: g(r, 'reviewed account'), rn: g(r, 'review note'), rat: g(r, 'reviewed at'),
+        auto: g(r, 'auto note'), q: g(r, 'question'), bank: g(r, 'bank account'), stmt: g(r, 'statement'), dir: g(r, 'direction'),
+        detail: g(r, 'detail'), rel: g(r, 'related ids').split(/\s+/).filter(Boolean), relAmt: Number(g(r, 'related amount')) || 0 };
+    });
+  }
+  function bkSetData(rows, qs, src) {
+    bk.rows = rows.filter(function (x) { return x.type !== 'question'; });
+    bk.qs = (qs || []).concat(rows.filter(function (x) { return x.type === 'question'; })).map(function (q) { q.type = 'question'; if (!q.merchant) q.merchant = q.q; return q; });
+    bk.src = src; bk.st = 'ok';
+  }
+  function bkFromSrv(j) {
+    if (!(j && j.ok && j.data && j.data.exists && j.data.sheet === 'bank')) return false;   // an older server ignores sheet= : never take its rows
+    bk.srv = 'ok';
+    bkSetData(bkParse(j.data.cols, j.data.rows), bkParse(j.data.qCols, j.data.qs), 'sheet');
+    return true;
+  }
+  function bkLoad() {
+    if (bk.st === 'load') return;
+    bk.st = 'load'; bk.msg = ''; bkRender();
+    var fail = function (err) {
+      if (err instanceof AuthError) { setPc(''); return lock('Passcode changed. Enter the new one.'); }
+      bk.st = 'err'; bk.msg = friendly(err); bkRender();
+    };
+    var snapshot = function () {
+      return apiRaw('filebytes', { id: BK_SNAPSHOT_ID }).then(function (j) {
+        if (!j || !j.ok || !j.data || !j.data.b64) { bk.st = 'none'; bk.msg = (j && (j.message || j.error)) || ''; return bkRender(); }
+        var t = fcCsv(fcB64Text(j.data.b64));
+        bkSetData(bkParse(t[0] || [], t.slice(1)), [], 'snapshot');
+        bkRender();
+      });
+    };
+    apiRaw('ccrev', { sheet: 'bank' }).then(function (j) {
+      if (bkFromSrv(j)) { bkRender(); bkPush(); return; }
+      bk.srv = (j && j.ok && j.data && j.data.exists && j.data.sheet !== 'bank') ? 'old' : (j && j.error && j.error !== 'bad_action' ? 'err' : 'na');
+      return snapshot();
+    }).then(null, fail);
+  }
+  function bkEff(x) {
+    var e = bkLocal().edits[x.id];
+    var rs = e ? e.rs : x.rs, rc = e ? e.rc : x.rc, ra = e ? e.ra : x.ra, rn = e ? e.rn : x.rn;
+    rs = rs || 'Unreviewed';
+    return { rs: rs, cat: (rs !== 'Unreviewed' && rc) || x.category || 'Other', acct: (rs !== 'Unreviewed' && ra) || x.account || '?', note: rs !== 'Unreviewed' ? (rn || '') : '', pending: !!e };
+  }
+  function bkIsMove(x, ef) { return ef.acct === 'Transfer' || /^(deposit|payroll|interest)$/.test(x.type); }
+  function bkInBank(x) { return bk.bank === 'all' || x.bank === bk.bank; }
+  function bkVisible(x, ef) {
+    if (!bkInBank(x)) return false;
+    if (bk.f === 'unrev' && ef.rs !== 'Unreviewed') return false;
+    if (bk.f === 'maybe' && x.status !== 'maybe') return false;
+    if (bk.f === 'dup' && x.status !== 'dup') return false;
+    if (bk.acct !== 'all' && ef.acct !== bk.acct) return false;
+    return true;
+  }
+  function bkRow(id) { var r = (bk.rows || []).concat(bk.qs || []); for (var i = 0; i < r.length; i++) if (r[i].id === id) return r[i]; return null; }
+  function bkQsVisible() {
+    return (bk.qs || []).filter(function (q) {
+      if (bk.bank === 'all') return true;
+      return q.rel.some(function (id) { var x = bkRow(id); return x && x.bank === bk.bank; });
+    });
+  }
+  function bkAcctChip(a) {
+    if (a === 'Transfer') return '<span class="fc-chip bk-a-transfer">Transfer</span>';
+    return fcAcctChip(a, '');
+  }
+  function bkBankShort(b) { return b === 'Joint Checking' ? 'JC \u00b7\u00b72618' : b === 'Lisa Checking' ? 'Lisa \u00b7\u00b72626' : b === 'Joint Savings' ? 'Sav \u00b7\u00b74811' : b; }
+  function bkRevChip(ef) {
+    return (ef.rs === 'Confirmed' ? '<span class="fc-chip fc-ok">\u2713 Confirmed</span>' : ef.rs === 'Changed' ? '<span class="fc-chip fc-chg">\u270e Changed</span>' :
+      ef.rs === 'Answered' ? '<span class="fc-chip fc-ok">\u2713 Answered</span>' : '') +
+      (ef.pending && bk.srv !== 'ok' ? '<span class="fc-chip fc-pend">On this phone</span>' : ef.pending ? '<span class="fc-chip fc-pend">Sending\u2026</span>' : '');
+  }
+  function bkSrcLine() {
+    var n = bkPendingN();
+    if (bk.src === 'sheet') return bk.srv === 'ok' ? (n ? n + ' choice' + (n === 1 ? '' : 's') + ' waiting to send to the review Sheet.' : 'Live from the review Sheet in Drive. Every choice and answer is saved there.')
+      : n + ' choice' + (n === 1 ? '' : 's') + ' saved on this phone; they send when the server can be reached.';
+    return '<b>Needs the next server update to save to Drive.</b> Rows are a read-only copy of the review Sheet (10/11). Your choices and answers' +
+      (n ? ' (' + n + ' so far)' : '') + ' are kept on this phone and are sent to the Sheet automatically once the review update (API v57) is deployed.';
+  }
+  function bkOpen() { bkLocal(); if (!bk.rows) bkLoad(); else { bkRender(); bkRefreshSrv(); } }
+  function bkRefreshSrv() {
+    if (bk.srv === 'ok') return bkPush();
+    if (bk.src === 'snapshot' || bk.srv === 'err') apiRaw('ccrev', { sheet: 'bank' }).then(function (j) { if (bkFromSrv(j)) { bkRender(); bkPush(); } }).then(null, function () {});
+  }
+  function bkGroupHtml(g, E, kind) {
+    var key = kind + ':' + g.name, open = !!bk.open[key], other = g.name === 'Other', unrev = g.items.filter(function (x) { return E[x.id].rs === 'Unreviewed'; }).length;
+    var h = '<div class="card fc-grp' + (open ? ' open' : '') + (other ? ' fc-other' : '') + (kind === 'mv' ? ' bk-mv' : '') + (g.rev === g.items.length ? ' fc-done' : '') + '">' +
+      '<button type="button" class="fc-ghead" data-bk-tog="' + esc(key) + '" aria-expanded="' + open + '"><span class="n">' + esc(g.name) +
+      (other ? ' <em class="fc-needs">Needs sorting</em>' : '') + (g.rev === g.items.length ? ' <span class="fc-chk">\u2713</span>' : '') + '<small>' + g.items.length + ' row' + (g.items.length === 1 ? '' : 's') + ' \u00b7 ' + g.rev + ' reviewed</small></span>' +
+      fcAmt(Math.round(g.total * 100) / 100) + '<i class="chev">&rsaquo;</i>' +
+      '<span class="fc-gbar"><i style="width:' + (g.items.length ? Math.round(g.rev / g.items.length * 100) : 0) + '%"></i></span></button>';
+    if (open) {
+      h += '<div class="fc-gbody">' + (unrev ? '<button type="button" class="fc-all" data-bk-all="' + esc(key) + '">Confirm all ' + unrev + ' unreviewed in ' + esc(g.name) + '</button>' : '') +
+        g.items.slice().sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; }).map(function (x) { return bkRowHtml(x, E[x.id]); }).join('') + '</div>';
+    }
+    return h + '</div>';
+  }
+  function bkRowHtml(x, ef) {
+    return '<button type="button" class="fc-row' + (ef.rs !== 'Unreviewed' ? ' rev' : '') + '" data-bk-id="' + esc(x.id) + '"><span class="d">' + esc(fcDate(x.date)) + '</span>' +
+      '<span class="m"><b>' + esc(x.merchant) + '</b><span class="fc-chips">' + (bk.bank === 'all' ? '<span class="fc-chip bk-bank">' + esc(bkBankShort(x.bank)) + '</span>' : '') +
+      bkAcctChip(ef.acct) + fcStatusChip(x) + (x.q && ef.rs === 'Unreviewed' ? '<span class="fc-chip fc-maybe">Question</span>' : '') + bkRevChip(ef) + '</span>' +
+      (ef.note ? '<small class="fc-rn">' + esc(ef.note) + '</small>' : '') + '</span>' + fcAmt(x.amount) + '</button>';
+  }
+  function bkGroups(list, E) {
+    var groups = {}, order = [];
+    list.forEach(function (x) {
+      var c = E[x.id].cat || 'Other';
+      if (!groups[c]) { groups[c] = { name: c, items: [], total: 0, rev: 0 }; order.push(c); }
+      groups[c].items.push(x); groups[c].total += x.amount; if (E[x.id].rs !== 'Unreviewed') groups[c].rev++;
+    });
+    return order.map(function (c) { return groups[c]; }).sort(function (a, b) { return (Math.abs(b.total) - Math.abs(a.total)) || (a.name < b.name ? -1 : 1); });
+  }
+  function bkRender() {
+    var box = $('bk-body'); if (!box) return;
+    if (!$('screen-bankrev').classList.contains('active')) return;
+    if (bk.st === 'load' || (bk.st === 'idle' && !bk.rows)) { box.innerHTML = '<div class="loading">Loading the bank review\u2026</div>'; return; }
+    if (bk.st === 'err' && !bk.rows) { box.innerHTML = '<div class="error">' + esc(bk.msg || 'Could not load.') + '<div class="retry"><button class="navbtn" data-bk-retry="1">Try again</button></div></div>'; return; }
+    if (bk.st === 'none' && !bk.rows) {
+      box.innerHTML = '<div class="card fc-top fc-none"><h3>Bank Review \u00b7 Bank of Stockton</h3><div class="fc-need">Needs the next server update</div>' +
+        '<div class="foot">The statements stay private in Drive and only reach the app through the Command Center server. This screen fills in once the review update (API v57) is deployed.' + (bk.msg ? ' (' + esc(bk.msg) + ')' : '') + '</div></div>';
+      return;
+    }
+    var all = bk.rows, E = {};
+    all.forEach(function (x) { E[x.id] = bkEff(x); });
+    var sel = all.filter(bkInBank), spend = 0, inflow = 0, outflow = 0, nRev = 0, nConf = 0, nChg = 0, dmin = '', dmax = '';
+    sel.forEach(function (x) {
+      var ef = E[x.id];
+      if (x.amount < 0) inflow += -x.amount; else outflow += x.amount;
+      if (!bkIsMove(x, ef)) spend += x.amount;
+      if (ef.rs !== 'Unreviewed') nRev++; if (ef.rs === 'Confirmed') nConf++; if (ef.rs === 'Changed') nChg++;
+      if (!dmin || x.date < dmin) dmin = x.date; if (!dmax || x.date > dmax) dmax = x.date;
+    });
+    var QV = bkQsVisible(), qDone = QV.filter(function (q) { return bkEff(q).rs !== 'Unreviewed'; }).length;
+    var N = sel.length, pct = N ? Math.round(nRev / N * 1000) / 10 : 0;
+    var tabs = [['all', 'All', all.length]].concat(BK_BANKS.map(function (b) { return [b[0], b[1] + ' \u00b7\u00b7' + b[2], all.filter(function (x) { return x.bank === b[0]; }).length]; }));
+    var h = '<div class="fc-filt bk-tabs" role="tablist" aria-label="Account">' + tabs.map(function (t) {
+      return '<button type="button" role="tab" class="fc-fb' + (bk.bank === t[0] ? ' on' : '') + '" data-bk-bank="' + esc(t[0]) + '" aria-selected="' + (bk.bank === t[0]) + '">' + esc(t[1]) + ' <small>' + fmt(t[2]) + '</small></button>';
+    }).join('') + '</div>';
+    h += '<div class="card fc-top"><h3>' + (bk.bank === 'all' ? 'Bank of Stockton \u00b7 3 household accounts' : esc(bk.bank) + ' \u00b7 Bank of Stockton') + '</h3>' +
+      '<div class="fc-net"><span>Spend after transfers</span><b class="amt-out">' + money(spend) + '</b></div>' +
+      '<div class="bk-io"><span>In <b class="amt-in">' + money(inflow) + '</b></span><span>Out <b>' + money(outflow) + '</b></span></div>' +
+      '<div class="foot">' + esc(fcLongDate(dmin)) + ' \u2013 ' + esc(fcLongDate(dmax)) + ' \u00b7 ' + fmt(N) + ' rows \u00b7 statements reconcile to the cent</div>' +
+      ((bk.bank === 'all' || bk.bank === 'Joint Savings') ? '<div class="bk-warn"><b>August Joint Savings statement is missing.</b> The September statement does not start where July ended, so that month\u2019s savings activity isn\u2019t shown here. Upload it to Bank Accounts \u203a Bank of Stockton - Joint Savings and it can be added.</div>' : '') +
+      '<div class="fc-prog" role="progressbar" aria-valuemin="0" aria-valuemax="' + N + '" aria-valuenow="' + nRev + '"><i style="width:' + pct + '%"></i></div>' +
+      '<div class="fc-progl"><b>' + fmt(nRev) + ' of ' + fmt(N) + ' reviewed</b><span>' + fmt(nConf) + ' confirmed \u00b7 ' + fmt(nChg) + ' changed \u00b7 ' + qDone + '/' + QV.length + ' answered</span></div>' +
+      '<div class="fc-src' + (bk.srv === 'ok' ? ' live' : '') + '">' + bkSrcLine() + '</div></div>';
+    var fl = [['all', 'All'], ['unrev', 'Unreviewed'], ['maybe', 'Maybe'], ['dup', 'Duplicates']];
+    var cnt = { all: N, unrev: N - nRev, maybe: sel.filter(function (x) { return x.status === 'maybe'; }).length, dup: sel.filter(function (x) { return x.status === 'dup'; }).length };
+    h += '<div class="fc-filt" role="group" aria-label="Show">' + fl.map(function (f) {
+      return '<button type="button" class="fc-fb' + (bk.f === f[0] ? ' on' : '') + '" data-bk-f="' + f[0] + '" aria-pressed="' + (bk.f === f[0]) + '">' + f[1] + ' <small>' + fmt(cnt[f[0]]) + '</small></button>';
+    }).join('') + '</div>';
+    var al = [['all', 'All accounts']].concat(BK_ACCTS.map(function (a) { return [a, a === 'Transfer' ? 'Transfer' : acctLabel(a)]; }));
+    if (sel.some(function (x) { return E[x.id].acct === '?'; })) al.push(['?', 'Account ?']);
+    h += '<div class="fc-filt fc-af" role="group" aria-label="Account">' + al.map(function (a) {
+      var n = a[0] === 'all' ? N : sel.filter(function (x) { return E[x.id].acct === a[0]; }).length;
+      return '<button type="button" class="fc-fb' + (bk.acct === a[0] ? ' on' : '') + '" data-bk-a="' + esc(a[0]) + '" aria-pressed="' + (bk.acct === a[0]) + '">' + esc(a[1]) + ' <small>' + fmt(n) + '</small></button>';
+    }).join('') + '</div>';
+    // Needs clarification (questions)
+    if (QV.length) {
+      var qo = !!bk.open['__q'], qOpen = QV.length - qDone;
+      h += '<div class="card fc-grp bk-q' + (qo ? ' open' : '') + '"><button type="button" class="fc-ghead" data-bk-tog="__q" aria-expanded="' + qo + '"><span class="n">Needs clarification' +
+        (qOpen ? ' <em class="fc-needs">' + qOpen + ' open</em>' : ' <span class="fc-chk">\u2713</span>') + '<small>' + QV.length + ' questions \u00b7 tap one to type an answer</small></span><span></span><i class="chev">&rsaquo;</i></button>';
+      if (qo) h += '<div class="fc-gbody">' + QV.map(function (q) {
+        var ef = bkEff(q);
+        return '<button type="button" class="fc-row bk-qrow' + (ef.rs !== 'Unreviewed' ? ' rev' : '') + '" data-bk-q="' + esc(q.id) + '"><span class="d">' + (ef.rs !== 'Unreviewed' ? '<span class="fc-chk">\u2713</span>' : '?') + '</span>' +
+          '<span class="m"><b>' + esc(q.merchant) + '</b><small class="fc-rn">' + esc(q.detail) + '</small><span class="fc-chips"><span class="fc-chip">' + q.rel.length + ' row' + (q.rel.length === 1 ? '' : 's') + '</span>' + bkRevChip(ef) + '</span>' +
+          (ef.note ? '<small class="fc-rn bk-ans">Answer: ' + esc(ef.note) + '</small>' : '') + '</span><span class="amt">' + (q.relAmt ? money(q.relAmt) : '') + '</span></button>';
+      }).join('') + '</div>';
+      h += '</div>';
+    }
+    var vis = sel.filter(function (x) { return bkVisible(x, E[x.id]); });
+    var sp = vis.filter(function (x) { return !bkIsMove(x, E[x.id]); }), mv = vis.filter(function (x) { return bkIsMove(x, E[x.id]); });
+    var gs = bkGroups(sp, E), gm = bkGroups(mv, E);
+    h += '<div class="bk-sec"><span>Spend</span><b>' + money(sp.reduce(function (s, x) { return s + x.amount; }, 0)) + '</b></div>';
+    if (!gs.length) h += '<div class="card"><div class="foot">No spend rows match this filter.</div></div>';
+    gs.forEach(function (g) { h += bkGroupHtml(g, E, 'sp'); });
+    h += '<div class="bk-sec bk-sec-mv"><span>Transfers, card payments &amp; deposits</span><small>not spending \u00b7 not counted above</small></div>';
+    if (!gm.length) h += '<div class="card"><div class="foot">No transfer rows match this filter.</div></div>';
+    gm.forEach(function (g) { h += bkGroupHtml(g, E, 'mv'); });
+    h += '<a class="linkrow sheetbtn" href="' + BK_SHEET_URL + '" data-title="Bank of Stockton \u2014 2026 Review">Open the review Sheet</a>' +
+      '<div class="foot fc-foot">Nothing here is in the Vault\u2019s Daily Spend yet. Review first; adding to the Vault is a separate step.</div>';
+    box.innerHTML = h;
+    bkSheetPaint();
+  }
+  // ---- one row / one question ----
+  function bkCats() {
+    var seen = {}, out = [];
+    VCAT_START.exp.concat(FC_EXTRA_CATS, ['Loan payment', 'Kids/Education', 'Taxes & licenses', 'Income tax', 'Bank fees', 'Car & truck', 'Pets'], (bk.rows || []).map(function (x) { return x.category; }),
+      (bk.rows || []).map(function (x) { return bkEff(x).cat; })).forEach(function (c) {
+      c = String(c || '').trim(); var k = c.toLowerCase(); if (c && !seen[k]) { seen[k] = 1; out.push(c); }
+    });
+    return out;
+  }
+  function bkSugHtml(q) {
+    q = String(q || '').trim().toLowerCase();
+    var list = bkCats().filter(function (c) { return !q || c.toLowerCase().indexOf(q) >= 0; });
+    if (q) list.sort(function (a, b) { return (a.toLowerCase().indexOf(q) === 0 ? 0 : 1) - (b.toLowerCase().indexOf(q) === 0 ? 0 : 1); });
+    return list.slice(0, q ? 10 : 14).map(function (c) { return '<button type="button" class="fc-sugb" data-bk-cat="' + esc(c) + '">' + esc(c) + '</button>'; }).join('');
+  }
+  function bkSheetOpen(id) { bk.sel = id; bk.form = null; bkSheetPaint(); }
+  function bkSheetClose() { bk.sel = ''; bk.form = null; var s = $('bk-sheet'); if (s) { s.hidden = true; s.innerHTML = ''; } document.body.classList.remove('fc-modal'); }
+  function bkSheetPaint() {
+    var s = $('bk-sheet'), x = bk.sel && bkRow(bk.sel);
+    if (!s) return;
+    if (!x) { s.hidden = true; s.innerHTML = ''; document.body.classList.remove('fc-modal'); return; }
+    var ef = bkEff(x), h;
+    if (x.type === 'question') {
+      if (!bk.form) bk.form = { note: ef.note };
+      var rel = x.rel.map(bkRow).filter(Boolean);
+      h = '<div class="fc-sheet-in" role="dialog" aria-modal="true" aria-label="Question"><div class="fc-sh-top"><div><b>' + esc(x.merchant) + '</b><small>Needs clarification \u00b7 ' + rel.length + ' related row' + (rel.length === 1 ? '' : 's') + '</small></div>' +
+        '<div class="fc-sh-amt">' + (x.relAmt ? '<span class="amt">' + money(x.relAmt) + '</span>' : '') + '</div><button type="button" class="fc-x" data-bk-close="1" aria-label="Close">\u00d7</button></div>' +
+        '<div class="bk-qdetail">' + esc(x.detail) + '</div>' +
+        '<label class="fc-lbl" for="bk-note">Your answer</label><textarea class="tk-input fc-in fc-note bk-ansin" id="bk-note" maxlength="1000" rows="3" placeholder="Type what this is (e.g. who, why, which account)">' + esc(bk.form.note) + '</textarea>' +
+        '<div class="fc-acts"><button type="button" class="fc-primary" data-bk-answer="1">Save answer</button>' + (ef.rs !== 'Unreviewed' ? '<button type="button" class="fc-sec" data-bk-unrev="1">Mark open again</button>' : '') + '</div>' +
+        (ef.rs !== 'Unreviewed' ? '<div class="foot">Answered' + (ef.pending ? (bk.srv === 'ok' ? ' \u00b7 sending\u2026' : ' \u00b7 on this phone, waiting for the server update') : x.rat ? ' \u00b7 ' + esc(x.rat) : '') + '</div>' : '') +
+        (rel.length ? '<div class="fc-lbl">Related rows</div><div class="bk-rel">' + rel.map(function (y) { return bkRowHtml(y, bkEff(y)); }).join('') + '</div>' : '') + '</div>';
+      s.innerHTML = h; s.hidden = false; document.body.classList.add('fc-modal'); return;
+    }
+    if (!bk.form) bk.form = { cat: ef.cat, acct: ef.acct === '?' ? '' : ef.acct, note: ef.note, q: '' };
+    var F = bk.form, key = fcKey(x.merchant), same = (bk.rows || []).filter(function (y) { return fcKey(y.merchant) === key; });
+    var acctBtns = BK_ACCTS.map(function (a) { return '<button type="button" class="fc-seg' + (F.acct === a ? ' on' : '') + '" data-bk-acct="' + a + '" aria-pressed="' + (F.acct === a) + '">' + esc(a === 'Transfer' ? 'Transfer' : acctLabel(a)) + '</button>'; }).join('');
+    var changed = F.cat !== (x.category || 'Other') || F.acct !== (x.account === '?' ? '' : x.account);
+    var qs = (bk.qs || []).filter(function (q) { return q.rel.indexOf(x.id) >= 0; });
+    h = '<div class="fc-sheet-in" role="dialog" aria-modal="true" aria-label="Review row">' +
+      '<div class="fc-sh-top"><div><b>' + esc(x.merchant) + '</b><small>' + esc(fcLongDate(x.date)) + ' \u00b7 ' + esc(x.bank) + ' \u00b7 ' + esc(x.type) + (x.stmt ? ' \u00b7 statement ' + esc(x.stmt) : '') + '</small></div>' +
+      '<div class="fc-sh-amt">' + fcAmt(x.amount) + '</div><button type="button" class="fc-x" data-bk-close="1" aria-label="Close">\u00d7</button></div>' +
+      '<div class="fc-sh-sug">Suggested: <b>' + esc(x.category || 'Other') + '</b> \u00b7 ' + bkAcctChip(x.account) + (x.amount < 0 ? ' \u00b7 money in' : '') + '</div>' +
+      (x.auto ? '<div class="fc-sh-why">' + esc(x.auto) + '</div>' : '') +
+      (x.q ? '<div class="fc-sh-match maybe"><b>Question</b>' + esc(x.q) + qs.map(function (q) { return ' <button type="button" class="bk-qlink" data-bk-q="' + esc(q.id) + '">Answer \u201c' + esc(q.merchant) + '\u201d \u203a</button>'; }).join('') + '</div>' : '') +
+      (x.status === 'dup' || x.status === 'maybe' ? '<div class="fc-sh-match ' + x.status + '"><b>' + (x.status === 'dup' ? 'Already in the Vault' : 'Maybe already in the Vault') + '</b>' + esc(x.match || 'Matched a Vault row.') + '</div>' :
+        x.match ? '<div class="fc-sh-why">' + esc(x.match) + '</div>' : '') +
+      '<label class="fc-lbl" for="bk-cat">Category</label><input class="tk-input fc-in" id="bk-cat" type="text" maxlength="60" autocomplete="off" value="' + esc(F.cat) + '">' +
+      '<div class="fc-sugs" id="bk-sugs">' + bkSugHtml(F.q) + '</div>' +
+      '<div class="fc-lbl">Account</div><div class="fc-segs bk-segs">' + acctBtns + '</div>' +
+      '<label class="fc-lbl" for="bk-note">Note</label><textarea class="tk-input fc-in fc-note" id="bk-note" maxlength="1000" rows="2" placeholder="Optional">' + esc(F.note) + '</textarea>' +
+      '<div class="fc-acts"><button type="button" class="fc-primary" data-bk-save="1">' + (changed ? 'Save change' : '\u2713 Confirm') + '</button>' +
+      (ef.rs !== 'Unreviewed' ? '<button type="button" class="fc-sec" data-bk-unrev="1">Mark unreviewed</button>' : '') + '</div>' +
+      (same.length > 1 ? '<button type="button" class="fc-bulk" data-bk-bulk="1">Apply to all ' + same.length + ' ' + esc(fcKeyLabel(key)) + ' rows</button>' : '') +
+      (ef.rs !== 'Unreviewed' ? '<div class="foot">Reviewed: ' + esc(ef.rs) + (ef.pending ? (bk.srv === 'ok' ? ' \u00b7 sending\u2026' : ' \u00b7 on this phone, waiting for the server update') : x.rat ? ' \u00b7 ' + esc(x.rat) : '') + '</div>' : '') +
+      '</div>';
+    s.innerHTML = h; s.hidden = false; document.body.classList.add('fc-modal');
+  }
+  function bkFormRead() { var F = bk.form; if (!F) return; var c = $('bk-cat'), n = $('bk-note'); if (c) F.cat = c.value.replace(/\s+/g, ' ').trim(); if (n) F.note = n.value.trim(); }
+  function bkDecide(x, cat, acct, note) {
+    cat = cat || x.category || 'Other';
+    var sa = x.account === '?' ? '' : x.account;
+    return { rs: (cat === (x.category || 'Other') && (acct || '') === sa) ? 'Confirmed' : 'Changed', rc: cat, ra: acct || '', rn: note || '' };
+  }
+  function bkApply(changes, label) {
+    var L = bkLocal(), prev = [], t = Date.now();
+    changes.forEach(function (c) {
+      var x = bkRow(c.id); if (!x) return;
+      var ef = bkEff(x);
+      prev.push({ id: c.id, rs: ef.rs, rc: ef.rs === 'Unreviewed' || x.type === 'question' ? '' : ef.cat, ra: ef.rs === 'Unreviewed' || x.type === 'question' ? '' : (ef.acct === '?' ? '' : ef.acct), rn: ef.note });
+      var srvSame = c.rs === x.rs && (c.rs === 'Unreviewed' || ((c.rc || '') === (x.rc || '') && (c.ra || '') === (x.ra || '') && (c.rn || '') === (x.rn || '')));
+      if (srvSame) { delete L.edits[c.id]; return; }
+      L.edits[c.id] = { rs: c.rs, rc: c.rs === 'Unreviewed' ? '' : c.rc, ra: c.rs === 'Unreviewed' ? '' : c.ra, rn: c.rs === 'Unreviewed' ? '' : c.rn, t: t };
+    });
+    bkSaveLocal();
+    if (label) bkUndoShow(label, prev);
+    bkRender(); bkPushSoon();
+  }
+  function bkUndoShow(label, prev) {
+    var u = $('bk-undo'); if (!u) return;
+    bk.undo = prev; clearTimeout(bk.undoT);
+    u.innerHTML = '<span>' + esc(label) + '</span><button type="button" data-bk-undo="1">Undo</button>'; u.hidden = false;
+    bk.undoT = setTimeout(function () { u.hidden = true; bk.undo = null; }, 12000);
+  }
+  function bkUndo() {
+    var prev = bk.undo; if (!prev) return;
+    bk.undo = null; clearTimeout(bk.undoT); $('bk-undo').hidden = true;
+    bkApply(prev.map(function (p) { return { id: p.id, rs: p.rs, rc: p.rc, ra: p.ra, rn: p.rn }; }), '');
+  }
+  function bkPushSoon() { clearTimeout(bk.retryT); bk.retryT = setTimeout(bkPush, 600); }
+  function bkPush() {
+    if (bk.srv !== 'ok') return;
+    if (navigator.onLine === false) { bk.srv = 'err'; return bkRender(); }
+    if (bk.pushing) return;
+    var L = bkLocal(), ids = Object.keys(L.edits).slice(0, 400);
+    if (!ids.length) return;
+    var sent = {}; ids.forEach(function (id) { sent[id] = L.edits[id].t; });
+    var items = ids.map(function (id) { var e = L.edits[id]; return { id: id, review: e.rs, category: e.rc, account: e.ra, note: e.rn }; });
+    var cid = 'bk' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    bk.pushing = true;
+    apiPostRaw('ccrevset', { sheet: 'bank', cid: cid, items: items }, 60000).then(function (j) {
+      bk.pushing = false;
+      if (j && j.error === 'bad_action') { bk.srv = 'na'; return bkRender(); }
+      if (!j || !j.ok || !j.data || j.data.sheet !== 'bank') {
+        if (j && j.error === 'not_found' && j.data == null && /Unknown id/.test(String(j.message || ''))) {
+          (String(j.message || '').replace(/^.*?:\s*/, '').split(/,\s*/)).forEach(function (id) { if (L.edits[id] && sent[id]) delete L.edits[id]; });
+          bkSaveLocal(); bkRender(); return bkPushSoon();
+        }
+        bk.srv = 'err'; bkRender(); bk.retryT = setTimeout(function () { bk.srv = 'ok'; bkPush(); }, 30000); return;
+      }
+      (j.data.items || []).forEach(function (it) {
+        var x = bkRow(it.id); if (x) { x.rs = it.review || 'Unreviewed'; x.rc = it.category || ''; x.ra = it.account || ''; x.rn = it.note || ''; x.rat = it.at || ''; }
+        if (L.edits[it.id] && L.edits[it.id].t === sent[it.id]) delete L.edits[it.id];
+      });
+      bkSaveLocal(); bkRender();
+      if (bkPendingN()) bkPushSoon();
+    }, function (err) {
+      bk.pushing = false;
+      if (err instanceof AuthError) { setPc(''); return lock('Passcode changed. Enter the new one.'); }
+      bk.srv = 'err'; bkRender(); bk.retryT = setTimeout(function () { bk.srv = 'ok'; bkPush(); }, 30000);
+    });
+  }
+  window.addEventListener('online', function () { if (bk.srv === 'err' && bk.src === 'sheet') { bk.srv = 'ok'; bkPush(); } });
+  document.addEventListener('click', function (e) {
+    var scr = $('screen-bankrev'); if (!scr || !scr.contains(e.target)) return;
+    var t = e.target, b, sh = $('bk-sheet');
+    if ((b = t.closest('[data-bk-retry]'))) { bk.st = 'idle'; return bkLoad(); }
+    if ((b = t.closest('[data-bk-undo]'))) return bkUndo();
+    if (sh && sh.contains(t)) {
+      var x = bkRow(bk.sel); if (!x) return bkSheetClose();
+      if (t === sh || t.closest('[data-bk-close]')) return bkSheetClose();
+      if ((b = t.closest('[data-bk-q]'))) { bkFormRead(); return bkSheetOpen(b.getAttribute('data-bk-q')); }
+      if ((b = t.closest('[data-bk-id]'))) return bkSheetOpen(b.getAttribute('data-bk-id'));
+      if ((b = t.closest('[data-bk-answer]'))) {
+        bkFormRead(); var ans = bk.form.note;
+        bkSheetClose(); return bkApply([{ id: x.id, rs: ans ? 'Answered' : 'Unreviewed', rc: '', ra: '', rn: ans }], ans ? 'Answer saved' : 'Answer cleared');
+      }
+      if ((b = t.closest('[data-bk-cat]'))) { bkFormRead(); bk.form.cat = b.getAttribute('data-bk-cat'); bk.form.q = ''; return bkSheetPaint(); }
+      if ((b = t.closest('[data-bk-acct]'))) { bkFormRead(); var a = b.getAttribute('data-bk-acct'); bk.form.acct = bk.form.acct === a ? '' : a; return bkSheetPaint(); }
+      if ((b = t.closest('[data-bk-save]'))) {
+        bkFormRead(); var d = bkDecide(x, bk.form.cat, bk.form.acct, bk.form.note);
+        bkSheetClose(); return bkApply([{ id: x.id, rs: d.rs, rc: d.rc, ra: d.ra, rn: d.rn }], (d.rs === 'Confirmed' ? 'Confirmed ' : 'Changed ') + x.merchant.slice(0, 28));
+      }
+      if ((b = t.closest('[data-bk-unrev]'))) { bkSheetClose(); return bkApply([{ id: x.id, rs: 'Unreviewed', rc: '', ra: '', rn: '' }], x.type === 'question' ? 'Marked open' : 'Marked unreviewed'); }
+      if ((b = t.closest('[data-bk-bulk]'))) {
+        bkFormRead(); var k = fcKey(x.merchant), F = bk.form, list = [];
+        bk.rows.forEach(function (y) { if (fcKey(y.merchant) === k) { var dd = bkDecide(y, F.cat, F.acct, y.id === x.id ? F.note : bkEff(y).note); list.push({ id: y.id, rs: dd.rs, rc: dd.rc, ra: dd.ra, rn: dd.rn }); } });
+        bkSheetClose(); return bkApply(list, F.cat + (F.acct ? ' \u00b7 ' + F.acct : '') + ' for all ' + list.length + ' ' + fcKeyLabel(k) + ' rows');
+      }
+      return;
+    }
+    if ((b = t.closest('[data-bk-bank]'))) { bk.bank = b.getAttribute('data-bk-bank'); return bkRender(); }
+    if ((b = t.closest('[data-bk-f]'))) { bk.f = b.getAttribute('data-bk-f'); return bkRender(); }
+    if ((b = t.closest('[data-bk-a]'))) { bk.acct = b.getAttribute('data-bk-a'); return bkRender(); }
+    if ((b = t.closest('[data-bk-tog]'))) { var g = b.getAttribute('data-bk-tog'); bk.open[g] = !bk.open[g]; return bkRender(); }
+    if ((b = t.closest('[data-bk-all]'))) {
+      var key = b.getAttribute('data-bk-all'), kind = key.slice(0, 2), cat = key.slice(3), ch = [];
+      bk.rows.forEach(function (y) {
+        var ef = bkEff(y); if (ef.cat !== cat || ef.rs !== 'Unreviewed' || !bkVisible(y, ef) || (bkIsMove(y, ef) ? 'mv' : 'sp') !== kind) return;
+        ch.push({ id: y.id, rs: 'Confirmed', rc: ef.cat, ra: ef.acct === '?' ? '' : ef.acct, rn: '' });
+      });
+      if (ch.length) bkApply(ch, 'Confirmed ' + ch.length + ' in ' + cat);
+      return;
+    }
+    if ((b = t.closest('[data-bk-q]'))) return bkSheetOpen(b.getAttribute('data-bk-q'));
+    if ((b = t.closest('[data-bk-id]'))) return bkSheetOpen(b.getAttribute('data-bk-id'));
+  });
+  document.addEventListener('input', function (e) {
+    if (e.target && e.target.id === 'bk-cat' && bk.form) {
+      bk.form.cat = e.target.value; bk.form.q = e.target.value;
+      var s = $('bk-sugs'); if (s) s.innerHTML = bkSugHtml(bk.form.q);
+      var x = bkRow(bk.sel), btn = document.querySelector('[data-bk-save]');
+      if (x && btn) btn.textContent = (bk.form.cat.trim() !== (x.category || 'Other') || bk.form.acct !== (x.account === '?' ? '' : x.account)) ? 'Save change' : '\u2713 Confirm';
+    } else if (e.target && e.target.id === 'bk-note' && bk.form) bk.form.note = e.target.value;
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && bk.sel) bkSheetClose(); });
+
   /* ---------------- Zac > Wetumka project to-do lists (#zl/<slug>) ---------------- */
   // v149: Home folder 'Zac' (f:zac) > folder 'Wetumka' (f:wetumka) > three list tiles: Garage organization, Connex box, Landscaping.
   // Each opens a checklist: tap the circle to check / uncheck, add by typing or with the mic, tap an item to edit it (text + optional
@@ -20025,6 +20418,7 @@
     'fin/overview':   { label: FIN_PAGES.overview.label, go: 'fin/overview', sub: FIN_PAGES.overview.sub },
     'fin/laundromat': { label: FIN_PAGES.laundromat.label, go: 'fin/laundromat', sub: FIN_PAGES.laundromat.sub },
     'fchase':         { label: 'Family Chase', go: 'fchase', sub: 'Southwest card \u00b7\u00b7 1982 \u00b7 review', cls: 'fchase-entry' },   // v150: card review (#fchase)
+    'bankrev':        { label: 'Bank Review', go: 'bankrev', sub: 'Bank of Stockton \u00b7 3 accounts \u00b7 review', cls: 'fchase-entry bankrev-entry' },   // v151: (#bankrev)
     'fin/invest':     { label: FIN_PAGES.invest.label, go: 'fin/invest', sub: FIN_PAGES.invest.sub }   // v121: Finances > Investments (slots in after Ledger on saved layouts too)
   };
   var HL_DEFAULT = {
@@ -20036,7 +20430,7 @@
     'f:zac': ['f:wetumka'],                                            // v149
     'f:wetumka': ['zl/garage', 'zl/connex', 'zl/landscaping'],         // v149   // v130: saved layouts get it too (hlNormalize slots new items into their default folder)
     biz: ['f:archive'],   // v147: the v141-v146 'ownership' tile is gone from Business (it now lives only on Trust & Estate); hlNormalize drops it from saved layouts
-    fin: ['fin/ledger', 'fin/invest', 'fchase'],   // v150: Family Chase after Investments (hlNormalize slots it into saved layouts too)
+    fin: ['fin/ledger', 'fin/invest', 'fchase', 'bankrev'],   // v150: Family Chase after Investments (hlNormalize slots it into saved layouts too)
     'f:archive': HL_TO_ARCHIVE.slice()
   };
   var hl = { f: null, dragging: false, edit: false };

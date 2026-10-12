@@ -1,11 +1,11 @@
---- a/Api.gs	2026-10-11 15:31:30.548433238 -0700
-+++ b/Api.gs	2026-10-11 15:31:30.564433238 -0700
+--- a/Api.gs
++++ b/Api.gs
 @@ -44,6 +44,8 @@
   *   POST <exec>  body {"pc":..,"action":"lisareq","id":"lr..","text":"..","section":"lt|pt|both"[,"ts":<ms>][,"dry":1]}   (v54: append ONE change request (Status New); the id never adds twice)
   *   GET  <exec>?api=1&pc=123456&action=lisareqset&id=lr..[&status=New|In%20progress|Needs%20your%20OK|Done][&reply=..][&reply_mode=append][&dry=1]   (v54, for Lisa's Assistant: set Status / Reply (+ Updated) of ONE request; POST for long replies)  |  action=lisareqdel&id=lr..  (test cleanup: only rows whose Request starts with TEST)
   *   GET  <exec>?api=1&pc=123456&action=bizreceipts   (v55: read-only; {canUpload:true, ents:{kiwit|tiwik:{folderId,folderUrl,count}}, version:55}; the phone uses it to switch "Add receipt" from Drive to the camera)
-+ *   GET  <exec>?api=1&pc=123456&action=ccrev   (v57: rows of the 'Family Chase 1982 — 2026 Review' Sheet, Review + Card payments tabs; read-only)
-+ *   POST <exec>  body {"pc":..,"action":"ccrevset","cid":"abc","items":[{"id":..,"review":"Confirmed|Changed|Unreviewed","category":..,"account":"Household|TiwiK|KiwiT|","note":..}]}   (admin v57: writes ONLY the 5 review columns of those rows; GET with id=&review=&category=&account=&note=&cid= for one row; dry=1)
++ *   GET  <exec>?api=1&pc=123456&action=ccrev[&sheet=fchase|bank]   (v57: rows of a review Sheet - fchase = 'Family Chase 1982 — 2026 Review' (Review + Card payments), bank = 'Bank of Stockton — 2026 Review' (Review + Questions); read-only)
++ *   POST <exec>  body {"pc":..,"action":"ccrevset","sheet":"fchase|bank","cid":"abc","items":[{"id":..,"review":"Confirmed|Changed|Answered|Unreviewed","category":..,"account":"Household|TiwiK|KiwiT|Transfer|","note":..}]}   (admin v57: writes ONLY the 5 review columns of those rows; GET with sheet=&id=&review=&category=&account=&note=&cid= for one row; dry=1)
   *   POST <exec>  body (text/plain JSON) {"pc":..,"action":"bizreceiptsave","cid":"abc","ent":"kiwit|tiwik","date":"2026-10-09","amount":"42.50","merchant":"..","mime":"image/jpeg|image/png|application/pdf","data":"<base64>"[,"dry":1]}   (admin v55: file ONE receipt in <entity> > Expenses > Receipts; never overwrites; the same cid never files twice)
   *   GET  <exec>?api=1&pc=123456&action=entity&entity=kiwit|tiwik&offset=0   (KiwiT LLC / TiwiK LLC separate books for one month; read-only)
   *   GET  <exec>?api=1&pc=123456&action=entitytax&entity=kiwit|tiwik&year=2026[&format=csv]   (year-to-date category summary for taxes; csv = {csv, filename})
@@ -13,56 +13,78 @@
        case 'debtdel':   return apiRowDel_('debts', extra.all || {});
        case 'healthmetrics':   return apiHealthMetrics_();                     // v51: Fitness & Health > Medical > Health Metrics
        case 'healthmetricset': return apiHealthMetricSet_(extra.all || {});
-+      case 'ccrev':    return apiCcRev_(extra.all || {});      // v57: Family Chase review sheet (read-only)
-+      case 'ccrevset': return apiCcRevSet_(extra.all || {});   // v57: review columns of that sheet only (by id, cid)
++      case 'ccrev':    return apiCcRev_(extra.all || {});      // v57: review sheets (Family Chase / Bank of Stockton), read-only
++      case 'ccrevset': return apiCcRevSet_(extra.all || {});   // v57: review columns of those sheets only (by id, cid)
        default:      return { error: 'bad_action' };
      }
    } catch (err) {
-@@ -8994,3 +8998,133 @@
+@@ -8994,3 +8998,168 @@
      lock.releaseLock();
    }
  }
 +
 +/* ======================================================================= */
-+/* Family Chase review — action=ccrev / ccrevset (API v57)                 */
++/* Review sheets — action=ccrev / ccrevset (API v57)                       */
++/*   sheet=fchase (default): Family Chase card review                      */
++/*   sheet=bank:             Bank of Stockton review (3 household accounts)*/
 +/* ======================================================================= */
 +/*
-+ * The sheet: "Family Chase 1982 — 2026 Review" (Lisa's Chase Southwest card ending 1982), in
-+ * Drive > Financial > Bank Accounts > Chase-Personal. Tab "Review", row 1 = headers:
++ * Only the sheets listed in API_REV can be read or written (no arbitrary ids from the phone).
++ *
++ * fchase: "Family Chase 1982 — 2026 Review" (Lisa's Chase Southwest card ending 1982), in
++ *   Drive > Financial > Bank Accounts > Chase-Personal. Tab "Review", row 1 = headers:
 + *   id | date | merchant | amount | type | category | account | status | match note |
 + *   review status | reviewed category | reviewed account | review note | reviewed at | auto note | suggested category | account sure | foreign | statement
-+ * Tab "Card payments": id | date | amount | description | statement.
++ *   Tab "Card payments" (read-only): id | date | amount | description | statement.
++ * bank: "Bank of Stockton — 2026 Review" (Joint Checking, Lisa Checking, Joint Savings), in Drive > Financial > Bank Accounts.
++ *   Tab "Review": the same first 14 columns, then auto note | question | bank account | statement | direction.
++ *   Tab "Questions" (also writable, same five review columns): id | question | detail | related ids | related count | related amount | review status ... reviewed at.
++ *   account may also be 'Transfer'; review may also be 'Answered' (Questions).
 + *
-+ * ccrev (read-only): { exists, sheetUrl, cols:[...], rows:[[...]], payCols, pays:[[...]], counts, version:57 }
++ * ccrev (read-only): { sheet, exists, sheetUrl, cols:[...], rows:[[...]], payCols, pays:[[...]], qCols, qs:[[...]], counts, version:57 }
 + * ccrevset (admin): sets the five review columns (review status, reviewed category, reviewed account, review note,
-+ *   reviewed at) of rows found by id. NOTHING else in the sheet is written: no other column, no other tab, no Vault tab,
-+ *   no CC write log. GET: id, review, category, account, note, cid [, dry=1]. POST JSON body:
-+ *   { pc, action:'ccrevset', cid, items:[{ id, review:'Unreviewed'|'Confirmed'|'Changed', category, account, note }] } (max 500).
++ *   reviewed at) of rows found by id in the Review tab (or the Questions tab for sheet=bank). NOTHING else is written:
++ *   no other column, no other tab, no Vault tab, no CC write log. GET: sheet, id, review, category, account, note, cid [, dry=1].
++ *   POST JSON body: { pc, action:'ccrevset', sheet, cid, items:[{ id, review, category, account, note }] } (max 500).
 + *   review = 'Unreviewed' clears the other four fields (Undo). The same cid within 6 h returns the first answer
 + *   (CacheService), and every write is idempotent anyway (it sets values, it never appends).
 + */
-+var API_FC = {
-+  sheetId: '1CQLMaheQMkUf2-emOaF_6UEjemsbcNzvCXiK7gNS33c',
-+  folderId: '1Qr-LloEiCbuI7vvgSEteCB11hfPDVHk9',          // fallback: find the sheet by name in this folder
-+  name: 'Family Chase 1982 \u2014 2026 Review',
-+  tab: 'Review', payTab: 'Card payments',
-+  review: ['review status', 'reviewed category', 'reviewed account', 'review note', 'reviewed at'],
-+  statuses: ['Unreviewed', 'Confirmed', 'Changed'],
-+  accounts: ['Household', 'TiwiK', 'KiwiT'],
-+  maxBatch: 500, version: 57
++var API_REV = {
++  fchase: {
++    key: 'fchase',
++    sheetId: '1CQLMaheQMkUf2-emOaF_6UEjemsbcNzvCXiK7gNS33c',
++    folderId: '1Qr-LloEiCbuI7vvgSEteCB11hfPDVHk9',          // fallback: find the sheet by name in this folder
++    name: 'Family Chase 1982 \u2014 2026 Review',
++    tab: 'Review', payTab: 'Card payments', qTab: '',
++    statuses: ['Unreviewed', 'Confirmed', 'Changed'],
++    accounts: ['Household', 'TiwiK', 'KiwiT']
++  },
++  bank: {
++    key: 'bank',
++    sheetId: '15WDC1pzG8X4yVjogg_RlExwhgnnt_pveipANRMDceyc',
++    folderId: '1WfXqvke-m3KwtHUicPI8HMhUd4H112NA',
++    name: 'Bank of Stockton \u2014 2026 Review',
++    tab: 'Review', payTab: '', qTab: 'Questions',
++    statuses: ['Unreviewed', 'Confirmed', 'Changed', 'Answered'],
++    accounts: ['Household', 'TiwiK', 'KiwiT', 'Transfer']
++  }
 +};
++var API_REV_COMMON = { review: ['review status', 'reviewed category', 'reviewed account', 'review note', 'reviewed at'], maxBatch: 500, version: 57 };
++var API_FC = API_REV.fchase;   // (older name)
++function apiRevCfg_(p) { var k = String((p && p.sheet) || 'fchase').trim().toLowerCase(); return API_REV.hasOwnProperty(k) ? API_REV[k] : null; }
 +
-+function apiFcOpen_() {
++function apiFcOpen_(cfg) {
++  cfg = cfg || API_FC;
 +  var ss = null;
-+  try { ss = SpreadsheetApp.openById(API_FC.sheetId); } catch (e) { ss = null; }
++  try { ss = SpreadsheetApp.openById(cfg.sheetId); } catch (e) { ss = null; }
 +  if (!ss) {
 +    try {
-+      var it = DriveApp.getFolderById(API_FC.folderId).getFilesByName(API_FC.name);
++      var it = DriveApp.getFolderById(cfg.folderId).getFilesByName(cfg.name);
 +      while (it.hasNext()) { var f = it.next(); if (f.getMimeType() === MimeType.GOOGLE_SHEETS) { ss = SpreadsheetApp.openById(f.getId()); break; } }
 +    } catch (e2) { ss = null; }
 +  }
 +  if (!ss) return null;
-+  var sh = ss.getSheetByName(API_FC.tab) || ss.getSheets()[0];
++  var sh = ss.getSheetByName(cfg.tab) || ss.getSheets()[0];
 +  return { ss: ss, sh: sh };
 +}
 +function apiFcCell_(v) {
@@ -72,26 +94,25 @@
 +}
 +function apiFcHead_(row) { return row.map(function (h) { return String(h || '').trim().toLowerCase(); }); }
 +
-+/** action=ccrev (read-only) */
++/** action=ccrev (read-only) [&sheet=fchase|bank] */
++function apiFcTab_(ss, name) {
++  var cols = [], rows = [], sh = name ? ss.getSheetByName(name) : null;
++  if (sh) {
++    var v = sh.getDataRange().getValues();
++    if (v.length) { cols = apiFcHead_(v[0]); for (var j = 1; j < v.length; j++) if (String(v[j][0] || '').trim()) rows.push(v[j].map(apiFcCell_)); }
++  }
++  return { cols: cols, rows: rows };
++}
 +function apiCcRev_(p) {
-+  var w = apiFcOpen_();
-+  if (!w) return { ok: true, data: { exists: false, version: API_FC.version } };
-+  var vals = w.sh.getDataRange().getValues();
-+  if (!vals.length) return { ok: true, data: { exists: true, sheetUrl: w.ss.getUrl(), cols: [], rows: [], version: API_FC.version } };
-+  var cols = apiFcHead_(vals[0]), rows = [], counts = {};
-+  for (var i = 1; i < vals.length; i++) {
-+    if (!String(vals[i][0] || '').trim()) continue;
-+    var r = vals[i].map(apiFcCell_);
-+    rows.push(r);
-+    var st = String(r[cols.indexOf('review status')] || 'Unreviewed') || 'Unreviewed';
-+    counts[st] = (counts[st] || 0) + 1;
-+  }
-+  var pcols = [], pays = [], ps = w.ss.getSheetByName(API_FC.payTab);
-+  if (ps) {
-+    var pv = ps.getDataRange().getValues();
-+    if (pv.length) { pcols = apiFcHead_(pv[0]); for (var j = 1; j < pv.length; j++) if (String(pv[j][0] || '').trim()) pays.push(pv[j].map(apiFcCell_)); }
-+  }
-+  return { ok: true, data: { exists: true, sheetUrl: w.ss.getUrl(), cols: cols, rows: rows, payCols: pcols, pays: pays, counts: counts, total: rows.length, version: API_FC.version } };
++  var cfg = apiRevCfg_(p);
++  if (!cfg) return { error: 'bad_value', message: 'unknown sheet' };
++  var w = apiFcOpen_(cfg);
++  if (!w) return { ok: true, data: { sheet: cfg.key, exists: false, version: API_REV_COMMON.version } };
++  var main = apiFcTab_(w.ss, w.sh.getName()), counts = {}, rs = main.cols.indexOf('review status');
++  main.rows.forEach(function (r) { var st = String(r[rs] || 'Unreviewed') || 'Unreviewed'; counts[st] = (counts[st] || 0) + 1; });
++  var pt = apiFcTab_(w.ss, cfg.payTab), qt = apiFcTab_(w.ss, cfg.qTab);
++  return { ok: true, data: { sheet: cfg.key, exists: true, sheetUrl: w.ss.getUrl(), cols: main.cols, rows: main.rows, payCols: pt.cols, pays: pt.rows,
++    qCols: qt.cols, qs: qt.rows, counts: counts, total: main.rows.length, version: API_REV_COMMON.version } };
 +}
 +
 +function apiFcText_(v, max) {
@@ -99,53 +120,67 @@
 +  return /^[=+\-@]/.test(s) ? "'" + s : s;            // never a formula
 +}
 +
-+/** action=ccrevset (admin; writes ONLY the review columns of the Review tab) */
++/** action=ccrevset (admin; writes ONLY the five review columns of the Review tab, and of the Questions tab for sheet=bank) */
 +function apiCcRevSet_(p) {
 +  p = p || {};
++  var cfg = apiRevCfg_(p);
++  if (!cfg) return { error: 'bad_value', message: 'unknown sheet' };
 +  var cid = String(p.cid || '').slice(0, 80), dry = String(p.dry || '') === '1' || p.dry === true;
 +  if (!cid) return { error: 'bad_value', message: 'cid is required' };
 +  var items = Array.isArray(p.items) ? p.items : (p.id ? [{ id: p.id, review: p.review, category: p.category, account: p.account, note: p.note }] : []);
 +  if (!items.length) return { error: 'bad_value', message: 'no items' };
-+  if (items.length > API_FC.maxBatch) return { error: 'bad_value', message: 'at most ' + API_FC.maxBatch + ' items per call' };
++  if (items.length > API_REV_COMMON.maxBatch) return { error: 'bad_value', message: 'at most ' + API_REV_COMMON.maxBatch + ' items per call' };
 +  var clean = [];
 +  for (var k = 0; k < items.length; k++) {
 +    var it = items[k] || {}, id = String(it.id || '').trim();
 +    if (!/^[A-Za-z0-9_-]{1,40}$/.test(id)) return { error: 'bad_value', message: 'bad id: ' + id };
 +    var rv = String(it.review || '').trim();
-+    if (API_FC.statuses.indexOf(rv) < 0) return { error: 'bad_value', message: 'review must be ' + API_FC.statuses.join(' | ') };
++    if (cfg.statuses.indexOf(rv) < 0) return { error: 'bad_value', message: 'review must be ' + cfg.statuses.join(' | ') };
 +    var acct = String(it.account || '').trim();
-+    if (acct && API_FC.accounts.indexOf(acct) < 0) return { error: 'bad_value', message: 'account must be ' + API_FC.accounts.join(' | ') };
-+    clean.push({ id: id, review: rv, category: apiFcText_(it.category, 60), account: acct, note: apiFcText_(it.note, 500) });
++    if (acct && cfg.accounts.indexOf(acct) < 0) return { error: 'bad_value', message: 'account must be ' + cfg.accounts.join(' | ') };
++    clean.push({ id: id, review: rv, category: apiFcText_(it.category, 60), account: acct, note: apiFcText_(it.note, 1000) });
 +  }
-+  var cache = CacheService.getScriptCache(), ck = 'cc_fc_cid_' + cid;
++  var cache = CacheService.getScriptCache(), ck = 'cc_rev_cid_' + cfg.key + '_' + cid;
 +  if (!dry) { var prev = cache.get(ck); if (prev) { try { var o = JSON.parse(prev); o.duplicate = 'cid'; return { ok: true, data: o }; } catch (e) {} } }
 +  var lock = LockService.getScriptLock();
 +  if (!lock.tryLock(20000)) return { error: 'busy', message: 'Another save is running; try again.' };
 +  try {
-+    var w = apiFcOpen_();
++    var w = apiFcOpen_(cfg);
 +    if (!w) return { error: 'not_found', message: 'Review sheet not found' };
-+    var sh = w.sh, last = sh.getLastRow(), lastCol = sh.getLastColumn();
-+    var head = apiFcHead_(sh.getRange(1, 1, 1, lastCol).getValues()[0]);
-+    var ci = API_FC.review.map(function (h) { return head.indexOf(h); });
-+    if (ci.some(function (c) { return c < 0; })) return { error: 'no_columns', message: 'Missing column(s): ' + API_FC.review.filter(function (h, i) { return ci[i] < 0; }).join(', ') };
-+    var c0 = Math.min.apply(null, ci), c1 = Math.max.apply(null, ci);
-+    if (c1 - c0 !== 4) return { error: 'no_columns', message: 'The five review columns must be side by side' };
-+    var ids = last > 1 ? sh.getRange(2, 1, last - 1, 1).getValues().map(function (r) { return String(r[0]).trim(); }) : [];
-+    var at = {}; ids.forEach(function (id, i) { if (id && at[id] == null) at[id] = i; });
-+    var missing = clean.filter(function (x) { return at[x.id] == null; }).map(function (x) { return x.id; });
++    var tabs = [w.sh];
++    if (cfg.qTab) { var qs = w.ss.getSheetByName(cfg.qTab); if (qs) tabs.push(qs); }
++    var R = API_REV_COMMON.review, plan = [], where = {};
++    for (var t = 0; t < tabs.length; t++) {
++      var sh = tabs[t], last = sh.getLastRow(), lastCol = Math.max(1, sh.getLastColumn());
++      var head = apiFcHead_(sh.getRange(1, 1, 1, lastCol).getValues()[0]);
++      var ci = R.map(function (h) { return head.indexOf(h); });
++      if (ci.some(function (c) { return c < 0; })) { if (t === 0) return { error: 'no_columns', message: 'Missing column(s): ' + R.filter(function (h, i) { return ci[i] < 0; }).join(', ') }; continue; }
++      var c0 = Math.min.apply(null, ci), c1 = Math.max.apply(null, ci);
++      if (c1 - c0 !== 4) return { error: 'no_columns', message: 'The five review columns must be side by side (' + sh.getName() + ')' };
++      var ids = last > 1 ? sh.getRange(2, 1, last - 1, 1).getValues().map(function (r) { return String(r[0]).trim(); }) : [];
++      var at = {}; ids.forEach(function (id, i) { if (id && at[id] == null) at[id] = i; });
++      plan.push({ sh: sh, ci: ci, c0: c0, at: at, items: [] });
++      clean.forEach(function (x) { if (where[x.id] == null && at[x.id] != null) where[x.id] = plan.length - 1; });
++    }
++    var missing = clean.filter(function (x) { return where[x.id] == null; }).map(function (x) { return x.id; });
 +    if (missing.length) return { error: 'not_found', message: 'Unknown id(s): ' + missing.slice(0, 10).join(', ') };
++    clean.forEach(function (x) { plan[where[x.id]].items.push(x); });
 +    var stamp = Utilities.formatDate(new Date(), CONFIG.TIME_ZONE, 'yyyy-MM-dd HH:mm');
-+    var out = { dry: dry, cid: cid, updated: clean.length, at: stamp, items: [], version: API_FC.version };
-+    var rIdx = clean.map(function (x) { return at[x.id]; }), lo = Math.min.apply(null, rIdx), hi = Math.max.apply(null, rIdx);
-+    var rng = sh.getRange(2 + lo, c0 + 1, hi - lo + 1, 5), block = rng.getValues();
-+    clean.forEach(function (x) {
-+      var vals = x.review === 'Unreviewed' ? ['Unreviewed', '', '', '', ''] : [x.review, x.category, x.account, x.note, stamp];
-+      var order = API_FC.review.map(function (h, i) { return { c: ci[i] - c0, v: vals[i] }; });
-+      order.forEach(function (o) { block[at[x.id] - lo][o.c] = o.v; });
-+      out.items.push({ id: x.id, review: vals[0], category: vals[1], account: vals[2], note: vals[3], at: vals[4] });
++    var out = { sheet: cfg.key, dry: dry, cid: cid, updated: clean.length, at: stamp, items: [], version: API_REV_COMMON.version };
++    var writes = [];
++    plan.forEach(function (P) {
++      if (!P.items.length) return;
++      var rIdx = P.items.map(function (x) { return P.at[x.id]; }), lo = Math.min.apply(null, rIdx), hi = Math.max.apply(null, rIdx);
++      var rng = P.sh.getRange(2 + lo, P.c0 + 1, hi - lo + 1, 5), block = rng.getValues();
++      P.items.forEach(function (x) {
++        var vals = x.review === 'Unreviewed' ? ['Unreviewed', '', '', '', ''] : [x.review, x.category, x.account, x.note, stamp];
++        R.forEach(function (h, i) { block[P.at[x.id] - lo][P.ci[i] - P.c0] = vals[i]; });
++        out.items.push({ id: x.id, review: vals[0], category: vals[1], account: vals[2], note: vals[3], at: vals[4] });
++      });
++      writes.push({ rng: rng, block: block });
 +    });
 +    if (!dry) {
-+      rng.setNumberFormat('@').setValues(block);
++      writes.forEach(function (W) { W.rng.setNumberFormat('@').setValues(W.block); });
 +      SpreadsheetApp.flush();
 +      try { cache.put(ck, JSON.stringify(out), 21600); } catch (e) {}
 +    }

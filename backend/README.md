@@ -220,7 +220,7 @@ Until it is deployed (front end v149): Home > Zac > Wetumka > Garage organizatio
 
 Check after deploying: `…/exec?api=1&pc=PASSCODE&action=lists` should return `{"ok":true,"data":{"lists":{},"version":56}}` until a phone has opened a list.
 
-## family-chase.patch (API v57, Vault > Family Chase card review)
+## family-chase.patch (API v57, Vault > Family Chase card review + Bank Review) — PENDING
 Patch against the live Api.gs v55 (independent of zac-lists v56; applies before or after it). It adds two actions and touches ONE spreadsheet: **Family Chase 1982 — 2026 Review** in Drive > Financial > Bank Accounts > Chase-Personal, id `1CQLMaheQMkUf2-emOaF_6UEjemsbcNzvCXiK7gNS33c` (created 2026-10-11; `API_FC.sheetId`, with a find-by-name fallback in folder `1Qr-LloEiCbuI7vvgSEteCB11hfPDVHk9`). It never opens the Vault's Daily Spend / Accounts tabs, never calls spendadd / acctadd, and writes nothing to the CC write log. No transaction data is in this repo: the rows live only in that private Sheet.
 
 Easiest way to deploy (no merge with other patches): in the Apps Script editor add a new script file **FamilyChase** and paste all of `backend/FamilyChase.gs` into it; then in Api.gs, inside `switch (String(action || ''))`, add these two lines just above `default:` and redeploy (Deploy > Manage deployments > edit > New version):
@@ -239,3 +239,13 @@ Until it is deployed (front end v150): Finances > Family Chase (and the link at 
 After deploying, no front-end change is needed: the next open gets `ccrev`, reads the Sheet itself, and sends every waiting choice with `ccrevset` (batches of up to 400, one cid each). Choices made offline queue the same way and go when the phone is back online.
 
 Check after deploying: `…/exec?api=1&pc=PASSCODE&action=ccrev` should return `"exists":true,…,"total":1338,…,"version":57`, and `…&action=ccrevset&id=<any id from the sheet>&review=Confirmed&cid=check1&dry=1` should return `"dry":true` and change nothing.
+
+### Also in family-chase.patch since front end v151: `sheet=bank` (Vault > Bank Review) — PENDING, same deploy
+The same two actions take an optional `sheet` param (whitelist only; the phone can never pass a file id): `fchase` (default, unchanged) or `bank` = **Bank of Stockton — 2026 Review**, id `15WDC1pzG8X4yVjogg_RlExwhgnnt_pveipANRMDceyc`, in Drive > Financial > Bank Accounts (find-by-name fallback in `1WfXqvke-m3KwtHUicPI8HMhUd4H112NA`). It holds Joint Checking, Lisa Checking and Joint Savings 2026 rows (tab **Review**, same first 14 columns as Family Chase, then auto note | question | bank account | statement | direction) and the open questions for Zac (tab **Questions**: id | question | detail | related ids | related count | related amount | the same five review columns).
+- `ccrev&sheet=bank`: `{ sheet:'bank', exists, sheetUrl, cols, rows, qCols, qs, counts, total, version:57 }`.
+- `ccrevset` with `sheet:'bank'`: same body; ids are looked up in Review, then Questions; `account` may also be `Transfer` and `review` may also be `Answered` (questions). Still writes ONLY the five review columns of those two tabs; nothing in the Vault.
+- If FamilyChase.gs was already pasted from an older copy, replace the whole file with the current `backend/FamilyChase.gs` (the two `case` lines in Api.gs stay the same).
+
+Until it is deployed (front end v151): Finances > Bank Review (#bank) reads the private CSV snapshot `Bank of Stockton — 2026 Review (app snapshot).csv` (id `11YSBbk-VmsLHmfomsYcIAJkcPyQb5smV`, same folder) through `action=filebytes`; choices and answers are kept in that phone's localStorage (`cc_bank_v1`) and sent with `ccrevset&sheet=bank` automatically after the deploy.
+
+Check after deploying: `…&action=ccrev&sheet=bank` should return `"exists":true,…,"total":301,…` with 15 `qs`; `…&action=ccrevset&sheet=bank&id=q01-bigdep&review=Answered&note=test&cid=check2&dry=1` returns `"dry":true` and changes nothing.

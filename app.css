@@ -3098,3 +3098,31 @@ body.fc-modal { overflow: hidden; }
 .fc-sec { flex: none; background: transparent; color: var(--muted); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; font-weight: 600; font-size: 13px; line-height: 1; font-family: inherit; }
 .fc-bulk { display: block; width: 100%; margin-top: 8px; padding: 12px; background: rgba(240,122,42,.08); color: var(--red); border: 1px solid rgba(240,122,42,.4);
   border-radius: var(--radius); font-weight: 700; font-size: 14px; line-height: 1.2; font-family: inherit; }
+
+/* v151: Vault > Bank Review (#bankrev) — reuses the Family Chase (.fc-*) look */
+.tile.bankrev-entry { border-color: rgba(61,190,107,.5); }
+.bk-vlink { margin-top: 0; }
+#screen-bankrev .fc-top h3 { color: var(--c-acct, #4C7DD9); }
+.bk-tabs { margin-top: 2px; }
+.bk-tabs .fc-fb { font-size: 13px; }
+.bk-io { display: flex; gap: 16px; font-size: 12.5px; color: var(--muted); margin: 2px 0 4px; }
+.bk-io b { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; margin-left: 3px; }
+.bk-warn { margin: 8px 0 2px; padding: 7px 9px; font-size: 12px; line-height: 1.4; color: #ffd27a; background: rgba(255,210,122,.07); border: 1px solid rgba(255,210,122,.4); border-radius: var(--radius); }
+.bk-warn b { display: block; color: #ffd27a; }
+.bk-q { border-color: rgba(255,210,122,.55); box-shadow: inset 3px 0 0 #ffd27a; }
+.bk-q > .fc-ghead .n { color: #ffd27a; }
+.bk-qrow .d { font-weight: 700; color: #ffd27a; font-size: 15px; text-align: center; }
+.bk-qrow .m small.fc-rn { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.bk-qrow .amt { color: var(--muted); font-weight: 600; font-size: 12.5px; }
+.bk-ans { color: #8fe0aa !important; -webkit-line-clamp: unset !important; }
+.bk-qdetail { margin: 10px 0 2px; font-size: 13px; line-height: 1.45; color: var(--text); }
+.bk-ansin { min-height: 74px; }
+.bk-rel { border-top: 1px solid var(--line); }
+.bk-qlink { display: block; margin-top: 6px; padding: 0; background: transparent; border: 0; color: #ffd27a; font-weight: 700; font-size: 12.5px; text-align: left; font-family: inherit; }
+.bk-sec { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin: 14px 2px 6px; font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); }
+.bk-sec b { color: var(--text); font-size: 14px; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.bk-sec small { font-weight: 600; letter-spacing: 0; text-transform: none; font-size: 11.5px; }
+.bk-mv .fc-ghead .n { color: #9fb6d9; }
+.fc-chip.bk-a-transfer { color: #9fb6d9; border-color: rgba(159,182,217,.4); }
+.fc-chip.bk-bank { color: var(--muted); }
+.bk-segs { grid-template-columns: repeat(4, 1fr); }
