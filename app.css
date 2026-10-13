@@ -3163,3 +3163,8 @@ body.fc-modal { overflow: hidden; }
 .fhwo { grid-template-columns: 72px minmax(0, 1fr) auto auto !important; }
 .fhwo .woed { align-self: start; }
 .fitbtn.fhdanger { color: #ff6b6b; border-color: #ff6b6b; margin-top: 8px; }
+/* v161 workout item editor */
+.woitems { margin: 6px 0; }
+.woitem { display: flex; gap: 6px; margin: 4px 0; }
+.woitem input { flex: 1; min-width: 0; }
+.woitem .wix { min-width: 40px; padding: 0; font-size: 20px; }

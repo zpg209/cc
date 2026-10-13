@@ -2239,8 +2239,9 @@
     if (m) st.push(m[1] + ' ft gain');
     return st;
   }
+  function fhWoSplit(parts) { var b = []; parts.forEach(function (p) { String(p || '').split(/\s*(?:;|\n|,(?!\d{3}\b))\s*/).forEach(function (q) { q = q.trim(); if (q) b.push(q); }); }); return b; }
   function fhWoBullets(parts) {   // v159: each exercise / entry on its own bullet (split on ; newlines, and commas)
-    var b = []; parts.forEach(function (p) { String(p || '').split(/\s*(?:;|\n|,(?!\d{3}\b))\s*/).forEach(function (q) { q = q.trim(); if (q) b.push(q); }); });
+    var b = fhWoSplit(parts);
     return b.length ? '<ul class="wobul">' + b.map(function (q) { return '<li>' + esc(q) + '</li>'; }).join('') + '</ul>' : '';
   }
   function fhWoCard(x, today) {
@@ -2398,12 +2399,19 @@
     } else if (c.kind === 'foodday') {
       h += '<div class="foot">Sets the day\u2019s totals in the Daily Log (same as the Tracker\u2019s \u201cSet total\u201d). Leave a box empty to keep it.</div>';
       h += '<div class="bgrid fhg5">' + [['calories', 'kcal'], ['protein', 'Protein g'], ['carbs', 'Carbs g'], ['fat', 'Fat g']].concat(fhCanFiber(d) ? [['fiber', 'Fiber g']] : []).map(function (f) { return fhInp('fhs-' + f[0], f[1], v[f[0]], 'number', ' data-fv="' + f[0] + '"'); }).join('') + '</div>';
-    } else if (c.kind === 'wo' || c.kind === 'woday') {
+    } else if (c.kind === 'woday') {
+      h += '<div class="foot">Workout items (one per bullet). Change any item, tap \u00d7 to remove it.</div><div class="bgrid fhone woitems">' + v.items.map(function (it, i) {
+        return '<div class="woitem"><input type="text" maxlength="120" data-wi="' + i + '" value="' + esc(it) + '" aria-label="Item ' + (i + 1) + '"><button type="button" class="navbtn wix" data-fh="widel" data-i="' + i + '" aria-label="Remove item">\u00d7</button></div>'; }).join('') +
+        (v.items.length ? '' : '<div class="foot"><i>No items \u2014 saving will mark the day Rest / none.</i></div>') + '</div><button type="button" class="fitbtn wosm" data-fh="wiadd">+ Add item</button>';
+      h += '<div class="bgrid">' + fhInp('fhs-min', 'Minutes (day total)', v.min, 'number', ' data-fv="min"') + fhInp('fhs-hike', 'Hike miles (day total)', v.hike, 'number', ' data-fv="hike"') + '</div>';
+      if (v.extra && v.extra.length) h += '<div class="foot hint2">From the day\u2019s Notes (read-only; the server can\u2019t remove Notes lines, edit them in the sheet):</div>' + fhWoBullets(v.extra);
+      h += '<div class="bgrid fhone">' + fhInp('fhs-details', 'Add details (optional, appended to Notes)', v.details, 'text', ' maxlength="300" data-fv="details"') + '</div>';
+      if (c.orig.items.length || c.orig.min || c.orig.hike) h += '<button type="button" class="fitbtn wide fhdanger" data-fh="delwo"' + (FH.busy ? ' disabled' : '') + '>Delete workout</button>';
+    } else if (c.kind === 'wo') {
       h += '<div class="bgrid fhone">' + fhInp('fhs-type', 'Type', v.type, 'text', ' maxlength="120" data-fv="type" placeholder="Strength, Hike 3 mi, Pickleball\u2026"') + '</div>';
       h += '<div class="bgrid">' + fhInp('fhs-min', c.kind === 'wo' ? 'Minutes (added)' : 'Minutes (day total)', v.min, 'number', ' data-fv="min"') + fhInp('fhs-hike', c.kind === 'wo' ? 'Hike miles (added)' : 'Hike miles (day total)', v.hike, 'number', ' data-fv="hike"') + '</div>';
       h += '<div class="bgrid fhone">' + fhInp('fhs-details', 'Details (optional, saved to Notes)', v.details, 'text', ' maxlength="300" data-fv="details"') + '</div>';
-      if (c.kind === 'woday' && (c.orig.type && !/^rest/i.test(c.orig.type) || c.orig.min || c.orig.hike)) h += '<button type="button" class="fitbtn wide fhdanger" data-fh="delwo"' + (FH.busy ? ' disabled' : '') + '>Delete workout</button>';
-      if (c.kind === 'woday') h += '<div class="foot">Replaces the day\u2019s workout type, minutes and hike miles. To add another workout to the day, use + Add workout.</div>';
+      if (false) h += '<div class="foot">Replaces the day\u2019s workout type, minutes and hike miles. To add another workout to the day, use + Add workout.</div>';
       else h += '<div class="foot">Added to the day: the type joins the day\u2019s workout, minutes and hike miles add to its totals.</div>';
     } else if (c.kind === 'hm') {
       h += '<div class="bgrid fhone">' + HM_COLS.map(function (col) { return fhInp('fhs-hm-' + col[0], col[1] + (col[0] === 'metric' ? ' *' : ''), v[col[0]], col[0] === 'date' ? 'date' : 'text', ' maxlength="300" data-fv="' + col[0] + '"'); }).join('') + '</div>';
@@ -2417,6 +2425,7 @@
     var c = FH.sheet; if (!c) return;
     var t = e.target;
     if (t.id === 'fhs-say') { c.say = t.value; fhSayParse(); return; }
+    var wi = t.getAttribute && t.getAttribute('data-wi'); if (wi != null && c.vals.items) { c.vals.items[+wi] = t.value; return; }
     var k = t.getAttribute && t.getAttribute('data-fv'); if (!k) return;
     c.edited[k] = true; c.vals[k] = t.type === 'number' ? (t.value === '' ? null : Number(t.value)) : t.value;
     if (k === 'food') fhFiberAuto(null);
@@ -2499,6 +2508,8 @@
     if (a === 'mic') return fhMicToggle();
     if (a === 'save') return fhSave();
     if (a === 'delmeal') return fhDelMeal();
+    if (a === 'widel') { c.vals.items.splice(+b.getAttribute('data-i'), 1); fhSheetRender(); return; }
+    if (a === 'wiadd') { c.vals.items.push(''); fhSheetRender(); var ins = document.querySelectorAll('[data-wi]'); if (ins.length) ins[ins.length - 1].focus(); return; }
     if (a === 'delwo') {   // v160: clear the day's workout with the same logday call (blank values are ignored by the server, so Rest / none + 0 min + 0 mi)
       if (!window.confirm('Delete the workout for ' + trkDayLabel(c.date) + '? This sets it to Rest / none with 0 minutes and 0 hike miles.')) return;
       return fhRun(function () { return apiRaw('logday', { date: c.date, workout: 'Rest / none', workout_min: 0, hike_miles: 0, cid: 'fhwd' + sfHash(c.date + '|del|' + Date.now()) }).then(function (j) { trkRes(j); return fhAfterWrite('Deleted ' + trkDayLabel(c.date) + ' workout \u2713'); }); });
@@ -2569,8 +2580,9 @@
     }
     if (c.kind === 'wo' || c.kind === 'woday') {
       var bw = fhCheckNums(v, ['min', 'hike']); if (bw) return fhMsg('Check ' + (bw === 'min' ? 'minutes' : 'hike miles') + ': use a positive number.', true);
+      if (c.kind === 'woday') { var its = (v.items || []).map(function (q) { return String(q || '').trim(); }).filter(Boolean); v.type = its.length ? its.join('; ') : 'Rest / none'; if (!its.length) { if (!fhIsNum(v.min) || v.min === c.orig.min) v.min = 0; if (!fhIsNum(v.hike) || v.hike === c.orig.hike) v.hike = 0; } }
       var type = String(v.type || '').trim(), det = String(v.details || '').trim();
-      if (!type && !fhIsNum(v.min) && !fhIsNum(v.hike) && !det) return fhMsg('Say or type the workout.', true);
+      if (c.kind === 'wo' && !type && !fhIsNum(v.min) && !fhIsNum(v.hike) && !det) return fhMsg('Say or type the workout.', true);
       return fhRun(function () { return c.kind === 'wo' ? fhAddWo(c, type, det) : fhEditWo(c, type, det); });
     }
   }
@@ -2707,8 +2719,9 @@
     if (a === 'addwo' || a === 'micwo') return fhSheetOpen({ kind: 'wo', title: 'Add a workout', date: tk, vals: {}, mic: a === 'micwo', saveLbl: fhSaveLabel });
     var dk = b.getAttribute('data-fh-wo');
     if (dk) {
-      var x = fhWoDay(d, dk), vals = { type: x.did ? x.type : (x.rest ? 'Rest / none' : ''), min: x.minutes, hike: x.hike, details: '' }, orig = {};
+      var x = fhWoDay(d, dk), items = x.did ? fhWoSplit(x.details) : [], vals = { type: items.join('; '), items: items.slice(), min: x.minutes, hike: x.hike, details: '', extra: x.extra.slice() }, orig = {};   // v161 item editor
       for (var q in vals) orig[q] = vals[q];
+      if (!items.length) orig.type = x.rest ? 'Rest / none' : '';
       return fhSheetOpen({ kind: 'woday', title: 'Workout \u00b7 ' + trkDayLabel(dk), date: dk, fixedDate: true, vals: vals, orig: orig, saveLbl: fhSaveLabel });
     }
     var wfb = b.getAttribute('data-fh-wf'); if (wfb) { if (wfb === 'prev' && FH.woF === 'prev') FH.woPrev = (FH.woPrev || -1) - 1; else if (wfb === 'prev') FH.woPrev = -1; FH.woF = wfb; fhRenderWo(d); return; }
