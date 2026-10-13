@@ -249,3 +249,17 @@ The same two actions take an optional `sheet` param (whitelist only; the phone c
 Until it is deployed (front end v151): Finances > Bank Review (#bank) reads the private CSV snapshot `Bank of Stockton — 2026 Review (app snapshot).csv` (id `11YSBbk-VmsLHmfomsYcIAJkcPyQb5smV`, same folder) through `action=filebytes`; choices and answers are kept in that phone's localStorage (`cc_bank_v1`) and sent with `ccrevset&sheet=bank` automatically after the deploy.
 
 Check after deploying: `…&action=ccrev&sheet=bank` should return `"exists":true,…,"total":301,…` with 15 `qs`; `…&action=ccrevset&sheet=bank&id=q01-bigdep&review=Answered&note=test&cid=check2&dry=1` returns `"dry":true` and changes nothing.
+
+## lisa-trade-ptphotos.patch (API v56, PENDING: Lisa's Table "Trade" payment type + PT client workout photos)
+Patch against Api.gs v55 (the deployed version). Apply it, then redeploy the Apps Script web app (Zac signs in, Deploy > Manage deployments > edit > New version). Uses DriveApp.createFolder / createFile in the Lisa's Table folder, the same Drive write scope v55 already has for ltmenusave / bizreceiptsave, so no new authorization should be needed.
+
+What it adds:
+- Orders: `payMethod=trade` is accepted by orderpaid and orderset (today: `bad_value: payMethod must be cash, zelle or venmo`, checked live with dry=1 on 10/12). The weeks aggregate gets `byMethod.trade`.
+- `action=ptphotos&clientId=pc..` (read): the client's photos `{canUpload, folderUrl, photos:[{id,name,url,date,note,created}]}`. Creates nothing.
+- `action=ptphotosave` (POST): `clientId, name, date, mime=image/jpeg|image/png, data=<base64>, cid[, note][, dry]`. Files "<date> Past workouts.jpg" in Drive > Lisa's Table > PT Client Photos > "<client name> (<client id>)" (folders created on first use). Never overwrites; the cid in the file description means a retry never files twice. Journaled in the CC write log.
+
+Until it is deployed (front end v156):
+- Orders > payment picker > "Mark paid (trade)" (and the Trade chip under "How was it paid?") is saved with the existing Trade status (payStatus=trade). The phone sees the bad_value, remembers it for 6 h and saves Trade that way. Lisa's existing Trade status flow is unchanged. The Vault never counts paid-by-trade as cash income, before or after the update.
+- PT > client > History > "Photos of past workouts": photos stay on that phone (IndexedDB `cc_ptphotos`) and show "On this phone; saves to Drive after the server update". After the deploy the phone uploads every waiting photo on its own (retried at most every 30 min). No front-end change is needed.
+
+Check after deploying: `…/exec?api=1&pc=PASSCODE&action=orderpaid&orderId=<id>&payStatus=paid&payMethod=trade&cid=x&dry=1` returns ok, and `action=ptphotosave&clientId=pcmuzxfsgmhs6&dry=1` returns `{"ok":true,...,"version":56}`.

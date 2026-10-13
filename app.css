@@ -3132,3 +3132,17 @@ body.fc-modal { overflow: hidden; }
 .rv-exp .rv-expbtn { margin: 0; }
 .rv-expnote { margin-top: 4px; }
 .rv-expmsg { margin-top: 6px; color: #8fe0aa; }
+
+/* v156: menu Save as image, PT past-workout photos, Mark paid (trade) */
+.ltmgenbox .ltmimgbtn{display:block;width:100%;margin-top:8px}
+.odpicker .odtradeq{display:block;width:100%;margin:6px 0 2px;font-weight:600}
+.pphcard .pphbtns{display:flex;gap:8px;margin:6px 0 8px}
+.pphcard .pphbtn{flex:1;text-align:center;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.pphgrid{display:flex;flex-direction:column;gap:10px}
+.pphitem{display:grid;grid-template-columns:84px 1fr;gap:6px 10px;align-items:start}
+.pphthumb{grid-row:span 2;display:block;width:84px;height:84px;border-radius:8px;overflow:hidden;background:#eee}
+.pphthumb img{width:100%;height:100%;object-fit:cover;display:block}
+.pphmeta{display:flex;flex-direction:column;gap:2px;font-size:14px}
+.pphst{font-size:12px;opacity:.75}.pphst.ok{color:#2e7d32;opacity:1}
+.pphacts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.pphacts .navbtn{padding:6px 10px;font-size:13px;margin:0}

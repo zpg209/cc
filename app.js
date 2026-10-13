@@ -113,7 +113,7 @@
   var RC_MAX_AGE = 3 * 864e5;       // older than this: ignored (the screen waits for the server like before)
   var RC_READS = { links: 1, log: 1, spend: 1, accounts: 1, vaultdebt: 1, biz: 1, re: 1, ins: 1, ltmacros: 1, notes: 1, punch: 1, lognotes: 1,
     fin: 1, insnotes: 1, wishlist: 1, orders: 1, ptclients: 1, receipts: 1, entity: 1, entitytax: 1, folder: 1, healthmetrics: 1 };
-  var RC_NOCACHE = { ping: 1, file: 1, filebytes: 1, invest: 1, lists: 1, lisareqlist: 1, bizreceipts: 1, ccrev: 1 };   // v130: lisareqlist (Lisa's change requests) is always asked fresh      // reads that are never stored (passcode check; file bytes are big)
+  var RC_NOCACHE = { ping: 1, file: 1, filebytes: 1, invest: 1, lists: 1, lisareqlist: 1, bizreceipts: 1, ccrev: 1, ptphotos: 1 };   // v130: lisareqlist (Lisa's change requests) is always asked fresh      // reads that are never stored (passcode check; file bytes are big)
   var RC_MONEY = ['spend', 'accounts', 'vaultdebt', 'entity', 'entitytax', 'receipts', 'fin', 'insnotes'];
   var RC_DEBT = ['vaultdebt', 'spend', 'entity', 'entitytax', 'fin'];
   var RC_WRITES = {
@@ -2967,7 +2967,8 @@
     if (!w || !OL_ISO.test(String(w.week || ''))) return null;
     var n = function (v) { v = Number(v); return isFinite(v) && v > 0 ? r2(v) : 0; };
     var cnt = function (v) { v = Math.floor(Number(v)); return isFinite(v) && v > 0 ? v : 0; };
-    var o = { week: olMonday(w.week), clients: cnt(w.clients), paid: n(w.paid), unpaid: n(w.unpaid), trade: n(w.trade),
+    var tpm = n(w.byMethod && w.byMethod.trade);     // v156: paid by trade (Api v56) is trade, not cash income
+    var o = { week: olMonday(w.week), clients: cnt(w.clients), paid: r2(Math.max(0, n(w.paid) - tpm)), unpaid: n(w.unpaid), trade: r2(n(w.trade) + tpm),
       paidCount: cnt(w.paidCount), unpaidCount: cnt(w.unpaidCount), tradeCount: cnt(w.tradeCount) };
     return o.clients > 0 ? o : null;
   }
@@ -5532,6 +5533,7 @@
       '<div class="noteflash show bad" id="mg-warn" hidden></div>' +
       '<h3 class="sechead">Preview</h3><div class="mpaper" id="mg-preview"></div>' +
       '<div class="card ltmgenbox"><button type="button" class="ltmgo" id="mg-pdf" data-mg="pdf">' + (ltm.busy ? 'Making PDF\u2026' : 'Generate PDF') + '</button>' +
+      '<button type="button" class="navbtn ltmimgbtn" id="mg-img" data-mg="img">Save as image</button>' +
       '<div class="ltmopts"><label class="ltmopt"><input type="checkbox" id="mg-pdfing"' + (ltmOpts().ing ? ' checked' : '') + '> Show ingredients</label>' +
       '<label class="ltmopt"><input type="checkbox" id="mg-pdfmac"' + (ltmOpts().mac ? ' checked' : '') + '> Show macros</label></div>' +
       '<div class="noteflash" id="mg-pdfmsg" hidden></div></div>' +
@@ -5675,7 +5677,7 @@
     var m = e.target.closest('[data-mg]');
     if (m && state.ltPart === 'menu-gen') {
       var act = m.getAttribute('data-mg');
-      if (act === 'copy') mgCopy(); else if (act === 'save') mgSave(); else if (act === 'orders') mgWeekMenu(false); else if (act === 'pdf') mgPdf();
+      if (act === 'copy') mgCopy(); else if (act === 'save') mgSave(); else if (act === 'orders') mgWeekMenu(false); else if (act === 'pdf') mgPdf(); else if (act === 'img') mgPdf(true);
     }
   });
   $('lt-body').addEventListener('input', function (e) {
@@ -5948,7 +5950,7 @@
       return name;
     });
   }
-  function mgPdf() {
+  function mgPdf(asImg) {
     if (ltm.busy) return;
     var r = mgRefresh(), op = ltmOpts(), showMac = op.mac, showIng = op.ing;
     var rows = r.rows.filter(function (x) { return String(x.name || '').trim(); });
@@ -5976,6 +5978,7 @@
       ltmGenMsg('');
       ltmPaintAll();
       ltmSync(false);
+      if (asImg) ltmImage(rec);
       var out = $('mg-pdfout'); if (out && out.scrollIntoView) try { out.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) {}
     }).catch(function (err) {
       ltm.busy = false; ltmGenBtn();
@@ -5991,7 +5994,8 @@
     mail: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M3 7l9 6 9-6"/></svg>',
     sms: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H10l-5 4v-4H4z"/></svg>',
     dl: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>',
-    view: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>'
+    view: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+    img: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="1.5"/><circle cx="8.5" cy="9.5" r="1.8"/><path d="M21 16l-5-5-9 9"/></svg>'
   };
   function ltmStatusHtml(rec) {
     if (rec.drive && rec.drive.url) {
@@ -6019,6 +6023,7 @@
         '<a class="docact-btn" data-ltm="mail" data-id="' + id + '" data-external href="' + esc(ltmMailHref(rec)) + '">' + LTM_ICON.mail + '<span>Email</span></a>' +
         '<a class="docact-btn" data-ltm="sms" data-id="' + id + '" data-external href="' + esc(ltmSmsHref(rec)) + '">' + LTM_ICON.sms + '<span>Text</span></a>' +
         '<button type="button" class="docact-btn" data-ltm="dl" data-id="' + id + '">' + LTM_ICON.dl + '<span>Download</span></button>' +
+        '<button type="button" class="docact-btn" data-ltm="img" data-id="' + id + '">' + LTM_ICON.img + '<span>Image</span></button>' +
         '<button type="button" class="docact-btn" data-ltm="view" data-id="' + id + '">' + LTM_ICON.view + '<span>View</span></button>' +
       '</nav>' +
       '<div class="ltmnote' + (note && note.bad ? ' bad' : '') + '" data-ltmnote="' + id + '"' + (note ? '' : ' hidden') + '>' + (note ? note.html : '') + '</div>' +
@@ -6059,6 +6064,63 @@
       });
     } catch (e) { ltmNote(rec.id, 'Couldn\u2019t open the share sheet. Use <b>Download</b>.', true); }
   }
+  /* v156: Save as image. The menu PDF (the exact same layout) is drawn with PDF.js onto a canvas, pages stacked on white, ~1600 px wide,
+   * and saved as "<menu name>.png". Phones (touch + file share): the share sheet (Save Image, Messages, AirDrop...). Desktop: a download.
+   * The PNG is kept in memory per menu, so if iPhone refuses the share sheet after the wait (no tap left), the next tap shares at once. */
+  var ltmPng = {};
+  function ltmIsPhone() { return daIsIOS() || /Android|Mobi/i.test(navigator.userAgent || '') || (navigator.maxTouchPoints > 1 && window.matchMedia && matchMedia('(pointer: coarse)').matches); }
+  function ltmPngMake(rec) {
+    if (ltmPng[rec.id]) return Promise.resolve(ltmPng[rec.id]);
+    return loadPdfJs().then(function (lib) {
+      return lib.getDocument({ data: new Uint8Array(rec.bytes.slice(0)) }).promise;
+    }).then(function (pdf) {
+      var shots = [], n = pdf.numPages, W = 1600;
+      var next = function (i) {
+        if (i > n) return Promise.resolve();
+        return pdf.getPage(i).then(function (page) {
+          var vp1 = page.getViewport({ scale: 1 }), sc = Math.min(W / vp1.width, Math.sqrt(14e6 / n / (vp1.width * vp1.height)));
+          var vp = page.getViewport({ scale: sc }), cv = document.createElement('canvas');
+          cv.width = Math.floor(vp.width); cv.height = Math.floor(vp.height);
+          var ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+          return page.render({ canvasContext: ctx, viewport: vp }).promise.then(function () { shots.push(cv); page.cleanup(); return next(i + 1); });
+        });
+      };
+      return next(1).then(function () {
+        var w = Math.max.apply(null, shots.map(function (c) { return c.width; })), h = shots.reduce(function (a, c) { return a + c.height; }, 0);
+        var out = document.createElement('canvas'); out.width = w; out.height = h;
+        var ctx = out.getContext('2d'), y = 0; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+        shots.forEach(function (c) { ctx.drawImage(c, 0, y); y += c.height; c.width = c.height = 0; });
+        try { pdf.destroy(); } catch (e) {}
+        return new Promise(function (res, rej) { out.toBlob(function (b) { out.width = out.height = 0; b ? res(b) : rej(new Error('image failed')); }, 'image/png'); });
+      });
+    }).then(function (blob) {
+      var name = String(rec.name || 'Menu').replace(/\.pdf$/i, '') + '.png', file = null;
+      try { file = new File([blob], name, { type: 'image/png' }); } catch (e) {}
+      var f = { blob: blob, file: file, name: name, type: 'image/png', size: blob.size };
+      ltmPng[rec.id] = f; return f;
+    });
+  }
+  function ltmImage(rec) {
+    var f = ltmPng[rec.id];
+    if (f) return ltmImageOut(rec, f);
+    ltmNote(rec.id, 'Making the image\u2026');
+    ltmPngMake(rec).then(function (f2) { ltmImageOut(rec, f2); }, function (err) {
+      ltmNote(rec.id, 'Couldn\u2019t make the image: ' + esc((err && err.message) || 'error') + '. Check your connection and tap <b>Image</b> again.', true);
+    });
+  }
+  function ltmImageOut(rec, f) {
+    if (!ltmIsPhone() || !daCanShareFiles(f.file)) {
+      daSaveBlob(f);
+      ltmNote(rec.id, 'Saved <b>' + esc(f.name) + '</b>' + (daIsIOS() ? ' \u2014 it\u2019s in Files \u203a Downloads.' : '.'));
+      return;
+    }
+    try {
+      navigator.share({ files: [f.file], title: f.name }).then(function () { ltmNote(rec.id, 'Shared <b>' + esc(f.name) + '</b>.'); }, function (err) {
+        if (err && err.name === 'AbortError') return ltmNote(rec.id, '');
+        ltmNote(rec.id, 'The image is ready. Tap <b>Image</b> to open the share sheet (Save Image, Messages, AirDrop).', false);
+      });
+    } catch (e) { daSaveBlob(f); ltmNote(rec.id, 'Saved <b>' + esc(f.name) + '</b>.'); }
+  }
   function ltmDownload(rec) {
     daSaveBlob(ltmFileOf(rec));
     ltmNote(rec.id, 'Saved <b>' + esc(rec.name) + '</b>' + (daIsIOS() ? ' \u2014 it\u2019s in Files \u203a Downloads (Share \u203a Save to Files also works).' : '.'));
@@ -6082,6 +6144,7 @@
     e.preventDefault();
     if (act === 'share') ltmShare(rec);
     else if (act === 'dl') ltmDownload(rec);
+    else if (act === 'img') ltmImage(rec);
     else if (act === 'view') openDoc('ltmenu:' + rec.id, rec.name);
     else if (act === 'del') ltmRemove(rec);
     else if (act === 'sync') { lsSet(LTM_OFF_KEY, 0); rec.err = ''; ltmSync(true); }
@@ -12715,11 +12778,131 @@
     });
     return h + '</div>';
   }
+  /* v156: photos of a client's past workouts (History tab). Take a photo (camera) or upload one; it is shrunk to <= 2000 px JPEG and kept on
+   * this phone (IndexedDB 'cc_ptphotos'), so it works with the current server. backend/lisa-trade-ptphotos.patch (Api v56, ptphotosave /
+   * ptphotos) files each photo in Drive > Lisa's Table > PT Client Photos > <client>; until it is deployed the server answers bad_action,
+   * the photo says "On this phone; saves to Drive after the server update", and the phone retries (every 30 min while PT is open).
+   * v1 is a plain attachment: "Log from this photo" opens the Log a past workout form below with a note; no text is read from the photo. */
+  var PPH_IDB = 'cc_ptphotos', PPH_OFF_KEY = 'cc_pph_off';
+  var pph = { list: null, loadP: null, urls: {}, syncing: false, msg: {}, remote: {} };
+  var pphIdbP = null;
+  function pphIdb() {
+    if (pphIdbP) return pphIdbP;
+    pphIdbP = new Promise(function (res, rej) {
+      if (!window.indexedDB) return rej(new Error('no storage'));
+      var rq; try { rq = indexedDB.open(PPH_IDB, 1); } catch (e) { return rej(e); }
+      rq.onupgradeneeded = function () { try { rq.result.createObjectStore('photos', { keyPath: 'id' }); } catch (e) {} };
+      rq.onsuccess = function () { res(rq.result); };
+      rq.onerror = function () { rej(rq.error || new Error('storage error')); };
+    }).catch(function (e) { pphIdbP = null; throw e; });
+    return pphIdbP;
+  }
+  function pphReq(mode, fn) {
+    return pphIdb().then(function (db) {
+      return new Promise(function (res, rej) {
+        var tx = db.transaction('photos', mode), r = fn(tx.objectStore('photos')), out;
+        if (r) r.onsuccess = function () { out = r.result; };
+        tx.oncomplete = function () { res(out); };
+        tx.onerror = tx.onabort = function () { rej(tx.error || new Error('storage error')); };
+      });
+    });
+  }
+  function pphLoad() {
+    if (pph.list) return Promise.resolve(pph.list);
+    if (pph.loadP) return pph.loadP;
+    pph.loadP = pphReq('readonly', function (st) { return st.getAll(); }).then(function (r) { return r || []; }, function () { return []; }).then(function (rows) {
+      pph.list = rows.filter(function (r) { return r && r.id && r.bytes; }).sort(function (a, b) { return b.created - a.created; });
+      pph.loadP = null; return pph.list;
+    });
+    return pph.loadP;
+  }
+  function pphOff() { var t = lsGet(PPH_OFF_KEY, 0); return !!(t && Date.now() - t < 30 * 60000); }
+  function pphUrl(r) { return pph.urls[r.id] || (pph.urls[r.id] = URL.createObjectURL(new Blob([r.bytes], { type: r.mime || 'image/jpeg' }))); }
+  function pphFor(cid) { return (pph.list || []).filter(function (r) { return r.clientId === cid; }); }
+  function pphCardHtml(c) {
+    if (!pph.list) { pphLoad().then(function () { if (ptOnScreen()) ptRender(); pphSync(false); }); }
+    var mine = pphFor(c.id), id = esc(c.id), m = pph.msg[c.id];
+    var h = '<div class="card pphcard"><h3 class="ptwfh">Photos of past workouts <small>' + mine.length + '</small></h3>' +
+      '<div class="pphbtns"><label class="bigsave pphbtn">Take photo<input type="file" accept="image/*" capture="environment" data-pph-file="' + id + '" hidden></label>' +
+      '<label class="navbtn pphbtn">Upload photo<input type="file" accept="image/*" multiple data-pph-file="' + id + '" hidden></label></div>' +
+      (m ? '<div class="noteflash show' + (m.bad ? ' bad' : '') + '">' + esc(m.t) + '</div>' : '');
+    if (mine.length) h += '<div class="pphgrid">' + mine.map(function (r) {
+      var st = r.drive ? '<a class="pphst ok" href="' + esc(r.drive.url) + '" data-external target="_blank" rel="noopener">\u2713 In Drive</a>'
+        : '<span class="pphst wait">' + (r.st === 'sync' ? 'Saving to Drive\u2026' : (pphOff() || r.na) ? 'On this phone; saves to Drive after the server update' : r.err ? 'Drive save failed: ' + esc(r.err) : 'On this phone') + '</span>';
+      return '<div class="pphitem"><a href="' + pphUrl(r) + '" target="_blank" rel="noopener" data-external class="pphthumb"><img src="' + pphUrl(r) + '" alt="Past workouts photo ' + esc(r.date) + '"></a>' +
+        '<div class="pphmeta"><b>' + esc(ptDateW(r.date)) + '</b>' + st + '</div>' +
+        '<div class="pphacts"><button type="button" class="navbtn" data-pph="log" data-id="' + esc(r.id) + '">Log from this photo</button>' +
+        '<button type="button" class="ltmdel" data-pph="del" data-id="' + esc(r.id) + '">Remove' + (r.drive ? ' from phone' : '') + '</button></div></div>';
+    }).join('') + '</div>';
+    else h += '<div class="foot">Snap her old workout log or notebook page. It stays with this client so you can build the next program from it.</div>';
+    return h + '</div>';
+  }
+  function pphShrink(file) {
+    return new Promise(function (res, rej) {
+      var url = URL.createObjectURL(file), im = new Image();
+      im.onload = function () {
+        var k = Math.min(1, 2000 / Math.max(im.naturalWidth, im.naturalHeight)), cv = document.createElement('canvas');
+        cv.width = Math.round(im.naturalWidth * k); cv.height = Math.round(im.naturalHeight * k);
+        var ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height); ctx.drawImage(im, 0, 0, cv.width, cv.height);
+        URL.revokeObjectURL(url);
+        cv.toBlob(function (b) { cv.width = cv.height = 0; b ? res(b) : rej(new Error('could not read the photo')); }, 'image/jpeg', 0.85);
+      };
+      im.onerror = function () { URL.revokeObjectURL(url); rej(new Error('that file is not a photo this phone can read')); };
+      im.src = url;
+    });
+  }
+  function pphAdd(clientId, file) {
+    var c = ptClient(clientId); if (!c || !file) return;
+    pph.msg[clientId] = { t: 'Adding the photo\u2026' }; ptRender();
+    pphShrink(file).then(function (b) { return b.arrayBuffer(); }).then(function (buf) {
+      var r = { id: 'ph' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), cid: vNewCid(), clientId: clientId, name: c.name, date: vToday(), created: Date.now(), mime: 'image/jpeg', bytes: buf, drive: null, err: '' };
+      return pphReq('readwrite', function (st) { return st.put(r); }).then(function () { return r; }, function () { r.memOnly = true; return r; });
+    }).then(function (r) {
+      pphLoad().then(function (l) { l.unshift(r); pph.msg[clientId] = r.memOnly ? { t: 'This phone couldn\u2019t store it (private browsing?), so it will be gone after a reload.', bad: true } : null; ptRender(); pphSync(false); });
+    }, function (err) { pph.msg[clientId] = { t: 'Couldn\u2019t add the photo: ' + ((err && err.message) || 'error') + '.', bad: true }; ptRender(); });
+  }
+  function pphB64(buf) { var u = new Uint8Array(buf), s = '', i; for (i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); }
+  function pphStore(r) { if (r.memOnly) return; var o = {}; Object.keys(r).forEach(function (k) { if (k !== 'st') o[k] = r[k]; }); pphReq('readwrite', function (st) { return st.put(o); }).catch(function () {}); }
+  function pphSync(force) {
+    if (pph.syncing || (!force && pphOff())) return;
+    var todo = (pph.list || []).filter(function (r) { return !r.drive; });
+    if (!todo.length) return;
+    pph.syncing = true;
+    var one = function (i) {
+      if (i >= todo.length) { pph.syncing = false; if (ptOnScreen()) ptRender(); return; }
+      var r = todo[i]; r.st = 'sync';
+      apiPostRaw('ptphotosave', { clientId: r.clientId, name: r.name, date: r.date, mime: r.mime, cid: r.cid, data: pphB64(r.bytes) }, 120000).then(function (j) {
+        r.st = '';
+        if (j.error === 'bad_action') { lsSet(PPH_OFF_KEY, Date.now()); r.na = true; pph.syncing = false; if (ptOnScreen()) ptRender(); return; }
+        if (j.error) { r.err = j.message || j.error; pphStore(r); return one(i + 1); }
+        r.na = false; r.err = ''; r.drive = { id: j.data.id, url: j.data.url, name: j.data.name }; pphStore(r); one(i + 1);
+      }, function (err) { r.st = ''; if (vAuth(err)) { pph.syncing = false; return; } r.err = friendly(err); one(i + 1); });
+    };
+    one(0);
+  }
+  function pphClick(b) {
+    var a = b.getAttribute('data-pph'), r = (pph.list || []).filter(function (x) { return x.id === b.getAttribute('data-id'); })[0]; if (!r) return;
+    if (a === 'del') {
+      if (!window.confirm(r.drive ? 'Remove this photo from the phone? The copy in Drive stays.' : 'Remove this photo? It is NOT in Drive yet, so it will be gone.')) return;
+      pph.list = pph.list.filter(function (x) { return x !== r; });
+      if (pph.urls[r.id]) { URL.revokeObjectURL(pph.urls[r.id]); delete pph.urls[r.id]; }
+      pphReq('readwrite', function (st) { return st.delete(r.id); }).catch(function () {});
+      ptRender(); return;
+    }
+    if (a === 'log') {
+      var c = ptClient(r.clientId); if (!c) return;
+      ptWfInit(null, c.id, 'prior'); pt.wfOpen = '(new)';
+      pt.wf.notes = 'From photo of past workouts (' + ptDateW(r.date) + ')' + (r.drive && r.drive.url ? ': ' + r.drive.url : '');
+      ptRender();
+      var fm = document.querySelector('#pt-body .ptwcard'); if (fm && fm.scrollIntoView) try { fm.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) {}
+    }
+  }
   function ptHistoryHtml(c, list) {
     var editing = !!(pt.wf && pt.wf.id && pt.wfOpen === pt.wf.id);
     if (!editing && (!pt.wf || pt.wf.kind !== 'prior' || pt.wf.id)) { ptWfInit(null, c.id, 'prior'); pt.wfOpen = '(new)'; }
     var first = String(c.name || '').split(' ')[0] || 'the client';
     var h = '<div class="pt ptwktab"><p class="pthint pthisthint">Log workouts ' + esc(first) + ' did before starting with you. They are saved as history (not workouts you prescribed), so the 4-week plan can build on them.</p>';
+    h += pphCardHtml(c);
     if (editing) h += '<button type="button" class="navbtn wladd ptwadd" data-pt="hnew">+ Log a past workout</button>';
     else h += '<div class="card ptwcard"><h3 class="ptwfh">Log a past workout</h3>' + ptWorkoutForm() + '</div>';
     h += '<div class="noteflash" id="pt-wflash" hidden></div>';
@@ -14034,6 +14217,8 @@
 
   // ---- events ----
   $('pt-body').addEventListener('click', function (e) {
+    var pb = e.target.closest && e.target.closest('[data-pph]');
+    if (pb) { pphClick(pb); return; }
     var hd = e.target.closest('h2.pth');
     if (hd) {
       var card = hd.closest('[data-ptsec]'); ptSetOpen(card, card.classList.contains('collapsed'));
@@ -14074,7 +14259,10 @@
     var wk = t.getAttribute && t.getAttribute('data-ptw');
     if (wk && pt.wf) { var exm = /^ex\.(\d+)\.(\w+)$/.exec(wk); if (exm) { var exr = pt.wf.ex && pt.wf.ex[+exm[1]]; if (exr) exr[exm[2]] = t.value; } else pt.wf[wk] = t.value; }
   });
-  $('pt-body').addEventListener('change', function (e) { if (e.target && e.target.hasAttribute && e.target.hasAttribute('data-ppl')) ptpChange(e.target); });
+  $('pt-body').addEventListener('change', function (e) {
+    var fi = e.target && e.target.closest && e.target.closest('[data-pph-file]');
+    if (fi) { var fl = [].slice.call(fi.files || []); fi.value = ''; fl.forEach(function (f) { pphAdd(fi.getAttribute('data-pph-file'), f); }); return; }
+    if (e.target && e.target.hasAttribute && e.target.hasAttribute('data-ppl')) ptpChange(e.target); });
   document.addEventListener('visibilitychange', function () { if (document.hidden && pm.on) { ptMicStop(true); ptMicUi(); } });
 
   /* ---------------- Lisa's Table: Orders (#lt/orders) — Current | Previous | Summary ---------------- */
@@ -14119,7 +14307,13 @@
   }
   function odOrders(week) { var W = od.byWeek[week]; return W ? W.orders : null; }
   // ---- delivery fee + payment (server v41+). An older server sends neither: missing fee = 0, status from the paid boolean ----
-  var OD_FEES = [0, 3, 5], OD_METHODS = ['cash', 'zelle', 'venmo'];
+  var OD_FEES = [0, 3, 5], OD_METHODS = ['cash', 'zelle', 'venmo', 'trade'];
+  // v156: 'trade' = paid in trade (Lisa). The v55 server only accepts cash / zelle / venmo (bad_value) until backend/lisa-trade-ptphotos.patch
+  // (Api v56) is deployed; until then a paid-by-trade order is saved with the server's existing Trade status (payStatus=trade), which the
+  // Orders summary and the Vault already treat as trade (not cash income). The phone remembers the rejection and asks again after 6 h.
+  var OD_TRADE_KEY = 'cc_od_tradepm';
+  function odTradeOk() { var t = lsGet(OD_TRADE_KEY, 0); return !(t && Date.now() - t < 6 * 3600000); }
+  function odTradeRejected(j) { return !!(j && j.error === 'bad_value' && /payMethod/i.test(String(j.message || ''))); }
   function odCap(s) { s = String(s || ''); return s.charAt(0).toUpperCase() + s.slice(1); }
   function odNormOrder(o) {
     if (!o) return o;
@@ -14134,7 +14328,7 @@
   function odPayLabel(o) { return o.payStatus === 'paid' ? 'Paid' + (o.payMethod ? ' \u00b7 ' + odCap(o.payMethod) : '') : o.payStatus === 'trade' ? 'Trade' : 'Unpaid'; }
   function odAgg(orders) {
     var t = { clients: orders.length, items: 0, subtotal: 0, delivery: 0, deliveries: 0, total: 0, paid: 0, unpaid: 0, trade: 0, paidCount: 0, unpaidCount: 0, tradeCount: 0,
-      byMethod: { cash: 0, zelle: 0, venmo: 0, unspecified: 0 }, rows: [] }, by = {};
+      byMethod: { cash: 0, zelle: 0, venmo: 0, trade: 0, unspecified: 0 }, rows: [] }, by = {};
     orders.forEach(function (o) {
       t.items += o.items; t.subtotal += o.subtotal; t.delivery += o.deliveryFee; if (o.deliveryFee) t.deliveries++; t.total += o.total;
       if (o.payStatus === 'paid') { t.paid += o.total; t.paidCount++; t.byMethod[o.payMethod || 'unspecified'] += o.total; }
@@ -14233,6 +14427,7 @@
       [['unpaid', 'Unpaid'], ['paid', 'Paid'], ['trade', 'Trade']].map(function (x) {
         return '<button type="button" class="vchip odchip' + (p.status === x[0] ? ' on' : '') + '" data-od="pst" data-oid="' + esc(o.orderId) + '" data-s="' + x[0] + '" aria-pressed="' + (p.status === x[0]) + '">' + x[1] + '</button>';
       }).join('') + '</div>';
+    if (!(o.payStatus === 'paid' && o.payMethod === 'trade') && o.payStatus !== 'trade') h += '<button type="button" class="vchip odchip odtradeq" data-od="ptrade" data-oid="' + esc(o.orderId) + '">Mark paid (trade)</button>';
     if (p.status === 'paid') h += '<div class="odpmh">How was it paid?</div><div class="vchips">' + OD_METHODS.map(function (m) {
       return '<button type="button" class="vchip odchip' + (o.payStatus === 'paid' && o.payMethod === m ? ' on' : '') + '" data-od="pmt" data-oid="' + esc(o.orderId) + '" data-m="' + m + '">' + odCap(m) + '</button>';
     }).join('') + '</div>';
@@ -14398,8 +14593,9 @@
     od.picker = (od.picker && od.picker.oid === oid) ? null : { oid: oid, status: f.o.payStatus };
     od.confirmDel = ''; odRender();
   }
-  function odPay(oid, status, method) {          // change one order's payment via orderpaid (optimistic; reverted on error)
+  function odPay(oid, status, method, again) {          // change one order's payment via orderpaid (optimistic; reverted on error)
     var f = odFind(oid); if (!f || od.busy[oid]) return;
+    if (status === 'paid' && method === 'trade' && !odTradeOk()) { status = 'trade'; method = ''; }
     var o = f.o, was = { paid: o.paid, paidOn: o.paidOn, payStatus: o.payStatus, payMethod: o.payMethod };
     od.picker = null;
     if (was.payStatus === status && was.payMethod === (status === 'paid' ? method : '')) return odRender();
@@ -14410,7 +14606,9 @@
     var undo = function () { o.payStatus = was.payStatus; o.payMethod = was.payMethod; o.paid = was.paid; o.paidOn = was.paidOn; };
     apiRaw('orderpaid', q).then(function (j) {
       od.busy[oid] = false;
+      if (j.error && method === 'trade' && odTradeRejected(j) && !again) { undo(); lsSet(OD_TRADE_KEY, Date.now()); odPay(oid, 'trade', '', true); return; }
       if (j.error) { undo(); odFlash(odApiMsg(j, 'Changing payment'), true); odRender(); return; }
+      if (again && status === 'trade') odFlash('Marked ' + o.client + ' as Trade. (Trade as a paid type is kept after the next server update; until then it shows as Trade.)', false);
       var so = j.data && j.data.order;
       if (so && so.payStatus === undefined && (status === 'trade' || method)) {      // an older server only knows paid / unpaid
         undo(); odFlash('Trade and payment methods will work after the next server update.', true); odRender(); odLoad(f.w, true); return;
@@ -14590,14 +14788,17 @@
     var lines = [];
     f.items.forEach(function (it, i) { if (f.qty[i]) lines.push({ item: it.item, qty: f.qty[i], price: it.price || 0 }); });
     if (!lines.length) return odFmsg('Tap at least one item.', true);
-    if (f.payStatus === 'paid' && !f.payMethod && !f.legacyPaid) return odFmsg('Choose how it was paid: Cash, Zelle or Venmo.', true);
-    var week = od.week, body = { week: week, client: name, lines: lines, deliveryFee: f.fee, payStatus: f.payStatus, paid: f.payStatus === 'paid' };
-    if (f.payStatus === 'paid' && f.payMethod) body.payMethod = f.payMethod;
+    if (f.payStatus === 'paid' && !f.payMethod && !f.legacyPaid) return odFmsg('Choose how it was paid: Cash, Zelle, Venmo or Trade.', true);
+    var ps0 = f.payStatus, pm0 = f.payMethod;
+    if (ps0 === 'paid' && pm0 === 'trade' && !odTradeOk()) { ps0 = 'trade'; pm0 = ''; }      // v55 server: save as the Trade status
+    var week = od.week, body = { week: week, client: name, lines: lines, deliveryFee: f.fee, payStatus: ps0, paid: ps0 === 'paid' };
+    if (ps0 === 'paid' && pm0) body.payMethod = pm0;
     if (f.orderId) body.orderId = f.orderId;
     var sig = JSON.stringify(body); if (f.sig !== sig) { f.sig = sig; f.cid = vNewCid(); }
     body.cid = f.cid; f.busy = true; var btn = $('od-save'); if (btn) { btn.disabled = true; btn.textContent = 'Saving\u2026'; } odFmsg('');
     apiPostRaw('orderset', body, 60000).then(function (j) {
       f.busy = false;
+      if (j.error && body.payMethod === 'trade' && odTradeRejected(j)) { lsSet(OD_TRADE_KEY, Date.now()); f.sig = ''; return odSave(); }
       if (j.error) { var b = $('od-save'); if (b) { b.disabled = false; b.textContent = f.orderId ? 'Save changes' : 'Save order'; } return odFmsg(odApiMsg(j, 'Saving orders') + (j.error === 'bad_action' ? ' Nothing was saved.' : ''), true); }
       var o = j.data && j.data.order; if (!o) return odFmsg('Saved, but the server sent no order back. Pull to refresh.', true);
       var oldServer = o.deliveryFee === undefined && o.payStatus === undefined && (f.fee > 0 || f.payStatus === 'trade' || !!f.payMethod);
@@ -14683,6 +14884,7 @@
     else if (a === 'paid') odPickToggle(oid);
     else if (a === 'pst') { var po = od.picker; if (!po || po.oid !== oid) return; var st = b.getAttribute('data-s'); if (st === 'paid') { po.status = 'paid'; odRender(); } else odPay(oid, st, ''); }
     else if (a === 'pmt') odPay(oid, 'paid', b.getAttribute('data-m'));
+    else if (a === 'ptrade') odPay(oid, 'paid', 'trade');
     else if (a === 'del') { od.confirmDel = oid; odRender(); }
     else if (a === 'delno') { od.confirmDel = ''; odRender(); }
     else if (a === 'delyes') odDelete(oid);

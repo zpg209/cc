@@ -1,0 +1,135 @@
+# v56: Lisa's Table payMethod 'trade' + Personal Training client photos (ptphotos / ptphotosave). Patch against Api.gs v55 (/workspace/redeploy/Api.gs).
+# Uses DriveApp.createFolder/createFile in the Lisa's Table folder (same Drive scope as ltmenusave / bizreceiptsave), so no new authorization.
+--- a/Api.gs
++++ b/Api.gs
+@@ -151,6 +151,8 @@
+       case 'ptclientdel':  return apiPtClientDel_(extra.all || {});
+       case 'ptworkoutset': return apiPtWorkoutSet_(extra.all || {});
+       case 'ptworkoutdel': return apiPtWorkoutDel_(extra.all || {});
++      case 'ptphotos':     return apiPtPhotos_(extra.all || {});            // v56: PT client workout photos (read-only)
++      case 'ptphotosave':  return apiPtPhotoSave_(extra.all || {});         // v56: photo -> Lisa's Table > PT Client Photos > <client>
+       case 'lisareqlist':  return apiLrList_();                       // v54: Lisa's change requests (sheet 'Lisa Change Requests')
+       case 'lisareq':      return apiLrAdd_(extra.all || {});
+       case 'lisareqset':   return apiLrSet_(extra.all || {});
+@@ -6972,7 +6974,7 @@
+   tab: 'Orders', menuTab: 'Week Menus',
+   head: ['orderId', 'week', 'client', 'item', 'qty', 'unitPrice', 'lineTotal', 'paid', 'paidOn', 'addedAt', 'updatedAt', 'status', 'delivery', 'payStatus', 'payMethod'],
+   newCols: ['delivery', 'payStatus', 'payMethod'],          // v41: added lazily to a sheet created by v40
+-  fees: [0, 3, 5], payStatuses: ['paid', 'unpaid', 'trade'], payMethods: ['cash', 'zelle', 'venmo'],
++  fees: [0, 3, 5], payStatuses: ['paid', 'unpaid', 'trade'], payMethods: ['cash', 'zelle', 'venmo', 'trade'],   // v56: trade = paid in trade (Lisa's Table)
+   menuHead: ['week', 'item', 'price', 'order'],
+   maxLines: 40, maxMenu: 60, maxClient: 60, maxItem: 120, maxQty: 99, maxPrice: 500, maxBulk: 200,
+   sheetMime: 'application/vnd.google-apps.spreadsheet'
+@@ -7175,7 +7177,7 @@
+ /** A zeroed aggregate (one week, or everything). */
+ function apiOrdAgg_() {
+   return { clients: 0, items: 0, subtotal: 0, deliveryTotal: 0, total: 0, paid: 0, unpaid: 0, trade: 0, paidCount: 0, unpaidCount: 0, tradeCount: 0,
+-    byMethod: { cash: 0, zelle: 0, venmo: 0, unspecified: 0 } };
++    byMethod: { cash: 0, zelle: 0, venmo: 0, trade: 0, unspecified: 0 } };
+ }
+ /** Add one order to an aggregate. paid / unpaid / trade are money (items + delivery fee) of paid-only / unpaid-only / trade-only orders; total = all three. byMethod = paid money per method. */
+ function apiOrdAggAdd_(x, o) {
+@@ -7449,7 +7451,7 @@
+   var feeIn = apiOrdFee_(p.deliveryFee), psIn = apiOrdPayStatus_(p.payStatus), pmIn = apiOrdPayMethod_(p.payMethod);
+   if (feeIn === null) return { error: 'bad_value', message: 'deliveryFee must be 0, 3 or 5.' };
+   if (psIn === null) return { error: 'bad_value', message: 'payStatus must be paid, unpaid or trade.' };
+-  if (pmIn === null) return { error: 'bad_value', message: 'payMethod must be cash, zelle or venmo.' };
++  if (pmIn === null) return { error: 'bad_value', message: 'payMethod must be cash, zelle, venmo or trade.' };
+   var editId = apiAdminClean_(p.orderId, 80);
+   if (!dry && !cid) return { error: 'bad_value', message: 'cid is required when writing (idempotency key).' };
+ 
+@@ -7476,7 +7478,7 @@
+     var status = psIn ? psIn : (paidIn !== undefined ? (paidIn ? 'paid' : 'unpaid') : wasSt), method = '';
+     if (status === 'paid') {
+       method = pmIn ? pmIn : (wasSt === 'paid' ? wasM : '');
+-      if (!method && psIn && !(wasSt === 'paid')) return { error: 'method_required', message: 'Choose how it was paid: cash, zelle or venmo. Nothing changed.' };
++      if (!method && psIn && !(wasSt === 'paid')) return { error: 'method_required', message: 'Choose how it was paid: cash, zelle, venmo or trade. Nothing changed.' };
+     } else if (pmIn) return { error: 'bad_value', message: 'payMethod only applies when payStatus is paid. Nothing changed.' };
+     var fee = feeIn === '' ? (pg ? pg.deliveryFee : 0) : feeIn;
+     var today = todayKey_(), stamp = apiOrdStamp_();
+@@ -7628,14 +7630,14 @@
+   if (hasPaid && want === null) return { error: 'bad_value', message: 'paid must be true or false.' };
+   var ps = apiOrdPayStatus_(p.payStatus), pm = apiOrdPayMethod_(p.payMethod);
+   if (ps === null) return { error: 'bad_value', message: 'payStatus must be paid, unpaid or trade.' };
+-  if (pm === null) return { error: 'bad_value', message: 'payMethod must be cash, zelle or venmo.' };
++  if (pm === null) return { error: 'bad_value', message: 'payMethod must be cash, zelle, venmo or trade.' };
+   if (!hasPaid && !ps && !pm) return { error: 'bad_value', message: 'paid or payStatus is required.' };
+   return apiOrdTouch_('orderpaid', p, {
+     plan: function (rows, b, col) {
+       var st = ps ? ps : (hasPaid ? (want ? 'paid' : 'unpaid') : b.payStatus), m = '';
+       if (st === 'paid') {
+         m = pm ? pm : (b.payStatus === 'paid' ? b.payMethod : '');
+-        if (!m && ps && b.payStatus !== 'paid') return { err: { error: 'method_required', message: 'Choose how it was paid: cash, zelle or venmo. Nothing changed.' } };
++        if (!m && ps && b.payStatus !== 'paid') return { err: { error: 'method_required', message: 'Choose how it was paid: cash, zelle, venmo or trade. Nothing changed.' } };
+       } else if (pm) return { err: { error: 'bad_value', message: 'payMethod only applies when payStatus is paid. Nothing changed.' } };
+       var today = todayKey_(), on = st === 'paid' ? (b.payStatus === 'paid' && b.paidOn ? b.paidOn : today) : '';
+       var after = apiOrdPub_(b); after.paid = st === 'paid'; after.payStatus = st; after.payMethod = m; after.paidOn = on;
+@@ -8994,3 +8996,68 @@
+     lock.releaseLock();
+   }
+ }
++
++
++/* ===== v56: Personal Training client photos (past workouts) =====================================
++ * Folder: Lisa's Table (API_PT.folderId) > "PT Client Photos" > "<client name> (<client id>)", created by the first real write.
++ * action=ptphotos&clientId=pc..   -> {canUpload:true, photos:[{id,name,url,date,created}]} (no folder yet = [] and nothing created)
++ * action=ptphotosave (POST) clientId, name, cid, date=yyyy-mm-dd, mime=image/jpeg|image/png, data=<base64>, note, dry
++ *   never overwrites (unique name), cid stored in the file description = no doubles on retry.
++ */
++var API_PTPH = { root: 'PT Client Photos', DESC_TAG: 'CC ptphotosave ', MIME: { 'image/jpeg': 'jpg', 'image/png': 'png' }, MAX_BYTES: 8 * 1024 * 1024 };
++function apiPtPhClientFolder_(clientId, name, create) {
++  var root = null, lt = DriveApp.getFolderById(API_PT.folderId), it = lt.getFoldersByName(API_PTPH.root);
++  if (it.hasNext()) root = it.next(); else if (create) root = lt.createFolder(API_PTPH.root); else return null;
++  var key = '(' + clientId + ')', f = root.getFolders();
++  while (f.hasNext()) { var g = f.next(); if (g.getName().indexOf(key) >= 0) return g; }
++  if (!create) return null;
++  var nm = String(name || 'Client').replace(/[\\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 60) || 'Client';
++  return root.createFolder(nm + ' ' + key);
++}
++function apiPtPhotos_(p) {
++  var clientId = apiAdminClean_(p.clientId, 40);
++  if (!/^pc[a-z0-9]+$/i.test(clientId)) return { error: 'bad_value', message: 'clientId is required.' };
++  var fo = apiPtPhClientFolder_(clientId, '', false), out = [];
++  if (fo) { var it = fo.getFiles(); while (it.hasNext()) { var f = it.next(); if (f.isTrashed()) continue; var d = {}; try { d = JSON.parse(String(f.getDescription() || '').slice(API_PTPH.DESC_TAG.length)); } catch (e) {}
++    out.push({ id: f.getId(), name: f.getName(), url: f.getUrl(), date: d.date || '', note: d.note || '', created: f.getDateCreated().getTime() }); } }
++  out.sort(function (a, b) { return b.created - a.created; });
++  return { ok: true, data: { canUpload: true, clientId: clientId, folderUrl: fo ? fo.getUrl() : '', photos: out, version: 56 } };
++}
++function apiPtPhotoSave_(p) {
++  p = p || {};
++  var dry = apiAdminBool_(p.dry), cid = apiAdminClean_(p.cid, 80), clientId = apiAdminClean_(p.clientId, 40);
++  if (!/^pc[a-z0-9]+$/i.test(clientId)) return { error: 'bad_value', message: 'clientId is required.' };
++  if (!dry && !cid) return { error: 'bad_value', message: 'cid is required when writing (idempotency key).' };
++  var date = p.date ? apiAdminDate_(p.date) : todayKey_();
++  if (!date) return { error: 'bad_value', message: 'date must look like 2026-10-09.' };
++  var mime = String(p.mime || 'image/jpeg').toLowerCase(), ext = API_PTPH.MIME[mime];
++  if (!ext) return { error: 'bad_value', message: 'mime must be image/jpeg or image/png.' };
++  var note = String(p.note == null ? '' : p.note).substring(0, 300), bytes = null;
++  if (p.data != null && String(p.data) !== '') {
++    var b64 = String(p.data).replace(/^data:[^,]*,/, '').replace(/\s+/g, '');
++    if (!/^[A-Za-z0-9+\/]+={0,2}$/.test(b64)) return { error: 'bad_value', message: 'data must be base64.' };
++    try { bytes = Utilities.base64Decode(b64); } catch (e1) { return { error: 'bad_value', message: 'data is not valid base64.' }; }
++    if (bytes.length > API_PTPH.MAX_BYTES) return { error: 'too_big', message: 'The photo is larger than 8 MB.' };
++    var b0 = bytes[0] & 255, b1 = bytes[1] & 255;
++    if (bytes.length < 100 || !(ext === 'jpg' ? (b0 === 0xFF && b1 === 0xD8) : (b0 === 0x89 && b1 === 0x50))) return { error: 'bad_value', message: 'data does not match ' + mime + '.' };
++  } else if (!dry) return { error: 'bad_value', message: 'data (base64 photo) is required when writing.' };
++  var name = apiAdminClean_(p.name, 80);
++  var out = { dry: dry, cid: cid, clientId: clientId, version: 56 };
++  if (dry) { out.folder = apiPtPhClientFolder_(clientId, name, false) ? 'exists' : 'would create'; return { ok: true, data: out }; }
++  var lock = LockService.getScriptLock();
++  try { lock.waitLock(20000); } catch (e3) { return { error: 'busy', message: 'Another update is running. Try again.' }; }
++  try {
++    var fo = apiPtPhClientFolder_(clientId, name, true), it = fo.getFiles();
++    while (it.hasNext()) { var g = it.next(), d = String(g.getDescription() || '');
++      if (d.indexOf(API_PTPH.DESC_TAG) === 0 && !g.isTrashed()) { try { if (JSON.parse(d.slice(API_PTPH.DESC_TAG.length)).cid === cid) { out.duplicate = 'cid'; out.id = g.getId(); out.url = g.getUrl(); out.name = g.getName(); return { ok: true, data: out }; } } catch (e4) {} } }
++    var base = date + ' Past workouts', nm = base + '.' + ext, k = 2;
++    while (fo.getFilesByName(nm).hasNext() && k < 100) { nm = base + ' (' + k + ').' + ext; k++; }
++    var file = fo.createFile(Utilities.newBlob(bytes, mime, nm));
++    file.setDescription(API_PTPH.DESC_TAG + JSON.stringify({ cid: cid, clientId: clientId, date: date, note: note }));
++    out.id = file.getId(); out.url = file.getUrl(); out.name = nm; out.folderUrl = fo.getUrl();
++    try { apiSpendJournal_(SpreadsheetApp.openById(CONFIG.SPEND.SHEET_ID), [new Date(), 'ptphotosave', '', API_PT.name + ' photo: ' + nm, clientId, out.id + ' | ' + bytes.length + ' bytes', cid]); } catch (e7) { out.journalFailed = true; }
++    return { ok: true, data: out };
++  } catch (werr) {
++    return { error: 'write_failed', message: String(werr && werr.message || werr).substring(0, 200) };
++  } finally { lock.releaseLock(); }
++}
