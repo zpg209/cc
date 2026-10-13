@@ -3157,3 +3157,5 @@ body.fc-modal { overflow: hidden; }
 .wohd { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .wohd h3 { margin-right: auto; min-width: 0; }
 .fitbtn.wosm { min-height: 34px; height: auto; width: auto; flex: none; font-size: 13px; padding: 4px 10px; }
+.wobul { margin: 4px 0 0; padding-left: 16px; font-weight: 400; color: #cfcfcf; font-size: 12.5px; }
+.wobul li { margin: 1px 0; }

@@ -2239,11 +2239,15 @@
     if (m) st.push(m[1] + ' ft gain');
     return st;
   }
+  function fhWoBullets(parts) {   // v159: each exercise / entry on its own bullet (split on ; newlines, and commas)
+    var b = []; parts.forEach(function (p) { String(p || '').split(/\s*(?:;|\n|,(?!\d{3}\b))\s*/).forEach(function (q) { q = q.trim(); if (q) b.push(q); }); });
+    return b.length ? '<ul class="wobul">' + b.map(function (q) { return '<li>' + esc(q) + '</li>'; }).join('') + '</ul>' : '';
+  }
   function fhWoCard(x, today) {
     var kinds = fhWoKinds(x), st = x.did || x.hike ? fhWoStats(x) : [], when = x.date === today ? 'Today' : x.date === trkAddDays(today, -1) ? 'Yesterday' : x.label;
     var notes = x.details.length > 1 || (x.details[0] && x.details[0] !== kinds[0]) ? x.details.join(' \u00b7 ') : '';
     var body = x.did || x.hike ? '<span class="fhwt">' + esc(kinds.join(' + ')) + (st.length ? '<small class="wost">' + esc(st.join(' \u00b7 ')) + '</small>' : '') +
-        (notes ? '<small>' + esc(notes) + '</small>' : '') + (x.extra.length ? '<small>' + esc(x.extra.join(' \u00b7 ')) + '</small>' : '') + '</span>'
+        fhWoBullets(x.details.concat(x.extra)) + '</span>'
       : '<span class="fhwt"><i>No workout logged</i>' + (x.rest ? '<small>Rest day</small>' : '') + '</span>';
     return '<button type="button" class="fhwo' + (x.did ? ' did' : '') + (x.logged ? '' : ' none') + '" data-fh-wo="' + x.date + '"><span class="fhwd">' + esc(when) + '</span>' + body + '<span class="fhwn2"></span><i class="chev">&rsaquo;</i></button>';
   }
