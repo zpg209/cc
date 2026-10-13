@@ -2249,7 +2249,7 @@
     var body = x.did || x.hike ? '<span class="fhwt">' + esc(kinds.join(' + ')) + (st.length ? '<small class="wost">' + esc(st.join(' \u00b7 ')) + '</small>' : '') +
         fhWoBullets(x.details.concat(x.extra)) + '</span>'
       : '<span class="fhwt"><i>No workout logged</i>' + (x.rest ? '<small>Rest day</small>' : '') + '</span>';
-    return '<button type="button" class="fhwo' + (x.did ? ' did' : '') + (x.logged ? '' : ' none') + '" data-fh-wo="' + x.date + '"><span class="fhwd">' + esc(when) + '</span>' + body + '<span class="fhwn2"></span><i class="chev">&rsaquo;</i></button>';
+    return '<div class="fhwo' + (x.did ? ' did' : '') + (x.logged ? '' : ' none') + '"><span class="fhwd">' + esc(when) + '</span>' + body + '<span class="fhwn2"></span><button type="button" class="fitbtn wosm woed" data-fh-wo="' + x.date + '">' + (x.did || x.hike ? 'Edit' : 'Add') + '</button></div>';   // v160 explicit Edit
   }
   function fhRenderWo(d) {
     var el = $('wo-body'); if (!el) return;
@@ -2281,7 +2281,7 @@
       for (var k2 = trkAddDays(first, -1); k2 >= cut; k2 = trkAddDays(k2, -1)) { var x2 = fhWoDay(d, k2); if (x2.did || x2.hike) old.push(x2); }
       h += '<div class="card fitcard"><h3>Older workouts</h3><div class="woold">' + (old.length ? old.map(function (x) { return fhWoCard(x, today); }).join('') : '<div class="foot">No older workouts in the history.</div>') + '</div></div>';
     }
-    h += '<div class="foot">Tap a day to edit it. Weeks run Sunday\u2013Saturday like the Daily Log. Type, distance and elevation are read from the Workout text (e.g. \u201cHike 5.2 mi 1,200 ft\u201d). History covers the last ' + (d.ext.historyDays || LOG_HIST_DAYS + 1) + ' days.</div>';
+    h += '<div class="foot">Use Edit on a workout to change or delete it. Weeks run Sunday\u2013Saturday like the Daily Log. Type, distance and elevation are read from the Workout text (e.g. \u201cHike 5.2 mi 1,200 ft\u201d). History covers the last ' + (d.ext.historyDays || LOG_HIST_DAYS + 1) + ' days.</div>';
     el.innerHTML = h;
   }
 
@@ -2402,6 +2402,7 @@
       h += '<div class="bgrid fhone">' + fhInp('fhs-type', 'Type', v.type, 'text', ' maxlength="120" data-fv="type" placeholder="Strength, Hike 3 mi, Pickleball\u2026"') + '</div>';
       h += '<div class="bgrid">' + fhInp('fhs-min', c.kind === 'wo' ? 'Minutes (added)' : 'Minutes (day total)', v.min, 'number', ' data-fv="min"') + fhInp('fhs-hike', c.kind === 'wo' ? 'Hike miles (added)' : 'Hike miles (day total)', v.hike, 'number', ' data-fv="hike"') + '</div>';
       h += '<div class="bgrid fhone">' + fhInp('fhs-details', 'Details (optional, saved to Notes)', v.details, 'text', ' maxlength="300" data-fv="details"') + '</div>';
+      if (c.kind === 'woday' && (c.orig.type && !/^rest/i.test(c.orig.type) || c.orig.min || c.orig.hike)) h += '<button type="button" class="fitbtn wide fhdanger" data-fh="delwo"' + (FH.busy ? ' disabled' : '') + '>Delete workout</button>';
       if (c.kind === 'woday') h += '<div class="foot">Replaces the day\u2019s workout type, minutes and hike miles. To add another workout to the day, use + Add workout.</div>';
       else h += '<div class="foot">Added to the day: the type joins the day\u2019s workout, minutes and hike miles add to its totals.</div>';
     } else if (c.kind === 'hm') {
@@ -2498,6 +2499,10 @@
     if (a === 'mic') return fhMicToggle();
     if (a === 'save') return fhSave();
     if (a === 'delmeal') return fhDelMeal();
+    if (a === 'delwo') {   // v160: clear the day's workout with the same logday call (blank values are ignored by the server, so Rest / none + 0 min + 0 mi)
+      if (!window.confirm('Delete the workout for ' + trkDayLabel(c.date) + '? This sets it to Rest / none with 0 minutes and 0 hike miles.')) return;
+      return fhRun(function () { return apiRaw('logday', { date: c.date, workout: 'Rest / none', workout_min: 0, hike_miles: 0, cid: 'fhwd' + sfHash(c.date + '|del|' + Date.now()) }).then(function (j) { trkRes(j); return fhAfterWrite('Deleted ' + trkDayLabel(c.date) + ' workout \u2713'); }); });
+    }
     var day = b.getAttribute('data-fhday');
     if (day) {
       var tk = fhToday(); c.date = day === 'today' ? tk : day === 'yesterday' ? trkAddDays(tk, -1) : (($('fhs-date') && $('fhs-date').value < tk) ? $('fhs-date').value : trkAddDays(tk, -2));
