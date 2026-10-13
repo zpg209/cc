@@ -2217,7 +2217,7 @@
     t.hike = fhR1(t.hike); t.minutes = Math.round(t.minutes);
     return t;
   }
-  function fhOpenWo() { fhBack('workouts', 'wo-back'); fhLoad(fhRenderWo, 'wo-body'); }
+  function fhOpenWo() { FH.woEdit = null; fhBack('workouts', 'wo-back'); fhLoad(fhRenderWo, 'wo-body'); }
   // v157: workout types + stats parsed from the Daily Log's Workout text (the sheet has no type / distance / elevation columns)
   var FH_WO_TYPES = [['Hike', /\bhik(e|ed|ing)\b/i], ['Bike', /\b(bike|biked|biking|cycl\w*|ride|rode|spin)\b/i], ['Paddleboard', /\b(paddle\s*board\w*|paddl\w*|sup)\b/i],
     ['Run', /\b(run|ran|running|jog\w*)\b/i], ['Walk', /\bwalk\w*\b/i], ['Swim', /\bswim\w*\b/i], ['Strength', /\b(strength|lift\w*|weights?|gym|upper|lower|legs|push|pull|chest|back|squat\w*|deadlift\w*|bench|pt)\b/i],
@@ -2244,13 +2244,24 @@
     var b = fhWoSplit(parts);
     return b.length ? '<ul class="wobul">' + b.map(function (q) { return '<li>' + esc(q) + '</li>'; }).join('') + '</ul>' : '';
   }
+  function fhWoInline(x) {   // v162: today's workout edited in place
+    var E = FH.woEdit;
+    return '<div class="fhwo did woinl"><span class="fhwd">Today</span><span class="fhwt"><div class="woitems">' + E.items.map(function (it, i) {
+        return '<div class="woitem"><input type="text" class="woin" maxlength="120" data-wii="' + i + '" value="' + esc(it) + '" aria-label="Item ' + (i + 1) + '"><button type="button" class="navbtn wix" data-fh-act="wixdel" data-i="' + i + '" aria-label="Remove item">\u00d7</button></div>'; }).join('') +
+      (E.items.length ? '' : '<div class="foot"><i>No items \u2014 Save marks today Rest / none.</i></div>') + '</div>' +
+      '<div class="woitem wonums"><label>Min<input type="number" class="woin" inputmode="decimal" min="0" step="any" id="woi-min" value="' + (E.min == null ? '' : E.min) + '"></label><label>Hike mi<input type="number" class="woin" inputmode="decimal" min="0" step="any" id="woi-hike" value="' + (E.hike == null ? '' : E.hike) + '"></label></div>' +
+      (x.extra.length ? '<small>From Notes (edit in the sheet): ' + esc(x.extra.join(' \u00b7 ')) + '</small>' : '') +
+      '<div class="woinbar"><button type="button" class="fitbtn wosm" data-fh-act="wixadd">+ Add item</button><button type="button" class="fitbtn wosm" data-fh-act="wixcancel">Cancel</button><button type="button" class="fitbtn wosm on" data-fh-act="wixsave"' + (FH.busy ? ' disabled' : '') + '>Save</button></div><div class="fitmsg" id="fhs-msg" role="status"></div></span></div>';
+  }
+  function fhWoSync() { var E = FH.woEdit; if (!E) return; E.items = Array.prototype.map.call(document.querySelectorAll('[data-wii]'), function (i) { return i.value; }); var m = $('woi-min'), k = $('woi-hike'); if (m) E.min = m.value === '' ? null : Number(m.value); if (k) E.hike = k.value === '' ? null : Number(k.value); }
   function fhWoCard(x, today) {
+    if (x.date === today && FH.woEdit && FH.woEdit.date === today) return fhWoInline(x);
     var kinds = fhWoKinds(x), st = x.did || x.hike ? fhWoStats(x) : [], when = x.date === today ? 'Today' : x.date === trkAddDays(today, -1) ? 'Yesterday' : x.label;
     var notes = x.details.length > 1 || (x.details[0] && x.details[0] !== kinds[0]) ? x.details.join(' \u00b7 ') : '';
     var body = x.did || x.hike ? '<span class="fhwt">' + esc(kinds.join(' + ')) + (st.length ? '<small class="wost">' + esc(st.join(' \u00b7 ')) + '</small>' : '') +
         fhWoBullets(x.details.concat(x.extra)) + '</span>'
       : '<span class="fhwt"><i>No workout logged</i>' + (x.rest ? '<small>Rest day</small>' : '') + '</span>';
-    return '<div class="fhwo' + (x.did ? ' did' : '') + (x.logged ? '' : ' none') + '"><span class="fhwd">' + esc(when) + '</span>' + body + '<span class="fhwn2"></span><button type="button" class="fitbtn wosm woed" data-fh-wo="' + x.date + '">' + (x.did || x.hike ? 'Edit' : 'Add') + '</button></div>';   // v160 explicit Edit
+    return '<div class="fhwo' + (x.did ? ' did' : '') + (x.logged ? '' : ' none') + '"><span class="fhwd">' + esc(when) + '</span>' + body + '<span class="fhwn2"></span>' + (x.date === today ? '<button type="button" class="fitbtn wosm woed" data-fh-act="wixedit" data-day="' + x.date + '">' + (x.did || x.hike ? 'Edit' : 'Add') + '</button>' : '') + '</div>';   // v160 explicit Edit
   }
   function fhRenderWo(d) {
     var el = $('wo-body'); if (!el) return;
@@ -2723,6 +2734,18 @@
       for (var q in vals) orig[q] = vals[q];
       if (!items.length) orig.type = x.rest ? 'Rest / none' : '';
       return fhSheetOpen({ kind: 'woday', title: 'Workout \u00b7 ' + trkDayLabel(dk), date: dk, fixedDate: true, vals: vals, orig: orig, saveLbl: fhSaveLabel });
+    }
+    if (a === 'wixedit') { var xt = fhWoDay(d, tk), its = xt.did ? fhWoSplit(xt.details) : []; FH.woEdit = { date: tk, items: its.length ? its : [''], orig: { items: its, type: its.length ? its.join('; ') : (xt.rest ? 'Rest / none' : ''), min: xt.minutes, hike: xt.hike }, min: xt.minutes, hike: xt.hike }; fhRenderWo(d); var f0 = document.querySelector('[data-wii]'); if (f0) f0.focus(); return; }
+    if (a === 'wixdel') { fhWoSync(); FH.woEdit.items.splice(+b.getAttribute('data-i'), 1); fhRenderWo(d); return; }
+    if (a === 'wixadd') { fhWoSync(); FH.woEdit.items.push(''); fhRenderWo(d); var ia = document.querySelectorAll('[data-wii]'); if (ia.length) ia[ia.length - 1].focus(); return; }
+    if (a === 'wixcancel') { FH.woEdit = null; fhRenderWo(d); return; }
+    if (a === 'wixsave') {
+      fhWoSync(); var E = FH.woEdit, v = { min: E.min, hike: E.hike };
+      var bw = fhCheckNums(v, ['min', 'hike']); if (bw) return fhMsg('Check ' + (bw === 'min' ? 'minutes' : 'hike miles') + ': use a positive number.', true);
+      var its2 = E.items.map(function (q) { return String(q || '').trim(); }).filter(Boolean), type = its2.length ? its2.join('; ') : 'Rest / none';
+      if (!its2.length) { if (!fhIsNum(v.min) || v.min === E.orig.min) v.min = 0; if (!fhIsNum(v.hike) || v.hike === E.orig.hike) v.hike = 0; }
+      var cc = { vals: v, orig: E.orig, date: E.date };
+      return fhRun(function () { return fhEditWo(cc, type, '').then(function () { FH.woEdit = null; fhRenderWo(FH.data); }); });
     }
     var wfb = b.getAttribute('data-fh-wf'); if (wfb) { if (wfb === 'prev' && FH.woF === 'prev') FH.woPrev = (FH.woPrev || -1) - 1; else if (wfb === 'prev') FH.woPrev = -1; FH.woF = wfb; fhRenderWo(d); return; }
     if (a === 'wprev') { FH.woPrev = (FH.woPrev || -1) - 1; fhRenderWo(d); return; }
