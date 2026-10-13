@@ -2265,12 +2265,12 @@
       '<button type="button" class="navbtn" data-fh-act="wnext"' + (FH.woPrev >= -1 ? ' disabled' : '') + '>Newer &rsaquo;</button></div>';
     var did = days.filter(function (x) { return x.did || x.hike; }), min = 0, mi = 0;
     did.forEach(function (x) { min += x.minutes || 0; mi += x.hike || 0; });
-    h += '<div class="card fitcard"><h3>' + esc(title) + '</h3>';
+    h += '<div class="card fitcard"><div class="wohd"><h3>' + esc(title) + '</h3><button type="button" class="fitbtn wosm" data-fh-act="addwo">+ Add workout</button></div>';   // v159
     if (keys.length > 1) h += '<div class="btiles tot"><div><span>Workouts</span><b>' + did.length + '</b></div><div><span>Workout min</span><b>' + fmt(Math.round(min)) + '</b></div><div><span>Hike miles</span><b>' + (mi ? fmt(fhR1(mi), 1) : '\u2014') + '</b></div></div>';
     var list = f === 'all' ? did : days;
     if (!list.length) h += '<div class="foot">No workout logged.</div>';
     list.slice().reverse().forEach(function (x) { h += fhWoCard(x, today); });
-    h += '<div class="fhbtns"><button type="button" class="fitbtn" data-fh-act="addwo">+ Add workout</button><button type="button" class="fitbtn" data-fh-act="micwo">&#127908; Say a workout</button></div></div>';
+    h += '</div>';
     // older workouts (before the selected period), newest first
     if (f !== 'all') {
       var first = keys.length ? keys[0] : today, old = [];

@@ -3152,3 +3152,8 @@ body.fc-modal { overflow: hidden; }
 .woseg button { min-height: 44px; font-size: 13px; padding: 0 2px; }
 .fhwo .wost { color: #F4A15A !important; font-weight: 700 !important; }
 .woold { max-height: 60vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
+/* v159 small Add workout inside the summary card */
+.wohd { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.wohd h3 { margin-right: auto; min-width: 0; }
+.fitbtn.wosm { min-height: 34px; height: auto; width: auto; flex: none; font-size: 13px; padding: 4px 10px; }
