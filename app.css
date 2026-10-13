@@ -3174,33 +3174,31 @@ body.fc-modal { overflow: hidden; }
 .wonums label { flex: 1; font-size: 12px; color: var(--muted); }
 .woinbar { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .fitbtn.wosm.on { color: var(--red); border-color: var(--red); }
-/* v163 Finances > Vault hero tile (vault-door motif): full-width, first row; pure CSS so drag/folder logic is unchanged */
+/* v164 Finances > Vault hero tile: vault-door dial in the app's own tile palette (--btn, --red, --radius, tile shadow); pure CSS */
 .hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"] {
-  grid-column: 1 / -1; order: -1; min-height: 116px; overflow: hidden; isolation: isolate;
-  display: flex; align-items: center; justify-content: flex-start; padding: 0 18px 0 112px; text-align: left;
-  font: 800 24px 'Inter', sans-serif; letter-spacing: .14em; text-transform: uppercase; color: #f3d48a;
-  background: radial-gradient(120% 140% at 0% 50%, #3a3326 0%, #1b1813 45%, #0b0a08 100%), linear-gradient(135deg, #2a261f, #0d0c0a);
-  border: 1px solid #b8892f; border-radius: var(--radius);
-  box-shadow: inset 0 1px 0 rgba(255,231,170,.25), inset 0 -2px 6px rgba(0,0,0,.6), 0 0 18px rgba(212,160,60,.22);
-  text-shadow: 0 0 10px rgba(240,190,90,.45), 0 1px 0 #000;
+  grid-column: 1 / -1; order: -1; aspect-ratio: auto; min-height: 110px; overflow: hidden; isolation: isolate;
+  display: flex; align-items: center; justify-content: flex-start; padding: 0 18px 0 108px; text-align: left;
+  background: var(--btn); color: var(--red); font-weight: 700; font-size: 23px; font-family: inherit;
+  border: 1px solid rgba(240,122,42,.28); border-radius: var(--radius);
+  box-shadow: 0 8px 20px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,160,90,.08);
 }
-.hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"]::before {   /* the dial: bolts ring + spokes + hub */
-  content: ''; position: absolute; left: 18px; top: 50%; width: 78px; height: 78px; margin-top: -39px; border-radius: 50%; z-index: -1;
+.hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"]::before {   /* the dial: bolt ring + spokes + hub, in --red tints */
+  content: ''; position: absolute; left: 18px; top: 50%; width: 72px; height: 72px; margin-top: -36px; border-radius: 50%; z-index: -1;
   background:
-    radial-gradient(circle, #f3d48a 0 5px, #6b5222 6px 8px, transparent 9px),
-    repeating-conic-gradient(from 0deg, rgba(243,212,138,.85) 0 3deg, transparent 3deg 45deg),
-    radial-gradient(circle, transparent 0 22px, #2a2419 23px 27px, transparent 28px),
-    radial-gradient(circle, #1c1913 0 33px, transparent 34px),
-    repeating-conic-gradient(#d9ad55 0 6deg, #3b3020 6deg 30deg);
-  box-shadow: 0 0 0 2px #8c6a2a, 0 0 14px rgba(240,190,90,.35), inset 0 0 8px rgba(0,0,0,.8);
-  animation: vaultdial 14s linear infinite;
+    radial-gradient(circle, var(--red) 0 4px, rgba(240,122,42,.35) 5px 7px, transparent 8px),
+    repeating-conic-gradient(from 0deg, rgba(240,122,42,.55) 0 2deg, transparent 2deg 45deg),
+    radial-gradient(circle, transparent 0 21px, rgba(240,122,42,.30) 22px 23px, transparent 24px),
+    radial-gradient(circle, var(--btn-press) 0 31px, transparent 32px),
+    repeating-conic-gradient(rgba(240,122,42,.45) 0 5deg, transparent 5deg 30deg);
+  box-shadow: 0 0 0 1px rgba(240,122,42,.28), inset 0 0 6px rgba(0,0,0,.7);
+  animation: vaultdial 40s linear infinite;
 }
-.hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"]::after {    /* slow shine sweep */
-  content: ''; position: absolute; top: -20%; bottom: -20%; left: -40%; width: 30%; z-index: -1; pointer-events: none;
-  background: linear-gradient(100deg, transparent, rgba(255,236,190,.16), transparent); transform: skewX(-18deg);
-  animation: vaultshine 5.5s ease-in-out infinite;
+.hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"]::after {    /* faint, slow shine */
+  content: ''; position: absolute; top: -20%; bottom: -20%; left: -40%; width: 25%; z-index: -1; pointer-events: none;
+  background: linear-gradient(100deg, transparent, rgba(255,160,90,.06), transparent); transform: skewX(-18deg);
+  animation: vaultshine 9s ease-in-out infinite;
 }
-.hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"]:active { background: radial-gradient(120% 140% at 0% 50%, #4a4130 0%, #221e17 50%, #0b0a08 100%); }
+.hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"]:active { background: var(--btn-press); }
 @keyframes vaultdial { to { transform: rotate(360deg); } }
-@keyframes vaultshine { 0%, 55% { left: -40%; } 100% { left: 130%; } }
+@keyframes vaultshine { 0%, 70% { left: -40%; } 100% { left: 130%; } }
 @media (prefers-reduced-motion: reduce) { .hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"]::before, .hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"]::after { animation: none; } }
