@@ -2140,9 +2140,8 @@
       h += '<div class="fitrow" data-key="' + n.key + '"><div class="fl">' + n.name + '</div><div class="fv t-none"><b>' + (v == null ? '\u2014' : fmt(v)) + '</b> ' + n.unit + '</div>' +
         '<div class="fn">' + (n.key === 'fiber' ? 'No fiber target yet \u00b7 <button type="button" class="fhlink" data-fh-act="fibertgt">Set one</button>' + (day.fiberSrc === 'phone' ? ' \u00b7 from meals added on this phone' : '') : 'no target') + '</div></div>';
     });
-    h += '<div class="fhbtns"><button type="button" class="fitbtn" data-fh-act="addmeal">+ Add meal</button><button type="button" class="fitbtn" data-fh-act="micmeal">&#127908; Say a meal</button></div>';
     h += '<h4 class="fhsub">Meals</h4>' + fhMealsHtml(day, d, true);
-    h += '<button type="button" class="fhlink fhdayedit" data-fh-act="dayedit">Edit ' + esc(fhWhen(FH.date, d).toLowerCase() === 'today' ? 'today\u2019s' : trkDayLabel(FH.date) + '\u2019s') + ' totals</button>';
+    h += '<div class="fhbtns"><button type="button" class="fitbtn" data-fh-act="addmeal">+ Add meal</button><button type="button" class="fitbtn" data-fh-act="dayedit">Edit ' + esc(fhWhen(FH.date, d).toLowerCase() === 'today' ? 'today\u2019s' : trkDayLabel(FH.date) + '\u2019s') + ' totals</button></div>';   // v158
     if (FH.date === today && T.fiber) h += '<div class="foot">Fiber target ' + fmt(T.fiber) + ' g (set on this phone) \u00b7 <button type="button" class="fhlink" data-fh-act="fibertgt">Change</button></div>';
     h += '</div>';
     // 2. the week (Sun..Sat): daily totals, averages vs targets
