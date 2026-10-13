@@ -20726,6 +20726,7 @@
     'pc':        { label: 'Plan Checks', go: 'pc', sub: 'Mic checklist \u00b7 fullscreen plan \u00b7 pins & notes', cls: 'pc-entry' },
     'hiring':    { label: 'Hiring', go: 'hiring', sub: 'Structural Engineer \u00b7 docs', cls: 'hiring-entry' },   // v132: L&S projects > Hiring (#hiring)
     'f:archive': { label: 'Archive', go: 'hf/archive', folder: true },
+    'f:finarchive': { label: 'Archive', go: 'hf/finarchive', folder: true },   // v163: Finances > Archive (empty; drag tiles in)
     'tm':        { label: 'Task Manager', go: 'tm' },   // v131: Today + Suggestions (was the task list at the top of Home)
     'f:lisa':    { label: 'Lisa', go: 'hf/lisa', folder: true },
     'f:zac':     { label: 'Zac', go: 'hf/zac', folder: true },           // v149: Home folder (next to Lisa); holds Wetumka
@@ -20756,7 +20757,7 @@
     'f:zac': ['f:wetumka'],                                            // v149
     'f:wetumka': ['zl/garage', 'zl/connex', 'zl/landscaping'],         // v149   // v130: saved layouts get it too (hlNormalize slots new items into their default folder)
     biz: ['f:archive'],   // v147: the v141-v146 'ownership' tile is gone from Business (it now lives only on Trust & Estate); hlNormalize drops it from saved layouts
-    fin: ['fin/ledger', 'fin/invest', 'fchase', 'bankrev'],   // v150: Family Chase after Investments (hlNormalize slots it into saved layouts too)
+    fin: ['fin/ledger', 'fin/invest', 'fchase', 'bankrev', 'f:finarchive'],   // v163: + Archive folder (hlNormalize slots it into saved layouts at the end)   // v150: Family Chase after Investments (hlNormalize slots it into saved layouts too)
     'f:archive': HL_TO_ARCHIVE.slice()
   };
   var hl = { f: null, dragging: false, edit: false };
