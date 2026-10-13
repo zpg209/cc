@@ -1945,7 +1945,7 @@
    *     until backend/health-metrics.patch (API v51, actions healthmetrics / healthmetricset). Until then the screen is empty with a note and
    *     opens the sheet; add / edit switch on by themselves once the actions answer.
    * Day totals always come from the Phone Log; meal rows are the itemized part (the rest shows as "not itemized"). */
-  var FH = { data: null, seq: 0, date: '', foodOff: 0, woOff: 0, open: {}, hm: null, hmState: 'idle', hmMsg: '', hmSeq: 0, hmAt: 0, sheet: null, mic: null, busy: false, vnAsked: 0 };
+  var FH = { data: null, seq: 0, date: '', foodOff: 0, woOff: 0, woF: 'today', woPrev: -1, open: {}, hm: null, hmState: 'idle', hmMsg: '', hmSeq: 0, hmAt: 0, sheet: null, mic: null, busy: false, vnAsked: 0 };
   ldRestore();   // v140: a past day picked earlier today (< 6 h) survives a reload; otherwise today
   var FH_TGT_KEY = 'cc_fh_targets', FH_MEALS_KEY = 'cc_fh_meals';
   var FH_SHEET_ID = '1NMxPbmskd-yfP3PNg5qgFiivwZFWmyGF2dEL-CIxTgQ';
@@ -2219,36 +2219,66 @@
     return t;
   }
   function fhOpenWo() { fhBack('workouts', 'wo-back'); fhLoad(fhRenderWo, 'wo-body'); }
+  // v157: workout types + stats parsed from the Daily Log's Workout text (the sheet has no type / distance / elevation columns)
+  var FH_WO_TYPES = [['Hike', /\bhik(e|ed|ing)\b/i], ['Bike', /\b(bike|biked|biking|cycl\w*|ride|rode|spin)\b/i], ['Paddleboard', /\b(paddle\s*board\w*|paddl\w*|sup)\b/i],
+    ['Run', /\b(run|ran|running|jog\w*)\b/i], ['Walk', /\bwalk\w*\b/i], ['Swim', /\bswim\w*\b/i], ['Strength', /\b(strength|lift\w*|weights?|gym|upper|lower|legs|push|pull|chest|back|squat\w*|deadlift\w*|bench|pt)\b/i],
+    ['Yoga', /\b(yoga|stretch\w*|mobility|pilates)\b/i], ['Cardio', /\b(cardio|hiit|elliptical|row\w*|stair\w*|treadmill)\b/i], ['Golf', /\bgolf\w*\b/i], ['Pickleball', /\b(pickleball|tennis)\b/i]];
+  function fhWoKinds(x) {
+    var src = (x.details.length ? x.details : [x.type]).concat(x.extra), k = [];
+    src.forEach(function (p) { var hit = FH_WO_TYPES.filter(function (t) { return t[1].test(p); })[0]; var n = hit ? hit[0] : ''; if (n && k.indexOf(n) < 0) k.push(n); });
+    if (!k.length && x.hike) k.push('Hike');
+    if (!k.length && x.did) k.push(x.type ? (/^([A-Za-z][A-Za-z ]*?)(?:\s+\d|$)/.exec(x.type) || [0, x.type])[1] : 'Workout');
+    return k;
+  }
+  function fhWoStats(x) {
+    var txt = x.details.concat(x.extra).join(' ; '), st = [], m;
+    if (x.minutes) st.push(fmt(x.minutes) + ' min');
+    var dist = x.hike, dm = /(\d+(?:\.\d+)?)\s*(?:mi|miles?)\b/i.exec(txt), km = /(\d+(?:\.\d+)?)\s*km\b/i.exec(txt);
+    if (dist == null && dm) dist = +dm[1];
+    if (dist != null) st.push(fmt(dist, 1) + ' mi'); else if (km) st.push(fmt(+km[1], 1) + ' km');
+    m = /(\d[\d,]*)\s*(?:ft|feet|')\s*(?:of\s*)?(?:elev\w*|gain|climb\w*|up|vert\w*)?/i.exec(txt) || /(?:elev\w*|gain|vert\w*)\s*:?\s*(\d[\d,]*)/i.exec(txt);
+    if (m) st.push(m[1] + ' ft gain');
+    return st;
+  }
+  function fhWoCard(x, today) {
+    var kinds = fhWoKinds(x), st = x.did || x.hike ? fhWoStats(x) : [], when = x.date === today ? 'Today' : x.date === trkAddDays(today, -1) ? 'Yesterday' : x.label;
+    var notes = x.details.length > 1 || (x.details[0] && x.details[0] !== kinds[0]) ? x.details.join(' \u00b7 ') : '';
+    var body = x.did || x.hike ? '<span class="fhwt">' + esc(kinds.join(' + ')) + (st.length ? '<small class="wost">' + esc(st.join(' \u00b7 ')) + '</small>' : '') +
+        (notes ? '<small>' + esc(notes) + '</small>' : '') + (x.extra.length ? '<small>' + esc(x.extra.join(' \u00b7 ')) + '</small>' : '') + '</span>'
+      : '<span class="fhwt"><i>No workout logged</i>' + (x.rest ? '<small>Rest day</small>' : '') + '</span>';
+    return '<button type="button" class="fhwo' + (x.did ? ' did' : '') + (x.logged ? '' : ' none') + '" data-fh-wo="' + x.date + '"><span class="fhwd">' + esc(when) + '</span>' + body + '<span class="fhwn2"></span><i class="chev">&rsaquo;</i></button>';
+  }
   function fhRenderWo(d) {
     var el = $('wo-body'); if (!el) return;
     if (!d) { el.innerHTML = fhNoExt(); return; }
-    var T = fitTargets(d), today = fhToday(d), wk = fhWoWeek(d, FH.woOff), W = wk.W, wt = T.workoutsPerWeek || 4, wst = wk.workouts >= wt ? 'ok' : wk.workouts >= wt - 1 ? 'warn' : 'prog';
-    var cut = trkAddDays(today, -((d.ext.historyDays > 1 ? d.ext.historyDays : LOG_HIST_DAYS + 1) - 1)), h = '';
-    h += '<div class="card fitcard"><h3>' + (FH.woOff ? 'Week' : 'This week') + ' \u00b7 Sun\u2013Sat</h3>' +
-      '<div class="weeknav fhwn"><button type="button" class="navbtn" data-fh-act="wprev"' + (W.start <= cut ? ' disabled' : '') + '>&lsaquo; Prev</button><div class="navlabel">' + esc(logRangeLabel(W)) + '</div>' +
-      '<button type="button" class="navbtn" data-fh-act="wnext"' + (FH.woOff >= 0 ? ' disabled' : '') + '>Next &rsaquo;</button></div>';
-    h += '<div class="fitrow"><div class="fl">Workouts</div><div class="fv t-' + wst + '"><b>' + wk.workouts + '</b> / ' + wt + (FH.woOff ? '' : ' this week') + '</div><div class="fn">' + (wk.workouts >= wt ? 'target met' : (wt - wk.workouts) + ' to go') + '</div>' + fitBar(wk.workouts, wt, wst) + '</div>';
-    h += '<div class="btiles tot"><div><span>Workout min</span><b>' + fmt(wk.minutes) + '</b></div><div><span>Hike miles</span><b>' + (wk.hikeDays ? fmt(wk.hike, 1) : '\u2014') + '</b></div><div><span>Days logged</span><b>' + wk.logged + ' of ' + wk.sofar.length + '</b></div></div>';
-    h += '<div class="fhbtns"><button type="button" class="fitbtn" data-fh-act="addwo">+ Add workout</button><button type="button" class="fitbtn" data-fh-act="micwo">&#127908; Say a workout</button></div>';
-    h += '<h4 class="fhsub">Workouts by day</h4>';
-    wk.days.slice().reverse().forEach(function (x) {
-      if (x.date > today) return;
-      var parts = x.label.split(' '), nums = [];
-      if (x.minutes) nums.push(fmt(x.minutes) + ' min'); if (x.hike) nums.push(fmt(x.hike, 1) + ' mi hike');
-      h += '<button type="button" class="fhwo' + (x.did ? ' did' : '') + (x.logged ? '' : ' none') + '" data-fh-wo="' + x.date + '"><span class="fhwd"><b>' + esc(parts[0]) + '</b> ' + esc(parts[1] || '') + '</span>' +
-        '<span class="fhwt">' + (x.did ? esc(x.details.length > 1 ? x.details.map(function (p) { return (/^([A-Za-z][A-Za-z ]*?)(?:\s+\d|$)/.exec(p) || [0, p])[1]; }).join(' + ') : x.type) : (x.rest ? 'Rest' : (x.logged ? 'No workout' : 'not logged'))) +
-        (x.did && x.details.length > 1 ? '<small>' + esc(x.details.join(' \u00b7 ')) + '</small>' : '') + (x.extra.length ? '<small>' + esc(x.extra.join(' \u00b7 ')) + '</small>' : '') + '</span>' +
-        '<span class="fhwn2">' + (nums.length ? esc(nums.join(' \u00b7 ')) : '') + '</span><i class="chev">&rsaquo;</i></button>';
-    });
-    h += '<div class="foot">Tap a day to edit it. Workouts count days marked as a workout; minutes and hike miles are sums. Same Sunday\u2013Saturday weeks as the Daily Log.</div></div>';
-    // recent weeks
-    var rows = '';
-    for (var o = 0; o > -8; o--) {
-      var w2 = fhWoWeek(d, o); if (w2.W.end < cut) break;
-      rows += '<button type="button" class="fhtr fhwk' + (o === FH.woOff ? ' on' : '') + '" data-fh-wk="' + o + '"><span>' + logMD(w2.W.start) + '\u2013' + logMD(w2.W.end) + '</span><span>' + w2.workouts + '</span><span>' + fmt(w2.minutes) + '</span><span>' + (w2.hikeDays ? fmt(w2.hike, 1) : '\u2014') + '</span></button>';
+    var today = fhToday(d), f = FH.woF || 'today', cut = trkAddDays(today, -((d.ext.historyDays > 1 ? d.ext.historyDays : LOG_HIST_DAYS + 1) - 1)), h = '';
+    if (FH.woPrev == null || FH.woPrev > -1) FH.woPrev = -1;
+    var pw = logSunWeek(today, FH.woPrev), keys, title;
+    if (f === 'today') { keys = [today]; title = 'Today'; }
+    else if (f === 'yday') { keys = [trkAddDays(today, -1)]; title = 'Yesterday'; }
+    else if (f === 'week') { keys = logSunWeek(today, 0).keys.filter(function (k) { return k <= today; }); title = 'This week \u00b7 ' + logRangeLabel(logSunWeek(today, 0)); }
+    else if (f === 'prev') { keys = pw.keys; title = (FH.woPrev === -1 ? 'Previous week' : (-FH.woPrev) + ' weeks ago') + ' \u00b7 ' + logRangeLabel(pw); }
+    else { keys = []; for (var k = today; k >= cut; k = trkAddDays(k, -1)) keys.push(k); keys.reverse(); title = 'All \u00b7 since ' + logMD(cut); }
+    var days = keys.map(function (k) { return fhWoDay(d, k); });
+    h += '<div class="pseg woseg" role="group" aria-label="Period">' + [['all', 'All'], ['prev', 'Prev week'], ['week', 'This week'], ['yday', 'Yesterday'], ['today', 'Today']].map(function (b) {
+      return '<button type="button" data-fh-wf="' + b[0] + '" class="' + (f === b[0] ? 'on' : '') + '" aria-pressed="' + (f === b[0]) + '">' + b[1] + '</button>'; }).join('') + '</div>';
+    if (f === 'prev') h += '<div class="weeknav fhwn"><button type="button" class="navbtn" data-fh-act="wprev"' + (pw.start <= cut ? ' disabled' : '') + '>&lsaquo; Older</button><div class="navlabel">' + esc(logRangeLabel(pw)) + '</div>' +
+      '<button type="button" class="navbtn" data-fh-act="wnext"' + (FH.woPrev >= -1 ? ' disabled' : '') + '>Newer &rsaquo;</button></div>';
+    var did = days.filter(function (x) { return x.did || x.hike; }), min = 0, mi = 0;
+    did.forEach(function (x) { min += x.minutes || 0; mi += x.hike || 0; });
+    h += '<div class="card fitcard"><h3>' + esc(title) + '</h3>';
+    if (keys.length > 1) h += '<div class="btiles tot"><div><span>Workouts</span><b>' + did.length + '</b></div><div><span>Workout min</span><b>' + fmt(Math.round(min)) + '</b></div><div><span>Hike miles</span><b>' + (mi ? fmt(fhR1(mi), 1) : '\u2014') + '</b></div></div>';
+    var list = f === 'all' ? did : days;
+    if (!list.length) h += '<div class="foot">No workout logged.</div>';
+    list.slice().reverse().forEach(function (x) { h += fhWoCard(x, today); });
+    h += '<div class="fhbtns"><button type="button" class="fitbtn" data-fh-act="addwo">+ Add workout</button><button type="button" class="fitbtn" data-fh-act="micwo">&#127908; Say a workout</button></div></div>';
+    // older workouts (before the selected period), newest first
+    if (f !== 'all') {
+      var first = keys.length ? keys[0] : today, old = [];
+      for (var k2 = trkAddDays(first, -1); k2 >= cut; k2 = trkAddDays(k2, -1)) { var x2 = fhWoDay(d, k2); if (x2.did || x2.hike) old.push(x2); }
+      h += '<div class="card fitcard"><h3>Older workouts</h3><div class="woold">' + (old.length ? old.map(function (x) { return fhWoCard(x, today); }).join('') : '<div class="foot">No older workouts in the history.</div>') + '</div></div>';
     }
-    h += '<div class="card fitcard"><h3>Weekly totals</h3><div class="fhtbl fhwks"><div class="fhtr fhth"><span>Week (Sun\u2013Sat)</span><span>Workouts</span><span>Min</span><span>Hike mi</span></div>' + rows + '</div>' +
-      '<div class="foot">Last ' + Math.min(8, Math.ceil((d.ext.historyDays || 120) / 7)) + ' weeks the Daily Log history covers. Tap a week to show its days.</div></div>';
+    h += '<div class="foot">Tap a day to edit it. Weeks run Sunday\u2013Saturday like the Daily Log. Type, distance and elevation are read from the Workout text (e.g. \u201cHike 5.2 mi 1,200 ft\u201d). History covers the last ' + (d.ext.historyDays || LOG_HIST_DAYS + 1) + ' days.</div>';
     el.innerHTML = h;
   }
 
@@ -2673,9 +2703,9 @@
       for (var q in vals) orig[q] = vals[q];
       return fhSheetOpen({ kind: 'woday', title: 'Workout \u00b7 ' + trkDayLabel(dk), date: dk, fixedDate: true, vals: vals, orig: orig, saveLbl: fhSaveLabel });
     }
-    var wkb = b.getAttribute('data-fh-wk'); if (wkb != null) { FH.woOff = Number(wkb); fhRenderWo(d); window.scrollTo(0, 0); return; }
-    if (a === 'wprev') { FH.woOff--; fhRenderWo(d); return; }
-    if (a === 'wnext') { if (FH.woOff < 0) FH.woOff++; fhRenderWo(d); return; }
+    var wfb = b.getAttribute('data-fh-wf'); if (wfb) { if (wfb === 'prev' && FH.woF === 'prev') FH.woPrev = (FH.woPrev || -1) - 1; else if (wfb === 'prev') FH.woPrev = -1; FH.woF = wfb; fhRenderWo(d); return; }
+    if (a === 'wprev') { FH.woPrev = (FH.woPrev || -1) - 1; fhRenderWo(d); return; }
+    if (a === 'wnext') { if (FH.woPrev < -1) FH.woPrev++; fhRenderWo(d); return; }
   }
   function fhHmClick(ev) {
     var b = ev.target.closest ? ev.target.closest('button') : null; if (!b) return;

@@ -3146,3 +3146,9 @@ body.fc-modal { overflow: hidden; }
 .pphst{font-size:12px;opacity:.75}.pphst.ok{color:#2e7d32;opacity:1}
 .pphacts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .pphacts .navbtn{padding:6px 10px;font-size:13px;margin:0}
+
+/* v157 Workout Log period filters */
+.woseg { grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 0 0 12px; }
+.woseg button { min-height: 44px; font-size: 13px; padding: 0 2px; }
+.fhwo .wost { color: #F4A15A !important; font-weight: 700 !important; }
+.woold { max-height: 60vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
