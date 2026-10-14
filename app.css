@@ -3227,3 +3227,6 @@ body.fc-modal { overflow: hidden; }
     radial-gradient(60% 80% at 50% 42%, rgba(240,122,42,.09), transparent 70%), var(--btn); }
 .hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"]::before, .hl-grid[data-hl-folder="f:finwork"] .tile[data-hl="spend"]::before { left: 50%; top: 14px; width: 104px; height: 104px; margin: 0 0 0 -52px; }
 .hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"]::after, .hl-grid[data-hl-folder="f:finwork"] .tile[data-hl="spend"]::after { left: 0; top: 34px; width: 12px; height: 34px; margin: 0; border-radius: 0 4px 4px 0; box-shadow: 0 76px 0 0 rgba(240,122,42,.45), inset 0 0 0 1px rgba(0,0,0,.6); }
+/* v172 Ledger > Taxes button */
+.ledtax { margin: 0 0 12px; }
+.ledtax .tile.small { grid-column: 1 / -1; min-height: 64px; aspect-ratio: auto; }

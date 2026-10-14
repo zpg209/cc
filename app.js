@@ -10140,8 +10140,9 @@
   }
   function renderLed() {
     if (state.finKind !== 'ledger') return;
-    $('fin-body').innerHTML = ledHtml();
+    $('fin-body').innerHTML = '<div class="grid2 ledtax"><a class="tile small ledtaxbtn" data-title="Taxes & Documents" href="https://drive.google.com/drive/folders/' + LED_TAX_FOLDER + '">Taxes<span class="sub">Taxes & Documents folder</span></a></div>' + ledHtml();   // v172
   }
+  var LED_TAX_FOLDER = '1nK0E7GocNSA1qrrYWdoNn11yZ5d0vV_u';   // v172: Second Brain › Financial › Financial Prep › Taxes & Documents (created by Zac 2026-10-14; opened by ID)
   function ledFetchSpend(force) {
     var s = led.sp;
     if (s.s === 'ok' && !force && Date.now() - s.at < FIN_TTL) return;
