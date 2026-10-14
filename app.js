@@ -14,7 +14,7 @@
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', ovKey: '', invAcct: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
-  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring', 'ownership', 'zl', 'fchase', 'bankrev'];
+  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring', 'ownership', 'zl', 'fchase', 'bankrev', 'ptpl'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -572,6 +572,7 @@
     if (name === 'pc') pcOpen();
     if (name === 'lr') lrOpen();
     if (name === 'hiring') hiringOpen();
+    if (name === 'ptpl') ptplOpen();
     if (name === 'zl') zlOpen();               // v149: Zac > Wetumka to-do lists
     if (name === 'fchase') fcOpen(); else if (fc.sel) fcSheetClose();   // v150: Vault > Family Chase card review
     if (name === 'bankrev') bkOpen(); else if (bk.sel) bkSheetClose();   // v151: Vault > Bank Review (Bank of Stockton)
@@ -1215,6 +1216,20 @@
     $('hiring-back').setAttribute('data-go', hlItemBack('hiring', 'projects'));   // Back = the folder the Hiring button sits in
     $('hiring-body').innerHTML = '<div class="grid2" id="hiring-list">' + HIRING.docs.map(function (d) { return tile(d, 'Google Doc'); }).join('') + '</div>' +
       '<a class="linkrow" data-title="Hiring" href="' + esc(HIRING.folderUrl) + '">Open Hiring folder &rsaquo;</a>';
+  }
+
+  /* ---------------- Project Template (#ptpl; L&S projects > Project Template, v165) ---------------- */
+  var PTPL = {
+    folderUrl: 'https://drive.google.com/drive/folders/1PXxeLA5wlnIUjHwiS1jisS_gYqPP9gi2',
+    readme: { name: 'README', url: 'https://docs.google.com/document/d/1UpqHez6Qk_0n7on-VqVraDpmGPHPhlinJCzaqVoTZrw/edit' },
+    folders: ['00 Admin & Project Info', '01 Contract & Proposal', '02 Client Provided Info', '03 Research & Existing Data', '04 Survey', '05 Engineering', '06 Design', '07 Consultants',
+      '08 Agency & Permits', '09 Submittals', '10 Drawings & CAD', '11 Correspondence', '12 Construction Phase', '13 Billing & Budget', '14 Photos & Site Visits', '99 Archive - Superseded']
+  };
+  function ptplOpen() {
+    $('ptpl-back').setAttribute('data-go', hlItemBack('ptpl', 'projects'));
+    $('ptpl-body').innerHTML = '<div class="grid2" id="ptpl-list"><a class="tile small" data-title="Project Template" href="' + esc(PTPL.folderUrl) + '">Template folder<span class="sub">Google Drive</span></a>' + tile(PTPL.readme, 'Google Doc') + '</div>' +
+      '<details class="card ptpl-outline"><summary>Folder outline \u00b7 ' + PTPL.folders.length + ' top-level folders</summary><ul>' + PTPL.folders.map(function (f) { return '<li>' + esc(f) + '</li>'; }).join('') + '</ul></details>' +
+      '<a class="linkrow" data-title="Project Template" href="' + esc(PTPL.folderUrl) + '">Open Project Template folder &rsaquo;</a>';
   }
 
   /* ---------------- Daily log ---------------- */
@@ -20724,6 +20739,7 @@
     'mf':        { label: 'Mono Fold', go: 'mf' },
     'biz':       { label: 'Business', go: 'biz', folder: true },
     'pc':        { label: 'Plan Checks', go: 'pc', sub: 'Mic checklist \u00b7 fullscreen plan \u00b7 pins & notes', cls: 'pc-entry' },
+    'ptpl':      { label: 'Project Template', go: 'ptpl', sub: 'Drive folder \u00b7 README \u00b7 outline', cls: 'hiring-entry' },   // v165: L&S projects > Project Template (#ptpl)
     'hiring':    { label: 'Hiring', go: 'hiring', sub: 'Structural Engineer \u00b7 docs', cls: 'hiring-entry' },   // v132: L&S projects > Hiring (#hiring)
     'f:archive': { label: 'Archive', go: 'hf/archive', folder: true },
     'f:finarchive': { label: 'Archive', go: 'hf/finarchive', folder: true },   // v163: Finances > Archive (empty; drag tiles in)
@@ -20750,7 +20766,8 @@
   };
   var HL_DEFAULT = {
     home: ['tm', 'projects', 'f:fh', 'spend', 'fin', 'insn', 'lt', 'pt', 'trust', 'ent/kiwit', 'ent/tiwik', 'mf', 'biz', 'f:lisa', 'f:zac'],   // v149: Zac right after Lisa (saved layouts too: hlNormalize slots it in after wherever Lisa is)
-    projects: ['pc', 'hiring'],   // v132: Hiring after Plan Checks (saved layouts get it too: hlNormalize slots it in after Plan Checks)
+    projects: ['pc', 'hiring', 'ptpl'],   // v165: + Project Template after Hiring (hlNormalize slots it into saved layouts)
+      // v132: Hiring after Plan Checks (saved layouts get it too: hlNormalize slots it in after Plan Checks)
     'f:fh': HL_FH_IN.slice(),
     'f:medical': ['health'],
     'f:lisa': ['lr'],

@@ -3202,3 +3202,8 @@ body.fc-modal { overflow: hidden; }
 @keyframes vaultdial { to { transform: rotate(360deg); } }
 @keyframes vaultshine { 0%, 70% { left: -40%; } 100% { left: 130%; } }
 @media (prefers-reduced-motion: reduce) { .hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"]::before, .hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"]::after { animation: none; } }
+/* v165 Project Template (#ptpl) */
+#ptpl-list .tile.small { min-height: 72px; }
+.ptpl-outline { margin: 12px 0; padding: 10px 14px; }
+.ptpl-outline summary { color: var(--red); font-weight: 700; cursor: pointer; }
+.ptpl-outline ul { margin: 8px 0 2px; padding-left: 18px; line-height: 1.7; }
