@@ -8519,8 +8519,7 @@
     var h = '';
     var link = '';
     if (state.links) (state.links.lifeAreas || []).forEach(function (a) { if (/^financial$/i.test(a.name) && a.url) link = a.url; });
-    if (link) h += '<a class="linkrow" data-title="Finances" href="' + esc(link) + '">Open Finances folder &rsaquo;</a>';
-    $('fin-body').innerHTML = h;
+    $('fin-body').innerHTML = h;   // v169: no 'Open Finances folder' link on the Finances folder home
     if (!state.links) api('links').then(function (d) { state.links = d; if (state.finKind === '' && $('screen-fin').classList.contains('active')) renderFinHub(); }, function () {});
   }
   function renderFin(kind, d) {
@@ -20807,7 +20806,6 @@
     'ptpl':      { label: 'Project Template', go: 'ptpl', sub: 'Template folders \u00b7 README', cls: 'hiring-entry' },   // v165: L&S projects > Project Template (#ptpl)
     'hiring':    { label: 'Hiring', go: 'hiring', sub: 'Structural Engineer \u00b7 docs', cls: 'hiring-entry' },   // v132: L&S projects > Hiring (#hiring)
     'f:archive': { label: 'Archive', go: 'hf/archive', folder: true },
-    'f:finarchive': { label: 'Archive', go: 'hf/finarchive', folder: true },   // v163: Finances > Archive (empty; drag tiles in)
     'tm':        { label: 'Task Manager', go: 'tm' },   // v131: Today + Suggestions (was the task list at the top of Home)
     'f:lisa':    { label: 'Lisa', go: 'hf/lisa', folder: true },
     'f:zac':     { label: 'Zac', go: 'hf/zac', folder: true },           // v149: Home folder (next to Lisa); holds Wetumka
@@ -20839,7 +20837,7 @@
     'f:zac': ['f:wetumka'],                                            // v149
     'f:wetumka': ['zl/garage', 'zl/connex', 'zl/landscaping'],         // v149   // v130: saved layouts get it too (hlNormalize slots new items into their default folder)
     biz: ['f:archive'],   // v147: the v141-v146 'ownership' tile is gone from Business (it now lives only on Trust & Estate); hlNormalize drops it from saved layouts
-    fin: ['fin/ledger', 'fin/invest', 'fchase', 'bankrev', 'f:finarchive'],   // v163: + Archive folder (hlNormalize slots it into saved layouts at the end)   // v150: Family Chase after Investments (hlNormalize slots it into saved layouts too)
+    fin: ['fin/ledger', 'fin/invest', 'fchase', 'bankrev'],   // v169: the v163 Finances > Archive folder is gone (hlLoad moves anything in it back to Finances)   // v150: Family Chase after Investments (hlNormalize slots it into saved layouts too)
     'f:archive': HL_TO_ARCHIVE.slice()
   };
   var hl = { f: null, dragging: false, edit: false };
@@ -20902,6 +20900,13 @@
         moved = true;
       }
       if (!(raw.v >= 4)) { hlMigrateFh(raw.f); moved = true; }   // v122 one-time migration: Fitness & Health folder
+      if (raw.f['f:finarchive'] || Object.keys(raw.f).some(function (k) { return Array.isArray(raw.f[k]) && raw.f[k].indexOf('f:finarchive') >= 0; })) {   // v169: drop Finances > Archive, its tiles go back into Finances
+        var fa = Array.isArray(raw.f['f:finarchive']) ? raw.f['f:finarchive'] : [];
+        Object.keys(raw.f).forEach(function (k) { if (Array.isArray(raw.f[k])) raw.f[k] = raw.f[k].filter(function (id) { return id !== 'f:finarchive'; }); });
+        delete raw.f['f:finarchive'];
+        raw.f.fin = (Array.isArray(raw.f.fin) ? raw.f.fin : []).concat(fa.filter(function (id) { return (raw.f.fin || []).indexOf(id) < 0; }));
+        moved = true;
+      }
       hl.f = hlNormalize(raw.f); if (moved) hlSave(); return;
     }
     var src = JSON.parse(JSON.stringify(HL_DEFAULT)), old = [];   // first run: carry over the old Home order (v<=106)
