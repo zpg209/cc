@@ -2297,7 +2297,8 @@
   function fhWoEditStart(d, key) {
     var x = fhWoDay(d, key), w = x.did ? fhWoSplit(x.details) : [], n = fhWoSplit(x.extra);
     var items = w.map(function (t) { return { t: t, n: false }; }).concat(n.map(function (t) { return { t: t, n: true }; }));
-    FH.woEdit = { date: key, items: items.length ? items : [{ t: '', n: false }], min: x.minutes, hike: x.hike,
+    FH.woEdit = { date: key, items: items.length ? items : [{ t: '', n: false }], min: x.minutes, hike: x.hike, startN: items.length, removed: 0,
+      loadOk: !((x.did || fhWoType(x.row && x.row.workout)) && !items.length && !/^(rest|none|rest \/ none)$/i.test(fhWoType(x.row && x.row.workout))),   // v168: the day has workout text but no items came out -> never save
       orig: { w: w.join('; '), n: n.join('; '), type: w.length ? w.join('; ') : (x.rest ? 'Rest / none' : ''), min: x.minutes, hike: x.hike, rawType: x.row && x.row.workout || '' } };
   }
   function fhWoSave() {
@@ -2308,12 +2309,18 @@
     var wJoin = wt.join('; '), nJoin = nt.join('; ');
     if (wJoin.length > 200) { var all = wJoin.split('; '), cut = []; while (all.length && (cut.concat(all[0]).join('; ')).length <= 200) cut.push(all.shift()); wJoin = cut.join('; '); nJoin = all.concat(nt).join('; '); }   // the Workout cell holds 200 chars; the rest goes to Notes
     var empty = !its.length, key = E.date;
+    // v168 safety (10/14 incident: removing the workout-text bullets but keeping the Notes bullets saved "Rest / none"):
+    // clear / Rest only when the user explicitly removed every item that was there; never when items failed to load or none were there.
+    if (!E.loadOk) return fhMsg('Couldn\u2019t read this day\u2019s workout items, so nothing was saved. Reload and try again.', true);
+    if (empty && !(E.startN > 0 && E.removed > 0)) return fhMsg('Nothing to save (no items). Add an item, or Cancel.', true);
+    if (empty && !window.confirm('Remove the whole workout for ' + trkDayLabel(key) + '?')) return;
+    if (!empty && !wJoin) wJoin = 'Workout';   // only Notes items left: keep the day a workout day (generic type), never Rest
     function done(msg) { FH.woEdit = null; return fhAfterWrite(msg); }
     function viaLogday(note) {   // pre-v58 server: logday (blank values are skipped, Notes only append)
       var p = { date: key, cid: 'fhwi' + sfHash(key + '|' + wJoin + '|' + JSON.stringify(v) + '|' + Date.now()) }, n = 0;
-      var t2 = empty || !wJoin ? 'Rest / none' : wJoin;
+      var t2 = empty ? 'Rest / none' : wJoin;
       if (t2 !== O.type) { p.workout = t2; n++; }
-      var mn = empty && !fhIsNum(v.min) ? 0 : v.min, hk = empty && !fhIsNum(v.hike) ? 0 : v.hike;
+      var mn = empty && !fhIsNum(v.min) ? 0 : v.min, hk = empty && !fhIsNum(v.hike) ? 0 : v.hike;   // only after an explicit remove-all (checked above)
       if (fhIsNum(mn) && mn !== O.min) { p.workout_min = mn; n++; }
       if (fhIsNum(hk) && hk !== O.hike) { p.hike_miles = hk; n++; }
       if (nJoin && nJoin !== O.n) { p.notes = 'Workout: ' + nJoin; n++; }
@@ -2321,7 +2328,7 @@
       return apiRaw('logday', p).then(function (j) { trkRes(j); return done('Updated ' + trkDayLabel(key) + ' workout \u2713' + (note ? ' \u00b7 ' + note : '')); });
     }
     var nChanged = nJoin !== O.n;
-    var p = { date: key, workout: empty ? '' : (wJoin || (nJoin ? 'Workout' : '')), workout_min: fhIsNum(v.min) ? v.min : '', hike_miles: fhIsNum(v.hike) ? v.hike : '', cid: 'fhws' + sfHash(key + '|' + JSON.stringify(its) + '|' + JSON.stringify(v) + '|' + Date.now()) };
+    var p = { date: key, workout: empty ? '' : wJoin, workout_min: fhIsNum(v.min) ? v.min : (empty ? '' : (fhIsNum(O.min) ? O.min : '')), hike_miles: fhIsNum(v.hike) ? v.hike : (empty ? '' : (fhIsNum(O.hike) ? O.hike : '')), cid: 'fhws' + sfHash(key + '|' + JSON.stringify(its) + '|' + JSON.stringify(v) + '|' + Date.now()) };
     if (nChanged || empty) p.details = empty ? '' : nJoin;
     var notesMsg = nChanged || (empty && O.n) ? 'Notes lines unchanged: needs the server update (workoutset)' : '';
     if (FH.wsNo && Date.now() - FH.wsNo < 6 * 3600 * 1000) return fhRun(function () { return viaLogday(notesMsg); });
@@ -2816,7 +2823,7 @@
       return fhSheetOpen({ kind: 'woday', title: 'Workout \u00b7 ' + trkDayLabel(dk), date: dk, fixedDate: true, vals: vals, orig: orig, saveLbl: fhSaveLabel });
     }
     if (a === 'wixedit') { fhWoEditStart(d, b.getAttribute('data-day') || tk); fhRenderWo(d); var f0 = document.querySelector('[data-wii]'); if (f0) f0.focus(); return; }
-    if (a === 'wixdel') { fhWoSync(); FH.woEdit.items.splice(+b.getAttribute('data-i'), 1); fhRenderWo(d); return; }
+    if (a === 'wixdel') { fhWoSync(); FH.woEdit.removed++; FH.woEdit.items.splice(+b.getAttribute('data-i'), 1); fhRenderWo(d); return; }
     if (a === 'wixadd') { fhWoSync(); FH.woEdit.items.push({ t: '', n: false }); fhRenderWo(d); var ia = document.querySelectorAll('[data-wii]'); if (ia.length) ia[ia.length - 1].focus(); return; }
     if (a === 'wixcancel') { FH.woEdit = null; fhRenderWo(d); return; }
     if (a === 'wixsave') return fhWoSave();
