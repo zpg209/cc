@@ -3174,34 +3174,31 @@ body.fc-modal { overflow: hidden; }
 .wonums label { flex: 1; font-size: 12px; color: var(--muted); }
 .woinbar { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .fitbtn.wosm.on { color: var(--red); border-color: var(--red); }
-/* v164 Finances > Vault hero tile: vault-door dial in the app's own tile palette (--btn, --red, --radius, tile shadow); pure CSS */
-.hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"] {
-  grid-column: 1 / -1; order: -1; aspect-ratio: auto; min-height: 110px; overflow: hidden; isolation: isolate;
-  display: flex; align-items: center; justify-content: flex-start; padding: 0 18px 0 108px; text-align: left;
-  background: var(--btn); color: var(--red); font-weight: 700; font-size: 23px; font-family: inherit;
-  border: 1px solid rgba(240,122,42,.28); border-radius: var(--radius);
-  box-shadow: 0 8px 20px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,160,90,.08);
+/* v169 Finances feature tiles (app palette: --btn bg, --red accent, tile border / radius / shadow). Pure CSS so drag / folder logic is unchanged.
+   Vault: full-width hero (vault door: rings, bolts, spoked wheel, hinge; slow spin). Ledger + Investments: half-width feature row under it. */
+.hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"], .hl-grid[data-hl-folder="fin"] .tile[data-hl="fin/ledger"], .hl-grid[data-hl-folder="fin"] .tile[data-hl="fin/invest"] {
+  position: relative; overflow: hidden; isolation: isolate; aspect-ratio: auto; background: var(--btn); color: var(--red);
+  border: 1px solid rgba(240,122,42,.32); border-radius: var(--radius);
+  box-shadow: 0 8px 20px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,160,90,.10), inset 0 0 28px rgba(240,122,42,.06);
 }
-.hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"]::before {   /* the dial: bolt ring + spokes + hub, in --red tints */
-  content: ''; position: absolute; left: 18px; top: 50%; width: 72px; height: 72px; margin-top: -36px; border-radius: 50%; z-index: -1;
-  background:
-    radial-gradient(circle, var(--red) 0 4px, rgba(240,122,42,.35) 5px 7px, transparent 8px),
-    repeating-conic-gradient(from 0deg, rgba(240,122,42,.55) 0 2deg, transparent 2deg 45deg),
-    radial-gradient(circle, transparent 0 21px, rgba(240,122,42,.30) 22px 23px, transparent 24px),
-    radial-gradient(circle, var(--btn-press) 0 31px, transparent 32px),
-    repeating-conic-gradient(rgba(240,122,42,.45) 0 5deg, transparent 5deg 30deg);
-  box-shadow: 0 0 0 1px rgba(240,122,42,.28), inset 0 0 6px rgba(0,0,0,.7);
-  animation: vaultdial 40s linear infinite;
-}
-.hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"]::after {    /* faint, slow shine */
-  content: ''; position: absolute; top: -20%; bottom: -20%; left: -40%; width: 25%; z-index: -1; pointer-events: none;
-  background: linear-gradient(100deg, transparent, rgba(255,160,90,.06), transparent); transform: skewX(-18deg);
-  animation: vaultshine 9s ease-in-out infinite;
-}
-.hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"]:active { background: var(--btn-press); }
-@keyframes vaultdial { to { transform: rotate(360deg); } }
-@keyframes vaultshine { 0%, 70% { left: -40%; } 100% { left: 130%; } }
-@media (prefers-reduced-motion: reduce) { .hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"]::before, .hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"]::after { animation: none; } }
+.hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"] { grid-column: 1 / -1; order: -3; min-height: 124px; display: flex; align-items: center; justify-content: flex-start; padding: 0 18px 0 126px; text-align: left;
+  background: radial-gradient(90px 90px at 62px 50%, rgba(240,122,42,.10), transparent 70%), var(--btn); }
+.hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"]::before { content: ''; position: absolute; left: 14px; top: 50%; width: 96px; height: 96px; margin-top: -48px; z-index: -1; border-radius: 50%;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg fill='none' stroke='%23F07A2A'%3E%3Ccircle cx='50' cy='50' r='46' stroke-opacity='.55' stroke-width='2'/%3E%3Ccircle cx='50' cy='50' r='40' stroke-opacity='.25' stroke-width='5'/%3E%3Ccircle cx='50' cy='50' r='31' stroke-opacity='.45' stroke-width='1.5' stroke-dasharray='2 4'/%3E%3Ccircle cx='50' cy='50' r='22' stroke-opacity='.6' stroke-width='2'/%3E%3Cg stroke-opacity='.7' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M50 28V72M28 50H72M34.4 34.4L65.6 65.6M65.6 34.4L34.4 65.6'/%3E%3C/g%3E%3Ccircle cx='50' cy='50' r='6' fill='%23F07A2A' fill-opacity='.85' stroke='none'/%3E%3C/g%3E%3Cg fill='%23F07A2A' fill-opacity='.6'%3E%3Ccircle cx='50' cy='8' r='2.2'/%3E%3Ccircle cx='50' cy='92' r='2.2'/%3E%3Ccircle cx='8' cy='50' r='2.2'/%3E%3Ccircle cx='92' cy='50' r='2.2'/%3E%3Ccircle cx='20.3' cy='20.3' r='2.2'/%3E%3Ccircle cx='79.7' cy='20.3' r='2.2'/%3E%3Ccircle cx='20.3' cy='79.7' r='2.2'/%3E%3Ccircle cx='79.7' cy='79.7' r='2.2'/%3E%3C/g%3E%3C/svg%3E") center / contain no-repeat; box-shadow: inset 0 0 14px rgba(0,0,0,.9), 0 0 0 1px rgba(240,122,42,.18); animation: fintspin 60s linear infinite; }
+.hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"]::after { content: ''; position: absolute; left: 6px; top: 50%; width: 8px; height: 40px; margin-top: -20px; z-index: -1; border-radius: 2px;   /* hinge */
+  background: linear-gradient(rgba(240,122,42,.45), rgba(240,122,42,.15)); box-shadow: 0 -26px 0 -2px rgba(240,122,42,.25), 0 26px 0 -2px rgba(240,122,42,.25); }
+.hl-grid[data-hl-folder="fin"] .tile[data-hl="fin/ledger"] { order: -2; min-height: 132px; align-items: flex-end; justify-content: flex-start; text-align: left; padding: 10px 12px; }
+.hl-grid[data-hl-folder="fin"] .tile[data-hl="fin/ledger"]::before { content: ''; position: absolute; inset: 8px 8px 34px; z-index: -1; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 80'%3E%3Cg fill='none' stroke='%23F07A2A'%3E%3Cpath d='M10 14Q35 8 60 14Q85 8 110 14V70Q85 64 60 70Q35 64 10 70Z' stroke-opacity='.55' stroke-width='1.6'/%3E%3Cpath d='M60 14V70' stroke-opacity='.5'/%3E%3Cg stroke-opacity='.22'%3E%3Cpath d='M16 26H54M16 34H54M16 42H54M16 50H54M16 58H54M66 26H104M66 34H104M66 42H104M66 50H104M66 58H104'/%3E%3C/g%3E%3Cg stroke-opacity='.35'%3E%3Cpath d='M42 20V64M92 20V64'/%3E%3C/g%3E%3Cpath d='M70 46Q80 38 88 44T104 36' stroke-opacity='.8' stroke-width='1.8' stroke-linecap='round'/%3E%3Cpath d='M100 22L112 6' stroke-opacity='.7' stroke-width='3' stroke-linecap='round'/%3E%3C/g%3E%3C/svg%3E") center / contain no-repeat; opacity: .9; }
+.hl-grid[data-hl-folder="fin"] .tile[data-hl="fin/invest"] { order: -1; min-height: 132px; align-items: flex-end; justify-content: flex-start; text-align: left; padding: 10px 12px; }
+.hl-grid[data-hl-folder="fin"] .tile[data-hl="fin/invest"]::before { content: ''; position: absolute; inset: 8px 8px 34px; z-index: -1; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 80'%3E%3Cg stroke='%23F07A2A'%3E%3Cg stroke-opacity='.15'%3E%3Cpath d='M8 20H112M8 40H112M8 60H112'/%3E%3C/g%3E%3Cg stroke-opacity='.55' stroke-width='1'%3E%3Cpath d='M22 52V70M40 46V64M58 40V60M76 30V50M94 18V40'/%3E%3C/g%3E%3Cg fill='%23F07A2A' fill-opacity='.35' stroke-opacity='.7'%3E%3Crect x='19' y='56' width='6' height='10'/%3E%3Crect x='37' y='50' width='6' height='10'/%3E%3Crect x='55' y='44' width='6' height='12'/%3E%3Crect x='73' y='34' width='6' height='12'/%3E%3Crect x='91' y='22' width='6' height='14'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E") center / contain no-repeat; }
+.hl-grid[data-hl-folder="fin"] .tile[data-hl="fin/invest"]::after { content: ''; position: absolute; inset: 8px 8px 34px; z-index: -1; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 80'%3E%3Cpath d='M8 66L30 56L48 58L66 42L84 38L112 14' fill='none' stroke='%23F07A2A' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round' stroke-opacity='.9'/%3E%3Cpath d='M104 14H112V22' fill='none' stroke='%23F07A2A' stroke-width='2.2' stroke-linecap='round' stroke-opacity='.9'/%3E%3C/svg%3E") center / contain no-repeat;
+  -webkit-mask: linear-gradient(90deg, #000 40%, transparent 60%) 0 0 / 250% 100% no-repeat; mask: linear-gradient(90deg, #000 40%, transparent 60%) 0 0 / 250% 100% no-repeat;
+  animation: fintdraw 6s ease-in-out infinite; }
+.hl-grid[data-hl-folder="fin"] .tile[data-hl="fin/ledger"] .sub, .hl-grid[data-hl-folder="fin"] .tile[data-hl="fin/invest"] .sub { display: none; }
+.hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"]:active, .hl-grid[data-hl-folder="fin"] .tile[data-hl="fin/ledger"]:active, .hl-grid[data-hl-folder="fin"] .tile[data-hl="fin/invest"]:active { background-color: var(--btn-press); }
+@keyframes fintspin { to { transform: rotate(360deg); } }
+@keyframes fintdraw { 0% { -webkit-mask-position: 100% 0; mask-position: 100% 0; } 60%, 100% { -webkit-mask-position: 0 0; mask-position: 0 0; } }
+@media (prefers-reduced-motion: reduce) { .hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"]::before, .hl-grid[data-hl-folder="fin"] .tile[data-hl="fin/invest"]::after { animation: none; -webkit-mask: none; mask: none; } }
 /* v165 Project Template (#ptpl) */
 #ptpl-list .tile.small { min-height: 72px; }
 /* v167 template tree */
