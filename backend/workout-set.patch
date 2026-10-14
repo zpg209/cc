@@ -1,0 +1,9 @@
+workout-set.patch — API v58: action=workoutset (overwrite / clear one day's workout in the Phone Log, rewrite the day's "Workout:" Notes lines)
+Independent of the other pending patches (zac-lists v56, lisa-trade-ptphotos v56, family-chase v57): apply before or after them.
+Two parts: (1) add the new script file WorkoutSet.gs (paste all of backend/WorkoutSet.gs), (2) add ONE line to Api.gs.
+
+--- a/Api.gs
++++ b/Api.gs
+@@ switch (String(action || '')) — next to the existing logday case @@
+       case 'logday':    return apiLogDay_(extra.all || {});
++      case 'workoutset': return apiWorkoutSet_(extra.all || {});   // v58 (WorkoutSet.gs)

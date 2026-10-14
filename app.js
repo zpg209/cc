@@ -117,7 +117,7 @@
   var RC_MONEY = ['spend', 'accounts', 'vaultdebt', 'entity', 'entitytax', 'receipts', 'fin', 'insnotes'];
   var RC_DEBT = ['vaultdebt', 'spend', 'entity', 'entitytax', 'fin'];
   var RC_WRITES = {
-    logadd: ['log'], logset: ['log'], logday: ['log'], lognote: ['lognotes'],
+    logadd: ['log'], logset: ['log'], logday: ['log'], workoutset: ['log'], lognote: ['lognotes'],
     healthmetricset: ['healthmetrics'],   // v122 (Medical > Health Metrics, server patch v51)
     addnote: ['notes'], delnote: ['notes'], punchset: ['punch'], punchnote: ['punch'],
     spendadd: RC_MONEY, spenddel: RC_MONEY, spendfix: RC_MONEY, spendcol: RC_MONEY, incomeadd: RC_MONEY, incomedel: RC_MONEY, incomefix: RC_MONEY,
@@ -1960,7 +1960,7 @@
    *     until backend/health-metrics.patch (API v51, actions healthmetrics / healthmetricset). Until then the screen is empty with a note and
    *     opens the sheet; add / edit switch on by themselves once the actions answer.
    * Day totals always come from the Phone Log; meal rows are the itemized part (the rest shows as "not itemized"). */
-  var FH = { data: null, seq: 0, date: '', foodOff: 0, woOff: 0, woF: 'today', woPrev: -1, open: {}, hm: null, hmState: 'idle', hmMsg: '', hmSeq: 0, hmAt: 0, sheet: null, mic: null, busy: false, vnAsked: 0 };
+  var FH = { data: null, seq: 0, date: '', foodOff: 0, woOff: 0, woF: 'today', woPrev: -1, wsNo: 0, open: {}, hm: null, hmState: 'idle', hmMsg: '', hmSeq: 0, hmAt: 0, sheet: null, mic: null, busy: false, vnAsked: 0 };
   ldRestore();   // v140: a past day picked earlier today (< 6 h) survives a reload; otherwise today
   var FH_TGT_KEY = 'cc_fh_targets', FH_MEALS_KEY = 'cc_fh_meals';
   var FH_SHEET_ID = '1NMxPbmskd-yfP3PNg5qgFiivwZFWmyGF2dEL-CIxTgQ';
@@ -2259,24 +2259,66 @@
     var b = fhWoSplit(parts);
     return b.length ? '<ul class="wobul">' + b.map(function (q) { return '<li>' + esc(q) + '</li>'; }).join('') + '</ul>' : '';
   }
-  function fhWoInline(x) {   // v162: today's workout edited in place
-    var E = FH.woEdit;
-    return '<div class="fhwo did woinl"><span class="fhwd">Today</span><span class="fhwt"><div class="woitems">' + E.items.map(function (it, i) {
-        return '<div class="woitem"><input type="text" class="woin" maxlength="120" data-wii="' + i + '" value="' + esc(it) + '" aria-label="Item ' + (i + 1) + '"><button type="button" class="navbtn wix" data-fh-act="wixdel" data-i="' + i + '" aria-label="Remove item">\u00d7</button></div>'; }).join('') +
-      (E.items.length ? '' : '<div class="foot"><i>No items \u2014 Save marks today Rest / none.</i></div>') + '</div>' +
+  // v166: any day in the summary card is edited in place; every bullet is editable, including the day's Notes "Workout: ..." lines.
+  // E.items = [{ t: text, n: true when it came from Notes }]. Saved with workoutset (API v58) when the server has it; else logday (Notes lines stay).
+  function fhWoInline(x, when) {
+    var E = FH.woEdit, ws = FH.wsNo ? false : true;
+    return '<div class="fhwo did woinl"><span class="fhwd">' + esc(when) + '</span><span class="fhwt"><div class="woitems">' + E.items.map(function (it, i) {
+        return '<div class="woitem"><input type="text" class="woin' + (it.n ? ' won' : '') + '" maxlength="200" data-wii="' + i + '" data-n="' + (it.n ? 1 : 0) + '" value="' + esc(it.t) + '" aria-label="Item ' + (i + 1) + '"><button type="button" class="navbtn wix" data-fh-act="wixdel" data-i="' + i + '" aria-label="Remove item">\u00d7</button></div>'; }).join('') +
+      (E.items.length ? '' : '<div class="foot"><i>No items \u2014 Save clears this day\u2019s workout.</i></div>') + '</div>' +
       '<div class="woitem wonums"><label>Min<input type="number" class="woin" inputmode="decimal" min="0" step="any" id="woi-min" value="' + (E.min == null ? '' : E.min) + '"></label><label>Hike mi<input type="number" class="woin" inputmode="decimal" min="0" step="any" id="woi-hike" value="' + (E.hike == null ? '' : E.hike) + '"></label></div>' +
-      (x.extra.length ? '<small>From Notes (edit in the sheet): ' + esc(x.extra.join(' \u00b7 ')) + '</small>' : '') +
+      (E.items.some(function (it) { return it.n; }) ? '<small>Dashed items came from the day\u2019s Notes (dictated details).' + (ws ? '' : ' Changing or removing those needs the server update (workoutset).') + '</small>' : '') +
       '<div class="woinbar"><button type="button" class="fitbtn wosm" data-fh-act="wixadd">+ Add item</button><button type="button" class="fitbtn wosm" data-fh-act="wixcancel">Cancel</button><button type="button" class="fitbtn wosm on" data-fh-act="wixsave"' + (FH.busy ? ' disabled' : '') + '>Save</button></div><div class="fitmsg" id="fhs-msg" role="status"></div></span></div>';
   }
-  function fhWoSync() { var E = FH.woEdit; if (!E) return; E.items = Array.prototype.map.call(document.querySelectorAll('[data-wii]'), function (i) { return i.value; }); var m = $('woi-min'), k = $('woi-hike'); if (m) E.min = m.value === '' ? null : Number(m.value); if (k) E.hike = k.value === '' ? null : Number(k.value); }
-  function fhWoCard(x, today) {
-    if (x.date === today && FH.woEdit && FH.woEdit.date === today) return fhWoInline(x);
+  function fhWoSync() { var E = FH.woEdit; if (!E) return; E.items = Array.prototype.map.call(document.querySelectorAll('[data-wii]'), function (i) { return { t: i.value, n: i.getAttribute('data-n') === '1' }; }); var m = $('woi-min'), k = $('woi-hike'); if (m) E.min = m.value === '' ? null : Number(m.value); if (k) E.hike = k.value === '' ? null : Number(k.value); }
+  function fhWoEditStart(d, key) {
+    var x = fhWoDay(d, key), w = x.did ? fhWoSplit(x.details) : [], n = fhWoSplit(x.extra);
+    var items = w.map(function (t) { return { t: t, n: false }; }).concat(n.map(function (t) { return { t: t, n: true }; }));
+    FH.woEdit = { date: key, items: items.length ? items : [{ t: '', n: false }], min: x.minutes, hike: x.hike,
+      orig: { w: w.join('; '), n: n.join('; '), type: w.length ? w.join('; ') : (x.rest ? 'Rest / none' : ''), min: x.minutes, hike: x.hike, rawType: x.row && x.row.workout || '' } };
+  }
+  function fhWoSave() {
+    fhWoSync(); var E = FH.woEdit, O = E.orig, v = { min: E.min, hike: E.hike };
+    var bw = fhCheckNums(v, ['min', 'hike']); if (bw) return fhMsg('Check ' + (bw === 'min' ? 'minutes' : 'hike miles') + ': use a positive number.', true);
+    var its = E.items.map(function (q) { return { t: String(q.t || '').trim().replace(/[|]/g, '/'), n: q.n }; }).filter(function (q) { return q.t; });
+    var wt = its.filter(function (q) { return !q.n; }).map(function (q) { return q.t; }), nt = its.filter(function (q) { return q.n; }).map(function (q) { return q.t; });
+    var wJoin = wt.join('; '), nJoin = nt.join('; ');
+    if (wJoin.length > 200) { var all = wJoin.split('; '), cut = []; while (all.length && (cut.concat(all[0]).join('; ')).length <= 200) cut.push(all.shift()); wJoin = cut.join('; '); nJoin = all.concat(nt).join('; '); }   // the Workout cell holds 200 chars; the rest goes to Notes
+    var empty = !its.length, key = E.date;
+    function done(msg) { FH.woEdit = null; return fhAfterWrite(msg); }
+    function viaLogday(note) {   // pre-v58 server: logday (blank values are skipped, Notes only append)
+      var p = { date: key, cid: 'fhwi' + sfHash(key + '|' + wJoin + '|' + JSON.stringify(v) + '|' + Date.now()) }, n = 0;
+      var t2 = empty || !wJoin ? 'Rest / none' : wJoin;
+      if (t2 !== O.type) { p.workout = t2; n++; }
+      var mn = empty && !fhIsNum(v.min) ? 0 : v.min, hk = empty && !fhIsNum(v.hike) ? 0 : v.hike;
+      if (fhIsNum(mn) && mn !== O.min) { p.workout_min = mn; n++; }
+      if (fhIsNum(hk) && hk !== O.hike) { p.hike_miles = hk; n++; }
+      if (nJoin && nJoin !== O.n) { p.notes = 'Workout: ' + nJoin; n++; }
+      if (!n) { FH.woEdit = null; fhRenderWo(FH.data); if (note) rcNote(note); return Promise.resolve(); }
+      return apiRaw('logday', p).then(function (j) { trkRes(j); return done('Updated ' + trkDayLabel(key) + ' workout \u2713' + (note ? ' \u00b7 ' + note : '')); });
+    }
+    var nChanged = nJoin !== O.n;
+    var p = { date: key, workout: empty ? '' : (wJoin || (nJoin ? 'Workout' : '')), workout_min: fhIsNum(v.min) ? v.min : '', hike_miles: fhIsNum(v.hike) ? v.hike : '', cid: 'fhws' + sfHash(key + '|' + JSON.stringify(its) + '|' + JSON.stringify(v) + '|' + Date.now()) };
+    if (nChanged || empty) p.details = empty ? '' : nJoin;
+    var notesMsg = nChanged || (empty && O.n) ? 'Notes lines unchanged: needs the server update (workoutset)' : '';
+    if (FH.wsNo && Date.now() - FH.wsNo < 6 * 3600 * 1000) return fhRun(function () { return viaLogday(notesMsg); });
+    return fhRun(function () {
+      return apiRaw('workoutset', p).then(function (j) {
+        if (j.error === 'bad_action') { FH.wsNo = Date.now(); return viaLogday(notesMsg); }
+        trkRes(j); FH.wsNo = 0;
+        return done((empty ? 'Cleared ' : 'Updated ') + trkDayLabel(key) + ' workout \u2713');
+      });
+    });
+  }
+  function fhWoCard(x, today, editable) {
+    var when0 = x.date === today ? 'Today' : x.date === trkAddDays(today, -1) ? 'Yesterday' : x.label;
+    if (editable && FH.woEdit && FH.woEdit.date === x.date) return fhWoInline(x, when0);
     var kinds = fhWoKinds(x), st = x.did || x.hike ? fhWoStats(x) : [], when = x.date === today ? 'Today' : x.date === trkAddDays(today, -1) ? 'Yesterday' : x.label;
     var notes = x.details.length > 1 || (x.details[0] && x.details[0] !== kinds[0]) ? x.details.join(' \u00b7 ') : '';
     var body = x.did || x.hike ? '<span class="fhwt">' + esc(kinds.join(' + ')) + (st.length ? '<small class="wost">' + esc(st.join(' \u00b7 ')) + '</small>' : '') +
         fhWoBullets(x.details.concat(x.extra)) + '</span>'
       : '<span class="fhwt"><i>No workout logged</i>' + (x.rest ? '<small>Rest day</small>' : '') + '</span>';
-    return '<div class="fhwo' + (x.did ? ' did' : '') + (x.logged ? '' : ' none') + '"><span class="fhwd">' + esc(when) + '</span>' + body + '<span class="fhwn2"></span>' + (x.date === today ? '<button type="button" class="fitbtn wosm woed" data-fh-act="wixedit" data-day="' + x.date + '">' + (x.did || x.hike ? 'Edit' : 'Add') + '</button>' : '') + '</div>';   // v160 explicit Edit
+    return '<div class="fhwo' + (x.did ? ' did' : '') + (x.logged ? '' : ' none') + '"><span class="fhwd">' + esc(when) + '</span>' + body + '<span class="fhwn2"></span>' + (editable ? '<button type="button" class="fitbtn wosm woed" data-fh-act="wixedit" data-day="' + x.date + '">' + (x.did || x.hike ? 'Edit' : 'Add') + '</button>' : '') + '</div>';   // v160 explicit Edit
   }
   function fhRenderWo(d) {
     var el = $('wo-body'); if (!el) return;
@@ -2300,7 +2342,7 @@
     if (keys.length > 1) h += '<div class="btiles tot"><div><span>Workouts</span><b>' + did.length + '</b></div><div><span>Workout min</span><b>' + fmt(Math.round(min)) + '</b></div><div><span>Hike miles</span><b>' + (mi ? fmt(fhR1(mi), 1) : '\u2014') + '</b></div></div>';
     var list = f === 'all' ? did : days;
     if (!list.length) h += '<div class="foot">No workout logged.</div>';
-    list.slice().reverse().forEach(function (x) { h += fhWoCard(x, today); });
+    list.slice().reverse().forEach(function (x) { h += fhWoCard(x, today, true); });   // v166: Edit on every day of the selected period (not on Older workouts)
     h += '</div>';
     // older workouts (before the selected period), newest first
     if (f !== 'all') {
@@ -2308,7 +2350,7 @@
       for (var k2 = trkAddDays(first, -1); k2 >= cut; k2 = trkAddDays(k2, -1)) { var x2 = fhWoDay(d, k2); if (x2.did || x2.hike) old.push(x2); }
       h += '<div class="card fitcard"><h3>Older workouts</h3><div class="woold">' + (old.length ? old.map(function (x) { return fhWoCard(x, today); }).join('') : '<div class="foot">No older workouts in the history.</div>') + '</div></div>';
     }
-    h += '<div class="foot">Use Edit on a workout to change or delete it. Weeks run Sunday\u2013Saturday like the Daily Log. Type, distance and elevation are read from the Workout text (e.g. \u201cHike 5.2 mi 1,200 ft\u201d). History covers the last ' + (d.ext.historyDays || LOG_HIST_DAYS + 1) + ' days.</div>';
+    h += '<div class="foot">Edit any day in the period above (pick Yesterday, This week or a past week) to change or remove its items. Weeks run Sunday\u2013Saturday like the Daily Log. Type, distance and elevation are read from the Workout text (e.g. \u201cHike 5.2 mi 1,200 ft\u201d). History covers the last ' + (d.ext.historyDays || LOG_HIST_DAYS + 1) + ' days.</div>';
     el.innerHTML = h;
   }
 
@@ -2750,18 +2792,11 @@
       if (!items.length) orig.type = x.rest ? 'Rest / none' : '';
       return fhSheetOpen({ kind: 'woday', title: 'Workout \u00b7 ' + trkDayLabel(dk), date: dk, fixedDate: true, vals: vals, orig: orig, saveLbl: fhSaveLabel });
     }
-    if (a === 'wixedit') { var xt = fhWoDay(d, tk), its = xt.did ? fhWoSplit(xt.details) : []; FH.woEdit = { date: tk, items: its.length ? its : [''], orig: { items: its, type: its.length ? its.join('; ') : (xt.rest ? 'Rest / none' : ''), min: xt.minutes, hike: xt.hike }, min: xt.minutes, hike: xt.hike }; fhRenderWo(d); var f0 = document.querySelector('[data-wii]'); if (f0) f0.focus(); return; }
+    if (a === 'wixedit') { fhWoEditStart(d, b.getAttribute('data-day') || tk); fhRenderWo(d); var f0 = document.querySelector('[data-wii]'); if (f0) f0.focus(); return; }
     if (a === 'wixdel') { fhWoSync(); FH.woEdit.items.splice(+b.getAttribute('data-i'), 1); fhRenderWo(d); return; }
-    if (a === 'wixadd') { fhWoSync(); FH.woEdit.items.push(''); fhRenderWo(d); var ia = document.querySelectorAll('[data-wii]'); if (ia.length) ia[ia.length - 1].focus(); return; }
+    if (a === 'wixadd') { fhWoSync(); FH.woEdit.items.push({ t: '', n: false }); fhRenderWo(d); var ia = document.querySelectorAll('[data-wii]'); if (ia.length) ia[ia.length - 1].focus(); return; }
     if (a === 'wixcancel') { FH.woEdit = null; fhRenderWo(d); return; }
-    if (a === 'wixsave') {
-      fhWoSync(); var E = FH.woEdit, v = { min: E.min, hike: E.hike };
-      var bw = fhCheckNums(v, ['min', 'hike']); if (bw) return fhMsg('Check ' + (bw === 'min' ? 'minutes' : 'hike miles') + ': use a positive number.', true);
-      var its2 = E.items.map(function (q) { return String(q || '').trim(); }).filter(Boolean), type = its2.length ? its2.join('; ') : 'Rest / none';
-      if (!its2.length) { if (!fhIsNum(v.min) || v.min === E.orig.min) v.min = 0; if (!fhIsNum(v.hike) || v.hike === E.orig.hike) v.hike = 0; }
-      var cc = { vals: v, orig: E.orig, date: E.date };
-      return fhRun(function () { return fhEditWo(cc, type, '').then(function () { FH.woEdit = null; fhRenderWo(FH.data); }); });
-    }
+    if (a === 'wixsave') return fhWoSave();
     var wfb = b.getAttribute('data-fh-wf'); if (wfb) { if (wfb === 'prev' && FH.woF === 'prev') FH.woPrev = (FH.woPrev || -1) - 1; else if (wfb === 'prev') FH.woPrev = -1; FH.woF = wfb; fhRenderWo(d); return; }
     if (a === 'wprev') { FH.woPrev = (FH.woPrev || -1) - 1; fhRenderWo(d); return; }
     if (a === 'wnext') { if (FH.woPrev < -1) FH.woPrev++; fhRenderWo(d); return; }

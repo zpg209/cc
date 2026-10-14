@@ -263,3 +263,22 @@ Until it is deployed (front end v156):
 - PT > client > History > "Photos of past workouts": photos stay on that phone (IndexedDB `cc_ptphotos`) and show "On this phone; saves to Drive after the server update". After the deploy the phone uploads every waiting photo on its own (retried at most every 30 min). No front-end change is needed.
 
 Check after deploying: `…/exec?api=1&pc=PASSCODE&action=orderpaid&orderId=<id>&payStatus=paid&payMethod=trade&cid=x&dry=1` returns ok, and `action=ptphotosave&clientId=pcmuzxfsgmhs6&dry=1` returns `{"ok":true,...,"version":56}`.
+
+## workout-set.patch + WorkoutSet.gs (API v58, PENDING: edit / delete any workout item, including dictated "Workout:" Notes lines)
+Independent of zac-lists (v56), lisa-trade-ptphotos (v56) and family-chase (v57); apply before or after them. Only touches the Fitness Phone Log tab (same sheet, backup tab and CC write log as logday). No new authorization.
+
+Deploy (Zac, in the Apps Script editor):
+1. File > + > Script, name it **WorkoutSet**, paste all of `backend/WorkoutSet.gs`.
+2. In Api.gs, inside `switch (String(action || ''))`, right under `case 'logday': ...`, add:
+   `      case 'workoutset': return apiWorkoutSet_(extra.all || {});   // v58`
+3. Save, then Deploy > Manage deployments > (the API deployment) > edit > Version: New version > Deploy.
+
+What it adds: `action=workoutset&date=YYYY-MM-DD&workout=&workout_min=&hike_miles=&details=&cid=[&dry=1]`.
+- Unlike logday, a param sent BLANK clears the cell (workout type, minutes, hike miles; "Workout today?" follows: Y, N for rest/none, blank when cleared). Params not sent are left alone.
+- `details` (if sent) rewrites the day's Notes: every " | "-separated `Workout: ...` / `Workout details: ...` segment is removed and, if non-blank, one `Workout: <details>` is added. Meals and every other note stay exactly as they were.
+- A date can have several Phone Log rows (the reader merges them, newest non-blank wins), so the newest row gets the value and the same cells of older rows of that date are blanked (otherwise the old value would show through). Only workout type / minutes / hike miles / Workout today? and the Workout: Notes segments are touched.
+- Same validation, LockService, 6 h cid replay and daily values-only backup as logday; each changed cell is journaled as `workoutset`. `dry=1` returns the planned before/after and writes nothing.
+
+Until it is deployed (front end v166): the Workout Log's inline Edit works for the workout text, minutes and miles through logday (deleting all items marks the day Rest / none, 0 min, 0 mi). Items from Notes (dashed boxes) can be edited on screen, but the old Notes lines can't be removed, and the app says so ("needs the server update (workoutset)"). The phone asks `workoutset` first, remembers a bad_action for 6 h and uses logday meanwhile. No front-end change is needed after deploying.
+
+Check after deploying: `…/exec?api=1&pc=PASSCODE&action=workoutset&date=<a logged day>&workout=Test&dry=1` returns `{"ok":true,"data":{…,"version":58,"dry":true,"written":{…}}}` and changes nothing.

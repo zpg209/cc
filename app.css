@@ -3207,3 +3207,4 @@ body.fc-modal { overflow: hidden; }
 .ptpl-outline { margin: 12px 0; padding: 10px 14px; }
 .ptpl-outline summary { color: var(--red); font-weight: 700; cursor: pointer; }
 .ptpl-outline ul { margin: 8px 0 2px; padding-left: 18px; line-height: 1.7; }
+.woin.won { border-style: dashed; }
