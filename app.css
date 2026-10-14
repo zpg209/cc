@@ -3204,7 +3204,8 @@ body.fc-modal { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) { .hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"]::before, .hl-grid[data-hl-folder="fin"] .tile[data-hl="spend"]::after { animation: none; } }
 /* v165 Project Template (#ptpl) */
 #ptpl-list .tile.small { min-height: 72px; }
-.ptpl-outline { margin: 12px 0; padding: 10px 14px; }
-.ptpl-outline summary { color: var(--red); font-weight: 700; cursor: pointer; }
-.ptpl-outline ul { margin: 8px 0 2px; padding-left: 18px; line-height: 1.7; }
+/* v167 template tree */
+.ptpl-crumb { margin: 0 0 10px; font-size: 13px; color: var(--muted); line-height: 1.6; }
+.ptpl-crumb b { color: var(--text); }
+#ptpl-list .tile.small { font-size: 16px; overflow-wrap: anywhere; }
 .woin.won { border-style: dashed; }
