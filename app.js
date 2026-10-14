@@ -20806,6 +20806,7 @@
     'ptpl':      { label: 'Project Template', go: 'ptpl', sub: 'Template folders \u00b7 README', cls: 'hiring-entry' },   // v165: L&S projects > Project Template (#ptpl)
     'hiring':    { label: 'Hiring', go: 'hiring', sub: 'Structural Engineer \u00b7 docs', cls: 'hiring-entry' },   // v132: L&S projects > Hiring (#hiring)
     'f:archive': { label: 'Archive', go: 'hf/archive', folder: true },
+    'f:finwork': { label: 'Workspace', go: 'hf/finwork', folder: true },   // v170: Finances > Workspace (working folder; empty, drag tiles in)
     'tm':        { label: 'Task Manager', go: 'tm' },   // v131: Today + Suggestions (was the task list at the top of Home)
     'f:lisa':    { label: 'Lisa', go: 'hf/lisa', folder: true },
     'f:zac':     { label: 'Zac', go: 'hf/zac', folder: true },           // v149: Home folder (next to Lisa); holds Wetumka
@@ -20837,7 +20838,7 @@
     'f:zac': ['f:wetumka'],                                            // v149
     'f:wetumka': ['zl/garage', 'zl/connex', 'zl/landscaping'],         // v149   // v130: saved layouts get it too (hlNormalize slots new items into their default folder)
     biz: ['f:archive'],   // v147: the v141-v146 'ownership' tile is gone from Business (it now lives only on Trust & Estate); hlNormalize drops it from saved layouts
-    fin: ['fin/ledger', 'fin/invest', 'fchase', 'bankrev'],   // v169: the v163 Finances > Archive folder is gone (hlLoad moves anything in it back to Finances)   // v150: Family Chase after Investments (hlNormalize slots it into saved layouts too)
+    fin: ['fin/ledger', 'fin/invest', 'fchase', 'bankrev', 'f:finwork'],   // v170: + Workspace folder at the end (hlNormalize slots it into saved layouts)   // v169: the v163 Finances > Archive folder is gone (hlLoad moves anything in it back to Finances)   // v150: Family Chase after Investments (hlNormalize slots it into saved layouts too)
     'f:archive': HL_TO_ARCHIVE.slice()
   };
   var hl = { f: null, dragging: false, edit: false };
