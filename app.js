@@ -14614,7 +14614,7 @@
   function odMealsHtml(orders, perItem) {
     var m = odMealAgg(orders), n = (orders || []).length, pl = function (x) { return x + ' meal' + (x === 1 ? '' : 's'); };
     return '<div class="card odtotal odmeals"><div class="odtrow big"><span>Meal total</span><b>' + m.total + '</b></div>' +
-      (perItem ? m.rows.map(function (r) { return '<div class="odtrow sub"><span>' + esc(r.item) + '</span><b>' + r.qty + '</b></div>'; }).join('') : '') +
+      (perItem ? m.rows.map(function (r) { return '<div class="odtrow sub odmi"><span>' + esc(r.item) + '</span><b>' + r.qty + '</b></div>'; }).join('') : '') +
       '<div class="odtrow"><span>Paid</span><b>' + m.paid + '</b></div><div class="odtrow"><span>Unpaid</span><b>' + m.unpaid + '</b></div>' +
       '<div class="odtrow"><span>Trade</span><b>' + m.trade + '</b></div>' +
       '<div class="foot">' + pl(m.total) + ' across ' + n + ' order' + (n === 1 ? '' : 's') + ' \u00b7 sum of item quantities</div></div>';

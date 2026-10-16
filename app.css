@@ -3230,3 +3230,5 @@ body.fc-modal { overflow: hidden; }
 /* v172 Ledger > Taxes button */
 .ledtax { margin: 0 0 12px; }
 .ledtax .tile.small { grid-column: 1 / -1; min-height: 64px; aspect-ratio: auto; }
+/* v174 Meal total card: per-meal rows use the same size as the Paid / Unpaid / Trade rows */
+#screen-lt .odmeals .odtrow.sub.odmi { font-size: 15px; }
