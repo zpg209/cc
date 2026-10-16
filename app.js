@@ -14597,9 +14597,31 @@
       odPickerHtml(o) +
       (ask ? '<div class="odconf">Delete the order for ' + esc(o.client) + '?<div class="draftbtns"><button type="button" class="bigsave odyes" data-od="delyes" data-oid="' + esc(o.orderId) + '">Yes, delete</button><button type="button" class="navbtn" data-od="delno">Keep it</button></div></div>' : '') + '</div>';
   }
+  // v173: Meal total card (same template as the week total), placed above it. Meals = sum of line quantities (a line with no valid qty counts as 1).
+  function odMealAgg(orders) {
+    var m = { total: 0, paid: 0, unpaid: 0, trade: 0, rows: [] }, by = {};
+    (orders || []).forEach(function (o) {
+      var n = 0;
+      (o.lines || []).forEach(function (l) {
+        var q = Number(l.qty); q = isFinite(q) && q > 0 ? q : 1; n += q;
+        var k = norm(l.item), r = by[k] || (by[k] = { item: l.item, qty: 0 }); r.qty += q;
+      });
+      m.total += n; m[o.payStatus === 'paid' ? 'paid' : o.payStatus === 'trade' ? 'trade' : 'unpaid'] += n;
+    });
+    m.rows = Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return b.qty - a.qty || String(a.item).localeCompare(String(b.item)); });
+    return m;
+  }
+  function odMealsHtml(orders, perItem) {
+    var m = odMealAgg(orders), n = (orders || []).length, pl = function (x) { return x + ' meal' + (x === 1 ? '' : 's'); };
+    return '<div class="card odtotal odmeals"><div class="odtrow big"><span>Meal total</span><b>' + m.total + '</b></div>' +
+      (perItem ? m.rows.map(function (r) { return '<div class="odtrow sub"><span>' + esc(r.item) + '</span><b>' + r.qty + '</b></div>'; }).join('') : '') +
+      '<div class="odtrow"><span>Paid</span><b>' + m.paid + '</b></div><div class="odtrow"><span>Unpaid</span><b>' + m.unpaid + '</b></div>' +
+      '<div class="odtrow"><span>Trade</span><b>' + m.trade + '</b></div>' +
+      '<div class="foot">' + pl(m.total) + ' across ' + n + ' order' + (n === 1 ? '' : 's') + ' \u00b7 sum of item quantities</div></div>';
+  }
   function odTotalsHtml(orders) {
     var t = odAgg(orders);
-    return '<div class="card odtotal"><div class="odtrow big"><span>Week total</span><b>' + odMoney(t.total) + '</b></div>' +
+    return odMealsHtml(orders, true) + '<div class="card odtotal"><div class="odtrow big"><span>Week total</span><b>' + odMoney(t.total) + '</b></div>' +
       '<div class="odtrow"><span>Paid</span><b>' + odMoney(t.paid) + '</b></div><div class="odtrow"><span>Unpaid</span><b>' + odMoney(t.unpaid) + '</b></div>' +
       '<div class="odtrow"><span>Trade</span><b>' + odMoney(t.trade) + '</b></div>' +
       '<div class="odtrow"><span>Delivery fees</span><b>' + odMoney(t.delivery) + '</b></div>' +
@@ -14724,6 +14746,7 @@
     h += '<div class="card odsum"><div class="odsrow head"><span>Item</span><span>Qty</span><span>Revenue</span></div>' +
       t.rows.map(function (r) { return '<div class="odsrow"><span>' + esc(r.item) + '</span><span>' + r.qty + '</span><span>' + odMoney(r.revenue) + '</span></div>'; }).join('') +
       '<div class="odsrow tot"><span>Total</span><span>' + t.items + '</span><span>' + odMoney(t.subtotal) + '</span></div></div>';
+    h += odMealsHtml(W.orders, false);
     h += '<div class="card odtotal"><div class="odtrow big"><span>Total income</span><b>' + odMoney(t.total) + '</b></div>' +
       '<div class="odtrow"><span>Items</span><b>' + odMoney(t.subtotal) + '</b></div>' +
       '<div class="odtrow"><span>Delivery fee income</span><b>' + odMoney(t.delivery) + '</b></div>' +
