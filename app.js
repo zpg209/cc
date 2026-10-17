@@ -14,7 +14,7 @@
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', ovKey: '', invAcct: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
-  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring', 'ownership', 'zl', 'fchase', 'bankrev', 'ptpl', 'cart'];
+  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring', 'ownership', 'zl', 'fchase', 'bankrev', 'ptpl', 'cart', 'generator'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -573,6 +573,7 @@
     if (name === 'lr') lrOpen();
     if (name === 'hiring') hiringOpen();
     if (name === 'cart') cartOpen();   // v176: Zac > Heavy Object Cart Build
+    if (name === 'generator') generatorOpen();   // v177: Zac > Generator
     if (name === 'ptpl') ptplOpen();   // v167: keeps the open level (coming back from a Drive folder lands where you were)
     if (name === 'zl') zlOpen();               // v149: Zac > Wetumka to-do lists
     if (name === 'fchase') fcOpen(); else if (fc.sel) fcSheetClose();   // v150: Vault > Family Chase card review
@@ -1235,6 +1236,24 @@
     $('cart-back').setAttribute('data-go', hlItemBack('cart', 'hf/zac'));
     $('cart-body').innerHTML = '<div class="grid2" id="cart-list">' + CART.docs.map(function (d) { return tile(d, 'Google Doc'); }).join('') + '</div>' +
       '<a class="linkrow" data-title="Heavy Object Cart Build" href="' + esc(CART.folderUrl) + '">Open folder &rsaquo;</a>';
+  }
+
+  /* ---------------- Generator (#generator; Home > Zac, v177) ---------------- */
+  // Same static pattern as Cart: Overview Doc + Howard's ordering-guide PDF (Second Brain > Zac > Generator) + Open folder.
+  // Route id is 'generator' (not 'gen') so it never collides with Lisa's Table data-ltk=gen / menu-gen.
+  var GENERATOR = {
+    title: 'Generator',
+    folderUrl: 'https://drive.google.com/drive/folders/1EeP0lGjSPCo7KdNPCvBoQhKa_87Cf9si',
+    docs: [
+      { name: 'Generator & Power Cell - Overview', url: 'https://docs.google.com/document/d/1XC_RKZ1Ze-91kMtdUoNO5YeolIxtazIiF5il-HWFKhQ/edit', sub: 'Google Doc' },
+      { name: 'GENPWRcell Ordering Guide (Aug 2023)', url: 'https://drive.google.com/file/d/1pNN5vQ2S9cm2UYfoMVVZcQESEqGrY4Jk/view', sub: 'PDF' }
+    ]
+  };
+  function generatorOpen() {
+    $('generator-title').textContent = GENERATOR.title;
+    $('generator-back').setAttribute('data-go', hlItemBack('generator', 'hf/zac'));
+    $('generator-body').innerHTML = '<div class="grid2" id="generator-list">' + GENERATOR.docs.map(function (d) { return tile(d, d.sub || 'File'); }).join('') + '</div>' +
+      '<a class="linkrow" data-title="Generator" href="' + esc(GENERATOR.folderUrl) + '">Open folder &rsaquo;</a>';
   }
 
   /* ---------------- Project Template (#ptpl; L&S projects > Project Template, v165; v167: the template's folder tree as buttons) ----------------
@@ -20853,6 +20872,7 @@
     'f:zac':     { label: 'Zac', go: 'hf/zac', folder: true },           // v149: Home folder (next to Lisa); holds Wetumka
     'f:wetumka': { label: 'Wetumka', go: 'hf/wetumka', folder: true },
     'cart':      { label: 'Heavy Object Cart Build', go: 'cart', sub: 'Materials \u00b7 cut list', cls: 'hiring-entry' },   // v176: Zac > after Wetumka (#cart)   // v149: Zac > Wetumka (project lists)
+    'generator': { label: 'Generator', go: 'generator', sub: 'Power cell \u00b7 overview', cls: 'hiring-entry' },   // v177: Zac > Generator (#generator)
     'zl/garage':      { label: 'Garage organization', go: 'zl/garage' },   // v149: to-do lists (#zl/<slug>)
     'zl/connex':      { label: 'Connex box', go: 'zl/connex' },
     'zl/landscaping': { label: 'Landscaping', go: 'zl/landscaping' },   // v113: Home folder (v130: holds Change requests by default; drag buttons in)
@@ -20877,7 +20897,7 @@
     'f:fh': HL_FH_IN.slice(),
     'f:medical': ['health'],
     'f:lisa': ['lr'],
-    'f:zac': ['f:wetumka', 'cart'],   // v176: + cart after Wetumka (hlNormalize slots it into saved layouts)                                            // v149
+    'f:zac': ['f:wetumka', 'generator', 'cart'],   // v177: + Generator; v176 cart (hlNormalize slots into saved layouts)
     'f:wetumka': ['zl/garage', 'zl/connex', 'zl/landscaping'],         // v149   // v130: saved layouts get it too (hlNormalize slots new items into their default folder)
     biz: ['f:archive'],   // v147: the v141-v146 'ownership' tile is gone from Business (it now lives only on Trust & Estate); hlNormalize drops it from saved layouts
     fin: ['fin/ledger', 'fin/invest', 'fchase', 'bankrev', 'f:finwork'],   // v170: + Workspace folder at the end (hlNormalize slots it into saved layouts)   // v169: the v163 Finances > Archive folder is gone (hlLoad moves anything in it back to Finances)   // v150: Family Chase after Investments (hlNormalize slots it into saved layouts too)

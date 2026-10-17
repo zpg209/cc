@@ -3234,3 +3234,6 @@ body.fc-modal { overflow: hidden; }
 #screen-lt .odmeals .odtrow.sub.odmi { font-size: 15px; }
 /* v176 Heavy Object Cart Build (#cart): doc tiles like Hiring */
 #cart-list .tile.small { min-height: 72px; }
+
+/* v177 Generator (#generator): doc/PDF tiles like Cart */
+#generator-list .tile.small { min-height: 72px; }
