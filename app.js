@@ -14,7 +14,7 @@
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', ovKey: '', invAcct: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
-  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring', 'ownership', 'zl', 'fchase', 'bankrev', 'ptpl'];
+  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring', 'ownership', 'zl', 'fchase', 'bankrev', 'ptpl', 'cart'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -572,6 +572,7 @@
     if (name === 'pc') pcOpen();
     if (name === 'lr') lrOpen();
     if (name === 'hiring') hiringOpen();
+    if (name === 'cart') cartOpen();   // v176: Zac > Heavy Object Cart Build
     if (name === 'ptpl') ptplOpen();   // v167: keeps the open level (coming back from a Drive folder lands where you were)
     if (name === 'zl') zlOpen();               // v149: Zac > Wetumka to-do lists
     if (name === 'fchase') fcOpen(); else if (fc.sel) fcSheetClose();   // v150: Vault > Family Chase card review
@@ -1216,6 +1217,24 @@
     $('hiring-back').setAttribute('data-go', hlItemBack('hiring', 'projects'));   // Back = the folder the Hiring button sits in
     $('hiring-body').innerHTML = '<div class="grid2" id="hiring-list">' + HIRING.docs.map(function (d) { return tile(d, 'Google Doc'); }).join('') + '</div>' +
       '<a class="linkrow" data-title="Hiring" href="' + esc(HIRING.folderUrl) + '">Open Hiring folder &rsaquo;</a>';
+  }
+
+  /* ---------------- Heavy Object Cart Build (#cart; Home > Zac, v176) ---------------- */
+  // Same static pattern as Hiring: two Google Docs (in Second Brain > Zac > Heavy Object Cart Build, so tile() opens them in the in-app viewer)
+  // + an 'Open folder' linkrow. IDs read from Drive on 2026-10-16.
+  var CART = {
+    title: 'Heavy Object Cart Build',
+    folderUrl: 'https://drive.google.com/drive/folders/1MqITndrSUbbbr_5RHf0ZjxdZ8DJW8PBK',
+    docs: [
+      { name: 'Materials & Trailer Links', url: 'https://docs.google.com/document/d/1-sedWI-4Ipx5-mopNhUlipcd7Nbiw9mOpStbVG_BU24/edit' },
+      { name: 'Cut List (Plain Text)', url: 'https://docs.google.com/document/d/1IuZ7N8HaI4hZR6GoHvvrhFujcs1Ge0hDzosybQGrBRA/edit' }
+    ]
+  };
+  function cartOpen() {
+    $('cart-title').textContent = CART.title;
+    $('cart-back').setAttribute('data-go', hlItemBack('cart', 'hf/zac'));
+    $('cart-body').innerHTML = '<div class="grid2" id="cart-list">' + CART.docs.map(function (d) { return tile(d, 'Google Doc'); }).join('') + '</div>' +
+      '<a class="linkrow" data-title="Heavy Object Cart Build" href="' + esc(CART.folderUrl) + '">Open folder &rsaquo;</a>';
   }
 
   /* ---------------- Project Template (#ptpl; L&S projects > Project Template, v165; v167: the template's folder tree as buttons) ----------------
@@ -20832,7 +20851,8 @@
     'tm':        { label: 'Task Manager', go: 'tm' },   // v131: Today + Suggestions (was the task list at the top of Home)
     'f:lisa':    { label: 'Lisa', go: 'hf/lisa', folder: true },
     'f:zac':     { label: 'Zac', go: 'hf/zac', folder: true },           // v149: Home folder (next to Lisa); holds Wetumka
-    'f:wetumka': { label: 'Wetumka', go: 'hf/wetumka', folder: true },   // v149: Zac > Wetumka (project lists)
+    'f:wetumka': { label: 'Wetumka', go: 'hf/wetumka', folder: true },
+    'cart':      { label: 'Heavy Object Cart Build', go: 'cart', sub: 'Materials \u00b7 cut list', cls: 'hiring-entry' },   // v176: Zac > after Wetumka (#cart)   // v149: Zac > Wetumka (project lists)
     'zl/garage':      { label: 'Garage organization', go: 'zl/garage' },   // v149: to-do lists (#zl/<slug>)
     'zl/connex':      { label: 'Connex box', go: 'zl/connex' },
     'zl/landscaping': { label: 'Landscaping', go: 'zl/landscaping' },   // v113: Home folder (v130: holds Change requests by default; drag buttons in)
@@ -20857,7 +20877,7 @@
     'f:fh': HL_FH_IN.slice(),
     'f:medical': ['health'],
     'f:lisa': ['lr'],
-    'f:zac': ['f:wetumka'],                                            // v149
+    'f:zac': ['f:wetumka', 'cart'],   // v176: + cart after Wetumka (hlNormalize slots it into saved layouts)                                            // v149
     'f:wetumka': ['zl/garage', 'zl/connex', 'zl/landscaping'],         // v149   // v130: saved layouts get it too (hlNormalize slots new items into their default folder)
     biz: ['f:archive'],   // v147: the v141-v146 'ownership' tile is gone from Business (it now lives only on Trust & Estate); hlNormalize drops it from saved layouts
     fin: ['fin/ledger', 'fin/invest', 'fchase', 'bankrev', 'f:finwork'],   // v170: + Workspace folder at the end (hlNormalize slots it into saved layouts)   // v169: the v163 Finances > Archive folder is gone (hlLoad moves anything in it back to Finances)   // v150: Family Chase after Investments (hlNormalize slots it into saved layouts too)

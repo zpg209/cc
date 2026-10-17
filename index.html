@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lora:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=175">
+<link rel="stylesheet" href="app.css?v=176">
 </head>
 <body>
   <div class="bg"></div>
@@ -72,6 +72,12 @@
     <div class="grid2" id="projects-list"></div>
   </section>
 
+  <!-- ============ HEAVY OBJECT CART BUILD (#cart; Home > Zac, v176): two docs + folder (hard-coded in app.js CART) ============ -->
+  <section id="screen-cart" class="screen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="cart-back" data-go="hf/zac">&lsaquo; Back</button></div>
+    <h2 class="pagetitle" id="cart-title">Heavy Object Cart Build</h2>
+    <div id="cart-body"></div>
+  </section>
   <!-- ============ HIRING (#hiring; L&S projects > Hiring, v132): links to the hiring docs + folder (hard-coded in app.js HIRING) ============ -->
   <section id="screen-hiring" class="screen">
     <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="hiring-back" data-go="projects">&lsaquo; Back</button></div>
@@ -412,6 +418,6 @@
     <div class="own-card" id="own-card" hidden></div>
   </section>
 
-  <script src="app.js?v=175"></script>
+  <script src="app.js?v=176"></script>
 </body>
 </html>

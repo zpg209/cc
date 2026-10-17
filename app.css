@@ -3232,3 +3232,5 @@ body.fc-modal { overflow: hidden; }
 .ledtax .tile.small { grid-column: 1 / -1; min-height: 64px; aspect-ratio: auto; }
 /* v174 Meal total card: per-meal rows use the same size as the Paid / Unpaid / Trade rows */
 #screen-lt .odmeals .odtrow.sub.odmi { font-size: 15px; }
+/* v176 Heavy Object Cart Build (#cart): doc tiles like Hiring */
+#cart-list .tile.small { min-height: 72px; }
