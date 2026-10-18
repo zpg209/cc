@@ -282,3 +282,25 @@ What it adds: `action=workoutset&date=YYYY-MM-DD&workout=&workout_min=&hike_mile
 Until it is deployed (front end v166): the Workout Log's inline Edit works for the workout text, minutes and miles through logday (deleting all items marks the day Rest / none, 0 min, 0 mi). Items from Notes (dashed boxes) can be edited on screen, but the old Notes lines can't be removed, and the app says so ("needs the server update (workoutset)"). The phone asks `workoutset` first, remembers a bad_action for 6 h and uses logday meanwhile. No front-end change is needed after deploying.
 
 Check after deploying: `…/exec?api=1&pc=PASSCODE&action=workoutset&date=<a logged day>&workout=Test&dry=1` returns `{"ok":true,"data":{…,"version":58,"dry":true,"written":{…}}}` and changes nothing.
+
+## LtIngredients.gs (API v59, PENDING: Lisa's Table > Ingredients, meals/recipes, product + label photos)
+Independent of every other pending patch (v56 / v57 / v58); apply before or after them. Uses the same Drive and Sheets access the script already has (ltmenusave / bizreceiptsave / ptphotos), so no new authorization.
+
+Deploy (Zac, in the Apps Script editor):
+1. File > + > Script, name it **LtIngredients**, paste all of `backend/LtIngredients.gs`.
+2. In Api.gs, inside `switch (String(action || ''))`, right under `case 'ltmacroset': ...`, add these 4 lines:
+   `      case 'lting':      return apiLtIng_();                        // v59`
+   `      case 'ltingset':   return apiLtIngSet_(extra.all || {});      // v59`
+   `      case 'ltingdel':   return apiLtIngDel_(extra.all || {});      // v59`
+   `      case 'ltingphoto': return apiLtIngPhoto_(extra.all || {});    // v59`
+3. Save, then Deploy > Manage deployments > (the API deployment) > edit > Version: New version > Deploy.
+
+What it adds (all writes need a `cid`, are journaled, and replay-safe; `dry=1` plans and writes nothing; reads and dry runs never create anything):
+- `action=lting` -> `{ingredients:[…], meals:[…], sheetUrl, folderUrl, canUpload:true, version:59}`.
+- `ltingset` (POST) `kind=ingredient|meal&rec=<json>&cid` upserts by `rec.id` into the sheet **Lisa's Table - Ingredients** (created in the Lisa's Table folder on the first real write; id kept in script property `CC_LTING_SHEET_ID`). Tabs **Ingredients** (name, brand, serving, calories, protein, carbs, fat, fiber, package size, package price, cost per serving, notes, photo links, updated, json) and **Meals** (name, servings, components, per-serving macros, total cost, cost per serving, menu item, updated, json). An older `rec.upd` than the stored one is refused as `stale` (the newer copy wins).
+- `ltingdel` (POST) `kind&id&name&cid` deletes a row (name must still match; photos stay in Drive). The app does not call it yet: deleting on the phone only removes the phone copy.
+- `ltingphoto` (POST) `ingId&name&slot=product|label&mime=image/jpeg|image/png&data=<base64>&cid` -> Lisa's Table > **Ingredient Photos** > "<name> (<id>)" > "<date> Product.jpg" / "<date> Label.jpg" (8 MB cap, never overwrites, cid in the file description).
+
+Until it is deployed (front end v183): Ingredients, photos and meals are kept on the phone only (ingredients in the same localStorage list as Cost & Macros, photos in IndexedDB, meals in `cc_lt_ing_meals`) and the screen shows "Saved on this phone · not synced yet (server update pending)". While the server says bad_action, the phone asks `lting` again at most every 30 minutes (when Ingredients is opened or something is saved); once it answers, it uploads the photos, then every ingredient and meal, and the badge turns to "Synced to Drive · Open sheet". No front-end change is needed after deploying.
+
+Check after deploying: `…/exec?api=1&pc=PASSCODE&action=lting` returns `{"ok":true,"data":{"canUpload":true,"ingredients":[],"meals":[],…,"version":59}}` and creates nothing. A dry write: `…&action=ltingset&kind=ingredient&rec={"id":"ctest1","name":"Test"}&dry=1` returns `"action":"added","dry":true` and writes nothing.

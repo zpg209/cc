@@ -113,7 +113,7 @@
   var RC_MAX_AGE = 3 * 864e5;       // older than this: ignored (the screen waits for the server like before)
   var RC_READS = { links: 1, log: 1, spend: 1, accounts: 1, vaultdebt: 1, biz: 1, re: 1, ins: 1, ltmacros: 1, notes: 1, punch: 1, lognotes: 1,
     fin: 1, insnotes: 1, wishlist: 1, orders: 1, ptclients: 1, receipts: 1, entity: 1, entitytax: 1, folder: 1, healthmetrics: 1 };
-  var RC_NOCACHE = { ping: 1, file: 1, filebytes: 1, invest: 1, lists: 1, lisareqlist: 1, bizreceipts: 1, ccrev: 1, ptphotos: 1 };   // v130: lisareqlist (Lisa's change requests) is always asked fresh      // reads that are never stored (passcode check; file bytes are big)
+  var RC_NOCACHE = { ping: 1, file: 1, filebytes: 1, invest: 1, lists: 1, lisareqlist: 1, bizreceipts: 1, ccrev: 1, ptphotos: 1, lting: 1 };   // v130: lisareqlist (Lisa's change requests) is always asked fresh      // reads that are never stored (passcode check; file bytes are big)
   var RC_MONEY = ['spend', 'accounts', 'vaultdebt', 'entity', 'entitytax', 'receipts', 'fin', 'insnotes'];
   var RC_DEBT = ['vaultdebt', 'spend', 'entity', 'entitytax', 'fin'];
   var RC_WRITES = {
@@ -127,6 +127,7 @@
     orderset: ['orders'], orderpaid: ['orders'], orderdel: ['orders'], weekmenuset: ['orders'], menusave: ['folder'], ltmenusave: ['folder'],
     wishadd: ['wishlist'], wishset: ['wishlist'], wishdel: ['wishlist'],
     ptclientset: ['ptclients'], ptclientdel: ['ptclients'], ptworkoutset: ['ptclients'], ptworkoutdel: ['ptclients'],
+    ltingset: [], ltingdel: [], ltingphoto: [],   // v183: Lisa's Table Ingredients (server patch v59); outside the read cache
     listsave: [],     // v149: Zac's project lists (phone copy + Script Properties, server patch v56)
     investsave: [],   // v121: Investments live outside the read cache (phone copy + Script Properties)
     bizreceiptsave: ['folder'],   // v135: receipt into KiwiT / TiwiK › Expenses › Receipts (server patch v55)
@@ -293,6 +294,7 @@
       if (cfg.orders) return odEnsure();
       if (cfg.wish) return wlLoadList();
       if (cfg.notes || cfg.cost || cfg.gen || cfg.add) return;
+      if (cfg.ing) return;      // v183: Ingredients render from the phone copy; sync runs on its own schedule
       loadLt(true);
     },
     fin: function () { loadFin(true); },
@@ -567,6 +569,7 @@
     if (!(name === 'lt' && R.kind === 'wish')) wlMicStop(true);
     if (!(name === 'lt' && R.kind === 'notes')) lnMicStop(true);
     if (!(name === 'lt' && R.kind === 'cost')) cmMicStop(true);
+    if (!(name === 'lt' && /^ing/.test(R.kind))) ingMicStop(true);
     if (name !== 'pt') { ptMicStop(true); spellMicStop(true); }
     if (name !== 'mf') mfMicStop(true);
     if (name !== 'pc') pcMicStop(true);
@@ -594,7 +597,7 @@
         name === 'ent' ? entHash(state.entRoute) :
         name === 'fin' ? '#fin' + (state.finKind ? '/' + state.finKind + (state.ovKey ? '/' + state.ovKey : '') + (state.finKind === 'invest' && state.invAcct ? '/' + state.invAcct : '') : '') :
         name === 'insn' ? '#insn' + (state.insSlug ? '/' + encodeURIComponent(state.insSlug) : '') :
-        name === 'lt' ? '#lt' + (R.kind ? '/' + encodeURIComponent(R.kind) : '') :
+        name === 'lt' ? '#lt' + (R.kind ? '/' + encodeURIComponent(R.kind) + (/^ing-/.test(R.kind) && R.val ? '/' + encodeURIComponent(R.val) : '') : '') :
         name === 'pt' ? '#pt' + (state.ptRoute.kind ? '/' + encodeURIComponent(state.ptRoute.kind) + (state.ptRoute.id ? '/' + encodeURIComponent(state.ptRoute.id) : '') : '') :
         name === 'hf' ? '#hf/' + encodeURIComponent(state.hfId.replace(/^f:/, '')) :
         name === 'zl' ? '#zl/' + state.zlSlug :
@@ -626,7 +629,7 @@
     if (name === 'punch') openPunch();
     if (name === 'fin') loadFin(false);
     if (name === 'insn') loadInsn(false);
-    if (name === 'lt') { state.ltPart = LT_PARTS[R.kind] ? R.kind : ''; loadLt(); }
+    if (name === 'lt') { state.ltPart = LT_PARTS[R.kind] ? R.kind : ''; state.ltSub = /^ing-/.test(state.ltPart) ? R.val || '' : ''; loadLt(); }
     if (name === 'pt') ptOpen();
     if (name === 'mf') mfOpen();
     if (name === 'pc') pcOpen();
@@ -5652,9 +5655,13 @@
     notes:   { label: 'Notes', notes: true },
     cost:    { label: 'Cost & Macros', cost: true },   // ingredient checklist: true macros + package cost (localStorage; Drive later)
     'menu-gen': { label: 'Generate menu', gen: true, back: 'lt/recipes' },      // not a tile: opened from the Menu Items screen
-    'menu-add': { label: 'Add menu item', add: true, back: 'lt/recipes' }       // not a tile: the + button on the Menu Items screen
+    'menu-add': { label: 'Add menu item', add: true, back: 'lt/recipes' },      // not a tile: the + button on the Menu Items screen
+    ingredients: { label: 'Ingredients', ing: 'home' },                          // v183: ingredients (camera + mic) + meal/recipe builder with macros + cost
+    'ing-item': { label: 'Ingredient', ing: 'item', back: 'lt/ingredients' },    // #lt/ing-item/<id|new>
+    'ing-meals': { label: 'Meals & Recipes', ing: 'meals', back: 'lt/ingredients' },
+    'ing-meal': { label: 'Meal builder', ing: 'meal', back: 'lt/ing-meals' }     // #lt/ing-meal/<id|new>
   };
-  var LT_ORDER = ['ops', 'recipes', 'orders', 'menus', 'macros', 'wish', 'notes', 'cost'];
+  var LT_ORDER = ['ops', 'recipes', 'orders', 'menus', 'macros', 'wish', 'notes', 'cost', 'ingredients'];
   var LT_TTL = 60000;
 
   function loadLt(force) {
@@ -5673,6 +5680,7 @@
     if (cfg.wish) { openWish(); return; }
     if (cfg.notes) { openLtNotes(); return; }
     if (cfg.cost) { openLtCost(); return; }
+    if (cfg.ing) { openIng(cfg.ing, state.ltSub || ''); return; }
     if (cfg.orders) { openOrders(); return; }
     if (cfg.gen) { openMenuGen(); return; }
     if (cfg.add) { openMenuAdd(); return; }
@@ -12733,6 +12741,886 @@
    * request is kept on THIS phone (localStorage cc_lisareq_v1) with the chip "Waiting to send" and the screen says so plainly; every
    * open / Refresh / pull-down (and a quiet check at most every 30 min while the app is open) asks lisareqlist, and as soon as it
    * answers, every waiting request is sent and the list switches to the sheet (statuses + replies). Request text never goes into the repo. */
+  /* ---------------- v183: Lisa's Table > Ingredients (ingredient records + photos + meal/recipe builder with macros and cost) ----------------
+   * Ingredients are the SAME records as the Cost & Macros checklist (localStorage cc_lt_cost_macros), so nothing is kept twice.
+   * Photos (product + nutrition label) live in IndexedDB on the phone; meals/recipes in cc_lt_ing_meals.
+   * Sync: action=lting / ltingset / ltingphoto (server v59, backend/LtIngredients.gs). Until it is deployed the area works on the phone
+   * and shows a "not synced yet" badge; it retries every 30 minutes and pushes everything once the server has the actions.
+   */
+  var ING_META_KEY = 'cc_lt_ing_meta', ING_MEAL_KEY = 'cc_lt_ing_meals', ING_SRV_KEY = 'cc_lt_ing_srv', ING_IDB = 'cc_lt_ingphotos';
+  var ING_OCR_URLS = ['https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js', 'https://unpkg.com/tesseract.js@5.1.1/dist/tesseract.min.js'];
+  var ING_UNITS = [['g', 'g'], ['oz', 'oz'], ['lb', 'lb'], ['kg', 'kg'], ['ml', 'ml'], ['floz', 'fl oz'], ['cup', 'cup'], ['tbsp', 'tbsp'], ['tsp', 'tsp'], ['l', 'liter'], ['each', 'each'], ['serving', 'serving']];
+  var ING_MAC = [['calories', 'Calories', 'kcal'], ['protein', 'Protein', 'g'], ['carbs', 'Carbs', 'g'], ['fat', 'Fat', 'g'], ['fiber', 'Fiber', 'g']];
+  var ing = { q: '', form: null, mform: null, flash: '', flashBad: false, sugOpen: false, confirm: '', mmConfirm: false,
+    mic: { rec: null, on: false, base: '', committed: '', interim: '', msg: '', where: '' },
+    srv: lsGet(ING_SRV_KEY, null) || {}, syncing: false, photos: null, urls: {}, ocr: { busy: false, msg: '', text: '' },
+    pend: null, ret: '', menu: null, menuP: null };
+  var ingScriptP = {};
+
+  /* ---- storage ---- */
+  function ingMeta() { var m = lsGet(ING_META_KEY, null); return m && typeof m === 'object' ? m : {}; }
+  function ingMetaSave(m) { lsSet(ING_META_KEY, m); }
+  function ingMeals() {
+    var d = lsGet(ING_MEAL_KEY, null); if (!d || !Array.isArray(d.items)) d = { items: [] };
+    d.items = d.items.filter(function (x) { return x && x.id && typeof x.name === 'string'; }).map(function (x) {
+      return { id: String(x.id), name: String(x.name).slice(0, 120), servings: String(x.servings || '1').slice(0, 8), menuItem: String(x.menuItem || '').slice(0, 200),
+        menuPrice: String(x.menuPrice || '').slice(0, 12), notes: String(x.notes || '').slice(0, 500), upd: x.upd || 0, pushed: x.pushed || 0,
+        lines: (Array.isArray(x.lines) ? x.lines : []).slice(0, 60).map(function (l) {
+          return { id: String(l.id || cmNewId()), ingId: String(l.ingId || ''), name: String(l.name || '').slice(0, 120), qty: String(l.qty || '').slice(0, 12), unit: String(l.unit || '').slice(0, 12) };
+        }) };
+    });
+    return d;
+  }
+  function ingMealsSave(d) { try { localStorage.setItem(ING_MEAL_KEY, JSON.stringify({ items: d.items })); return true; } catch (e) { return false; } }
+  var ingIdbP = null;
+  function ingIdb() {
+    if (ingIdbP) return ingIdbP;
+    ingIdbP = new Promise(function (res, rej) {
+      if (!window.indexedDB) return rej(new Error('no storage'));
+      var rq; try { rq = indexedDB.open(ING_IDB, 1); } catch (e) { return rej(e); }
+      rq.onupgradeneeded = function () { try { rq.result.createObjectStore('photos', { keyPath: 'id' }); } catch (e) {} };
+      rq.onsuccess = function () { res(rq.result); };
+      rq.onerror = function () { rej(rq.error || new Error('storage error')); };
+    }).catch(function (e) { ingIdbP = null; throw e; });
+    return ingIdbP;
+  }
+  function ingReq(mode, fn) {
+    return ingIdb().then(function (db) {
+      return new Promise(function (res, rej) {
+        var tx = db.transaction('photos', mode), r = fn(tx.objectStore('photos')), out;
+        if (r) r.onsuccess = function () { out = r.result; };
+        tx.oncomplete = function () { res(out); };
+        tx.onerror = tx.onabort = function () { rej(tx.error || new Error('storage error')); };
+      });
+    });
+  }
+  function ingPhotosLoad() {
+    if (ing.photos) return Promise.resolve(ing.photos);
+    return ingReq('readonly', function (st) { return st.getAll(); }).then(function (r) { return r || []; }, function () { return []; }).then(function (rows) {
+      ing.photos = {}; rows.forEach(function (r) { if (r && r.id && r.bytes) ing.photos[r.id] = r; }); return ing.photos;
+    });
+  }
+  function ingPhotoPut(rec) { ing.photos = ing.photos || {}; ing.photos[rec.id] = rec; return ingReq('readwrite', function (st) { return st.put(rec); }); }
+  function ingPhotoDel(id) { if (ing.photos) delete ing.photos[id]; if (ing.urls[id]) { try { URL.revokeObjectURL(ing.urls[id]); } catch (e) {} delete ing.urls[id]; } return ingReq('readwrite', function (st) { return st.delete(id); }).catch(function () {}); }
+  function ingPhotoUrl(id) {
+    var r = ing.photos && ing.photos[id]; if (!r) return '';
+    return ing.urls[id] || (ing.urls[id] = URL.createObjectURL(new Blob([r.bytes], { type: r.mime || 'image/jpeg' })));
+  }
+  function ingPhotoOf(it, slot) {        // url of the product / label photo for a record ('' = none)
+    var m = ingMeta()[it.id] || {}, pid = m[slot];
+    if (pid && ing.photos && ing.photos[pid]) return ingPhotoUrl(pid);
+    if (slot === 'label' && it.photo) return it.photo;      // a label photo taken on the Cost & Macros screen
+    return '';
+  }
+
+  /* ---- units, servings, cost ---- */
+  function ingUnit(u) {
+    u = String(u || '').toLowerCase().replace(/\.$/, '').trim();
+    if (!u) return '';
+    if (/^(g|gr|gram|grams|gm)$/.test(u)) return 'g';
+    if (/^(kg|kgs|kilo|kilos|kilogram|kilograms)$/.test(u)) return 'kg';
+    if (/^(oz|ozs|ounce|ounces)$/.test(u)) return 'oz';
+    if (/^(lb|lbs|pound|pounds)$/.test(u)) return 'lb';
+    if (/^(ml|mls|milliliter|milliliters|millilitre|millilitres)$/.test(u)) return 'ml';
+    if (/^(l|liter|liters|litre|litres)$/.test(u)) return 'l';
+    if (/^(floz|fl ?oz|fl|fluid ounces?)$/.test(u)) return 'floz';
+    if (/^(cup|cups|c)$/.test(u)) return 'cup';
+    if (/^(tbsp|tbs|tbl|tablespoon|tablespoons)$/.test(u)) return 'tbsp';
+    if (/^(tsp|teaspoon|teaspoons)$/.test(u)) return 'tsp';
+    if (/^(serving|servings|serv|portion|portions)$/.test(u)) return 'serving';
+    return 'each';                // egg, eggs, slice, piece, ct, count, each, bagel...
+  }
+  function ingUnitLbl(u) { for (var i = 0; i < ING_UNITS.length; i++) if (ING_UNITS[i][0] === u) return ING_UNITS[i][1]; return u || ''; }
+  function ingBase(n, u) {
+    var k = { g: [1, 'g'], kg: [1000, 'g'], oz: [28.3495, 'g'], lb: [453.592, 'g'], ml: [1, 'ml'], l: [1000, 'ml'], floz: [29.5735, 'ml'], cup: [236.588, 'ml'], tbsp: [14.787, 'ml'], tsp: [4.929, 'ml'], each: [1, 'ea'], serving: [1, 'sv'] }[ingUnit(u) || 'each'];
+    return { n: n * k[0], k: k[1] };
+  }
+  function ingNum(s) {
+    s = String(s == null ? '' : s).trim(); if (!s) return NaN;
+    var m = s.match(/^(\d+)\s+(\d+)\/(\d+)/); if (m) return +m[1] + (+m[2] / +m[3]);
+    m = s.match(/^(\d+)\/(\d+)/); if (m) return +m[1] / +m[2];
+    m = s.replace(/[$,]/g, '').match(/^\d*\.?\d+/); return m ? +m[0] : NaN;
+  }
+  function ingQty(s) {           // "2 tbsp (32 g)" -> {n:2, u:'tbsp', g:32}; "5 lb" -> {n:5,u:'lb'}
+    s = String(s || '').trim(); if (!s) return null;
+    var m = s.match(/^(\d+\s+\d+\/\d+|\d+\/\d+|\d*\.?\d+)\s*([a-zA-Z][a-zA-Z .]*?)?\s*(?:\(([^)]*)\))?\s*$/) || s.match(/^(\d+\s+\d+\/\d+|\d+\/\d+|\d*\.?\d+)\s*([a-zA-Z]+)?/);
+    if (!m) return null;
+    var n = ingNum(m[1]); if (!isFinite(n) || n <= 0) return null;
+    var out = { n: n, u: ingUnit(m[2] || '') || 'g' };
+    var g = (m[3] || '').match(/(\d*\.?\d+)\s*(g|grams?|ml)\b/i); if (g) { out.g = +g[1]; out.gk = /ml/i.test(g[2]) ? 'ml' : 'g'; }
+    return out;
+  }
+  function ingQtyStr(n, u, g) {
+    var x = +(+n).toFixed(3), s = (isFinite(x) ? String(x) : '') + (u ? ' ' + ingUnitLbl(u) + (u === 'serving' && x !== 1 ? 's' : '') : '');
+    if (g && u !== 'g' && u !== 'ml') s += ' (' + (+(+g).toFixed(1)) + ' g)';
+    return s.trim();
+  }
+  function ingServings(it, n, u) {  // how many servings of `it` an amount is (null = can't tell)
+    if (!isFinite(n) || n <= 0) return null;
+    u = ingUnit(u) || 'each';
+    if (u === 'serving') return n;
+    var sv = ingQty(it.servingSize); if (!sv) return null;
+    var a = ingBase(n, u), b = ingBase(sv.n, sv.u);
+    if (a.k === b.k && b.n > 0) return a.n / b.n;
+    if (sv.g && a.k === (sv.gk || 'g')) return a.n / sv.g;
+    return null;
+  }
+  function ingPrice(it) { var p = parseFloat(String(it.packagePrice || '').replace(/[$,\s]/g, '')); return isFinite(p) && p >= 0 ? p : null; }
+  function ingCostPerServing(it) {
+    var pk = ingQty(it.packageSize), pr = ingPrice(it); if (!pk || pr === null) return null;
+    var s = ingServings(it, pk.n, pk.u); return s && s > 0 ? pr / s : null;
+  }
+  function ingCostOf(it, n, u) {     // cost of an amount, straight from the package when it can (works without a serving size)
+    var pk = ingQty(it.packageSize), pr = ingPrice(it); if (!pk || pr === null || !isFinite(n) || n <= 0) return null;
+    var a = ingBase(n, u), b = ingBase(pk.n, pk.u);
+    if (a.k === b.k && b.n > 0) return pr * a.n / b.n;
+    var s = ingServings(it, n, u), cps = ingCostPerServing(it);
+    return s !== null && cps !== null ? s * cps : null;
+  }
+  function ingMacOf(it, n, u) {
+    var s = ingServings(it, n, u), out = { s: s };
+    ING_MAC.forEach(function (m) { var v = parseFloat(it[m[0]]); out[m[0]] = s !== null && isFinite(v) ? v * s : null; });
+    return out;
+  }
+  function ingR(n, d) { return n === null || n === undefined || !isFinite(n) ? '\u2014' : String(+n.toFixed(d == null ? 0 : d)); }
+  function ingMoney(n) { return n === null || n === undefined || !isFinite(n) ? '\u2014' : '$' + n.toFixed(2); }
+  function ingIsMine(it) {
+    return it.source === 'manual' || it.source === 'ing' || cmHasMacros(it) || String(it.packagePrice || '').trim() !== '' || String(it.brand || '').trim() !== '';
+  }
+  function ingAll() { return ltCostLoad(); }
+  function ingFindByName(d, name) {
+    var w = cmNormName(name); if (!w) return null;
+    var hit = null;
+    d.items.forEach(function (x) { if (!hit && cmNormName(x.name) === w) hit = x; });
+    if (hit) return hit;
+    var ws = w.replace(/s\b/g, '');
+    d.items.forEach(function (x) { var n = cmNormName(x.name).replace(/s\b/g, ''); if (!hit && n && (n === ws || (ws.length >= 4 && n.indexOf(ws) >= 0) || (n.length >= 4 && ws.indexOf(n) >= 0))) hit = x; });
+    return hit;
+  }
+
+  /* ---- dictation parser (one form-level mic) ---- */
+  var ING_U_RE = '(pounds?|lbs?|ounces?|oz|grams?|g|kilograms?|kilos?|kg|cups?|tablespoons?|tbsp|teaspoons?|tsp|milliliters?|ml|liters?|fluid ounces?|fl oz|each|eggs?|slices?|pieces?|cans?|servings?|cloves?|count|ct)';
+  function ingPrep(t) {
+    t = ' ' + macWords(String(t || '')).replace(/[\u2013\u2014]/g, '-') + ' ';
+    t = t.replace(/(\d+)\s+and\s+(?:a\s+)?half\b/gi, function (m, a) { return (+a + 0.5) + ''; })
+      .replace(/(\d+)\s+and\s+(?:a\s+)?quarter\b/gi, function (m, a) { return (+a + 0.25) + ''; })
+      .replace(/\b(?:a\s+)?half\s+(?:a\s+|an\s+)?(?=[a-z])/gi, '0.5 ').replace(/\b(?:a\s+)?quarter\s+(?:of\s+)?(?:a\s+|an\s+)?(?=[a-z])/gi, '0.25 ')
+      .replace(/\b(?:a|an|one)\s+(?=(?:pound|cup|ounce|tablespoon|teaspoon|gram|liter|dozen|can|clove|slice|piece)s?\b)/gi, '1 ')
+      .replace(/(\d+(?:\.\d+)?)\s*dozen\b/gi, function (m, a) { return (+a * 12) + ' each'; }).replace(/\ba dozen\b/gi, '12 each')
+      .replace(/(\d+)\s+(?:point|dot)\s+(\d+)/gi, '$1.$2')
+      .replace(/(\d+)\s*(?:dollars?|bucks)(?:\s*(?:and\s*)?(\d{1,2})\s*cents?)?/gi, function (m, a, c) { return '$' + a + (c ? '.' + (c.length === 1 ? '0' + c : c) : ''); })
+      .replace(/\$\s*(\d+)\s+(\d{2})\b/g, '$$$1.$2');
+    return t.replace(/\s+/g, ' ');
+  }
+  function ingParseChunk(t) {      // one comma chunk -> fields + leftover words (the name)
+    var o = {}, m, U = ING_U_RE;
+    t = ' ' + t + ' ';
+    if ((m = t.match(/\$\s*(\d+(?:\.\d{1,2})?)/))) { o.price = m[1]; t = t.replace(m[0], ' '); }
+    var rePk1 = new RegExp('(\\d+(?:\\.\\d+)?)\\s*-?\\s*' + U + '\\s*(?:pack|package|bag|box|bottle|jar|container|tub|carton|block|case|tray|bundle)s?\\b', 'i'),
+      rePk2 = new RegExp('\\b(?:pack|package|bag|box|bottle|jar|container|carton|case|tray)s?\\s*(?:of|is|size|was)?\\s*(\\d+(?:\\.\\d+)?)\\s*' + U + '\\b', 'i'),
+      reUse = new RegExp('\\b(?:i used|used|using|use|uses|need|needs|needed|takes|took|added|add)\\s*(\\d+(?:\\.\\d+)?)\\s*' + U + '?(?=\\s|$)', 'i'),
+      reSv = new RegExp('\\bserving(?:\\s*size)?\\s*(?:is|of|=)?\\s*(\\d+(?:\\.\\d+)?)\\s*' + U + '?(?=\\s|$)', 'i'),
+      reQty = new RegExp('(\\d+(?:\\.\\d+)?)\\s*' + U + '\\b', 'i');
+    if ((m = t.match(rePk1)) || (m = t.match(rePk2))) { o.pkg = { n: +m[1], u: ingUnit(m[2]) }; t = t.replace(m[0], ' '); }
+    if ((m = t.match(reSv))) { o.serving = { n: +m[1], u: ingUnit(m[2] || 'g') }; t = t.replace(m[0], ' '); }
+    var mac = { calories: /(\d+(?:\.\d+)?)\s*(?:calories|cals?|kcals?)\b|\bcalories\s*(?:is|are|of)?\s*(\d+(?:\.\d+)?)/i,
+      protein: /(\d+(?:\.\d+)?)\s*(?:g|grams?)?\s*(?:of\s+)?protein\b|\bprotein\s*(?:is|of)?\s*(\d+(?:\.\d+)?)/i,
+      carbs: /(\d+(?:\.\d+)?)\s*(?:g|grams?)?\s*(?:of\s+)?(?:carbs?|carbohydrates?)\b|\b(?:carbs?|carbohydrates?)\s*(?:is|of)?\s*(\d+(?:\.\d+)?)/i,
+      fat: /(\d+(?:\.\d+)?)\s*(?:g|grams?)?\s*(?:of\s+)?fats?\b|\bfats?\s*(?:is|of)?\s*(\d+(?:\.\d+)?)/i,
+      fiber: /(\d+(?:\.\d+)?)\s*(?:g|grams?)?\s*(?:of\s+)?fib(?:er|re)\b|\bfib(?:er|re)\s*(?:is|of)?\s*(\d+(?:\.\d+)?)/i };
+    Object.keys(mac).forEach(function (k) { var x = t.match(mac[k]); if (x) { o[k] = x[1] || x[2]; t = t.replace(x[0], ' '); } });
+    if ((m = t.match(reUse))) { o.used = { n: +m[1], u: ingUnit(m[2] || 'each') }; t = t.replace(m[0], ' '); }
+    if ((m = t.match(/\bbrand\s*(?:is|name)?\s*([a-z0-9'& ]{2,40})/i))) { o.brand = m[1].trim(); t = t.replace(m[0], ' '); }
+    if ((m = t.match(reQty))) { o.qty = { n: +m[1], u: ingUnit(m[2]) }; t = t.replace(m[0], ' '); }
+    else if ((m = t.match(/(?:^|\s)(\d+(?:\.\d+)?)(?=\s+[a-z])/i))) { o.qty = { n: +m[1], u: 'each' }; t = t.replace(m[0], ' '); }
+    t = t.replace(/\b(?:it'?s|it is|is|was|the|a|an|of|for|and|cost|costs|price|priced|at|pack|package|per|total|about|roughly|in this|this meal)\b/gi, ' ').replace(/[^a-z0-9'&\- ]/gi, ' ').replace(/\s+/g, ' ').trim();
+    if (t && !/[a-z]{2}/i.test(t)) t = '';
+    o.name = t;
+    return o;
+  }
+  function ingTitle(s) { return String(s || '').replace(/\b([a-z])/g, function (m, a) { return a.toUpperCase(); }).replace(/\b(And|Of|With|In)\b/g, function (w) { return w.toLowerCase(); }); }
+  function ingParseDict(text, mode) {   // mode 'ing' -> one record; 'meal' -> list of components
+    var t = ingPrep(text);
+    var segs = t.split(/\s*(?:;|\n|\.\s+(?=[a-z])|\bnext\b|\band then\b|\bthen\b|\balso\b|\bplus\b)\s*/i).filter(Boolean), comps = [];
+    segs.forEach(function (sg, si) {
+      var startNew = true;
+      sg.split(/,|\s+and\s+(?=\d|\$)/i).forEach(function (ch) {
+        ch = ch.trim(); if (!ch) return;
+        var o = ingParseChunk(ch), cur = comps[comps.length - 1];
+        if (!cur || (mode === 'meal' && (startNew || (o.name && cur.name)))) { comps.push(o); startNew = false; return; }
+        startNew = false;
+        Object.keys(o).forEach(function (k) { if (k === 'name') { if (o.name && !cur.name) cur.name = o.name; } else if (cur[k] == null) cur[k] = o[k]; });
+      });
+    });
+    comps.forEach(function (c) {
+      if (c.name) c.name = ingTitle(c.name);
+      if (mode === 'ing') { if (c.qty && !c.pkg) c.pkg = c.qty; else if (c.qty && !c.used) c.used = c.qty; }
+      else if (c.qty && !c.used) c.used = c.qty;
+      delete c.qty;
+    });
+    return mode === 'meal' ? comps.filter(function (c) { return c.name || c.used; }) : (comps[0] || {});
+  }
+
+  /* ---- nutrition label reader (on the phone: Tesseract OCR, loaded only when a label photo is read) ---- */
+  function ingLoadOcr() {
+    if (window.Tesseract) return Promise.resolve(window.Tesseract);
+    if (ingScriptP.ocr) return ingScriptP.ocr;
+    ingScriptP.ocr = new Promise(function (res, rej) {
+      var i = 0;
+      (function next() {
+        if (i >= ING_OCR_URLS.length) { ingScriptP.ocr = null; rej(new Error('Couldn\u2019t load the label reader. Check your connection, or type the numbers.')); return; }
+        var sc = document.createElement('script'); sc.src = ING_OCR_URLS[i++]; sc.async = true;
+        sc.onload = function () { if (window.Tesseract) res(window.Tesseract); else next(); };
+        sc.onerror = function () { sc.remove(); next(); };
+        document.head.appendChild(sc);
+      })();
+    });
+    return ingScriptP.ocr;
+  }
+  function ingOcrCanvas(blob) {    // grey + enlarge: the reader does much better on a big, high-contrast image
+    return new Promise(function (res, rej) {
+      var url = URL.createObjectURL(blob), im = new Image();
+      im.onload = function () {
+        URL.revokeObjectURL(url);
+        var W = im.naturalWidth, H = im.naturalHeight, sc = Math.min(2.5, Math.max(1, 1800 / Math.max(W, H)));
+        if (Math.max(W, H) * sc > 2600) sc = 2600 / Math.max(W, H);
+        var cv = document.createElement('canvas'); cv.width = Math.round(W * sc); cv.height = Math.round(H * sc);
+        var cx = cv.getContext('2d'); cx.drawImage(im, 0, 0, cv.width, cv.height);
+        try {
+          var d = cx.getImageData(0, 0, cv.width, cv.height), p = d.data;
+          for (var i = 0; i < p.length; i += 4) { var y = 0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2]; y = y > 170 ? 255 : y < 80 ? 0 : (y - 80) * 255 / 90; p[i] = p[i + 1] = p[i + 2] = y; }
+          cx.putImageData(d, 0, 0);
+        } catch (e) {}
+        res(cv);
+      };
+      im.onerror = function () { URL.revokeObjectURL(url); rej(new Error('That photo could not be read.')); };
+      im.src = url;
+    });
+  }
+  function ingParseLabel(raw) {
+    var t = String(raw || '').replace(/\r/g, '').replace(/[|]/g, ' ')
+      .replace(/(\d)\s*[oO](?=\s*m?g\b)/g, '$10').replace(/\b[oO](?=\s*m?g\b)/g, '0').replace(/(\d),(\d)/g, '$1.$2');
+    var flat = t.replace(/\s+/g, ' '), o = {}, m, num = '(\\d+(?:\\.\\d+)?)';
+    if ((m = flat.match(/serving\s*size\s*:?\s*(\d[\d\/ .]*\s*[a-zA-Z]+\.?\s*(?:\([^)]{1,15}\))?)/i))) { var q = ingQty(m[1].trim()); if (q) o.serving = q; }
+    if ((m = flat.match(/(?:about\s*)?(\d+(?:\.\d+)?)\s*servings?\s*per\s*(?:container|package|pack)/i)) || (m = flat.match(/servings?\s*per\s*(?:container|package)\s*:?\s*(?:about\s*)?(\d+(?:\.\d+)?)/i))) o.servingsPer = +m[1];
+    if ((m = flat.match(/calories\s*(?:per\s*serving)?\s*:?\s*(\d{1,4})\b(?!\s*%)/i)) || (m = flat.match(/(\d{1,4})\s*(?:kcal|calories)\b/i))) o.calories = m[1];
+    var rx = { fat: new RegExp('total\\s*fat\\s*:?\\s*' + num + '\\s*g', 'i'), carbs: new RegExp('total\\s*carb[a-z.]*\\s*:?\\s*' + num + '\\s*g', 'i'),
+      fiber: new RegExp('(?:dietary\\s*)?fib(?:er|re)\\s*:?\\s*' + num + '\\s*g', 'i'), protein: new RegExp('protein\\s*:?\\s*' + num + '\\s*g', 'i'),
+      sugar: new RegExp('(?:total\\s*)?sugars?\\s*:?\\s*' + num + '\\s*g', 'i') };
+    var alt = { fat: /\bfat\s*:?\s*(\d+(?:\.\d+)?)\s*g/i, carbs: /carbohydrates?\s*:?\s*(\d+(?:\.\d+)?)\s*g/i };
+    Object.keys(rx).forEach(function (k) { var x = flat.match(rx[k]) || (alt[k] && flat.match(alt[k])); if (x) o[k] = x[1]; });
+    return o;
+  }
+  function ingReadLabel(blob) {
+    ing.ocr.busy = true; ing.ocr.msg = 'Reading the label\u2026 (the first time loads the reader, ~10 s)'; ingOcrPaint();
+    return ingLoadOcr().then(function (T) { return ingOcrCanvas(blob).then(function (cv) { return T.recognize(cv, 'eng'); }); }).then(function (r) {
+      var text = (r && r.data && r.data.text) || '', got = ingParseLabel(text), f = ing.form, n = 0;
+      ing.ocr.busy = false; ing.ocr.text = text.trim().slice(0, 3000);
+      if (f && state.ltPart === 'ing-item') {
+        ingReadForm();
+        ['calories', 'protein', 'carbs', 'fat', 'fiber', 'sugar'].forEach(function (k) { if (got[k] != null && got[k] !== '') { f[k] = String(got[k]); f.filled[k] = 1; n++; } });
+        if (got.serving) { f.svN = String(+got.serving.n.toFixed(3)); f.svU = got.serving.u; if (got.serving.g && got.serving.u !== 'g') f.svG = String(got.serving.g); f.filled.sv = 1; n++; }
+        if (got.servingsPer && !f.pkN) { f.pkN = String(got.servingsPer); f.pkU = 'serving'; f.filled.pk = 1; }
+      }
+      ing.ocr.msg = n ? 'Filled ' + n + ' field' + (n === 1 ? '' : 's') + ' from the label (highlighted). Check them against the photo.' : 'Couldn\u2019t read numbers from that photo. Try a straight, close, well-lit shot, or type them.';
+      if (f && state.ltPart === 'ing-item') ingRenderForm(); else ingOcrPaint();
+    }).catch(function (e) { ing.ocr.busy = false; ing.ocr.msg = (e && e.message) || 'The label reader failed.'; ingOcrPaint(); });
+  }
+  function ingOcrPaint() { var el = $('ing-ocr'); if (el) { el.textContent = ing.ocr.msg || ''; el.hidden = !ing.ocr.msg; el.className = 'ingocr' + (ing.ocr.busy ? ' busy' : ''); } }
+
+  /* ---- shared UI bits ---- */
+  function ingFlash(text, bad) { ing.flash = text || ''; ing.flashBad = !!bad; ing.flashAt = Date.now(); var el = $('ing-flash'); if (el) { el.textContent = ing.flash; el.hidden = !ing.flash; el.className = 'noteflash' + (ing.flash ? ' show' : '') + (bad ? ' bad' : ''); } }
+  function ingFlashHtml() { if (ing.flash && Date.now() - (ing.flashAt || 0) > 6000) ing.flash = '';   // a message belongs to the screen it was made on
+    return '<div class="noteflash' + (ing.flash ? ' show' : '') + (ing.flashBad ? ' bad' : '') + '" id="ing-flash"' + (ing.flash ? '' : ' hidden') + '>' + esc(ing.flash) + '</div>'; }
+  function ingBadge() {
+    var s = ing.srv || {}, d = ingAll(), meta = ingMeta(), md = ingMeals(), wait = 0;
+    d.items.forEach(function (x) { if (ingIsMine(x) && (meta[x.id] || {}).pushed !== x.upd) wait++; });
+    md.items.forEach(function (x) { if (x.pushed !== x.upd) wait++; });
+    if (ing.syncing) return '<div class="ingbadge sync">Checking sync\u2026</div>';
+    if (s.state === 'ok' && !wait) return '<div class="ingbadge ok">Synced to Drive' + (s.sheetUrl ? ' \u00b7 <a class="ingsheet" data-title="Ingredients sheet" href="' + esc(s.sheetUrl) + '">Open sheet</a>' : '') + '</div>';
+    if (s.state === 'ok') return '<div class="ingbadge wait">' + wait + ' waiting to sync</div>';
+    return '<div class="ingbadge na">Saved on this phone \u00b7 not synced yet' + (s.state === 'na' ? ' (server update pending)' : '') + '</div>';
+  }
+  function ingMicHtml(where) {
+    var help = where === 'meal'
+      ? 'Say the components: <b>\u201cchicken thighs 2 pounds, next rice 1 cup, next salsa half a cup\u201d</b>. A new item can carry its pack and price: \u201cchicken thighs, 5 pound pack, $14.99, used 2 pounds\u201d.'
+      : 'Say it in one go: <b>\u201cChicken thighs, 5 pound pack, $14.99, used 2 pounds\u201d</b>. You can add <b>brand \u2026</b>, <b>serving 4 ounces</b>, <b>190 calories, 22 protein, 0 carbs, 11 fat, 0 fiber</b>.';
+    var txt = (where === 'meal' ? (ing.mform && ing.mform.dict) : (ing.form && ing.form.dict)) || '';
+    return '<div class="ingmic"><button type="button" class="micbtn ingmicbtn" id="ing-mic" data-ing="mic" aria-pressed="false" aria-label="Dictate the whole form">' +
+      '<span class="micico" aria-hidden="true">' + vsvg('mic', 30) + '</span><span class="miclbl" id="ing-mic-lbl">Tap to talk \u2014 say all the details</span></button>' +
+      '<div class="micstate" id="ing-mic-state">&nbsp;</div><p class="inghelp">' + help + '</p>' +
+      '<details class="ingdict ingheard"' + (txt || ing.dictOpen ? ' open' : '') + '><summary>What I heard</summary>' +
+      '<textarea class="notebox" id="ing-dict" rows="3" maxlength="2000" placeholder="Dictation shows here. You can also type or use the keyboard mic, then tap Fill fields.">' + esc(txt) + '</textarea>' +
+      '<button type="button" class="navbtn" data-ing="dict-fill">Fill fields</button></details></div>';
+  }
+  function ingUnitSel(id, cur, extra) {
+    return '<select class="wlin ingunit"' + (id ? ' id="' + id + '"' : '') + (extra || '') + '>' + ING_UNITS.map(function (u) { return '<option value="' + u[0] + '"' + (u[0] === cur ? ' selected' : '') + '>' + esc(u[1]) + '</option>'; }).join('') + '</select>';
+  }
+  function ingThumb(it) {
+    var u = ingPhotoOf(it, 'product') || ingPhotoOf(it, 'label');
+    return u ? '<img class="cmthumb" alt="" src="' + esc(u) + '">' : '<span class="cmthumb empty"></span>';
+  }
+  function ingMacLine(it) {
+    var b = [];
+    if (String(it.calories).trim() !== '') b.push(ingR(+it.calories) + ' cal');
+    [['protein', 'P'], ['carbs', 'C'], ['fat', 'F'], ['fiber', 'Fb']].forEach(function (k) { if (String(it[k[0]]).trim() !== '') b.push(ingR(+it[k[0]], 1) + k[1]); });
+    return b.length ? b.join(' \u00b7 ') + (it.servingSize ? ' per ' + it.servingSize : '') : 'No macros yet';
+  }
+
+  /* ---- screens ---- */
+  var ING_VIEW = { home: 'ingredients', item: 'ing-item', meals: 'ing-meals', meal: 'ing-meal' };
+  function openIng(view, sub) {
+    var title = $('lt-title');
+    if (view === 'item') title.textContent = sub && sub !== 'new' ? 'Ingredient' : 'Add ingredient';
+    if (view === 'meal') title.textContent = sub && sub !== 'new' ? 'Meal builder' : 'New meal';
+    if (!ing.photos) $('lt-body').innerHTML = '<div class="loading">Loading\u2026</div>';
+    ingPhotosLoad().then(function () {
+      if (state.ltPart !== ING_VIEW[view]) return;
+      if (view === 'home') ingRenderHome();
+      else if (view === 'item') ingOpenForm(sub);
+      else if (view === 'meals') ingRenderMeals();
+      else ingOpenMeal(sub);
+    });
+    ingSync(false);
+  }
+  function ingRenderHome() {
+    var d = ingAll(), q = cmNormName(ing.q), mine = [], sug = [];
+    d.items.forEach(function (x) { if (q && cmNormName(x.name + ' ' + x.brand).indexOf(q) < 0) return; (ingIsMine(x) ? mine : sug).push(x); });
+    mine.sort(function (a, b) { return a.name.localeCompare(b.name); });
+    var nMeals = ingMeals().items.length;
+    var h = '<div class="ing">' + ingBadge() + ingFlashHtml() +
+      '<div class="grid2 ingtop"><button class="tile ingtile" data-ing="new-ing"><span class="ingplus">+</span>Add ingredient<small>camera \u00b7 mic</small></button>' +
+      '<button class="tile ingtile" data-go="lt/ing-meals"><span class="ingplus">\u2211</span>Meals &amp; Recipes<small>' + nMeals + ' saved \u00b7 macros + cost</small></button></div>' +
+      '<input class="searchbox" id="ing-q" type="search" placeholder="Search ingredients" value="' + esc(ing.q) + '" autocomplete="off">' +
+      '<h4 class="sechead">Your ingredients <small>' + mine.length + '</small></h4>';
+    if (!mine.length) h += '<div class="foot empty">No ingredients yet. Tap <b>Add ingredient</b>, snap the product and its nutrition label, or just say it.</div>';
+    h += mine.map(function (x) {
+      var cps = ingCostPerServing(x);
+      return '<button class="wlitem cmitem ingrow" data-go="lt/ing-item/' + esc(x.id) + '">' + ingThumb(x) + '<span class="cmmain"><span class="wlname">' + esc(x.name) + (x.brand ? ' <small>' + esc(x.brand) + '</small>' : '') + '</span>' +
+        '<span class="wlmeta">' + esc(ingMacLine(x)) + '</span><span class="wlmeta">' + (x.packageSize || x.packagePrice ? esc((x.packageSize || '?') + ' for ' + (x.packagePrice ? '$' + String(x.packagePrice).replace(/^\$/, '') : '$?')) + (cps !== null ? ' \u00b7 ' + ingMoney(cps) + '/serving' : '') : 'No price yet') + '</span></span></button>';
+    }).join('');
+    if (sug.length) h += '<details class="ingsug"' + (ing.sugOpen ? ' open' : '') + '><summary>From notes &amp; menus, not filled in yet (' + sug.length + ')</summary>' +
+      sug.map(function (x) { return '<button class="wlitem cmitem ingrow" data-go="lt/ing-item/' + esc(x.id) + '"><span class="cmthumb empty"></span><span class="cmmain"><span class="wlname">' + esc(x.name) + '</span><span class="wlmeta">Tap to add macros + price</span></span></button>'; }).join('') + '</details>';
+    h += '<p class="inghelp">Same list as <a href="#lt/cost" data-go="lt/cost">Cost &amp; Macros</a>, so an ingredient is only entered once.</p></div>';
+    $('lt-body').innerHTML = h;
+  }
+  function ingBlankForm(it) {
+    it = it || {};
+    var sv = ingQty(it.servingSize) || {}, pk = ingQty(it.packageSize) || {};
+    return { id: it.id || '', isNew: !it.id, name: it.name || '', brand: it.brand || '', svN: sv.n != null ? String(+sv.n.toFixed(3)) : '', svU: sv.u || 'g', svG: sv.g && sv.u !== 'g' ? String(sv.g) : '',
+      svRaw: it.servingSize || '', calories: it.calories || '', protein: it.protein || '', carbs: it.carbs || '', fat: it.fat || '', fiber: it.fiber || '', sugar: it.sugar || '',
+      pkN: pk.n != null ? String(+pk.n.toFixed(3)) : '', pkU: pk.u || 'lb', pkRaw: it.packageSize || '', price: String(it.packagePrice || '').replace(/^\$/, ''), notes: it.notes || '',
+      useN: '', useU: sv.u || 'g', dict: '', filled: {}, photos: {} };
+  }
+  function ingOpenForm(id) {
+    var d = ingAll(), it = id && id !== 'new' ? cmFind(d, id) : null;
+    if (id && id !== 'new' && !it) { $('lt-body').innerHTML = '<div class="foot empty">That ingredient isn\u2019t on this phone.</div>'; return; }
+    if (!ing.form || (it ? ing.form.id !== it.id : !ing.form.isNew)) { ing.form = ingBlankForm(it); ing.confirm = ''; ing.ocr = { busy: false, msg: '', text: '' }; if (!it) ing.ret = ''; }
+    if (ing.form.isNew && !ing.form.id) ing.form.id = cmNewId();
+    var p = ing.pend; ing.pend = null;
+    ingRenderForm();
+    if (p && p.file) ingAttach(p.file, p.slot || 'label');
+  }
+  function ingFld(key, label, val, attrs, filled) {
+    return '<label class="vfield' + (filled ? ' ingfilled' : '') + '"><span>' + label + '</span><input class="wlin" id="ing-f-' + key + '" value="' + esc(val || '') + '" ' + (attrs || '') + '></label>';
+  }
+  function ingPhotoSlot(slot, label) {
+    var f = ing.form, it = cmFind(ingAll(), f.id) || { id: f.id }, pid = f.photos[slot];
+    var url = pid ? ingPhotoUrl(pid) : ingPhotoOf(it, slot);
+    return '<div class="ingslot">' + (url ? '<img class="ingprev" alt="' + esc(label) + '" src="' + esc(url) + '">' : '<div class="ingprev empty">' + vsvg('cam', 34) + '</div>') +
+      '<label class="navbtn ingcam">' + (url ? 'Retake' : esc(label)) + '<input type="file" accept="image/*" capture="environment" hidden data-ingcam="' + slot + '"></label>' +
+      (slot === 'label' && url ? '<button type="button" class="navbtn ingread" data-ing="ocr"' + (ing.ocr.busy ? ' disabled' : '') + '>Read label</button>' : '') + '</div>';
+  }
+  function ingRetMeal() { return ing.ret && ing.mform && ing.mform.id === ing.ret ? ing.mform : null; }
+  function ingRenderForm() {
+    var f = ing.form; if (!f) return;
+    var fl = f.filled, rm = ingRetMeal();
+    var h = '<div class="ing ingform vform card">' + ingFlashHtml() +
+      (rm ? '<div class="ingret">Adding to <b>' + esc(rm.name || 'the new meal') + '</b>. Save puts it in the meal with the amount below.</div>' : '') +
+      '<h4 class="sechead">Photos <small>product + nutrition label</small></h4><div class="ingslots">' + ingPhotoSlot('product', 'Product photo') + ingPhotoSlot('label', 'Nutrition label') + '</div>' +
+      '<div class="ingocr' + (ing.ocr.busy ? ' busy' : '') + '" id="ing-ocr"' + (ing.ocr.msg ? '' : ' hidden') + '>' + esc(ing.ocr.msg) + '</div>' +
+      (ing.ocr.text ? '<details class="ingdict"><summary>What I read on the label</summary><pre class="ingocrtext">' + esc(ing.ocr.text) + '</pre></details>' : '') +
+      ingMicHtml('ing') +
+      ingFld('name', 'Name', f.name, 'placeholder="e.g. Chicken thighs" maxlength="120"', fl.name) + ingFld('brand', 'Brand', f.brand, 'placeholder="e.g. Kirkland" maxlength="80"', fl.brand) +
+      '<h4 class="sechead">Per serving</h4>' +
+      '<div class="vfield' + (fl.sv ? ' ingfilled' : '') + '"><span>Serving size <small>amount \u00b7 unit \u00b7 weight in g</small></span><div class="ingqty"><input class="wlin" id="ing-f-svN" inputmode="decimal" placeholder="4" value="' + esc(f.svN) + '">' + ingUnitSel('ing-f-svU', f.svU) +
+      '<input class="wlin" id="ing-f-svG" inputmode="decimal" placeholder="= g" aria-label="Weight of one serving in grams (optional)" value="' + esc(f.svG) + '"></div>' +
+      (f.svRaw && !f.svN ? '<small class="ingwarn">Was \u201c' + esc(f.svRaw) + '\u201d</small>' : '') + '</div>' +
+      '<div class="macgrid inggrid">' + ING_MAC.map(function (m) { return ingFld(m[0], m[1] + ' (' + m[2] + ')', f[m[0]], 'inputmode="decimal" placeholder="0"', fl[m[0]]); }).join('') + '</div>' +
+      '<h4 class="sechead">Package &amp; price</h4>' +
+      '<div class="vfield' + (fl.pk ? ' ingfilled' : '') + '"><span>Package size</span><div class="ingqty two"><input class="wlin" id="ing-f-pkN" inputmode="decimal" placeholder="5" value="' + esc(f.pkN) + '">' + ingUnitSel('ing-f-pkU', f.pkU) + '</div></div>' +
+      ingFld('price', 'Package price ($)', f.price, 'inputmode="decimal" placeholder="14.99"', fl.price) +
+      '<div class="ingcalc" id="ing-calc"></div>' +
+      '<h4 class="sechead">' + (rm ? 'Amount in this meal' : 'Amount used <small>optional quick cost check</small>') + '</h4>' +
+      '<div class="vfield' + (fl.use ? ' ingfilled' : '') + '"><div class="ingqty two"><input class="wlin" id="ing-f-useN" inputmode="decimal" placeholder="2" value="' + esc(f.useN) + '">' + ingUnitSel('ing-f-useU', f.useU) + '</div></div>' +
+      '<div class="ingcalc" id="ing-usecalc"></div>' +
+      '<label class="vfield"><span>Notes</span><textarea class="notebox" id="ing-f-notes" rows="2" maxlength="500">' + esc(f.notes) + '</textarea></label>' +
+      '<button class="bigsave" data-ing="save-ing">' + (rm ? 'Save + add to meal' : 'Save ingredient') + '</button>' +
+      (!f.isNew ? (ing.confirm === f.id ? '<div class="vdelq">Delete \u201c' + esc(f.name) + '\u201d from this phone? Meals that use it keep the name but lose its numbers.</div><div class="draftbtns"><button class="navbtn vdelbtn" data-ing="del-ing-yes">Yes, delete</button><button class="navbtn" data-ing="del-no">Keep</button></div>'
+        : '<button class="navbtn vdelbtn ingdel" data-ing="del-ing">Delete ingredient</button>') : '') + '</div>';
+    $('lt-body').innerHTML = h;
+    ingCalcPaint(); ingMicPaint();
+  }
+  function ingReadForm() {
+    var f = ing.form; if (!f || !$('ing-f-name')) return f;
+    ['name', 'brand', 'svN', 'svU', 'svG', 'calories', 'protein', 'carbs', 'fat', 'fiber', 'pkN', 'pkU', 'price', 'useN', 'useU', 'notes'].forEach(function (k) { var el = $('ing-f-' + k); if (el) f[k] = String(el.value || '').trim(); });
+    var dt = $('ing-dict'); if (dt) f.dict = dt.value;
+    return f;
+  }
+  function ingFormRec(f) {      // form -> Cost & Macros record fields
+    var svN = ingNum(f.svN), pkN = ingNum(f.pkN), g = ingNum(f.svG);
+    return { name: f.name, brand: f.brand, servingSize: isFinite(svN) && svN > 0 ? ingQtyStr(svN, f.svU, isFinite(g) && g > 0 ? g : 0) : (f.svN ? f.svN : f.svRaw),
+      calories: f.calories, protein: f.protein, carbs: f.carbs, fat: f.fat, fiber: f.fiber, sugar: f.sugar || '',
+      packageSize: isFinite(pkN) && pkN > 0 ? ingQtyStr(pkN, f.pkU) : (f.pkN ? f.pkN : f.pkRaw), packagePrice: f.price ? String(f.price).replace(/^\$/, '') : '', notes: f.notes };
+  }
+  function ingCalcPaint() {
+    var f = ingReadForm(); if (!f) return;
+    var r = ingFormRec(f), a = $('ing-calc'), b = $('ing-usecalc');
+    var pk = ingQty(r.packageSize), sPer = pk ? ingServings(r, pk.n, pk.u) : null, cps = ingCostPerServing(r);
+    if (a) a.innerHTML = cps !== null ? '<b>' + ingMoney(cps) + '</b> per serving \u00b7 ' + ingR(sPer, 1) + ' servings per package' :
+      (pk && ingPrice(r) !== null ? 'Add a serving size' + (ingQty(r.servingSize) ? ' weight (= g)' : '') + ' to get cost per serving.' : 'Package size + price give cost per serving.');
+    var n = ingNum(f.useN);
+    if (b) {
+      if (!isFinite(n) || n <= 0) { b.innerHTML = ''; return; }
+      var c = ingCostOf(r, n, f.useU), mc = ingMacOf(r, n, f.useU);
+      b.innerHTML = esc(ingQtyStr(n, f.useU)) + ' costs <b>' + ingMoney(c) + '</b>' + (mc.s !== null && cmHasMacros(r) ? ' \u00b7 ' + ingR(mc.calories) + ' cal, ' + ingR(mc.protein, 1) + 'P ' + ingR(mc.carbs, 1) + 'C ' + ingR(mc.fat, 1) + 'F ' + ingR(mc.fiber, 1) + 'Fb' : '') +
+        (c === null ? ' <small class="ingwarn">(needs package size + price, or a serving weight to convert)</small>' : '');
+    }
+  }
+  function ingApplyDict() {
+    var f = ing.form; if (!f) return;
+    var o = ingParseDict(f.dict || '', 'ing'), n = 0, fl = f.filled = {};
+    if (o.name) { f.name = o.name; fl.name = 1; n++; }
+    if (o.brand) { f.brand = ingTitle(o.brand); fl.brand = 1; n++; }
+    if (o.pkg) { f.pkN = String(o.pkg.n); f.pkU = o.pkg.u; fl.pk = 1; n++; }
+    if (o.price) { f.price = o.price; fl.price = 1; n++; }
+    if (o.serving) { f.svN = String(o.serving.n); f.svU = o.serving.u; fl.sv = 1; n++; }
+    ['calories', 'protein', 'carbs', 'fat', 'fiber'].forEach(function (k) { if (o[k] != null) { f[k] = String(o[k]); fl[k] = 1; n++; } });
+    if (o.used) { f.useN = String(o.used.n); f.useU = o.used.u; fl.use = 1; n++; }
+    ingFlash(n ? 'Filled ' + n + ' field' + (n === 1 ? '' : 's') + ' (highlighted). Check them, then Save.' : 'I couldn\u2019t pick out any fields. Try \u201cChicken thighs, 5 pound pack, $14.99, used 2 pounds\u201d.', !n);
+    ingRenderForm();
+  }
+  function ingSaveForm() {
+    var f = ingReadForm(); if (!f) return;
+    if (!f.name) return ingFlash('Give the ingredient a name first.', true);
+    var bad = ING_MAC.filter(function (m) { return f[m[0]] !== '' && !(ingNum(f[m[0]]) >= 0); }).map(function (m) { return m[1]; });
+    if (f.price && !(ingNum(f.price) >= 0)) bad.push('Price');
+    if (bad.length) return ingFlash(bad.join(', ') + ' must be a number.', true);
+    var d = ingAll(), it = cmFind(d, f.id), now = Date.now(), r = ingFormRec(f);
+    if (!it) { it = { id: f.id, name: '', done: false, source: 'ing', at: now, photo: '' }; d.items.unshift(it); }
+    Object.keys(r).forEach(function (k) { it[k] = String(r[k] == null ? '' : r[k]); });
+    it.upd = now;
+    if (cmAutoDone(it)) it.done = true;
+    if (!ltCostSave(d)) return ingFlash('This phone is out of storage space. Nothing saved.', true);
+    var meta = ingMeta(), m = meta[it.id] || {};
+    Object.keys(f.photos).forEach(function (slot) { if (m[slot] && m[slot] !== f.photos[slot]) ingPhotoDel(m[slot]); m[slot] = f.photos[slot]; });
+    meta[it.id] = m; ingMetaSave(meta);
+    var rm = ingRetMeal(), useN = ingNum(f.useN), useU = f.useU;
+    ing.form = null; ing.ret = '';
+    if (rm) {
+      var nl = { id: cmNewId(), ingId: it.id, name: it.name, qty: isFinite(useN) && useN > 0 ? String(useN) : '1', unit: isFinite(useN) && useN > 0 ? useU : 'serving' };
+      var ix = -1; rm.lines.forEach(function (x, k) { if (x.id === f.retLine) ix = k; });
+      if (ix >= 0) { nl.id = rm.lines[ix].id; rm.lines[ix] = nl; } else rm.lines.push(nl);
+      ingFlash('Saved \u201c' + it.name + '\u201d and added it to the meal. Save the meal to keep it.');
+    } else ingFlash('Saved \u201c' + it.name + '\u201d.');
+    ingSync(true);
+    navBack($('lt-back'));
+  }
+  function ingB64ToBuf(b64) { var bin = atob(b64), bytes = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); return bytes.buffer; }
+  function ingAttach(file, slot) {
+    var f = ing.form; if (!f || !file) return;
+    ingFlash('Saving photo\u2026');
+    cmShrinkPhoto(file).then(function (dataUrl) {
+      var rec = { id: 'ip' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ingId: f.id, slot: slot, mime: 'image/jpeg', bytes: ingB64ToBuf(dataUrl.split(',')[1]), created: Date.now(), cid: vNewCid(), url: '' };
+      return ingPhotoPut(rec).then(function () {
+        if (!ing.form || ing.form.id !== f.id) return;
+        ingReadForm(); f.photos[slot] = rec.id; ingFlash('');
+        if (slot === 'label') { ing.ocr.busy = true; ing.ocr.msg = 'Reading the label\u2026'; }
+        ingRenderForm();
+        if (slot === 'label') ingReadLabel(file);
+      });
+    }).catch(function (e) { ingFlash((e && e.message) || 'That photo could not be saved.', true); });
+  }
+
+  /* ---- meals & recipes ---- */
+  function ingRenderMeals() {
+    var md = ingMeals(), d = ingAll();
+    var h = '<div class="ing">' + ingBadge() + ingFlashHtml() + '<button class="bigsave ingnewmeal" data-ing="new-meal">+ New meal / recipe</button>';
+    if (!md.items.length) h += '<div class="foot empty">No meals yet. Tap <b>New meal</b>, then say or snap the components and amounts. Macros and cost add up as you go.</div>';
+    h += md.items.slice().sort(function (a, b) { return b.upd - a.upd; }).map(function (m) {
+      var t = ingTotals(m, d);
+      return '<button class="wlitem cmitem ingrow" data-go="lt/ing-meal/' + esc(m.id) + '"><span class="cmmain"><span class="wlname">' + esc(m.name || 'Untitled meal') + '</span>' +
+        '<span class="wlmeta">' + m.lines.length + ' component' + (m.lines.length === 1 ? '' : 's') + ' \u00b7 makes ' + esc(m.servings || '1') + (m.menuItem ? ' \u00b7 ' + esc(m.menuItem) : '') + '</span>' +
+        '<span class="wlmeta">Per serving: ' + ingR(t.per.calories) + ' cal \u00b7 ' + ingR(t.per.protein) + 'P ' + ingR(t.per.carbs) + 'C ' + ingR(t.per.fat) + 'F \u00b7 ' + ingMoney(t.per.cost) + (t.missing ? ' <span class="ingwarn">(' + t.missing + ' incomplete)</span>' : '') + '</span></span></button>';
+    }).join('') + '</div>';
+    $('lt-body').innerHTML = h;
+  }
+  function ingLineIng(l, d) {
+    if (l.newIng) return l.newIng;
+    return (l.ingId && cmFind(d, l.ingId)) || (l.name ? ingFindByName(d, l.name) : null);
+  }
+  function ingTotals(m, d) {
+    var tot = { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, cost: 0 }, rows = [], missing = 0;
+    m.lines.forEach(function (l) {
+      var it = ingLineIng(l, d), n = ingNum(l.qty), r = { line: l, it: it, n: n, mac: null, cost: null, why: '' };
+      if (!it) { r.why = (l.name || '').trim() ? 'Not in your ingredients yet' : 'Pick an ingredient'; missing++; }
+      else if (!(n > 0)) { r.why = 'Add an amount'; missing++; }
+      else {
+        r.mac = ingMacOf(it, n, l.unit); r.cost = ingCostOf(it, n, l.unit);
+        var w = [];
+        if (!cmHasMacros(it)) w.push('needs macros');
+        else if (r.mac.s === null) w.push(!ingQty(it.servingSize) ? 'needs a serving size' : 'can\u2019t turn ' + ingUnitLbl(ingUnit(l.unit)) + ' into its serving (' + it.servingSize + '): add the serving weight in g');
+        if (r.cost === null) w.push(ingPrice(it) === null || !ingQty(it.packageSize) ? 'needs package size + price' : 'can\u2019t turn ' + ingUnitLbl(ingUnit(l.unit)) + ' into its package (' + it.packageSize + ')');
+        if (w.length) { r.why = w.join('; ').replace(/^./, function (c) { return c.toUpperCase(); }); missing++; }
+        ING_MAC.forEach(function (k) { if (r.mac[k[0]] !== null) tot[k[0]] += r.mac[k[0]]; });
+        if (r.cost !== null) tot.cost += r.cost;
+      }
+      rows.push(r);
+    });
+    var sv = ingNum(m.servings); if (!(sv > 0)) sv = 1;
+    var per = {}; Object.keys(tot).forEach(function (k) { per[k] = tot[k] / sv; });
+    return { tot: tot, per: per, rows: rows, missing: missing, servings: sv };
+  }
+  function ingOpenMeal(id) {
+    var md = ingMeals(), m = id && id !== 'new' ? md.items.filter(function (x) { return x.id === id; })[0] : null;
+    if (id && id !== 'new' && !m && !(ing.mform && ing.mform.id === id)) { $('lt-body').innerHTML = '<div class="foot empty">That meal isn\u2019t on this phone.</div>'; return; }
+    if (!ing.mform || (m ? ing.mform.id !== m.id : !ing.mform.isNew)) {
+      ing.mform = m ? JSON.parse(JSON.stringify(m)) : { id: 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), isNew: true, name: '', servings: '1', menuItem: '', menuPrice: '', notes: '', lines: [], upd: 0 };
+      ing.mform.dict = ''; ing.mmConfirm = false; ing.confirm = '';
+    }
+    ingRenderMeal();
+    ingMenuLoad();
+  }
+  function ingMenuLoad() {
+    if (ing.menu || ing.menuP) return;
+    ing.menuP = apiRaw('ltmacros', {}).then(function (j) {
+      ing.menuP = null; ing.menu = j && j.data && Array.isArray(j.data.items) ? j.data.items : [];
+      var sel = $('ing-m-menu');
+      if (state.ltPart === 'ing-meal' && ing.mform && sel) {      // fill the menu list in place (a full re-render would close the dictation box)
+        var cur = ing.mform.menuItem || '';
+        sel.innerHTML = '<option value="">\u2014 none \u2014</option>' + ing.menu.map(function (x) { return '<option' + (x.item === cur ? ' selected' : '') + '>' + esc(x.item) + '</option>'; }).join('') +
+          (cur && !ing.menu.some(function (x) { return x.item === cur; }) ? '<option selected>' + esc(cur) + '</option>' : '');
+      }
+    }).catch(function () { ing.menuP = null; });
+  }
+  function ingRenderMeal(partial) {
+    var m = ing.mform; if (!m) return;
+    var d = ingAll(), t = ingTotals(m, d), menu = ing.menu || [];
+    var mi = m.menuItem ? menu.filter(function (x) { return x.item === m.menuItem; })[0] : null, price = mi && mi.price != null ? +mi.price : ingNum(m.menuPrice);
+    var h = '<div class="ing ingmeal vform card">' + ingFlashHtml() +
+      '<label class="vfield"><span>Meal / recipe name</span><input class="wlin" id="ing-m-name" maxlength="120" placeholder="e.g. Chicken burrito bowl" value="' + esc(m.name) + '"></label>' +
+      '<div class="vrow2"><label class="vfield"><span>Makes (servings)</span><input class="wlin" id="ing-m-servings" inputmode="decimal" value="' + esc(m.servings) + '"></label>' +
+      '<label class="vfield"><span>Menu item <small>optional</small></span><select class="wlin" id="ing-m-menu"><option value="">' + (ing.menu ? '\u2014 none \u2014' : 'Loading\u2026') + '</option>' +
+      menu.map(function (x) { return '<option' + (x.item === m.menuItem ? ' selected' : '') + '>' + esc(x.item) + '</option>'; }).join('') + (m.menuItem && !mi ? '<option selected>' + esc(m.menuItem) + '</option>' : '') + '</select></label></div>' +
+      '<h4 class="sechead">Add components</h4>' + ingMicHtml('meal') +
+      '<div class="ingcamrow"><label class="navbtn ingcam">' + vsvg('cam', 20) + ' Snap a label<input type="file" accept="image/*" capture="environment" hidden data-ingcam="meal-label"></label>' +
+      '<label class="navbtn ingcam">' + vsvg('cam', 20) + ' Snap a product<input type="file" accept="image/*" capture="environment" hidden data-ingcam="meal-product"></label></div>' +
+      '<p class="inghelp">A photo starts a new ingredient (a label photo is read for its macros). Save there drops it into this meal.</p>' +
+      '<h4 class="sechead">Components <small>' + m.lines.length + '</small></h4><datalist id="ing-dl">' + d.items.filter(ingIsMine).map(function (x) { return '<option value="' + esc(x.name) + '">'; }).join('') + '</datalist>';
+    h += t.rows.map(function (r) {
+      var l = r.line, it = r.it;
+      return '<div class="inglinebox' + (r.why ? ' warn' : '') + '" data-line="' + esc(l.id) + '"><div class="ingline"><input class="wlin ingln" list="ing-dl" data-lf="name" placeholder="Ingredient" value="' + esc(l.name || (it && it.name) || '') + '">' +
+        '<button type="button" class="wlx" data-ing="line-del" data-id="' + esc(l.id) + '" aria-label="Remove">\u00d7</button></div>' +
+        '<div class="ingqty two"><input class="wlin" data-lf="qty" inputmode="decimal" placeholder="Amount" value="' + esc(l.qty) + '">' + ingUnitSel('', ingUnit(l.unit) || 'g', ' data-lf="unit"') + '</div>' +
+        '<div class="ingres">' + (r.mac && r.mac.s !== null && cmHasMacros(it) ? ingR(r.mac.calories) + ' cal \u00b7 ' + ingR(r.mac.protein, 1) + 'P ' + ingR(r.mac.carbs, 1) + 'C ' + ingR(r.mac.fat, 1) + 'F ' + ingR(r.mac.fiber, 1) + 'Fb' : '') +
+        (r.cost !== null ? ' \u00b7 <b>' + ingMoney(r.cost) + '</b>' : '') +
+        (l.newIng ? '<div class="ingnew">New ingredient: ' + esc(l.newIng.name) + (l.newIng.packageSize ? ' \u00b7 ' + esc(l.newIng.packageSize) : '') + (l.newIng.packagePrice ? ' for $' + esc(l.newIng.packagePrice) : '') + ' \u2014 added to your ingredients when you save the meal.</div>' : '') +
+        (r.why ? '<div class="ingwarn">' + esc(r.why) + '</div>' : '') +
+        (!it && (l.name || '').trim() ? '<button type="button" class="navbtn ingaddit" data-ing="line-add-ing" data-id="' + esc(l.id) + '">+ Add \u201c' + esc(l.name) + '\u201d as an ingredient</button>' : '') +
+        (it && !l.newIng && r.why && it.id ? '<button type="button" class="navbtn ingaddit" data-go="lt/ing-item/' + esc(it.id) + '">Fill in ' + esc(it.name) + '</button>' : '') + '</div></div>';
+    }).join('');
+    h += '<button type="button" class="wladd navbtn" data-ing="line-add">+ Add component</button>';
+    var sv = t.servings, cpm = t.per.cost;
+    h += '<div class="ingtot"><h4 class="sechead">Totals' + (t.missing ? ' <small class="ingwarn">' + t.missing + ' component' + (t.missing === 1 ? '' : 's') + ' incomplete</small>' : '') + '</h4>' +
+      '<table class="ingtab"><tr><th></th><th>Whole recipe</th><th>Per serving' + (sv !== 1 ? ' (\u00f7' + ingR(sv, 2) + ')' : '') + '</th></tr>' +
+      ING_MAC.map(function (k) { var dd = k[0] === 'calories' ? 0 : 1, u = k[2] === 'g' ? ' g' : ''; return '<tr><td>' + k[1] + '</td><td>' + ingR(t.tot[k[0]], dd) + u + '</td><td>' + ingR(t.per[k[0]], dd) + u + '</td></tr>'; }).join('') +
+      '<tr class="ingcost"><td>Food cost</td><td>' + ingMoney(t.tot.cost) + '</td><td><b>' + ingMoney(cpm) + '</b></td></tr></table>' +
+      '<div class="ingcpm">Cost per meal (1 serving): <b>' + ingMoney(cpm) + '</b>' + (price > 0 && cpm > 0 ? '<br>Menu price ' + ingMoney(price) + ' \u00b7 food cost ' + Math.round(cpm / price * 100) + '% \u00b7 margin ' + ingMoney(price - cpm) : '') + '</div></div>';
+    h += '<div class="ingusage"><h4 class="sechead">What it used + what it cost</h4>' + (t.rows.length ? '<table class="ingtab"><tr><th>Ingredient</th><th>Used</th><th>Package</th><th>Cost</th></tr>' + t.rows.map(function (r) {
+      var it = r.it;
+      return '<tr><td>' + esc((it && it.name) || r.line.name || '?') + '</td><td>' + esc(r.n > 0 ? ingQtyStr(r.n, ingUnit(r.line.unit)) : '\u2014') + '</td><td>' + esc(it && (it.packageSize || it.packagePrice) ? (it.packageSize || '?') + ' @ ' + (it.packagePrice ? '$' + it.packagePrice : '?') : '\u2014') + '</td><td>' + ingMoney(r.cost) + '</td></tr>';
+    }).join('') + '<tr class="ingcost"><td colspan="3">Total (makes ' + ingR(sv, 2) + ')</td><td>' + ingMoney(t.tot.cost) + '</td></tr></table>' : '<div class="foot empty">Add components to see this.</div>') + '</div>';
+    h += '<label class="vfield"><span>Notes</span><textarea class="notebox" id="ing-m-notes" rows="2" maxlength="500">' + esc(m.notes || '') + '</textarea></label>' +
+      '<button class="bigsave" data-ing="save-meal">Save meal</button>';
+    if (m.menuItem && !m.isNew) {
+      h += ing.mmConfirm ? '<div class="vdelq">Write per-serving ' + ingR(t.per.calories) + ' cal, ' + ingR(t.per.protein, 1) + 'P ' + ingR(t.per.carbs, 1) + 'C ' + ingR(t.per.fat, 1) + 'F to \u201c' + esc(m.menuItem) + '\u201d in Menu Macros (marks it Measured)?' + (t.missing ? ' ' + t.missing + ' component(s) are incomplete.' : '') + '</div>' +
+        '<div class="draftbtns"><button class="navbtn" data-ing="mm-yes">Yes, write it</button><button class="navbtn" data-ing="mm-no">Cancel</button></div>'
+        : '<button class="navbtn ingmm" data-ing="mm">Save per-serving macros to Menu Macros</button>';
+    }
+    if (!m.isNew) h += ing.confirm === m.id ? '<div class="vdelq">Delete this meal from the phone?</div><div class="draftbtns"><button class="navbtn vdelbtn" data-ing="del-meal-yes">Yes, delete</button><button class="navbtn" data-ing="del-no">Keep</button></div>'
+      : '<button class="navbtn vdelbtn ingdel" data-ing="del-meal">Delete meal</button>';
+    if (partial && document.querySelector('#lt-body .ingmeal')) {     // only the numbers: keeps the inputs, focus and the dictation box as they are
+      var tmp = document.createElement('div'); tmp.innerHTML = h + '</div>';
+      ['.ingtot', '.ingusage'].forEach(function (q) { var a = document.querySelector('#lt-body ' + q), b = tmp.querySelector(q); if (a && b) a.parentNode.replaceChild(b, a); });
+      Array.prototype.forEach.call(tmp.querySelectorAll('.inglinebox'), function (nb) {
+        var ob = document.querySelector('#lt-body .inglinebox[data-line="' + nb.getAttribute('data-line') + '"]'); if (!ob) return;
+        ob.className = nb.className; var a = ob.querySelector('.ingres'), b = nb.querySelector('.ingres'); if (a && b) a.parentNode.replaceChild(b, a);
+      });
+      return;
+    }
+    $('lt-body').innerHTML = h + '</div>';
+    ingMicPaint();
+  }
+  function ingReadMeal() {
+    var m = ing.mform; if (!m || !$('ing-m-name')) return m;
+    m.name = $('ing-m-name').value.trim(); m.servings = $('ing-m-servings').value.trim(); if ($('ing-m-notes')) m.notes = $('ing-m-notes').value;
+    var mm = $('ing-m-menu'); if (mm && (ing.menu || mm.value)) m.menuItem = mm.value;
+    var dt = $('ing-dict'); if (dt) m.dict = dt.value;
+    var d = ingAll();
+    Array.prototype.forEach.call(document.querySelectorAll('#lt-body .inglinebox'), function (box) {
+      var l = m.lines.filter(function (x) { return x.id === box.getAttribute('data-line'); })[0]; if (!l) return;
+      var nm = box.querySelector('[data-lf="name"]').value.trim();
+      if (nm !== l.name) {
+        l.name = nm;
+        if (!l.newIng || cmNormName(l.newIng.name) !== cmNormName(nm)) { l.newIng = null; var hit = ingFindByName(d, nm); l.ingId = hit ? hit.id : ''; }
+      }
+      l.qty = box.querySelector('[data-lf="qty"]').value.trim(); l.unit = box.querySelector('[data-lf="unit"]').value;
+    });
+    return m;
+  }
+  function ingMealApplyDict() {
+    var m = ing.mform; if (!m) return;
+    var comps = ingParseDict(m.dict || '', 'meal'), d = ingAll(), n = 0;
+    comps.forEach(function (c) {
+      var hit = c.name ? ingFindByName(d, c.name) : null;
+      var l = { id: cmNewId(), ingId: hit ? hit.id : '', name: hit ? hit.name : (c.name || ''), qty: c.used ? String(c.used.n) : '', unit: c.used ? c.used.u : (c.pkg ? c.pkg.u : 'g') };
+      if (!hit && c.name && (c.pkg || c.price || c.calories != null)) {
+        l.newIng = { id: cmNewId(), name: c.name, brand: c.brand ? ingTitle(c.brand) : '', servingSize: c.serving ? ingQtyStr(c.serving.n, c.serving.u) : '', calories: c.calories || '', protein: c.protein || '', carbs: c.carbs || '', fat: c.fat || '', fiber: c.fiber || '', sugar: '',
+          packageSize: c.pkg ? ingQtyStr(c.pkg.n, c.pkg.u) : '', packagePrice: c.price || '', notes: '' };
+      }
+      m.lines.push(l); n++;
+    });
+    ingFlash(n ? 'Added ' + n + ' component' + (n === 1 ? '' : 's') + ' from what I heard. Check the amounts, then Save meal.' : 'I couldn\u2019t pick out any components. Try \u201cchicken thighs 2 pounds, next rice 1 cup\u201d.', !n);
+    if (n) m.dict = '';
+    ingRenderMeal();
+  }
+  function ingSaveMeal() {
+    var m = ingReadMeal(); if (!m) return;
+    if (!m.name) return ingFlash('Give the meal a name first.', true);
+    if (!(ingNum(m.servings) > 0)) return ingFlash('Servings must be a number like 1 or 4.', true);
+    var d = ingAll(), now = Date.now(), added = 0;
+    m.lines = m.lines.filter(function (l) { return (l.name || '').trim() || l.ingId || l.newIng; });
+    m.lines.forEach(function (l) {
+      if (l.newIng) {
+        var ex = ingFindByName(d, l.newIng.name);
+        if (!ex) { ex = { id: l.newIng.id, done: false, source: 'ing', at: now, upd: now, photo: '' }; CM_FIELDS.forEach(function (k) { ex[k] = String(l.newIng[k] || ''); }); d.items.unshift(ex); added++; }
+        l.ingId = ex.id; l.name = ex.name; delete l.newIng;
+      } else if (!l.ingId) { var hit = ingFindByName(d, l.name); if (hit) l.ingId = hit.id; }
+    });
+    if (added && !ltCostSave(d)) return ingFlash('This phone is out of storage space. Nothing saved.', true);
+    var md = ingMeals(), rec = { id: m.id, name: m.name, servings: m.servings, menuItem: m.menuItem || '', menuPrice: m.menuPrice || '', notes: m.notes || '', lines: m.lines, upd: now, pushed: 0 };
+    var i = -1; md.items.forEach(function (x, k) { if (x.id === m.id) i = k; });
+    if (i >= 0) { rec.pushed = md.items[i].pushed; md.items[i] = rec; } else md.items.unshift(rec);
+    if (!ingMealsSave(md)) return ingFlash('This phone is out of storage space. Nothing saved.', true);
+    ing.mform = JSON.parse(JSON.stringify(rec)); ing.mform.dict = '';
+    ingFlash('Saved \u201c' + m.name + '\u201d' + (added ? ' and added ' + added + ' new ingredient' + (added === 1 ? '' : 's') : '') + '.');
+    if (state.ltSub !== rec.id) navReplace('lt/ing-meal/' + rec.id); else ingRenderMeal();
+    ingSync(true);
+  }
+  function ingMmWrite() {
+    var m = ingReadMeal(), t = ingTotals(m, ingAll()), mi = (ing.menu || []).filter(function (x) { return x.item === m.menuItem; })[0];
+    var r1 = function (n) { return String(Math.round(n * 10) / 10); };
+    var body = { item: m.menuItem, cal: String(Math.round(t.per.calories)), protein: r1(t.per.protein), carbs: r1(t.per.carbs), fat: r1(t.per.fat), notes: ('From Ingredients: ' + m.name + ' (makes ' + m.servings + ')').slice(0, 300) };
+    if (mi && mi.row) body.row = mi.row;
+    var sig = JSON.stringify(body); if (m.mmSig !== sig) { m.mmSig = sig; m.mmCid = vNewCid(); }
+    body.cid = m.mmCid; ing.mmConfirm = false; ingRenderMeal(); ingFlash('Writing to Menu Macros\u2026');
+    apiRaw('ltmacroset', body).then(function (j) {
+      if (j.error === 'bad_action') return ingFlash('Saving to Menu Macros will work after the next server update.', true);
+      if (j.error) return ingFlash((j.message || ('Server error: ' + j.error)) + ' Nothing was changed.', true);
+      ing.menu = null; if (state.ltCache) state.ltCache.macros = null;
+      ingFlash('Menu Macros updated for \u201c' + m.menuItem + '\u201d.');
+      if (state.ltPart === 'ing-meal') ingMenuLoad();
+    }).catch(function (e) { ingFlash((e && e.message) || 'Couldn\u2019t reach the server. Nothing was changed.', true); });
+  }
+
+  /* ---- mic (one per form) ---- */
+  function ingMicPaint() {
+    var btn = $('ing-mic'); if (!btn) return;
+    btn.classList.toggle('rec', !!ing.mic.on); btn.setAttribute('aria-pressed', ing.mic.on ? 'true' : 'false');
+    var lbl = $('ing-mic-lbl'); if (lbl) lbl.textContent = ing.mic.on ? 'Listening\u2026 tap when done' : 'Tap to talk \u2014 say all the details';
+    var st = $('ing-mic-state'); if (st) { st.className = 'micstate' + (ing.mic.on ? ' rec' : '') + (ing.mic.msg && !ing.mic.on ? ' warn' : ''); st.textContent = ing.mic.on ? 'Listening\u2026' : (ing.mic.msg || '\u00a0'); }
+  }
+  function ingMicStop(quiet) {
+    var r = ing.mic.rec;
+    if (quiet) { ing.mic.rec = null; ing.mic.on = false; try { r && r.abort(); } catch (e) {} ingMicPaint(); return; }
+    if (r) { try { r.stop(); } catch (e2) { ing.mic.rec = null; ing.mic.on = false; ingMicPaint(); } } else { ing.mic.on = false; ingMicPaint(); }
+  }
+  function ingMicStart() {
+    var c = ing.mic, where = state.ltPart === 'ing-meal' ? 'meal' : 'ing';
+    var dict = document.querySelector('#lt-body .ingmic .ingdict'); if (dict) dict.open = true;
+    if (!SR) { c.msg = MIC_NA; var t0 = $('ing-dict'); if (t0) t0.focus(); ingMicPaint(); return; }
+    if (where === 'meal') ingReadMeal(); else ingReadForm();
+    var ta = $('ing-dict'); if (!ta) return;
+    ingMicStop(true);
+    c.msg = ''; c.base = String(ta.value || ''); c.committed = ''; c.interim = ''; c.where = where;
+    var rec; try { rec = new SR(); } catch (e) { c.msg = MIC_NA; ingMicPaint(); return; }
+    rec.continuous = true; rec.interimResults = true; rec.lang = 'en-US'; rec.maxAlternatives = 1;
+    rec.onresult = function (ev) {
+      var interim = '';
+      for (var i = ev.resultIndex; i < ev.results.length; i++) { var r = ev.results[i], t = r[0] ? r[0].transcript : ''; if (r.isFinal) c.committed = micSpace(c.committed, t.trim() + ' '); else interim += t; }
+      c.interim = interim.replace(/^\s+/, '');
+      var add = micSpace(c.committed, c.interim).trim(), el = $('ing-dict');
+      if (el) el.value = (c.base && add ? micSpace(c.base.replace(/\s+$/, '') + ' ', add) : (c.base || add)).slice(0, 2000);
+    };
+    rec.onerror = function (ev) {
+      var e = ev && ev.error;
+      if (e === 'not-allowed' || e === 'service-not-allowed' || e === 'audio-capture' || e === 'language-not-supported') { c.msg = MIC_NA; c.on = false; c.rec = null; ingMicPaint(); return; }
+      if (e === 'network') { c.msg = 'The speech service couldn\u2019t be reached. Use your keyboard\u2019s mic in the box below, then Fill fields.'; c.on = false; c.rec = null; ingMicPaint(); return; }
+      if (e === 'no-speech') c.msg = 'Didn\u2019t catch anything. Tap the mic and try again.';
+    };
+    rec.onend = function () {
+      if (c.rec !== rec) return;
+      c.on = false; c.rec = null; ingMicPaint();
+      var el = $('ing-dict'); if (!el || !String(el.value || '').trim()) return;
+      if (c.where === 'meal' && ing.mform && state.ltPart === 'ing-meal') { ingReadMeal(); ingMealApplyDict(); }
+      else if (ing.form && state.ltPart === 'ing-item') { ingReadForm(); ingApplyDict(); }
+    };
+    c.rec = rec; c.on = true; ingMicPaint();
+    try { rec.start(); } catch (e3) { c.on = false; c.rec = null; c.msg = MIC_NA; ingMicPaint(); }
+  }
+
+  /* ---- sync with the server (v59 actions); a quiet no-op until they are deployed ---- */
+  function ingSrvSave() { lsSet(ING_SRV_KEY, ing.srv); }
+  function ingRec(it) { var r = {}; CM_FIELDS.forEach(function (k) { r[k] = it[k]; }); r.id = it.id; r.upd = it.upd; r.costPerServing = ingCostPerServing(it); return r; }
+  function ingBadgePaint() {
+    var b = document.querySelector('#lt-body .ingbadge'); if (!b) return;
+    var tmp = document.createElement('div'); tmp.innerHTML = ingBadge(); b.parentNode.replaceChild(tmp.firstChild, b);
+  }
+  function ingPushAll() {
+    var meta = ingMeta(), jobs = [];
+    ingAll().items.forEach(function (it) { if (ingIsMine(it) && (meta[it.id] || {}).pushed !== it.upd) jobs.push({ kind: 'ingredient', it: it }); });
+    ingMeals().items.forEach(function (m) { if (m.pushed !== m.upd) jobs.push({ kind: 'meal', m: m }); });
+    return jobs.reduce(function (p, job) {
+      return p.then(function () {
+        var rec;
+        if (job.kind === 'ingredient') {
+          rec = ingRec(job.it);
+          var mt = ingMeta()[job.it.id] || {};
+          ['product', 'label'].forEach(function (sl) { var ph = mt[sl] && ing.photos && ing.photos[mt[sl]]; if (ph && ph.url) rec[sl + 'PhotoUrl'] = ph.url; });
+        } else {
+          rec = JSON.parse(JSON.stringify(job.m)); delete rec.pushed;
+          var t = ingTotals(job.m, ingAll());
+          rec.totals = { calories: t.per.calories, protein: t.per.protein, carbs: t.per.carbs, fat: t.per.fat, fiber: t.per.fiber, cost: t.tot.cost, costPerServing: t.per.cost };
+        }
+        return apiPostRaw('ltingset', { kind: job.kind, rec: JSON.stringify(rec), cid: 'ing-' + rec.id + '-' + rec.upd + (rec.productPhotoUrl || rec.labelPhotoUrl ? '-p' : '') }).then(function (r) {
+          if (!r || r.error) return;
+          if (job.kind === 'ingredient') { var m2 = ingMeta(); m2[job.it.id] = m2[job.it.id] || {}; m2[job.it.id].pushed = job.it.upd; ingMetaSave(m2); }
+          else { var md2 = ingMeals(); md2.items.forEach(function (x) { if (x.id === job.m.id && x.upd === job.m.upd) x.pushed = x.upd; }); ingMealsSave(md2); }
+        }, function () {});
+      });
+    }, Promise.resolve());
+  }
+  function ingPushPhotos() {
+    return ingPhotosLoad().then(function (ph) {
+      var names = {}, meta = ingMeta(), live = {};
+      ingAll().items.forEach(function (x) { names[x.id] = x.name; });
+      Object.keys(meta).forEach(function (k) { ['product', 'label'].forEach(function (s) { if (meta[k][s]) live[meta[k][s]] = 1; }); });
+      return Object.keys(ph).map(function (k) { return ph[k]; }).filter(function (r) { return !r.url && names[r.ingId] && live[r.id]; }).reduce(function (p, r) {
+        return p.then(function () {
+          var u8 = new Uint8Array(r.bytes), s = '';
+          for (var i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+          return apiPostRaw('ltingphoto', { ingId: r.ingId, name: names[r.ingId], slot: r.slot, mime: r.mime || 'image/jpeg', data: btoa(s), cid: r.cid }, 120000).then(function (x) {
+            if (!x || x.error || !x.data || !x.data.url) return;
+            r.url = x.data.url; r.driveId = x.data.id;
+            return ingPhotoPut(r).then(function () { var m3 = ingMeta(); if (m3[r.ingId]) { m3[r.ingId].pushed = 0; ingMetaSave(m3); } });   // re-send the record with its photo link
+          }, function () {});
+        });
+      }, Promise.resolve());
+    });
+  }
+  function ingSync(force) {
+    if (ing.syncing || !getPc()) return;
+    var s = ing.srv || {};
+    if (s.at && Date.now() - s.at < (s.state === 'na' ? 30 * 60000 : (force ? 0 : 5 * 60000))) return;
+    ing.syncing = true;
+    apiRaw('lting', {}).then(function (j) {
+      if (j.error === 'bad_action') { ing.srv = { state: 'na', at: Date.now() }; ingSrvSave(); return; }
+      if (j.error || !j.data) throw new Error(j.message || j.error || 'sync failed');
+      ing.srv = { state: 'ok', at: Date.now(), sheetUrl: j.data.sheetUrl || '', folderUrl: j.data.folderUrl || '' }; ingSrvSave();
+      var d = ingAll(), meta = ingMeta(), md = ingMeals(), chD = false, chM = false;
+      (j.data.ingredients || []).forEach(function (r) {
+        if (!r || !r.id) return;
+        var it = cmFind(d, String(r.id));
+        if (!it) { it = { id: String(r.id), done: false, source: 'ing', at: r.upd || Date.now(), photo: '' }; d.items.push(it); }
+        else if ((it.upd || 0) >= (r.upd || 0)) { if ((it.upd || 0) === (r.upd || 0)) { meta[it.id] = meta[it.id] || {}; meta[it.id].pushed = it.upd; } return; }
+        CM_FIELDS.forEach(function (k) { it[k] = String(r[k] == null ? '' : r[k]); }); it.upd = r.upd || Date.now(); chD = true;
+        meta[it.id] = meta[it.id] || {}; meta[it.id].pushed = it.upd;
+      });
+      (j.data.meals || []).forEach(function (r) {
+        if (!r || !r.id) return;
+        var i = -1; md.items.forEach(function (x, k) { if (x.id === r.id) i = k; });
+        if (i >= 0 && (md.items[i].upd || 0) > (r.upd || 0)) return;
+        if (i >= 0 && md.items[i].upd === r.upd) { md.items[i].pushed = r.upd; chM = true; return; }
+        r.pushed = r.upd; if (i >= 0) md.items[i] = r; else md.items.push(r); chM = true;
+      });
+      if (chD) ltCostSave(d);
+      if (chM) ingMealsSave(md);
+      ingMetaSave(meta);
+      return ingPushPhotos().then(ingPushAll);
+    }).catch(function () { ing.srv = { state: (ing.srv && ing.srv.state) || '', at: Date.now() }; ingSrvSave(); })
+      .then(function () {
+        ing.syncing = false;
+        if ($('screen-lt').classList.contains('active') && /^ing/.test(state.ltPart)) { ingBadgePaint(); if (state.ltPart === 'ingredients') ingRenderHome(); else if (state.ltPart === 'ing-meals') ingRenderMeals(); }
+      });
+  }
+
+  /* ---- events ---- */
+  $('lt-body').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-ing]'); if (!b || !/^ing/.test(state.ltPart)) return;
+    var a = b.getAttribute('data-ing'), id = b.getAttribute('data-id');
+    if (a === 'new-ing') { ing.form = null; ing.ret = ''; ing.dictOpen = false; ingFlash(''); show('lt/ing-item/new'); }
+    else if (a === 'new-meal') { ing.mform = null; ing.dictOpen = false; ingFlash(''); show('lt/ing-meal/new'); }
+    else if (a === 'mic') { if (ing.mic.on) ingMicStop(false); else ingMicStart(); }
+    else if (a === 'dict-fill') { ingMicStop(true); if (state.ltPart === 'ing-meal') { ingReadMeal(); ingMealApplyDict(); } else { ingReadForm(); ingApplyDict(); } }
+    else if (a === 'ocr') {
+      var f0 = ing.form; if (!f0) return;
+      var pid = f0.photos.label || (ingMeta()[f0.id] || {}).label, r0 = pid && ing.photos && ing.photos[pid];
+      if (r0) ingReadLabel(new Blob([r0.bytes], { type: r0.mime || 'image/jpeg' }));
+      else { var u0 = ingPhotoOf(cmFind(ingAll(), f0.id) || { id: f0.id }, 'label'); if (u0) fetch(u0).then(function (x) { return x.blob(); }).then(ingReadLabel); }
+    }
+    else if (a === 'save-ing') { ingMicStop(true); ingSaveForm(); }
+    else if (a === 'del-ing') { ingReadForm(); ing.confirm = ing.form.id; ingRenderForm(); }
+    else if (a === 'del-meal') { ingReadMeal(); ing.confirm = ing.mform.id; ingRenderMeal(); }
+    else if (a === 'del-no') { ing.confirm = ''; if (state.ltPart === 'ing-meal') { ingReadMeal(); ingRenderMeal(); } else { ingReadForm(); ingRenderForm(); } }
+    else if (a === 'del-ing-yes') {
+      var d = ingAll(), fid = ing.form.id; d.items = d.items.filter(function (x) { return x.id !== fid; }); ltCostSave(d);
+      var meta = ingMeta(), mt = meta[fid] || {}; ['product', 'label'].forEach(function (s) { if (mt[s]) ingPhotoDel(mt[s]); }); delete meta[fid]; ingMetaSave(meta);
+      ing.form = null; ing.confirm = ''; ingFlash('Deleted from this phone.'); navBack($('lt-back'));
+    }
+    else if (a === 'del-meal-yes') { var md = ingMeals(), mid = ing.mform.id; md.items = md.items.filter(function (x) { return x.id !== mid; }); ingMealsSave(md); ing.mform = null; ing.confirm = ''; ingFlash('Meal deleted from this phone.'); navBack($('lt-back')); }
+    else if (a === 'line-add') { ingReadMeal(); ing.mform.lines.push({ id: cmNewId(), ingId: '', name: '', qty: '', unit: 'g' }); ingRenderMeal(); var bx = document.querySelectorAll('#lt-body .ingln'); if (bx.length) bx[bx.length - 1].focus(); }
+    else if (a === 'line-del') { ingReadMeal(); ing.mform.lines = ing.mform.lines.filter(function (x) { return x.id !== id; }); ingRenderMeal(); }
+    else if (a === 'line-add-ing') {
+      ingReadMeal(); var ln = ing.mform.lines.filter(function (x) { return x.id === id; })[0]; if (!ln) return;
+      ing.form = ingBlankForm(null); ing.form.id = cmNewId(); ing.form.name = ln.name; ing.form.useN = ln.qty; ing.form.useU = ingUnit(ln.unit) || 'g'; ing.ret = ing.mform.id;
+      ing.form.retLine = ln.id; ing.ocr = { busy: false, msg: '', text: '' };    // Save on the ingredient links this line to it
+      show('lt/ing-item/new');
+    }
+    else if (a === 'save-meal') { ingMicStop(true); ingSaveMeal(); }
+    else if (a === 'mm') { ingReadMeal(); ing.mmConfirm = true; ingRenderMeal(); }
+    else if (a === 'mm-no') { ingReadMeal(); ing.mmConfirm = false; ingRenderMeal(); }
+    else if (a === 'mm-yes') ingMmWrite();
+  });
+  $('lt-body').addEventListener('change', function (e) {
+    if (!/^ing/.test(state.ltPart)) return;
+    var t = e.target, cam = t.getAttribute && t.getAttribute('data-ingcam');
+    if (cam) {
+      var file = t.files && t.files[0]; t.value = ''; if (!file) return;
+      if (cam === 'meal-label' || cam === 'meal-product') {
+        ingReadMeal(); ing.form = ingBlankForm(null); ing.form.id = cmNewId(); ing.ret = ing.mform.id; ing.pend = { file: file, slot: cam === 'meal-label' ? 'label' : 'product' };
+        ing.ocr = { busy: false, msg: '', text: '' }; show('lt/ing-item/new'); return;
+      }
+      ingAttach(file, cam); return;
+    }
+    if (state.ltPart === 'ing-item' && /^ing-f-/.test(t.id || '')) ingCalcPaint();
+    if (state.ltPart === 'ing-meal' && (t.closest('.inglinebox') || t.id === 'ing-m-servings' || t.id === 'ing-m-menu')) { ingReadMeal(); ingRenderMeal(true); }
+  });
+  $('lt-body').addEventListener('input', function (e) {
+    if (state.ltPart === 'ingredients' && e.target.id === 'ing-q') { ing.q = e.target.value; var pos = e.target.selectionStart; ingRenderHome(); var q = $('ing-q'); if (q) { q.focus(); try { q.setSelectionRange(pos, pos); } catch (x) {} } }
+    else if (state.ltPart === 'ing-item' && /^ing-f-/.test(e.target.id || '')) ingCalcPaint();
+  });
+  $('lt-body').addEventListener('toggle', function (e) { if (!e.target.classList) return; if (e.target.classList.contains('ingsug')) ing.sugOpen = e.target.open; if (e.target.classList.contains('ingheard')) ing.dictOpen = e.target.open; }, true);
+
   var LR_KEY = 'cc_lisareq_v1', LR_DRAFT_KEY = 'cc_lisareq_draft', LR_SEC_KEY = 'cc_lisareq_sec', LR_CHK_KEY = 'cc_lisareq_chk';
   var LR_QUIET_MS = 30 * 60 * 1000;
   var LR_SECS = { lt: 'Lisa\u2019s Table', pt: 'Personal Training', both: 'Both' };
@@ -15591,7 +16479,7 @@
     if (m && m.length && odFindNorm(od.find)) odFindGo(m[0].o.orderId); else e.target.blur();
   });
 
-  document.addEventListener('visibilitychange', function () { if (document.hidden && od.mic.on) { odMicStop(true); odMicUi(); } if (document.hidden && wl.on) wlMicStop(true), wlUi(); if (document.hidden && ln.on) { lnMicStop(true); lnUi(); } if (document.hidden && mm.on) { macMicStop(true); macUi(); } if (document.hidden && ma.on) { maMicStop(true); maUi(); } if (document.hidden && cm.mic.on) { cmMicStop(true); } });
+  document.addEventListener('visibilitychange', function () { if (document.hidden && od.mic.on) { odMicStop(true); odMicUi(); } if (document.hidden && wl.on) wlMicStop(true), wlUi(); if (document.hidden && ln.on) { lnMicStop(true); lnUi(); } if (document.hidden && mm.on) { macMicStop(true); macUi(); } if (document.hidden && ma.on) { maMicStop(true); maUi(); } if (document.hidden && cm.mic.on) { cmMicStop(true); } if (document.hidden && ing.mic.on) ingMicStop(true); });
 
   /* ---- #vcam: receipt photo -> shrink -> optional details -> Save (POST receiptsave) ---- */
   var VCAM_TARGET = 1400000, VCAM_HARD = 2800000;      // base64 characters (~1 MB / ~2 MB of JPEG); the server accepts up to ~3 MB of JPEG

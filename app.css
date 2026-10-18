@@ -3295,3 +3295,66 @@ body.fc-modal { overflow: hidden; }
 #screen-fin.finhome .topbar .homebtn { background: #1c1f23; color: #E4E7EA; border-color: rgba(200,206,212,.22); box-shadow: 0 6px 16px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06); }
 #screen-fin.finhome .hl-grid .tile { color: #E4E7EA; }
 #screen-fin.finhome .hl-grid .tile .sub { color: #9097A0; }
+/* ---- v183: Lisa's Table > Ingredients (#lt/ingredients, #lt/ing-item, #lt/ing-meals, #lt/ing-meal) ---- */
+#screen-lt .ing { padding-bottom: 28px; }
+#screen-lt .ingbadge { display: inline-block; margin: 0 0 10px; padding: 5px 10px; border-radius: 999px; font: 600 12px/1.3 'Inter', sans-serif; border: 0.75px solid var(--lt-e); color: var(--muted); background: #0b0b0b; }
+#screen-lt .ingbadge.na, #screen-lt .ingbadge.wait { color: #ffb74d; border-color: rgba(255,183,77,.55); }
+#screen-lt .ingbadge.ok { color: #7fd69a; border-color: rgba(127,214,154,.55); }
+#screen-lt .ingbadge a { color: inherit; text-decoration: underline; }
+#screen-lt .ingtop { margin: 0 0 12px; }
+#screen-lt .ingtile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 104px; text-align: center; }
+#screen-lt .ingtile small { font: 400 12px/1.2 'Inter', sans-serif; color: var(--muted); text-transform: none; letter-spacing: 0; }
+#screen-lt .ingplus { font: 300 30px/1 'Inter', sans-serif; color: var(--lt-t); }
+#screen-lt .ingrow { display: flex; align-items: center; gap: 10px; width: 100%; margin: 0 0 8px; padding: 8px 10px; text-align: left; background: #000; border: 0.75px solid var(--lt-e); border-radius: var(--radius); color: inherit; cursor: pointer; }
+#screen-lt .ingrow .wlname small { color: var(--muted); font-weight: 400; }
+#screen-lt .ingsug { margin: 14px 0 8px; }
+#screen-lt .ingsug > summary { cursor: pointer; color: var(--muted); font-size: 14px; padding: 6px 0; }
+#screen-lt .inghelp { color: var(--muted); font-size: 13px; line-height: 1.4; margin: 6px 0 10px; }
+#screen-lt .inghelp a { color: var(--lt-t); }
+#screen-lt .ingret { margin: 0 0 10px; padding: 8px 10px; border-radius: var(--radius); background: #1d0b10; border: 0.75px solid var(--lt-e); font-size: 14px; }
+#screen-lt .ingslots { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0 0 8px; }
+#screen-lt .ingslot { display: flex; flex-direction: column; gap: 6px; }
+#screen-lt .ingprev { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 10px; border: 0.75px solid var(--lt-e); background: #0b0b0b; }
+#screen-lt .ingprev.empty { display: flex; align-items: center; justify-content: center; color: var(--lt-e); border-style: dashed; }
+#screen-lt .ingcam, #screen-lt .ingread { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 42px; margin: 0; padding: 8px 10px; font-size: 14px; text-align: center; cursor: pointer; }
+#screen-lt .ingcamrow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 0; }
+#screen-lt .ingocr { margin: 4px 0 10px; padding: 8px 10px; border-radius: var(--radius); font-size: 13px; background: #0b0b0b; border: 0.75px solid var(--lt-e); }
+#screen-lt .ingocr.busy { color: #ffb74d; }
+#screen-lt .ingocrtext { white-space: pre-wrap; font: 400 12px/1.35 ui-monospace, monospace; color: var(--muted); max-height: 180px; overflow: auto; margin: 6px 0 0; }
+#screen-lt .ingmic { margin: 4px 0 12px; padding: 12px; border: 0.75px solid var(--lt-e); border-radius: var(--radius); background: #0b0b0b; }
+#screen-lt .ingmicbtn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 56px; margin: 0; }
+#screen-lt .ingmicbtn .micico svg { width: 30px; height: 30px; }
+#screen-lt .ingmic .micstate { margin-top: 6px; }
+#screen-lt .ingdict > summary { cursor: pointer; font-weight: 600; color: var(--lt-t); padding: 4px 0; }
+#screen-lt .ingdict .notebox { width: 100%; box-sizing: border-box; margin: 6px 0; }
+#screen-lt .ingdict .navbtn { width: 100%; margin: 0; }
+#screen-lt .ingqty { display: grid; grid-template-columns: 1fr 1.1fr 0.9fr; gap: 6px; }
+#screen-lt .ingqty.two { grid-template-columns: 1fr 1fr; }
+#screen-lt .ingunit { -webkit-appearance: none; appearance: none; padding-right: 8px; }
+#screen-lt .inggrid { grid-template-columns: 1fr 1fr 1fr !important; }
+#screen-lt .inggrid .vfield > span { font-size: 10px; }
+#screen-lt .vfield.ingfilled .wlin, #screen-lt .vfield.ingfilled select { border-color: #7fd69a; box-shadow: 0 0 0 1px rgba(127,214,154,.35); }
+#screen-lt .ingcalc { min-height: 0; margin: -2px 0 12px; font-size: 14px; color: var(--text); }
+#screen-lt .ingcalc:empty { margin: 0; }
+#screen-lt .ingwarn { color: #ffb74d; font-size: 12px; }
+#screen-lt .ingdel, #screen-lt .ingmm { display: block; width: 100%; margin: 10px 0 0; }
+#screen-lt .ingnewmeal { margin: 0 0 12px; }
+#screen-lt .inglinebox { margin: 0 0 8px; padding: 8px; border: 0.75px solid var(--lt-e); border-radius: var(--radius); background: #050505; }
+#screen-lt .inglinebox.warn { border-color: rgba(255,183,77,.6); }
+#screen-lt .ingline { display: flex; gap: 6px; margin: 0 0 6px; }
+#screen-lt .ingres { margin-top: 6px; font-size: 13px; color: var(--muted); }
+#screen-lt .ingres b { color: var(--text); }
+#screen-lt .ingnew { margin-top: 4px; color: #7fd69a; font-size: 12px; }
+#screen-lt .ingaddit { display: block; width: 100%; margin: 6px 0 0; min-height: 38px; font-size: 14px; }
+#screen-lt .ingtot, #screen-lt .ingusage { margin: 14px 0; padding: 10px; border: 0.75px solid var(--lt-e); border-radius: var(--radius); background: #000; }
+#screen-lt .ingtot .sechead, #screen-lt .ingusage .sechead { margin-top: 0; }
+#screen-lt .ingtab { width: 100%; border-collapse: collapse; font-size: 13px; }
+#screen-lt .ingtab th { text-align: left; font: 700 10px/1.2 'Inter', sans-serif; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); padding: 4px 4px 6px; }
+#screen-lt .ingtab td { padding: 5px 4px; border-top: 0.75px solid rgba(244,166,192,.22); vertical-align: top; }
+#screen-lt .ingtab td:not(:first-child), #screen-lt .ingtab th:not(:first-child) { text-align: right; white-space: nowrap; }
+#screen-lt .ingtab tr.ingcost td { font-weight: 700; color: var(--lt-t); }
+#screen-lt .ingcpm { margin-top: 10px; font-size: 15px; line-height: 1.45; }
+#screen-lt .ingcpm b { color: var(--lt-t); }
+#screen-lt .ingmicbtn .miclbl { font: 700 16px/1.25 'Inter', sans-serif; letter-spacing: 0; text-transform: none; }
+#screen-lt .ing .bigsave { display: block; width: 100%; box-sizing: border-box; }
+#screen-lt .ing .vfield > span small { font-weight: 400; text-transform: none; letter-spacing: 0; }
