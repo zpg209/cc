@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mono Fold · Wash &amp; Fold Laundry · Sonora, CA</title>
+<meta name="description" content="Mono Fold: wash & fold laundry service at Mono Village Laundromat on Mono Way, Sonora, CA. Drop it off, pick it up clean and folded.">
+<meta name="theme-color" content="#0E7C9B">
+<!--
+  Mono Fold public services page (for the QR business card). Standalone static page:
+  no passcode, no Command Center code, no API calls, no cookies, no tracking. Nothing here reads CC data.
+  Built to grow later (booking form, pickup/delivery map, pricing calculator): each block is its own <section id>,
+  and the brand colours live in the :root variables below.
+
+  PLACEHOLDERS TO FILL IN (search this file for "PLACEHOLDER"):
+   1. Tagline wording (optional; current: "Laundry day, done for you.")
+   2. Price per pound            ($__ / lb)
+   3. Minimum order              (__ lb minimum / $__ minimum)
+   4. Bulky items prices         (comforter $__, sleeping bag $__, etc.)
+   5. Turnaround time            (ready in __ hours / next day)
+   6. Pickup & delivery          (area, days, fee: coming soon or $__)
+   7. Drop-off hours             (days and times)
+   8. Phone number for call/text (tel: and sms: links + shown number)
+   9. Venmo handle               (@____)
+  10. Exact street address / suite on Mono Way (and map link)
+  11. Detergent / care options offered (fragrance-free etc.) and what is not accepted
+  12. Email (optional) and social links (optional)
+-->
+<style>
+  :root {
+    --ink: #0f2a36;          /* text */
+    --muted: #5b7380;
+    --brand: #0E7C9B;        /* PLACEHOLDER brand colour: fresh teal-blue */
+    --brand-2: #39B5D6;
+    --mint: #E6F7F4;
+    --sky: #EEF8FC;
+    --card: #ffffff;
+    --line: #d8e9ef;
+    --ph-bg: #FFF4D6;        /* placeholder highlight (remove the .ph class once filled in) */
+    --ph-ink: #8a5a00;
+    --r: 16px;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; font: 400 17px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color: var(--ink);
+    background: linear-gradient(180deg, var(--sky) 0, #fff 420px); }
+  a { color: var(--brand); }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 0 18px; }
+  header.hero .wrap { position: relative; z-index: 1; }
+  header.hero { position: relative; overflow: hidden; padding: calc(env(safe-area-inset-top, 0px) + 36px) 0 30px; text-align: center; }
+  .bubbles { position: absolute; inset: 0; pointer-events: none; }
+  .bubbles i { position: absolute; border-radius: 50%; border: 2px solid rgba(57,181,214,.35); background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.9), rgba(57,181,214,.08) 60%); }
+  .wordmark { margin: 0; font-weight: 800; font-size: 46px; letter-spacing: -1px; line-height: 1; color: var(--brand); }
+  .wordmark span { color: var(--brand-2); font-weight: 300; }
+  .tag { margin: 10px 0 4px; font-size: 20px; font-weight: 600; }
+  .where { margin: 0; color: var(--muted); font-size: 15px; }
+  .cta { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 20px; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 50px; padding: 12px 22px; border-radius: 999px; font-weight: 700; text-decoration: none; font-size: 17px; }
+  .btn.primary { background: var(--brand); color: #fff; box-shadow: 0 6px 16px rgba(14,124,155,.25); }
+  .btn.ghost { background: #fff; color: var(--brand); border: 2px solid var(--brand); }
+  section { padding: 22px 0; }
+  h2 { margin: 0 0 12px; font-size: 24px; letter-spacing: -.3px; }
+  .cards { display: grid; gap: 12px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--r); padding: 16px 18px; box-shadow: 0 2px 10px rgba(15,42,54,.04); }
+  .card h3 { margin: 0 0 4px; font-size: 18px; }
+  .card p { margin: 0; color: var(--muted); font-size: 15.5px; }
+  .card .soon { display: inline-block; margin-left: 6px; font-size: 12px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--brand); background: var(--mint); border-radius: 999px; padding: 2px 8px; vertical-align: middle; }
+  ol.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; counter-reset: s; }
+  ol.steps li { counter-increment: s; display: flex; gap: 14px; align-items: flex-start; background: var(--mint); border-radius: var(--r); padding: 14px 16px; }
+  ol.steps li::before { content: counter(s); flex: none; width: 36px; height: 36px; border-radius: 50%; background: var(--brand); color: #fff; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+  ol.steps b { display: block; }
+  ol.steps span { color: var(--muted); font-size: 15.5px; }
+  table.price { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+  table.price td { padding: 13px 16px; border-top: 1px solid var(--line); font-size: 16px; }
+  table.price tr:first-child td { border-top: 0; }
+  table.price td:last-child { text-align: right; font-weight: 700; white-space: nowrap; }
+  .note { color: var(--muted); font-size: 14px; margin: 10px 2px 0; }
+  .ph { background: var(--ph-bg); color: var(--ph-ink); border-radius: 6px; padding: 0 5px; font-weight: 700; }
+  .pay { display: flex; gap: 10px; flex-wrap: wrap; }
+  .pill { flex: 1 1 140px; text-align: center; background: #fff; border: 1px solid var(--line); border-radius: var(--r); padding: 14px; font-weight: 700; }
+  .pill small { display: block; font-weight: 400; color: var(--muted); }
+  footer { padding: 26px 0 calc(env(safe-area-inset-bottom, 0px) + 30px); text-align: center; color: var(--muted); font-size: 13.5px; }
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="bubbles" aria-hidden="true">
+    <i style="width:90px;height:90px;left:-24px;top:30px"></i>
+    <i style="width:120px;height:120px;right:-40px;top:-20px"></i>
+  </div>
+  <div class="wrap">
+    <h1 class="wordmark">mono<span>fold</span></h1>
+    <!-- PLACEHOLDER (optional): tagline wording -->
+    <p class="tag">Laundry day, done for you.</p>
+    <p class="where">Wash &amp; fold at <b>Mono Village Laundromat</b><br>Mono Way, Sonora, CA <!-- PLACEHOLDER: exact street address --><span class="ph">address ___</span></p>
+    <div class="cta">
+      <!-- PLACEHOLDER: phone number in both links, e.g. tel:+12095550100 and sms:+12095550100 -->
+      <a class="btn primary" href="tel:+1" data-ph="phone">Call</a>
+      <a class="btn ghost" href="sms:+1" data-ph="phone">Text us</a>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section id="services">
+    <h2>Services</h2>
+    <div class="cards">
+      <div class="card"><h3>Wash &amp; fold</h3><p>Fluff &amp; fold service: we wash, dry and neatly fold your laundry. Tell us your preferences (no bleach, hang dry, fragrance-free and more). <!-- PLACEHOLDER: care / detergent options offered --></p></div>
+      <div class="card"><h3>Drop-off</h3><p>Drop your bags at Mono Village Laundromat during drop-off hours. Ready in <span class="ph">__ hours / next day</span>. <!-- PLACEHOLDER: turnaround --></p></div>
+      <div class="card"><h3>Pickup &amp; delivery <span class="soon">Coming soon</span></h3><p>We&rsquo;ll pick up and bring it back. Area, days and fee: <span class="ph">___</span>. <!-- PLACEHOLDER: pickup/delivery details --></p></div>
+      <div class="card"><h3>Bulky items</h3><p>Comforters, blankets, sleeping bags and other big items. <!-- PLACEHOLDER: what is accepted --> Ask us about anything special.</p></div>
+    </div>
+  </section>
+
+  <section id="how">
+    <h2>How it works</h2>
+    <ol class="steps">
+      <li><div><b>Drop it off</b><span>Bring your laundry to Mono Village Laundromat on Mono Way and tell us your preferences.</span></div></li>
+      <li><div><b>We wash &amp; fold</b><span>Washed, dried and folded with care, the way you asked.</span></div></li>
+      <li><div><b>Pick it up</b><span>We text you when it&rsquo;s ready. Pay with cash or Venmo.</span></div></li>
+    </ol>
+  </section>
+
+  <section id="pricing">
+    <h2>Pricing</h2>
+    <!-- PLACEHOLDER: every price in this table. Do not publish until filled in. -->
+    <table class="price">
+      <tr><td>Wash &amp; fold</td><td><span class="ph">$__ / lb</span></td></tr>
+      <tr><td>Minimum order</td><td><span class="ph">__ lb</span></td></tr>
+      <tr><td>Comforter / large blanket</td><td><span class="ph">$__ each</span></td></tr>
+      <tr><td>Sleeping bag</td><td><span class="ph">$__ each</span></td></tr>
+      <tr><td>Pickup &amp; delivery</td><td><span class="ph">coming soon</span></td></tr>
+    </table>
+    <p class="note">Prices may change; ask us for anything not listed.</p>
+  </section>
+
+  <section id="hours">
+    <h2>Drop-off hours</h2>
+    <!-- PLACEHOLDER: drop-off / pickup hours -->
+    <div class="card"><p><b>Mon&ndash;Fri</b> <span class="ph">__:__ &ndash; __:__</span><br><b>Sat&ndash;Sun</b> <span class="ph">__:__ &ndash; __:__</span></p></div>
+  </section>
+
+  <section id="pay">
+    <h2>Payment</h2>
+    <div class="pay">
+      <div class="pill">Cash</div>
+      <!-- PLACEHOLDER: Venmo handle -->
+      <div class="pill">Venmo<small><span class="ph">@____</span></small></div>
+    </div>
+  </section>
+
+  <section id="contact">
+    <h2>Contact</h2>
+    <div class="card">
+      <!-- PLACEHOLDER: phone number (shown and in the links), optional email -->
+      <p>Call or text: <span class="ph">(___) ___-____</span><br>
+      Find us: Mono Village Laundromat, Mono Way, Sonora, CA <span class="ph">address ___</span></p>
+      <div class="cta" style="justify-content:flex-start">
+        <a class="btn primary" href="tel:+1" data-ph="phone">Call</a>
+        <a class="btn ghost" href="sms:+1" data-ph="phone">Text</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  Mono Fold &middot; a service of Mono Village Laundromat &middot; Sonora, CA
+</footer>
+</body>
+</html>
