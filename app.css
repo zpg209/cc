@@ -3301,6 +3301,8 @@ body.fc-modal { overflow: hidden; }
 #screen-lt .ingbadge.na, #screen-lt .ingbadge.wait { color: #ffb74d; border-color: rgba(255,183,77,.55); }
 #screen-lt .ingbadge.ok { color: #7fd69a; border-color: rgba(127,214,154,.55); }
 #screen-lt .ingbadge a { color: inherit; text-decoration: underline; }
+/* v186: container math on meal lines */
+#screen-lt .ingmath { font: 600 12px/1.4 'Inter', sans-serif; color: #cfe9d6; margin-bottom: 2px; }
 /* v185: USDA produce suggestion in the ingredient form */
 #screen-lt .ingusda { margin: 4px 0 12px; padding: 10px 12px; border: 0.75px solid rgba(127,214,154,.55); border-radius: 12px; background: rgba(127,214,154,.06); }
 #screen-lt .ingusdah { font: 600 13px/1.4 'Inter', sans-serif; color: #cfe9d6; margin-bottom: 8px; }

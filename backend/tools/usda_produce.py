@@ -14,7 +14,7 @@ ON = [('1 medium', 'medium', 'each'), ('1 large', 'large', 'each'), ('1 small', 
 BP = [('1 medium', 'medium', 'each'), ('1 large', 'large', 'each'), ('1 small', 'small', 'each'), ('1 cup chopped', 'cup, chopped', 'cup'), ('1 cup sliced', 'cup, sliced', 'cup'), ('1 tbsp', 't', 'tbsp')]
 S = [
  ('pepper_green', 'Green bell pepper', 170427, 'bellpepper', ['green bell pepper', 'green pepper', 'bell pepper', 'sweet pepper', 'pepper', 'capsicum'], BP),
- ('pepper_red', 'Red bell pepper', 170108, 'bellpepper', ['red bell pepper', 'red pepper', 'red sweet pepper', 'red capsicum'], BP),
+ ('pepper_red', 'Red bell pepper', 170108, 'bellpepper', ['red bell pepper', 'red pepper', 'red sweet pepper', 'red capsicum', 'red yellow bell pepper', 'yellow red bell pepper', 'mixed bell pepper', 'tri color bell pepper', 'tricolor bell pepper', 'rainbow bell pepper'], BP),
  ('pepper_yellow', 'Yellow bell pepper', 169383, 'bellpepper', ['yellow bell pepper', 'yellow pepper', 'orange bell pepper', 'orange pepper', 'yellow sweet pepper'],
    [('1 large', 'pepper, large', 'each'), ('1 medium', ('medium', GP), 'each'), ('1 cup chopped', ('cup, chopped', GP), 'cup'), ('1 cup sliced', ('cup, sliced', GP), 'cup')]),
  ('onion', 'Onion', 170000, 'onion', ['onion'], ON),
