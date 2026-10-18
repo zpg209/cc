@@ -3237,3 +3237,6 @@ body.fc-modal { overflow: hidden; }
 
 /* v177 Generator (#generator): doc/PDF tiles like Cart */
 #generator-list .tile.small { min-height: 72px; }
+
+/* v177 ADU (#adu): floor-plan PDF/Sheet tiles like Generator */
+#adu-list .tile.small { min-height: 72px; }

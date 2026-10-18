@@ -14,7 +14,7 @@
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', ovKey: '', invAcct: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
-  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring', 'ownership', 'zl', 'fchase', 'bankrev', 'ptpl', 'cart', 'generator'];
+  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring', 'ownership', 'zl', 'fchase', 'bankrev', 'ptpl', 'cart', 'generator', 'adu'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -574,6 +574,7 @@
     if (name === 'hiring') hiringOpen();
     if (name === 'cart') cartOpen();   // v176: Zac > Heavy Object Cart Build
     if (name === 'generator') generatorOpen();   // v177: Zac > Generator
+    if (name === 'adu') aduOpen();   // v177: Zac > ADU
     if (name === 'ptpl') ptplOpen();   // v167: keeps the open level (coming back from a Drive folder lands where you were)
     if (name === 'zl') zlOpen();               // v149: Zac > Wetumka to-do lists
     if (name === 'fchase') fcOpen(); else if (fc.sel) fcSheetClose();   // v150: Vault > Family Chase card review
@@ -1254,6 +1255,25 @@
     $('generator-back').setAttribute('data-go', hlItemBack('generator', 'hf/zac'));
     $('generator-body').innerHTML = '<div class="grid2" id="generator-list">' + GENERATOR.docs.map(function (d) { return tile(d, d.sub || 'File'); }).join('') + '</div>' +
       '<a class="linkrow" data-title="Generator" href="' + esc(GENERATOR.folderUrl) + '">Open folder &rsaquo;</a>';
+  }
+
+  /* ---------------- ADU (#adu; Home > Zac, v177) ---------------- */
+  // Same static pattern as Generator: Delaney Rodgers' Skyline floor-plan PDFs + the Mother Lode Homes floor-plan sheet
+  // (all in Second Brain > Zac > ADU) + Open folder.
+  var ADU = {
+    title: 'ADU',
+    folderUrl: 'https://drive.google.com/drive/folders/145Htqop_0YejwnWMOqh5YflOuUwfIsS7',
+    docs: [
+      { name: 'Floor Plans (Aug 12, 2026)', url: 'https://drive.google.com/file/d/182wtD7dUI8zm8vfggWtad8_QeqwcRs1O/view', sub: 'PDF' },
+      { name: 'Smaller Floor Plans (Sep 25, 2026)', url: 'https://drive.google.com/file/d/1Yws6sIm5261rl05eeBaWAEGyzInW5Pwe/view', sub: 'PDF' },
+      { name: 'Mother Lode Homes Floor Plans', url: 'https://docs.google.com/spreadsheets/d/17R6-3a0Vvneep8__RpcaOKDS-fJ6td6eR-P6ZAsl8eo/edit', sub: 'Google Sheet' }
+    ]
+  };
+  function aduOpen() {
+    $('adu-title').textContent = ADU.title;
+    $('adu-back').setAttribute('data-go', hlItemBack('adu', 'hf/zac'));
+    $('adu-body').innerHTML = '<div class="grid2" id="adu-list">' + ADU.docs.map(function (d) { return tile(d, d.sub || 'File'); }).join('') + '</div>' +
+      '<a class="linkrow" data-title="ADU" href="' + esc(ADU.folderUrl) + '">Open folder &rsaquo;</a>';
   }
 
   /* ---------------- Project Template (#ptpl; L&S projects > Project Template, v165; v167: the template's folder tree as buttons) ----------------
@@ -20873,6 +20893,7 @@
     'f:wetumka': { label: 'Wetumka', go: 'hf/wetumka', folder: true },
     'cart':      { label: 'Heavy Object Cart Build', go: 'cart', sub: 'Materials \u00b7 cut list', cls: 'hiring-entry' },   // v176: Zac > after Wetumka (#cart)   // v149: Zac > Wetumka (project lists)
     'generator': { label: 'Generator', go: 'generator', sub: 'Power cell \u00b7 overview', cls: 'hiring-entry' },   // v177: Zac > Generator (#generator)
+    'adu':       { label: 'ADU', go: 'adu', sub: 'Floor plans', cls: 'hiring-entry' },   // v177: Zac > ADU (#adu)
     'zl/garage':      { label: 'Garage organization', go: 'zl/garage' },   // v149: to-do lists (#zl/<slug>)
     'zl/connex':      { label: 'Connex box', go: 'zl/connex' },
     'zl/landscaping': { label: 'Landscaping', go: 'zl/landscaping' },   // v113: Home folder (v130: holds Change requests by default; drag buttons in)
@@ -20897,7 +20918,7 @@
     'f:fh': HL_FH_IN.slice(),
     'f:medical': ['health'],
     'f:lisa': ['lr'],
-    'f:zac': ['f:wetumka', 'generator', 'cart'],   // v177: + Generator; v176 cart (hlNormalize slots into saved layouts)
+    'f:zac': ['f:wetumka', 'generator', 'cart', 'adu'],   // v177: + Generator, + ADU; v176 cart (hlNormalize slots into saved layouts)
     'f:wetumka': ['zl/garage', 'zl/connex', 'zl/landscaping'],         // v149   // v130: saved layouts get it too (hlNormalize slots new items into their default folder)
     biz: ['f:archive'],   // v147: the v141-v146 'ownership' tile is gone from Business (it now lives only on Trust & Estate); hlNormalize drops it from saved layouts
     fin: ['fin/ledger', 'fin/invest', 'fchase', 'bankrev', 'f:finwork'],   // v170: + Workspace folder at the end (hlNormalize slots it into saved layouts)   // v169: the v163 Finances > Archive folder is gone (hlLoad moves anything in it back to Finances)   // v150: Family Chase after Investments (hlNormalize slots it into saved layouts too)
