@@ -21727,6 +21727,7 @@
     if ($('hl-biz') && state.bizSlug) $('hl-biz').hidden = true;
     hlRenderGrid($('hl-fin'), 'fin', false);
     if ($('hl-fin') && state.finKind) $('hl-fin').hidden = true;
+    if ($('screen-fin')) $('screen-fin').classList.toggle('finhome', !state.finKind);   // v182: gunmetal background on the Finances home only
     if (!state.finKind && $('fin-back')) { var fu = hlBackOf('fin'); $('fin-back').setAttribute('data-go', fu); $('fin-back').hidden = fu === 'home'; }
     var pb = $('projects-back'); if (pb) { var pr = hlBackOf('projects'); pb.setAttribute('data-go', pr); pb.hidden = pr === 'home'; }
     if (!state.bizSlug && $('biz-back')) $('biz-back').setAttribute('data-go', hlBackOf('biz'));
