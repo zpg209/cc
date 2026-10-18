@@ -14,7 +14,7 @@
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', ovKey: '', invAcct: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
-  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring', 'ownership', 'zl', 'fchase', 'bankrev', 'ptpl', 'cart', 'generator', 'adu'];
+  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring', 'ownership', 'zl', 'fchase', 'bankrev', 'ptpl', 'cart', 'generator', 'adu', 'mkt'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -571,7 +571,8 @@
     if (name !== 'mf') mfMicStop(true);
     if (name !== 'pc') pcMicStop(true);
     if (name !== 'zl') zlMicStop(true);
-    if (name === 'zl') state.zlSlug = ZL[R.kind] ? R.kind : 'garage';   // #zl/<garage|connex|landscaping>
+    if (name === 'zl') state.zlSlug = ZL[R.kind] ? R.kind : 'garage';
+    if (name === 'mkt') state.mktSlug = MKT[R.kind] ? R.kind : 'lt';   // v180: #mkt/<lt|pt|mvl|mf>   // #zl/<garage|connex|landscaping>
     if (name !== 'lr') lrMicStop(true);
     if (!(name === 'lt' && R.kind === 'orders')) odMicStop(true);
     if (!(name === 'lt' && (R.kind === 'macros' || R.kind === 'recipes'))) macClose(true);
@@ -597,6 +598,7 @@
         name === 'pt' ? '#pt' + (state.ptRoute.kind ? '/' + encodeURIComponent(state.ptRoute.kind) + (state.ptRoute.id ? '/' + encodeURIComponent(state.ptRoute.id) : '') : '') :
         name === 'hf' ? '#hf/' + encodeURIComponent(state.hfId.replace(/^f:/, '')) :
         name === 'zl' ? '#zl/' + state.zlSlug :
+        name === 'mkt' ? '#mkt/' + state.mktSlug :
         name === 'tm' ? '#tm' + (state.tmView ? '/' + state.tmView : '') :
         name === 'mf' ? (state.mfTab && state.mfTab !== 'home' ? '#mf/' + state.mfTab : '#mf') :
         name === 'pc' ? (state.pcRoute && state.pcRoute.kind === 'new' ? '#pc/new' : state.pcRoute && state.pcRoute.kind === 'edit' && state.pcRoute.id ? '#pc/' + encodeURIComponent(state.pcRoute.id) : '#pc') :
@@ -632,7 +634,8 @@
     if (name === 'hiring') hiringOpen();
     if (name === 'cart') cartOpen();   // v176: Zac > Heavy Object Cart Build
     if (name === 'generator') generatorOpen();   // v177: Zac > Generator
-    if (name === 'adu') aduOpen();   // v177: Zac > ADU
+    if (name === 'adu') aduOpen();
+    if (name === 'mkt') mktOpen();   // v180: Zac > Marketing > plan page   // v177: Zac > ADU
     if (name === 'ptpl') ptplOpen();   // v167: keeps the open level (coming back from a Drive folder lands where you were)
     if (name === 'zl') zlOpen();               // v149: Zac > Wetumka to-do lists
     if (name === 'fchase') fcOpen(); else if (fc.sel) fcSheetClose();   // v150: Vault > Family Chase card review
@@ -1346,6 +1349,369 @@
     $('adu-body').innerHTML = '<div class="grid2" id="adu-list">' + ADU.docs.map(function (d) { return tile(d, d.sub || 'File'); }).join('') + '</div>' +
       '<a class="linkrow" data-title="ADU" href="' + esc(ADU.folderUrl) + '">Open folder &rsaquo;</a>';
   }
+
+  /* ---------------- Marketing (#mkt/<slug>; Home > Zac > Marketing, v180) ----------------
+   * Four phone-first starter marketing plans, one per business. App-only: the text lives here (no Drive folder, no server or sheet
+   * writes). Sections are <details> so each page stays short; the 30/60/90 checklist ticks are saved on this phone only
+   * (localStorage MKT_KEY = { '<slug>:<phase>:<i>': 1 }). No stats, prices or customer counts: '___' and Open questions mark the gaps. */
+  var MKT_KEY = 'cc.mkt.v1';
+  var MKT = {
+    lt: {
+      title: 'Lisa\u2019s Table', short: 'Weekly meals',
+      snapshot: [
+        'Lisa\u2019s local meal business in the Sonora / Tuolumne County area: a weekly menu, ordered ahead, made by Lisa.',
+        'Orders are tracked in this app (paid / unpaid / trade), and every menu has Menu Macros, so the calories and protein are known.',
+        'The edge: home-made, local, the same person every week, and the macros printed for people who track what they eat.'
+      ],
+      customers: [
+        'Busy families and working parents who want real dinners without the shopping and cooking.',
+        'People tracking macros or eating for training (gym members, Lisa\u2019s PT clients), who value the Menu Macros.',
+        'Seniors and anyone recovering from surgery or a new baby (and the friends and family who buy meals for them).',
+        'Shift workers (hospital, county, schools, trades) who need ready meals on their schedule.',
+        'Repeat weekly customers: the core of the business. Keeping them matters more than finding one-time buyers.'
+      ],
+      goals: [
+        'Grow to ___ regular weekly customers (set the number from the current order history).',
+        'Get ___ new Google reviews.',
+        'Build a text / email list of ___ people who get the menu every week.',
+        'Bring unpaid orders to zero by the delivery day, every week.',
+        'Pick a weekly order cutoff and pickup / delivery routine and keep it the same every week.'
+      ],
+      channels: [
+        ['Weekly menu text / email', 'The main channel. Send the menu the same day and time each week with the order cutoff. Include the macros line.'],
+        ['Google Business Profile', 'Set it up (or claim it): hours, service area, photos of real meals, a link or number to order. Ask every happy customer for a review.'],
+        ['Instagram / Facebook', 'Post the weekly menu, one photo per dish, and short prep clips. Use the same graphic style every week so it\u2019s recognisable.'],
+        ['Local Facebook groups and Nextdoor', 'Share the menu where the group rules allow it. Answer questions quickly; don\u2019t post in groups that ban selling.'],
+        ['Partnerships', 'Gyms, Lisa\u2019s PT clients, churches, offices, the hospital and schools (staff), new-parent and senior groups: a stack of menu cards or a standing group order.'],
+        ['Referral offer', 'Give a regular customer a thank-you (a free side or $___ off) when a friend they sent orders.'],
+        ['Flyers / menu cards', 'A card in every order bag with how to order and a QR code to the menu or order form.']
+      ],
+      offers: [
+        'First-order trial: a smaller \u201ctry it\u201d box or a free side on the first order.',
+        'Subscribe weekly: a small saving or a free extra for a standing weekly order.',
+        'Meal-train / gift orders: friends buy a week of meals for a new parent or someone recovering.',
+        'Office or team lunch day (one drop-off, several meals).',
+        'Seasonal menus (holidays, summer grilling, back-to-school) to give people a reason to come back.',
+        'Bring-a-friend week: both get the referral thank-you.'
+      ],
+      plan: {
+        30: [
+          'Decide the weekly rhythm: menu goes out ___ day, cutoff ___, pickup / delivery ___.',
+          'Start the weekly menu list (text or email) with current customers; ask each one to forward it to one friend.',
+          'Claim or create the Google Business Profile; add 5+ real meal photos.',
+          'Ask the 5 most regular customers for a Google review.',
+          'Print menu / order cards with a QR code; put one in every order.',
+          'Post the menu on Instagram / Facebook every week this month.'
+        ],
+        60: [
+          'Launch the referral offer and tell every customer about it.',
+          'Pitch one partner (a gym, an office, or Lisa\u2019s PT clients) a standing weekly or group order.',
+          'Try one offer (trial box or subscribe-weekly) and compare orders before and after.',
+          'Share the menu in 2\u20133 local Facebook groups / Nextdoor where allowed.',
+          'Check the order log: who stopped ordering? Send them a personal note.'
+        ],
+        90: [
+          'Review the numbers below against the 90-day goals.',
+          'Keep the channels that brought orders; drop the ones that didn\u2019t.',
+          'Pick the next partner or group to approach.',
+          'Plan the next seasonal menu and announce it ahead of time.',
+          'Decide whether to raise capacity (more meals per week) or keep it as is.'
+        ]
+      },
+      metrics: [
+        'Orders and meals per week (from the Lisa\u2019s Table orders in this app).',
+        'Repeat customers vs new customers each week.',
+        'Unpaid orders at delivery day; trades per week.',
+        'Size of the menu text / email list.',
+        'Google reviews (count and stars).',
+        'Where each new customer heard about it (ask on the first order).'
+      ],
+      questions: [
+        'How many meals per week can Lisa make comfortably, and what is the most she wants to make?',
+        'Pickup only, delivery, or both? Delivery area and any fee?',
+        'Does the business have the permits / kitchen setup it needs to advertise publicly (e.g. Tuolumne County cottage food or commercial kitchen rules)? Verify before running ads.',
+        'How should trades be handled as the business grows (who qualifies, how many per week)?',
+        'What does a referral thank-you cost the business, and what is it worth?',
+        'Is there a name, logo and photo style to keep consistent?',
+        'What order method should new customers use (text, form, app link)?'
+      ]
+    },
+    pt: {
+      title: 'Lisa\u2019s Personal Training', short: 'PT clients',
+      snapshot: [
+        'Lisa trains clients one-on-one in the Sonora / Tuolumne County area.',
+        'Each client gets a progressive 4-week program, tracked in this app, so progress is easy to show.',
+        'The edge: personal attention, a written plan that builds every week, and visible progress (and, with Lisa\u2019s Table, food that fits the plan).'
+      ],
+      customers: [
+        'Adults getting back into fitness who want someone to show them what to do and keep them on track.',
+        'People 40+ who want strength, mobility and confidence, not a bootcamp.',
+        'Clients with a goal and a date: a wedding, a trip, a sport season, a hunting or hiking season.',
+        'People coming off physical therapy who are cleared to train and need a careful next step.',
+        'Lisa\u2019s Table customers who already care about what they eat.'
+      ],
+      goals: [
+        'Fill ___ open client spots.',
+        'Keep current clients: ___% renew into the next 4-week block.',
+        'Get ___ Google reviews / written testimonials.',
+        'Collect ___ before-and-after progress stories (with permission).',
+        'Set up one referral partner (a clinic, a gym, or a local business).'
+      ],
+      channels: [
+        ['Google Business Profile and reviews', 'List Lisa as a personal trainer with the service area and hours; ask every client who is happy to leave a review.'],
+        ['Instagram / Facebook', 'Short exercise demos, a weekly tip, client wins (with permission). Show the 4-week program idea: \u201cweek 1 vs week 4\u201d.'],
+        ['Referrals', 'Current clients are the best source. Ask directly at the end of each 4-week block.'],
+        ['Local partnerships', 'Physical therapists, chiropractors, doctors\u2019 offices, running and hiking groups, sports teams, local gyms (if Lisa trains there).'],
+        ['Nextdoor and community groups', 'A short intro post and an open free consult offer, where the group rules allow it.'],
+        ['Lisa\u2019s Table cross-promotion', 'A card in meal orders about training, and a meals mention for PT clients.'],
+        ['Email / text list', 'A monthly note: a tip, an open spot, a client win.']
+      ],
+      offers: [
+        'Free intro consult or first session to meet and assess.',
+        '4-week starter block (matches the app\u2019s programs) with a clear start and finish.',
+        'Bring-a-friend / partner sessions.',
+        'Renew-early thank-you for clients who sign up for the next block before the current one ends.',
+        'Training + meals bundle with Lisa\u2019s Table.',
+        'Seasonal challenges (New Year, summer, pre-ski / pre-hunting season).'
+      ],
+      plan: {
+        30: [
+          'Decide the number of open spots and the schedule (days / times).',
+          'Write a short \u201cwho this is for\u201d description and a 3-line bio.',
+          'Claim or create the Google Business Profile; ask current clients for reviews.',
+          'Ask current clients for permission to share a progress story.',
+          'Post on Instagram / Facebook twice a week this month.'
+        ],
+        60: [
+          'Launch the free consult offer and the referral thank-you.',
+          'Visit or call 2 partners (a PT clinic, a chiropractor, a local group) and leave cards.',
+          'Add a training card to Lisa\u2019s Table orders.',
+          'Ask every client finishing a 4-week block about the next block.',
+          'Post one client win (with permission).'
+        ],
+        90: [
+          'Review the metrics below against the 90-day goals.',
+          'Keep the channels that brought clients; drop the rest.',
+          'Decide whether to add a small-group option if spots are full.',
+          'Plan the next seasonal challenge.',
+          'Update the bio, photos and offers on the Google profile.'
+        ]
+      },
+      metrics: [
+        'Active clients and open spots.',
+        'New clients per month and where they came from.',
+        'Renewals into the next 4-week block.',
+        'Program completion (from the training programs in this app).',
+        'Google reviews and testimonials collected.',
+        'Consults booked vs clients who signed up.'
+      ],
+      questions: [
+        'How many clients can Lisa take at once, and on which days and times?',
+        'Where do sessions happen (home, a gym, outdoors, online)?',
+        'What certifications and insurance does Lisa hold, and should they be on the profile?',
+        'What waiver / health screening do new clients sign?',
+        'Is a small-group option wanted, or one-on-one only?',
+        'Which partners does Lisa already know personally?',
+        'Should training and Lisa\u2019s Table be marketed together or separately?'
+      ]
+    },
+    mvl: {
+      title: 'Mono Village Laundromat', short: 'MVL \u00b7 self-serve',
+      snapshot: [
+        'A self-serve laundromat on Mono Way in Sonora, owned by TiwiK LLC.',
+        'People come in to wash and dry their own laundry; most of them live or work nearby.',
+        'The edge to build on: easy to find on a main road, clean, working machines, and the new Mono Fold service under the same owner.'
+      ],
+      customers: [
+        'Renters and apartment residents without a washer or dryer at home.',
+        'Households with bulky items: comforters, sleeping bags, horse blankets, dog beds.',
+        'Visitors and travellers: campers, RV travellers, people on their way to or from Yosemite and the high country.',
+        'People whose machines at home broke, or after a move or a power outage.',
+        'Local businesses with towels or uniforms (salons, gyms, small restaurants), who may later want Mono Fold.'
+      ],
+      goals: [
+        'Get the Google Business Profile complete and accurate, with ___ new reviews.',
+        'Raise the average star rating to ___ (or keep it at ___).',
+        'Increase visits / revenue per week by ___ (set from the Finances > Laundromat numbers).',
+        'Fix or flag every out-of-order machine within ___ days.',
+        'Introduce Mono Fold to laundromat customers (a sign, cards).'
+      ],
+      channels: [
+        ['Google Business Profile and reviews', 'The most important channel: correct hours, photos of the clean inside and the big machines, answers to questions, replies to every review (good and bad).'],
+        ['Signage', 'Clear outside sign from Mono Way, hours on the door, inside signs for prices, machine sizes and how to pay.'],
+        ['Apple Maps / Yelp / Bing', 'Claim the listings so the hours and address match Google everywhere.'],
+        ['Facebook / Instagram', 'Light: hours, holiday changes, new machines, a reminder for comforter season.'],
+        ['Nextdoor and local groups', 'Answer \u201cwhere\u2019s a good laundromat?\u201d posts; share news like new machines.'],
+        ['Partnerships', 'Apartment complexes, motels, campgrounds and RV parks nearby: a card or a flyer at the office.'],
+        ['Cross-promotion with Mono Fold', 'A sign and cards inside: \u201cDon\u2019t have time? We can wash and fold it for you.\u201d']
+      ],
+      offers: [
+        'Comforter / bulky-item season reminder (spring and fall).',
+        'Off-peak day or time promotion if the machines sit empty at certain times.',
+        'Loyalty card or punch card (if the payment system allows it).',
+        'A \u201cthanks for the review\u201d sign with a QR code (ask for honest reviews; Google doesn\u2019t allow paying or discounting for them).',
+        'Campground / motel guest card with the hours and directions.'
+      ],
+      plan: {
+        30: [
+          'Check the Google Business Profile: hours, address, phone, photos, categories. Fix anything wrong.',
+          'Reply to every existing Google review.',
+          'Walk the store as a customer: signs, prices, cleanliness, broken machines. Make a fix list.',
+          'Claim the Apple Maps, Yelp and Bing listings and match the hours.',
+          'Put up a Mono Fold sign and cards inside.'
+        ],
+        60: [
+          'Add a small sign asking happy customers for a Google review (with a QR code).',
+          'Drop cards or flyers at 3 nearby apartment complexes, motels or RV parks.',
+          'Pick one off-peak promotion to try, and note the before and after.',
+          'Post a short update on Facebook / Nextdoor (new machines, comforter season).'
+        ],
+        90: [
+          'Review the metrics below against the 90-day goals.',
+          'Keep what worked; plan the next season\u2019s promotion.',
+          'Decide which machines to repair, replace or add.',
+          'Check how many Mono Fold customers came from the laundromat.'
+        ]
+      },
+      metrics: [
+        'Weekly revenue and machine use (from Finances > Laundromat in this app).',
+        'Busy vs quiet days and times.',
+        'Google: reviews, stars, calls, direction requests and views (shown in the profile\u2019s insights).',
+        'Machines out of order and days to fix.',
+        'Mono Fold orders that came from laundromat customers.'
+      ],
+      questions: [
+        'Who handles the Google profile and review replies, Zac or someone else?',
+        'Which payment methods do the machines take (coins, cards, app)? Can a loyalty or promo be set on them?',
+        'What are the busy and quiet times today?',
+        'What are the most common complaints in reviews?',
+        'Are the hours staffed, or unattended? Who does cleaning and machine checks, and how often?',
+        'Any plans to replace or add machines (e.g. bigger washers for comforters)?',
+        'Is there a budget for signs or a small local ad?'
+      ]
+    },
+    mf: {
+      title: 'Mono Fold', short: 'Wash & fold',
+      snapshot: [
+        'A new fluff-and-fold / wash-and-fold service under TiwiK LLC: customers drop off laundry and pick it up washed, dried and folded.',
+        'Run by a separate operator, with Zac overseeing. Payments start as cash or Venmo.',
+        'Works alongside Mono Village Laundromat. CleanCloud and Curbside Laundries are the reference products for booking and pickup / delivery; after-hours service is a future idea.'
+      ],
+      customers: [
+        'Busy working parents and families with a lot of laundry.',
+        'Seniors and people who find carrying laundry hard.',
+        'Laundromat customers who would rather drop off than wait.',
+        'Small businesses: salons, spas, gyms, Airbnb and vacation-rental hosts, small restaurants (towels, linens, aprons).',
+        'Visitors and people between homes, on a trip or after a move.'
+      ],
+      goals: [
+        'Get the first ___ paying customers.',
+        'Sign up ___ repeat (weekly or every-other-week) customers.',
+        'Land ___ business account (a vacation-rental host, salon or gym).',
+        'Get ___ Google reviews.',
+        'Make the drop-off, turnaround time and payment simple and written down.'
+      ],
+      channels: [
+        ['Laundromat customers first', 'Signs and cards inside Mono Village Laundromat; the operator mentions it to regulars.'],
+        ['Google Business Profile', 'A listing for Mono Fold (or a service on the laundromat\u2019s profile) with what it is, turnaround time and how to drop off; ask early customers for reviews.'],
+        ['Facebook / Instagram', 'Before-and-after photos of a folded order, the turnaround time, how to pay.'],
+        ['Nextdoor and local groups', 'An intro post: \u201cnew wash-and-fold in Sonora\u201d, where the group rules allow it.'],
+        ['Business partnerships', 'Vacation-rental hosts and cleaners, salons, gyms, small restaurants: a standing weekly pickup or drop-off.'],
+        ['Referral offer', 'A thank-you (e.g. ___ lbs free or $___ off) when a friend they sent places an order.'],
+        ['Text list', 'Customers opt in for reminders (\u201cpickup day tomorrow\u201d) and for announcements like pickup / delivery when it starts.']
+      ],
+      offers: [
+        'First-order discount or a free add-on (e.g. one comforter).',
+        'Weekly or every-other-week standing order at a small saving.',
+        'Business account: a regular schedule and a single bill.',
+        'Bring-a-friend referral thank-you.',
+        'Later: pickup and delivery, then after-hours drop-off (lockers or a drop slot), once demand shows it is worth it.'
+      ],
+      plan: {
+        30: [
+          'Write down the basics: price per ___, minimum order, turnaround time, drop-off and pickup hours, cash / Venmo details.',
+          'Write the handling rules: separating, detergent options, what isn\u2019t accepted, what happens if an item is lost or damaged.',
+          'Put signs and cards in the laundromat.',
+          'Set up the Google listing (or add the service to the laundromat profile).',
+          'Make a simple order log: name, phone, weight, paid (cash / Venmo), ready date.'
+        ],
+        60: [
+          'Ask the first customers for a review and a referral.',
+          'Contact 3 local businesses or vacation-rental hosts about a standing order.',
+          'Post an intro on Facebook / Nextdoor where allowed.',
+          'Start the opt-in text list for reminders.',
+          'Review turnaround times and any problems with the operator.'
+        ],
+        90: [
+          'Review the metrics below against the 90-day goals.',
+          'Decide whether pickup / delivery is worth testing (look at CleanCloud and Curbside Laundries for how they handle booking and routes).',
+          'Decide whether to move off cash / Venmo to a booking and payment system.',
+          'Keep a list of after-hours ideas (drop slot, lockers) and what they would need.',
+          'Agree the next 90-day goals with the operator.'
+        ]
+      },
+      metrics: [
+        'Orders and pounds per week.',
+        'New vs repeat customers; business accounts.',
+        'Turnaround time (promised vs actual) and any re-dos or complaints.',
+        'Revenue by payment type (cash / Venmo), and that each payment is recorded.',
+        'Where each customer heard about it.',
+        'Google reviews.'
+      ],
+      questions: [
+        'What is the price per pound (or per bag), and is there a minimum order?',
+        'What turnaround time can the operator promise?',
+        'How is the operator paid, and who records the cash and Venmo payments?',
+        'What is the policy for lost or damaged items, and is there insurance for it?',
+        'Separate Google listing for Mono Fold, or a service under the laundromat\u2019s profile?',
+        'When should pickup / delivery start, and in what area?',
+        'Which booking / payment tool (if any) and when: CleanCloud, Curbside Laundries, or something simpler?',
+        'Does Zac want a weekly check-in with the operator, and on which numbers?'
+      ]
+    }
+  };
+  var MKT_ORDER = ['lt', 'pt', 'mvl', 'mf'];
+  function mktLoad() { try { var v = JSON.parse(localStorage.getItem(MKT_KEY) || '{}'); return v && typeof v === 'object' ? v : {}; } catch (e) { return {}; } }
+  function mktSave(v) { try { localStorage.setItem(MKT_KEY, JSON.stringify(v)); } catch (e) {} }
+  function mktList(a) { return '<ul class="mkt-ul">' + a.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>'; }
+  function mktSec(key, title, inner, open) {
+    return '<details class="mkt-sec" data-mkt-sec="' + key + '"' + (open ? ' open' : '') + '><summary>' + esc(title) + '</summary><div class="mkt-in">' + inner + '</div></details>';
+  }
+  function mktOpen() {
+    var slug = state.mktSlug, m = MKT[slug], done = mktLoad();
+    $('mkt-title').textContent = m.title;
+    $('mkt-title').classList.toggle('long', m.title.length > 18);
+    $('mkt-back').setAttribute('data-go', hlItemBack('mkt/' + slug, 'hf/mkt'));
+    var total = 0, ticked = 0;
+    var plan = [30, 60, 90].map(function (d) {
+      return '<h4 class="mkt-ph">First ' + d + ' days</h4><ul class="zl-ul mkt-cl">' + m.plan[d].map(function (t, i) {
+        var k = slug + ':' + d + ':' + i, on = !!done[k]; total++; if (on) ticked++;
+        return '<li class="zl-row' + (on ? ' done' : '') + '"><button type="button" class="zl-check" data-mkt-k="' + k + '" role="checkbox" aria-checked="' + on + '" aria-label="' + esc(t) + '">' + (on ? '\u2713' : '') + '</button>' +
+          '<span class="zl-text mkt-t"><span class="zl-t">' + esc(t) + '</span></span></li>';
+      }).join('') + '</ul>';
+    }).join('');
+    var ch = '<ul class="mkt-ul mkt-ch">' + m.channels.map(function (c) { return '<li><b>' + esc(c[0]) + '</b><span>' + esc(c[1]) + '</span></li>'; }).join('') + '</ul>';
+    $('mkt-body').innerHTML =
+      '<p class="hint mkt-sub">Starter plan \u00b7 ' + esc(m.short) + ' \u00b7 Sonora / Tuolumne County. Blanks (___) need real numbers.</p>' +
+      mktSec('snap', 'Snapshot', mktList(m.snapshot), true) +
+      mktSec('cust', 'Target customers', mktList(m.customers)) +
+      mktSec('goals', 'Goals for the next 90 days', mktList(m.goals)) +
+      mktSec('chan', 'Channels and tactics', ch) +
+      mktSec('offers', 'Offers and promo ideas', mktList(m.offers)) +
+      mktSec('plan', '30 / 60 / 90-day checklist (' + ticked + '/' + total + ')', plan + '<p class="foot">Ticks are saved on this phone only.</p>') +
+      mktSec('metrics', 'Metrics to track', mktList(m.metrics)) +
+      mktSec('q', 'Open questions for Zac and Lisa', mktList(m.questions));
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-mkt-k]'); if (!b) return;
+    var v = mktLoad(), k = b.getAttribute('data-mkt-k');
+    if (v[k]) delete v[k]; else v[k] = 1;
+    mktSave(v);
+    var open = Array.prototype.map.call(document.querySelectorAll('#mkt-body details[open]'), function (d) { return d.getAttribute('data-mkt-sec'); });
+    var y = window.scrollY; mktOpen();
+    Array.prototype.forEach.call(document.querySelectorAll('#mkt-body details'), function (d) { d.open = open.indexOf(d.getAttribute('data-mkt-sec')) >= 0; });
+    window.scrollTo(0, y);
+  });
 
   /* ---------------- Project Template (#ptpl; L&S projects > Project Template, v165; v167: the template's folder tree as buttons) ----------------
    * PTPL.tree is the real Drive folder tree under the template folder (fetched 2026-10-14, static): [name, folderId, children]. A folder with
@@ -20963,6 +21329,11 @@
     'cart':      { label: 'Heavy Object Cart Build', go: 'cart', sub: 'Materials \u00b7 cut list', cls: 'hiring-entry' },   // v176: Zac > after Wetumka (#cart)   // v149: Zac > Wetumka (project lists)
     'generator': { label: 'Generator', go: 'generator', sub: 'Power cell \u00b7 overview', cls: 'hiring-entry' },   // v177: Zac > Generator (#generator)
     'adu':       { label: 'ADU', go: 'adu', sub: 'Floor plans', cls: 'hiring-entry' },   // v177: Zac > ADU (#adu)
+    'f:mkt':     { label: 'Marketing', go: 'hf/mkt', folder: true },   // v180: Zac > Marketing (app-only folder: four starter plans)
+    'mkt/lt':    { label: 'Lisa\u2019s Table', go: 'mkt/lt', sub: 'Marketing plan', cls: 'hiring-entry' },
+    'mkt/pt':    { label: 'Lisa\u2019s Personal Training', go: 'mkt/pt', sub: 'Marketing plan', cls: 'hiring-entry' },
+    'mkt/mvl':   { label: 'Mono Village Laundromat', go: 'mkt/mvl', sub: 'Marketing plan', cls: 'hiring-entry' },
+    'mkt/mf':    { label: 'Mono Fold', go: 'mkt/mf', sub: 'Marketing plan', cls: 'hiring-entry' },
     'zl/garage':      { label: 'Garage organization', go: 'zl/garage' },   // v149: to-do lists (#zl/<slug>)
     'zl/connex':      { label: 'Connex box', go: 'zl/connex' },
     'zl/landscaping': { label: 'Landscaping', go: 'zl/landscaping' },   // v113: Home folder (v130: holds Change requests by default; drag buttons in)
@@ -20987,7 +21358,8 @@
     'f:fh': HL_FH_IN.slice(),
     'f:medical': ['health'],
     'f:lisa': ['lr'],
-    'f:zac': ['f:wetumka', 'generator', 'cart', 'adu'],   // v177: + Generator, + ADU; v176 cart (hlNormalize slots into saved layouts)
+    'f:zac': ['f:wetumka', 'generator', 'cart', 'adu', 'f:mkt'],   // v180: + Marketing
+    'f:mkt': ['mkt/lt', 'mkt/pt', 'mkt/mvl', 'mkt/mf'],   // v177: + Generator, + ADU; v176 cart (hlNormalize slots into saved layouts)
     'f:wetumka': ['zl/garage', 'zl/connex', 'zl/landscaping'],         // v149   // v130: saved layouts get it too (hlNormalize slots new items into their default folder)
     biz: ['f:archive'],   // v147: the v141-v146 'ownership' tile is gone from Business (it now lives only on Trust & Estate); hlNormalize drops it from saved layouts
     fin: ['fin/ledger', 'fin/invest', 'fchase', 'bankrev', 'f:finwork'],   // v170: + Workspace folder at the end (hlNormalize slots it into saved layouts)   // v169: the v163 Finances > Archive folder is gone (hlLoad moves anything in it back to Finances)   // v150: Family Chase after Investments (hlNormalize slots it into saved layouts too)
