@@ -14,7 +14,7 @@
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', ovKey: '', invAcct: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
-  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'trust', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring', 'ownership', 'zl', 'fchase', 'bankrev', 'ptpl', 'cart', 'generator', 'adu'];
+  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring', 'ownership', 'zl', 'fchase', 'bankrev', 'ptpl', 'cart', 'generator', 'adu'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -455,11 +455,70 @@
       ((sr.kind === 'cat' || sr.kind === 'cash' || sr.kind === 'debt') && sr.acct ? '/' + encodeURIComponent(sr.acct) : '');
     return '#spend';
   }
+  /* ---------------- Navigation history (v179) ----------------
+   * NAV.s is a stack of the routes (hash without '#') the user came through; NAV.s.length is also stored on each history entry the app
+   * pushes ({ screen, nav: depth }) so the browser / Android back gesture and the in-app Back buttons stay in step.
+   * Every forward show() pushes the route being left. Every Back button (.backbtn, incl. the viewer's) calls navBack(): it pops to the
+   * ACTUAL previous screen (history.back() when the browser entry is ours, else replaceState + show), and only when the stack is empty
+   * (fresh load / deep link) falls back to the button's logical parent (its data-go), then Home. The route carries the state needed to
+   * restore a screen (folder id in #hf/<id> and #doc?u=..., Vault / Finances / entity sub-views, tabs); scroll is restored per route.
+   * Saved in sessionStorage so a reload mid-chain keeps it. Rollback: revert the v179 commit. */
+  var NAV = { s: [], waiting: null, KEY: 'cc_nav' };
+  (function () {
+    try { var v = JSON.parse(sessionStorage.getItem(NAV.KEY) || '[]'); if (Array.isArray(v)) NAV.s = v.filter(function (x) { return typeof x === 'string'; }); } catch (e) {}
+    var st = history.state;
+    if (!st || typeof st.nav !== 'number') NAV.s = []; else if (NAV.s.length > st.nav) NAV.s.length = st.nav;
+  })();
+  function navSave() { try { sessionStorage.setItem(NAV.KEY, JSON.stringify(NAV.s.slice(-80))); } catch (e) {} }
+  function navCur() { return location.hash.slice(1) || 'home'; }
+  function navPush(name, h) {           // every forward navigation: remember where we were, then push the new entry
+    var cur = navCur(), next = (h || '').replace(/^#/, '') || 'home';
+    if (cur === next) return;
+    NAV.s.push(cur); navSave();
+    history.pushState({ screen: name, nav: NAV.s.length }, '', h || location.pathname + location.search);
+  }
+  function navReplace(route) {
+    route = String(route || 'home').replace(/^#/, '') || 'home';
+    history.replaceState({ screen: parseRoute(route).base, nav: NAV.s.length }, '', route === 'home' ? location.pathname + location.search : '#' + route);
+    navSave(); show(route, true);
+  }
+  function navScreen() { var el = document.querySelector('.screen.active'); return el ? el.id.replace(/^screen-/, '') : 'home'; }
+  function navFallback(btn) {           // logical parent when there is no history (fresh load / deep link)
+    var name = navScreen(), cur = navCur();
+    if (btn && btn.id === 'doc-back') return state.docFrom || 'home';
+    var g = btn && !btn.hidden ? btn.getAttribute('data-go') : '';
+    if (g && g !== cur && !(parseRoute(g).base === name && !parseRoute(cur).kind)) return g;
+    if (typeof HL_ITEMS !== 'undefined' && HL_ITEMS[name] && hl.f) return hlItemBack(name, 'home');
+    return 'home';
+  }
+  function navBack(btn) {
+    if (navScreen() === 'doc') closeDoc();
+    if (!NAV.s.length) return navReplace(navFallback(btn));
+    var hs = history.state;
+    if (hs && hs.nav === NAV.s.length) {          // the current browser entry is ours: a real back (keeps the gesture and Back in step)
+      var done = false, depth = NAV.s.length;
+      NAV.waiting = function () { done = true; };
+      history.back();
+      setTimeout(function () {                   // an embedded viewer can swallow history.back(); then go there directly
+        if (done) return; NAV.waiting = null;
+        if (NAV.s.length === depth) navReplace(NAV.s.pop());
+      }, 450);
+      return;
+    }
+    navReplace(NAV.s.pop());
+  }
+  window.navBack = navBack;   // for tests / console
+
   function show(route, fromHistory) {
     var R = parseRoute(route), name = R.base === 'vault' ? 'spend' : R.base;
     var odCur = document.querySelector('.screen.active'); if (odCur && odCur.id === 'screen-lt' && state.ltPart === 'orders') ordLive.at = 0;   // leaving Orders: the live Vault income refetches next time
     if (name === 'ins') { name = 're'; state.reRoute = { ins: true, slug: '' }; }
     else if (name === 're') state.reRoute = { ins: false, slug: R.kind };
+    if (name === 'trust') {   // v179: Trust & Estate opens straight on the Ownership chart; its documents + folder link sit below the chart/list
+      var oc = document.querySelector('.screen.active');
+      if (oc && oc.id === 'screen-ownership' && getPc()) { var tb = $('trust-body'); if (tb) tb.scrollIntoView({ block: 'start', behavior: 'smooth' }); return; }
+      name = 'ownership'; R = parseRoute('ownership');
+    }
     if (SCREENS.indexOf(name) < 0 || name === 'lock') name = 'home';
     if (!getPc()) return lock();
     if (name === 'spend') {
@@ -542,7 +601,7 @@
         name === 'mf' ? (state.mfTab && state.mfTab !== 'home' ? '#mf/' + state.mfTab : '#mf') :
         name === 'pc' ? (state.pcRoute && state.pcRoute.kind === 'new' ? '#pc/new' : state.pcRoute && state.pcRoute.kind === 'edit' && state.pcRoute.id ? '#pc/' + encodeURIComponent(state.pcRoute.id) : '#pc') :
         name === 're' ? (state.reRoute.ins ? '#ins' : '#re' + (state.reRoute.slug ? '/' + encodeURIComponent(state.reRoute.slug) : '')) : '#' + name;
-      if (location.hash !== h) history.pushState({ screen: name }, '', h || location.pathname + location.search);
+      if (location.hash !== h) navPush(name, h);   // v179: navigation history stack
     }
     if (name === 'projects') loadLinks();
     if (name === 'log') { fhBack('log', 'log-back'); loadLog(); }
@@ -566,7 +625,6 @@
     if (name === 'fin') loadFin(false);
     if (name === 'insn') loadInsn(false);
     if (name === 'lt') { state.ltPart = LT_PARTS[R.kind] ? R.kind : ''; loadLt(); }
-    if (name === 'trust') loadTrust(false);
     if (name === 'pt') ptOpen();
     if (name === 'mf') mfOpen();
     if (name === 'pc') pcOpen();
@@ -579,7 +637,7 @@
     if (name === 'zl') zlOpen();               // v149: Zac > Wetumka to-do lists
     if (name === 'fchase') fcOpen(); else if (fc.sel) fcSheetClose();   // v150: Vault > Family Chase card review
     if (name === 'bankrev') bkOpen(); else if (bk.sel) bkSheetClose();   // v151: Vault > Bank Review (Bank of Stockton)
-    if (name === 'ownership') ownOpen();     // v141: interactive ownership chart
+    if (name === 'ownership') { ownOpen(); loadTrust(false); }     // v141: interactive ownership chart
     if (name === 'doc') { state.docKey = String(route || '').replace(/^#/, ''); openDocScreen(qparams(R.query)); }
     else restoreScroll(String(route || '').replace(/^#/, '') || 'home');
   }
@@ -589,9 +647,17 @@
     delete state.scrollMem[key];
     setTimeout(function () { window.scrollTo(0, y); }, 60);
   }
-  window.addEventListener('popstate', function () { show(location.hash.slice(1) || 'home', true); });
+  window.addEventListener('popstate', function (e) {
+    var n = e.state && typeof e.state.nav === 'number' ? e.state.nav : 0;   // v179: keep the stack in step with the browser entry
+    if (NAV.s.length > n) { NAV.s.length = n; navSave(); }
+    if (NAV.waiting) { var w = NAV.waiting; NAV.waiting = null; w(); }
+    if (navScreen() === 'doc') closeDoc();
+    show(location.hash.slice(1) || 'home', true);
+  });
 
   document.addEventListener('click', function (e) {
+    var bb = e.target.closest('.backbtn');   // v179: every Back goes to the actual previous screen (navBack); ptpl's in-screen level Back keeps its own handler
+    if (bb && !bb.hasAttribute('data-ptpl-up')) { e.preventDefault(); e.stopPropagation(); navBack(bb); return; }
     var el = e.target.closest('[data-go]');
     if (el) { e.preventDefault(); e.stopPropagation(); show(el.getAttribute('data-go')); return; }
     // Google Drive / Docs links open in the in-app viewer so "Back" returns to this screen.
@@ -643,6 +709,7 @@
     $('doc-title').textContent = p.t || 'Document';
     $('doc-open').href = url || '#';
     $('doc-open').style.display = '';
+    $('doc-open').innerHTML = docOpenLabel(url) + ' &#8599;';   // v179: always a new tab, so the CC stays open behind Google's page
     closeDoc(true);
     if (/^ltmenu:/.test(url)) return ltmDocOpen(url.slice(7), p.t, seq);     // v127: a Lisa's Table menu PDF saved on this phone
     daSetDoc(url, p.t, ref);                 // v120: the action bar follows whatever the viewer shows
@@ -653,6 +720,7 @@
     apiRaw(ref.folder ? 'folder' : 'file', { id: ref.id }).then(function (j) {
       if (seq !== state.docSeq) return;
       if (j.error === 'bad_action') { state.proxyOff = true; return iframeFallback(url); }   // API not deployed yet
+      if (j.error === 'forbidden' && toEmbed(url)) { if (!ref.folder) daPreviewFailed(j); return iframeFallback(url, 'forbidden'); }   // v179: outside the Second Brain -> Google's own preview, still in the app
       if (j.error) { if (!ref.folder) daPreviewFailed(j); return docError(j); }
       if (ref.folder) { state.folderCache[ref.id] = j.data; return renderFolder(j.data); }
       renderFile(j.data, seq, daFromPreview(j.data));
@@ -663,8 +731,12 @@
       var b = $('doc-retry'); if (b) b.addEventListener('click', function () { openDocScreen(p); });
     });
   }
+  function docOpenLabel(url) {
+    var m = String(url || '').match(/docs\.google\.com\/(document|spreadsheets|presentation)\//);
+    return m ? 'Open in Google ' + ({ document: 'Docs', spreadsheets: 'Sheets', presentation: 'Slides' })[m[1]] : 'Open in Drive';
+  }
   function openBtn() {
-    return '<div class="retry"><a class="navbtn doc-open-inline" target="_blank" rel="noopener" data-external href="' + esc($('doc-open').href) + '">Open in Drive &#8599;</a></div>';
+    return '<div class="retry"><a class="navbtn doc-open-inline" target="_blank" rel="noopener" data-external href="' + esc($('doc-open').href) + '">' + docOpenLabel($('doc-open').href) + ' &#8599;</a></div>';
   }
   function docMessage(html) {
     $('doc-view').innerHTML = '<div class="doc-msg">' + html + '</div>';
@@ -683,8 +755,9 @@
       '<div class="foot">Share, Email, Text and Copy link below still work.</div>');
     var tb = $('doc-tryprev'); if (tb) tb.addEventListener('click', function () { iframeFallback($('doc-open').href); });
   }
-  function iframeFallback(url) {
+  function iframeFallback(url, why) {
     var src = toEmbed(url), f = $('doc-frame');
+    if ($('doc-hint')) $('doc-hint').setAttribute('data-why', why || '');
     $('doc-view').innerHTML = '';
     $('doc-view').hidden = true;
     if (!src) { f.hidden = true; $('doc-hint').hidden = false; return; }
@@ -834,12 +907,7 @@
   }
   // Back replaces the viewer's history entry with the originating screen instead of history.back():
   // Google's viewers can add their own entries inside the iframe, which would make history.back() stall.
-  $('doc-back').addEventListener('click', function () {
-    var from = state.docFrom || 'home';
-    closeDoc();
-    history.replaceState({ screen: parseRoute(from).base }, '', from === 'home' ? location.pathname + location.search : '#' + from);
-    show(from, true);
-  });
+  // v179: the viewer's Back is a .backbtn handled by navBack() in the document click handler (previous screen; docFrom when no history).
   if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 
   /* ---------------- Document actions (v120) ----------------
@@ -5283,7 +5351,7 @@
     if (!state.links) ensureLinks(function () {});     // v107: links (for the folder link) and the folder list load in parallel
     (function () {
       apiRaw('folder', { id: trustFolderId() }).then(function (j) {
-        if (!$('screen-trust').classList.contains('active')) return;
+        if (!$('screen-ownership').classList.contains('active')) return;
         if (j.error === 'bad_action' || j.error === 'forbidden' || j.error === 'not_found') {
           $('trust-body').innerHTML = trustEmpty('Documents can\u2019t be listed here yet. Open the folder in Drive instead.');
           return;
@@ -13042,7 +13110,7 @@
       '<label class="navbtn pphbtn">Upload photo<input type="file" accept="image/*" multiple data-pph-file="' + id + '" hidden></label></div>' +
       (m ? '<div class="noteflash show' + (m.bad ? ' bad' : '') + '">' + esc(m.t) + '</div>' : '');
     if (mine.length) h += '<div class="pphgrid">' + mine.map(function (r) {
-      var st = r.drive ? '<a class="pphst ok" href="' + esc(r.drive.url) + '" data-external target="_blank" rel="noopener">\u2713 In Drive</a>'
+      var st = r.drive ? '<a class="pphst ok" href="' + esc(r.drive.url) + '" data-title="Workout photo">\u2713 In Drive</a>'
         : '<span class="pphst wait">' + (r.st === 'sync' ? 'Saving to Drive\u2026' : (pphOff() || r.na) ? 'On this phone; saves to Drive after the server update' : r.err ? 'Drive save failed: ' + esc(r.err) : 'On this phone') + '</span>';
       return '<div class="pphitem"><a href="' + pphUrl(r) + '" target="_blank" rel="noopener" data-external class="pphthumb"><img src="' + pphUrl(r) + '" alt="Past workouts photo ' + esc(r.date) + '"></a>' +
         '<div class="pphmeta"><b>' + esc(ptDateW(r.date)) + '</b>' + st + '</div>' +
@@ -16185,7 +16253,7 @@
       state.mfTab = 'orders';
       mf.view = 'ord-form';
       mf.orderForm = mfBlankOrderForm(b.getAttribute('data-cid') || '');
-      if (location.hash !== '#mf/orders') history.pushState({ screen: 'mf' }, '', '#mf/orders');
+      if (location.hash !== '#mf/orders') navPush('mf', '#mf/orders');
       mfRender();
     }
     else if (a === 'cust-new') {
@@ -16234,7 +16302,7 @@
     else if (a === 'ord-open') {
       state.mfTab = 'orders';
       mf.orderId = b.getAttribute('data-id') || ''; mf.view = 'ord-detail';
-      if (location.hash.indexOf('#mf/orders') !== 0) history.pushState({ screen: 'mf' }, '', '#mf/orders');
+      if (location.hash.indexOf('#mf/orders') !== 0) navPush('mf', '#mf/orders');
       mfRender();
     }
     else if (a === 'ord-back') {
@@ -17149,7 +17217,7 @@
       '<button type="button" class="bigsave" data-pc="new">+ New checklist</button>' +
       (rows || '<div class="card"><div class="foot empty">No checklists yet. Tap New checklist, dictate numbered items, and pin or note them on a plan PDF/image.</div></div>') +
       '<div class="foot pcfoot">Saved on this phone only (<code>cc_pc_checklists</code>). Drive folder for later storage: ' +
-      '<a href="' + PC_DRIVE + '" data-external target="_blank" rel="noopener">Plan Checks</a>.</div></div>';
+      '<a href="' + PC_DRIVE + '" data-title="Plan Checks">Plan Checks</a>.</div></div>';
     $('pc-body').innerHTML = h;
   }
 
@@ -17496,7 +17564,7 @@
       '<div class="foot pcfoot">The PDF has the marked-up plan plus a checklist page, made on this phone. Mail links can\u2019t attach files: ' +
       (pcCanShareFiles() ? 'tap <b>Share PDF</b> to send it straight to Mail, or ' : '') +
       'tap <b>Save as PDF</b> and attach the file to the email.</div>' +
-      '<div class="foot pcfoot">Auto-saves on this phone. Drive: <a href="' + PC_DRIVE + '" data-external target="_blank" rel="noopener">Plan Checks folder</a>.</div></div>';
+      '<div class="foot pcfoot">Auto-saves on this phone. Drive: <a href="' + PC_DRIVE + '" data-title="Plan Checks">Plan Checks folder</a>.</div></div>';
     $('pc-body').innerHTML = h;
     pc.flash = ''; pc.flashBad = false;
     pcPaintMicStatus();
@@ -19733,8 +19801,6 @@
     own.lview = v;
     Array.prototype.forEach.call($('own-seg').querySelectorAll('button'), function (b) { var on = b.getAttribute('data-v') === v; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
     $('own-chartv').hidden = v !== 'chart'; $('own-listv').hidden = v !== 'list';
-    $('own-meta').textContent = 'From \u201c' + OWN_SRC.title + '\u201d (updated ' + OWN_SRC.date + ', with Zac\u2019s 10/11 corrections). ' +
-      (v === 'list' ? 'Tap a line to fold or unfold it.' : 'Tap a box or a line for details.');
     $('own-extra').innerHTML = ownExtraHtml(v);
     if (v === 'list') { own.sel = null; ownCard(); ownRenderList(); }
     else { ownDraw(); ownCard(); }
@@ -19761,7 +19827,7 @@
     });
   }
   function ownOpen() {
-    $('own-back').setAttribute('data-go', 'trust');   // v147: the chart lives only on Trust & Estate (its 'Ownership chart' tile), so Back always returns there
+    $('own-back').setAttribute('data-go', 'home');   // v179: this IS Trust & Estate now; Back = previous screen (navBack), Home when there is no history
     var src = $('own-src'); src.href = OWN_SRC.url; src.setAttribute('data-title', OWN_SRC.title);
     ownBind(); ownListBind(); ownAllLabel();
     var v = ownGetView();   // v148: Chart | List, remembered on this phone (default Chart)

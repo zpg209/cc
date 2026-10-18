@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lora:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=178">
+<link rel="stylesheet" href="app.css?v=179">
 </head>
 <body>
   <div class="bg"></div>
@@ -244,7 +244,7 @@
 
   <!-- ============ MONO FOLD (#mf / #mf/home|orders|customers|design) ============ -->
   <section id="screen-mf" class="screen">
-    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><h2 id="mf-title">Mono Fold</h2></div>
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="mf-back" data-go="home">&lsaquo; Back</button><h2 id="mf-title">Mono Fold</h2></div>
     <div id="mf-body"><div class="loading">Loading…</div></div>
   </section>
 
@@ -255,12 +255,7 @@
     <div id="pc-body"><div class="loading">Loading…</div></div>
   </section>
 
-  <!-- ============ TRUST & ESTATE (#trust) ============ -->
-  <section id="screen-trust" class="screen">
-    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><h2>Trust &amp; Estate</h2><button class="homebtn refbtn" id="trust-refresh" aria-label="Refresh">&#8635;</button></div>
-    <button type="button" class="tile small own-entry" id="trust-own" data-go="ownership">Ownership chart<span class="sub">Trust · LLCs · properties</span></button>   <!-- v146/v147: the only way into the Ownership chart (#ownership) -->
-    <div id="trust-body"><div class="loading">Loading…</div></div>
-  </section>
+  <!-- v179: TRUST & ESTATE (#trust) now opens #ownership; its documents list (#trust-body) lives at the bottom of that screen -->
 
   <!-- ============ FINANCES (#fin, #fin/overview|laundromat) ============ -->
   <section id="screen-fin" class="screen fin">
@@ -287,7 +282,7 @@
     <div class="doc-wrap">
       <div id="doc-view" class="doc-view"></div>
       <iframe id="doc-frame" title="Document" allow="autoplay; fullscreen" referrerpolicy="no-referrer-when-downgrade" hidden></iframe>
-      <div class="doc-hint" id="doc-hint" hidden>Not loading? Tap <b>Open in Drive</b>.</div>
+      <div class="doc-hint" id="doc-hint" hidden>Not loading? Google may need you signed in. Tap <b>Open in &#8599;</b> above (new tab; close it to come back here).</div>
     </div>
     <!-- v120: one action bar for every document the app opens (Share file / Email / Text / Save / Full screen / Copy link) -->
     <div class="docact-note" id="docact-note" role="status" aria-live="polite" hidden></div>
@@ -304,7 +299,7 @@
 
   <!-- ============ DAILY LOG ============ -->
   <section id="screen-track" class="screen fitscreen">
-    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><h2>Daily Tracker</h2></div>
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="track-back" data-go="home">&lsaquo; Back</button><h2>Daily Tracker</h2></div>
     <div class="enttabs two" aria-label="Daily Tracker and Daily Log"><button data-go="track" class="on">Tracker</button><button data-go="log">Log</button></div>
     <div class="vnwrap" id="log-voice">
       <button class="bigbtn vnbig" id="vn-mic" data-go="mic/dailylog" aria-label="Dictate or type a log note"><span class="bigico" aria-hidden="true">&#127908;</span>Dictate a log note<span class="sub">Ate &middot; drank &middot; workout &middot; weight &middot; sleep</span></button>
@@ -407,8 +402,7 @@
 
   <!-- ============ OWNERSHIP CHART (#ownership; Trust &amp; Estate > Ownership chart): interactive SVG tree, data = OWNERSHIP in app.js ============ -->
   <section id="screen-ownership" class="screen ownscreen">
-    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="own-back" data-go="trust">&lsaquo; Back</button><h2>Ownership</h2></div>
-    <p class="hint own-meta" id="own-meta"></p>
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="own-back" data-go="home">&lsaquo; Back</button><h2>Trust &amp; Estate</h2><button class="homebtn refbtn" id="trust-refresh" aria-label="Refresh">&#8635;</button></div>
     <div class="pseg own-seg" id="own-seg" role="group" aria-label="View"><button type="button" data-v="chart" class="on" aria-pressed="true">Chart</button><button type="button" data-v="list" aria-pressed="false">List</button></div>
     <div id="own-chartv">
     <div class="own-bar" role="group" aria-label="Chart controls">
@@ -427,9 +421,10 @@
     </div>
     <a class="linkrow own-srcl" id="own-src" href="#">Open source doc &rsaquo;</a>
     <div id="own-extra"></div>
+    <div id="trust-body" class="own-trust"><div class="loading">Loading…</div></div>   <!-- v179: was the Trust & Estate screen (documents + folder link) -->
     <div class="own-card" id="own-card" hidden></div>
   </section>
 
-  <script src="app.js?v=178"></script>
+  <script src="app.js?v=179"></script>
 </body>
 </html>

@@ -135,6 +135,8 @@ body { overscroll-behavior-y: none; }
 .topbar h2.sub { font-size: 20px; }
 .backbtn { min-width: 0; }
 .backbtn[hidden] { display: none; }
+/* v179: every non-Home screen shows Back (navBack goes to the previous screen); screens that used to hide it keep it */
+.topbar .backbtn[hidden] { display: inline-block; }
 .accts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .acct { background: var(--btn); border: 1px solid rgba(240,122,42,.28); border-radius: var(--radius); color: var(--red);
   font: 700 16.5px/1.2 'Inter', sans-serif; padding: 10px 4px; min-height: 68px; cursor: pointer; display: flex; flex-direction: column;
@@ -3240,3 +3242,5 @@ body.fc-modal { overflow: hidden; }
 
 /* v177 ADU (#adu): floor-plan PDF/Sheet tiles like Generator */
 #adu-list .tile.small { min-height: 72px; }
+/* v179: screens with a blanket [hidden]{display:none!important} still show their topbar Back */
+#screen-tm .topbar .backbtn[hidden], #screen-lt .topbar .backbtn[hidden], #screen-pt .topbar .backbtn[hidden], #screen-lr .topbar .backbtn[hidden], .vscreen .topbar .backbtn[hidden] { display: inline-block !important; }
