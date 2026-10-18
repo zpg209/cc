@@ -1266,7 +1266,10 @@
     docs: [
       { name: 'Floor Plans (Aug 12, 2026)', url: 'https://drive.google.com/file/d/182wtD7dUI8zm8vfggWtad8_QeqwcRs1O/view', sub: 'PDF' },
       { name: 'Smaller Floor Plans (Sep 25, 2026)', url: 'https://drive.google.com/file/d/1Yws6sIm5261rl05eeBaWAEGyzInW5Pwe/view', sub: 'PDF' },
-      { name: 'Mother Lode Homes Floor Plans', url: 'https://docs.google.com/spreadsheets/d/17R6-3a0Vvneep8__RpcaOKDS-fJ6td6eR-P6ZAsl8eo/edit', sub: 'Google Sheet' }
+      { name: 'Mother Lode Homes Floor Plans', url: 'https://docs.google.com/spreadsheets/d/17R6-3a0Vvneep8__RpcaOKDS-fJ6td6eR-P6ZAsl8eo/edit', sub: 'Google Sheet' },
+      // v178: subfolders open in the in-app folder viewer (driveRef -> renderFolder), the same way Open folder does
+      { name: 'Site', url: 'https://drive.google.com/drive/folders/1HVyLdW6oQx-ywn7ECtGVlHdWEyF43ziG', sub: 'Folder \u00b7 Site Work Overview' },
+      { name: 'Mother Lode Homes Floor Plans (all 88)', url: 'https://drive.google.com/drive/folders/1b9i37f6p6arB42oxZJCu8SyHNzDpVBFd', sub: 'Folder \u00b7 plan PDFs' }
     ]
   };
   function aduOpen() {
