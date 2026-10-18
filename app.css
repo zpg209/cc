@@ -3264,3 +3264,33 @@ body.fc-modal { overflow: hidden; }
 .mkt-ph { margin: 10px 0 6px; color: #c9a07e; font: 700 12px/1 'Inter', sans-serif; letter-spacing: .6px; text-transform: uppercase; }
 .mkt-cl .zl-row { margin-bottom: 6px; }
 .mkt-t { display: flex; align-items: center; padding: 10px 12px 10px 0; font-size: 15px; line-height: 1.35; text-align: left; }
+/* v181: Mono Fold new-client flow: + New client buttons, order-form client type-ahead, one form mic with review highlights */
+#screen-mf .mfnewbtns { display: flex; gap: 8px; flex-wrap: wrap; }
+#screen-mf .mfnewcl { background: #0b0b0b; }
+#screen-mf .mfaddtyped, #screen-mf .mfsugnew { display: block; width: 100%; text-align: left; margin: 0 0 10px; min-height: 48px; padding: 12px 14px; font-weight: 700; color: #3DBE6B; border: 1px dashed rgba(61,190,107,.6); background: rgba(61,190,107,.06); border-radius: var(--radius); }
+#screen-mf .mflblrow { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
+#screen-mf .mfnewcl2 { min-height: 38px; padding: 6px 12px; font-size: 14px; margin-bottom: 4px; }
+#screen-mf .mfsugg { display: grid; gap: 6px; margin-top: 6px; }
+#screen-mf .mfsugrow { display: flex; align-items: center; gap: 8px; min-height: 46px; padding: 10px 12px; text-align: left; background: rgba(10,10,10,.92); color: var(--text); border: 0.75px solid rgba(208,138,85,.4); border-radius: var(--radius); font: 500 15px/1.2 'Inter', sans-serif; cursor: pointer; }
+#screen-mf .mfsugrow span { margin-left: auto; color: var(--muted); font-size: 13px; }
+#screen-mf .mfsugrow.mfsugnew { margin: 0; }
+#screen-mf .mfpicked { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 48px; padding: 8px 8px 8px 12px; background: rgba(10,10,10,.92); border: 0.75px solid rgba(208,138,85,.6); border-radius: var(--radius); }
+#screen-mf .mfpicked .navbtn { min-height: 38px; padding: 6px 12px; font-size: 14px; }
+#screen-mf .mfcmic { margin: 4px 0 6px; padding: 12px; border: 0.75px solid rgba(208,138,85,.4); border-radius: var(--radius); background: #0b0b0b; }
+#screen-mf .mfcmicbtn { width: 100%; min-height: 60px; gap: 12px; font-size: 17px; font-weight: 700; }
+#screen-mf .mfcmicbtn .micico svg { width: 30px; height: 30px; display: block; }
+#screen-mf .mfcmic .micstate { display: block; text-align: center; min-height: 18px; margin-top: 8px; }
+#screen-mf .mfcmichelp { font-size: 13px; margin: 8px 0 6px; }
+#screen-mf .mfdict summary { cursor: pointer; color: var(--muted); font: 700 12px/1 'Inter', sans-serif; letter-spacing: .5px; text-transform: uppercase; padding: 8px 0; list-style: none; }
+#screen-mf .mfdict summary::-webkit-details-marker { display: none; }
+#screen-mf .mfdict summary::after { content: ' \203A'; }
+#screen-mf .mfdict[open] summary::after { content: ' \2039'; }
+#screen-mf .mfdict .navbtn { margin-top: 8px; width: 100%; }
+#screen-mf .mflbl.mffilled { color: #3DBE6B; }
+#screen-mf .mflbl.mffilled::after { content: ' \00b7 from dictation'; text-transform: none; letter-spacing: 0; font-weight: 500; }
+#screen-mf .mflbl.mffilled + .wlin, #screen-mf .mflbl.mffilled + .notebox, #screen-mf .mflbl.mffilled + .mfchipwrap { outline: 2px solid rgba(61,190,107,.55); outline-offset: 1px; }
+/* v181: Mono Fold form inputs (were unstyled browser boxes) */
+#screen-mf .wlin { display: block; width: 100%; box-sizing: border-box; min-height: 46px; padding: 10px 12px; margin: 0; background: #000; color: var(--text); font: 400 17px/1.3 'Inter', sans-serif; border: 0.75px solid rgba(208,138,85,.45); border-radius: var(--radius); -webkit-appearance: none; appearance: none; }
+#screen-mf .wlin:focus { outline: none; border-color: #F4A15A; }
+#screen-mf .mffields2 .wlin { width: 100%; }
+#screen-mf .mfsugrow.mfsugnew { color: #3DBE6B; font-weight: 700; border: 1px dashed rgba(61,190,107,.6); background: rgba(61,190,107,.06); }

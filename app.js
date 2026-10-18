@@ -16012,7 +16012,9 @@
     toast: '', toastAt: 0,
     idx: 0, draft: '', flash: '', flashBad: false,
     mic: { rec: null, on: false, base: '', committed: '', interim: '', msg: '' },
-    custForm: null, orderForm: null
+    custForm: null, orderForm: null,
+    custReturn: null,   // v181: the order form to go back to after '+ Add "name" as new client' (Save picks the new client)
+    ofq: null           // v181: what is typed in the order form's client type-ahead
   };
 
   function mfLoad() {
@@ -16293,7 +16295,8 @@
       '<div class="mfkicker">Go-live preview</div>' +
       '<h3 class="mfherotitle">Today\u2019s floor</h3>' +
       '<div class="mfherodate">' + esc(mfTodayLabel()) + ' \u00b7 sample data ' + mfDemoStamp() + '</div></div>' +
-      '<button type="button" class="bigsave mfnewbig" data-mf="new-order">+ New Order</button></div>' +
+      '<div class="mfnewbtns"><button type="button" class="bigsave mfnewbig" data-mf="new-order">+ New Order</button>' +
+      '<button type="button" class="navbtn mfnewbig mfnewcl" data-mf="cust-new">+ New client</button></div></div>' +
       '<div class="mfstats">' + statusRow + '</div>' +
       '<div class="mfquick">' +
       '<div class="mfqcard"><div class="mfql">Bags in</div><div class="mfqv">' + bagsIn + '</div></div>' +
@@ -16363,7 +16366,9 @@
     }).join('');
     return '<div class="mfcusts">' +
       '<div class="mftoolbar"><input type="search" class="searchbox" id="mf-cust-q" placeholder="Search name, phone, Venmo\u2026" value="' + esc(mf.q || '') + '" autocomplete="off">' +
-      '<button type="button" class="bigsave mfadd" data-mf="cust-new">+ Add</button></div>' +
+      '<button type="button" class="bigsave mfadd" data-mf="cust-new">+ New client</button></div>' +
+      (q && !list.some(function (c) { return String(c.name || '').trim().toLowerCase() === q; }) ?
+        '<button type="button" class="navbtn mfaddtyped" data-mf="cust-new" data-n="' + esc(String(mf.q || '').trim()) + '">+ Add \u201c' + esc(String(mf.q || '').trim()) + '\u201d as new client</button>' : '') +
       (rows || '<div class="mfempty card"><b>No customers yet</b><p>Add your first regular — name, phone, and wash prefs. Demo people appear until you add real ones.</p>' +
         '<button type="button" class="bigsave" data-mf="cust-new">+ Add customer</button></div>') +
       '<div class="foot mffoot">Customer list layout for go-live. Saved on this phone (<code>cc_mf_customers</code>).</div></div>';
@@ -16375,27 +16380,176 @@
       phone: (base && base.phone) || '',
       venmo: (base && base.venmo) || '',
       notes: (base && base.notes) || '',
+      address: (base && base.address) || '',     // v181
+      handoff: (base && base.handoff) || '',     // v181: pickup / drop-off preference
+      care: (base && base.care) || '',           // v181: detergent / allergies
       prefs: (base && base.prefs) ? base.prefs.slice() : [],
+      dict: '', filled: null,
       demo: false
     };
   }
+  /* v181: new-client helpers. Clients are saved on this phone only (localStorage cc_mf_customers, same as before; no server action).
+   * One form mic: tap, say everything ("name Jane Smith, phone 209 555 0100, address ..., pickup Tuesdays, detergent fragrance free,
+   * allergic to dyes, no bleach, notes ..."), tap again. The words go into the "What I heard" box, then are split on the field words
+   * into the fields, which are highlighted for review. Nothing is saved until Save client. Without a live mic (iOS home-screen app),
+   * the keyboard mic can dictate into the same box and Fill fields does the same parse. */
+  function mfTitleCase(t) { return String(t || '').trim().replace(/\s+/g, ' ').replace(/(^|[\s'-])([a-z])/g, function (m, a, c) { return a + c.toUpperCase(); }); }
+  function mfFilled(f, k) { return f && f.filled && f.filled[k] ? ' mffilled' : ''; }
+  function mfOfSuggHtml(q) {
+    q = String(q || '').trim(); var ql = q.toLowerCase(), list = mfLoadCustomers();
+    var hits = !ql ? list.slice(0, 6) : list.filter(function (c) { return (c.name + ' ' + (c.phone || '')).toLowerCase().indexOf(ql) >= 0; }).slice(0, 6);
+    var exact = ql && list.some(function (c) { return String(c.name || '').trim().toLowerCase() === ql; });
+    return hits.map(function (c) {
+      return '<button type="button" class="mfsugrow" data-mf="of-pick" data-id="' + esc(c.id) + '"><b>' + esc(c.name) + '</b>' + (c.demo ? ' ' + mfDemoStamp() : '') + '<span>' + esc(c.phone || '') + '</span></button>';
+    }).join('') +
+      (q && !exact ? '<button type="button" class="mfsugrow mfsugnew" data-mf="of-newcust" data-n="' + esc(q) + '">+ Add \u201c' + esc(q) + '\u201d as new client</button>' : '') +
+      (!q && !hits.length ? '<div class="foot">No clients yet. Tap + New client.</div>' : '');
+  }
+  function mfCustMicHtml(f) {
+    return '<div class="mfcmic"><button type="button" class="micbtn mfcmicbtn" id="mf-cmic" data-mf="cmic" aria-pressed="false" aria-label="Dictate the whole client form">' +
+      '<span class="micico" aria-hidden="true">' + vsvg('mic', 30) + '</span><span class="miclbl" id="mf-cmic-lbl">Tap to talk</span></button>' +
+      '<div class="micstate" id="mf-cmic-state">&nbsp;</div>' +
+      '<p class="mfhelp mfcmichelp">Say it all in one go: <b>name</b> \u2026 <b>phone</b> \u2026 <b>address</b> \u2026 <b>pickup</b> or <b>drop off</b> \u2026 <b>detergent</b> / <b>allergies</b> \u2026 <b>notes</b> \u2026 (prefs like \u201cno bleach\u201d or \u201chang dry\u201d are picked up too). Then check the fields and Save.</p>' +
+      '<details class="mfdict"' + (f.dict ? ' open' : '') + '><summary>What I heard</summary>' +
+      '<textarea class="notebox" id="mf-cf-dict" rows="3" maxlength="2000" placeholder="Dictation shows here. You can also type or use the keyboard mic, then tap Fill fields.">' + esc(f.dict || '') + '</textarea>' +
+      '<button type="button" class="navbtn" data-mf="cdict-fill">Fill fields</button></details></div>';
+  }
+  var MF_DICT_KEYS = [
+    ['name', /\b(?:client'?s? name|customer'?s? name|name is|name)\b/],
+    ['phone', /\b(?:phone number|cell phone|cell|phone|number is|number)\b/],
+    ['venmo', /\b(?:venmo(?: handle| is)?)\b/],
+    ['address', /\b(?:address is|address|lives at)\b/],
+    ['handoff', /\b(?:pick ?-?ups?|drop ?-?offs?|delivery|deliver)\b/],
+    ['care', /\b(?:detergents?|allerg(?:y|ies|ic)(?: to)?|sensitive to|sensitive skin)\b/],
+    ['notes', /\b(?:notes?)\b/]
+  ];
+  function mfParseDict(raw) {
+    var MF_PR_RX = /\b(?:no bleach|hang ?dry|(?:no )?(?:fabric )?softener|fold flat|hang (?:the )?shirts|extra soft|hypo ?-?allergenic)\b[,.]?/gi;   // prefs become chips, not text
+    var t = ' ' + String(raw || '').replace(MF_PR_RX, ' ').replace(/\s+/g, ' ').trim() + ' ', tl = t.toLowerCase(), hits = [], out = {};
+    MF_DICT_KEYS.forEach(function (k) {
+      var rx = new RegExp(k[1].source, 'g'), m;
+      while ((m = rx.exec(tl))) hits.push({ k: k[0], at: m.index, end: m.index + m[0].length, word: m[0] });
+    });
+    hits.sort(function (a, b) { return a.at - b.at || b.end - a.end; });
+    var segs = [], last = 0, lastKey = '';
+    hits.forEach(function (h) {
+      if (h.at < last) return;                                      // overlapping keyword
+      if (lastKey === 'notes' && h.k !== 'notes') return;           // everything after "notes" stays in Notes
+      segs.push({ k: lastKey, txt: t.slice(last, h.at) }); last = h.end; lastKey = h.k;
+      if (h.k === 'handoff' || h.k === 'care') { last = h.at; }      // keep "pickup Tuesdays" / "allergic to dyes" readable
+    });
+    segs.push({ k: lastKey, txt: t.slice(last) });
+    segs.forEach(function (sg) {
+      var v = sg.txt.replace(/^[\s,.;:-]+|[\s,.;:-]+$/g, '').replace(/^(?:is|are|of|at)\s+/i, '');
+      if (!v) return;
+      var k = sg.k || (out.name ? 'notes' : 'name');
+      out[k] = out[k] ? out[k] + (k === 'notes' || k === 'care' || k === 'handoff' ? '; ' : ' ') + v : v;
+    });
+    if (out.name) {   // a number said right after the name with no "phone"
+      var pm = out.name.match(/^(.*?)[\s,]+((?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4})$/);
+      if (pm && !out.phone) { out.name = pm[1]; out.phone = pm[2]; }
+      out.name = mfTitleCase(out.name.split(/[,.]/)[0]);
+    }
+    if (out.phone) {
+      var d = out.phone.replace(/\D/g, ''); if (d.length === 11 && d[0] === '1') d = d.slice(1);
+      if (d.length === 10) out.phone = '(' + d.slice(0, 3) + ') ' + d.slice(3, 6) + '-' + d.slice(6);
+      else if (d.length >= 7) out.phone = d; else { out.notes = (out.notes ? out.notes + '; ' : '') + 'phone: ' + out.phone; delete out.phone; }
+    }
+    if (out.venmo) out.venmo = '@' + out.venmo.replace(/^@|^at\s+/i, '').replace(/\s+/g, '-').replace(/[^\w-]/g, '').toLowerCase();
+    if (out.address) out.address = out.address.replace(/(^|\s)([a-z])/g, function (m, a, c) { return a + c.toUpperCase(); });
+    ['handoff', 'care'].forEach(function (k) { if (out[k]) out[k] = out[k].charAt(0).toUpperCase() + out[k].slice(1); });
+    var prefs = [], low = String(raw || '').toLowerCase();
+    var PR = { 'No bleach': /\bno bleach\b/, 'Hang dry': /\bhang ?dry\b/, 'Softener': /\b(?:fabric )?softener\b/, 'Fold flat': /\bfold flat\b/, 'Hang shirts': /\bhang (?:the )?shirts\b/, 'Extra soft': /\bextra soft\b/, 'Hypoallergenic': /\bhypo ?-?allergenic\b/, 'Comforter': /\bcomforters?\b/ };
+    MF_PREF_OPTS.forEach(function (p) { if (PR[p] && PR[p].test(low) && !(p === 'Softener' && /\bno (?:fabric )?softener\b/.test(low))) prefs.push(p); });
+    if (prefs.length) out.prefs = prefs;
+    return out;
+  }
+  function mfCustApplyDict() {
+    var f = mf.custForm; if (!f) return;
+    var p = mfParseDict(f.dict), got = [];
+    f.filled = {};
+    ['name', 'phone', 'venmo', 'address', 'handoff', 'care', 'notes'].forEach(function (k) {
+      if (!p[k]) return;
+      f[k] = k === 'notes' && f.notes && f.notes.indexOf(p.notes) < 0 ? f.notes.replace(/\s+$/, '') + '\n' + p.notes : p[k];
+      f.filled[k] = 1; got.push({ name: 'Name', phone: 'Phone', venmo: 'Venmo', address: 'Address', handoff: 'Pickup / drop-off', care: 'Detergent / allergies', notes: 'Notes' }[k]);
+    });
+    if (p.prefs) { p.prefs.forEach(function (x) { if ((f.prefs || []).indexOf(x) < 0) (f.prefs = f.prefs || []).push(x); }); f.filled.prefs = 1; got.push('Prefs'); }
+    mf.custForm = f; mfRender();
+    mfFlash(got.length ? 'Filled ' + got.join(', ') + ' from what you said. Check the highlighted fields, then Save client.' : 'Couldn\u2019t find any fields in that. Start with \u201cname\u201d, then \u201cphone\u201d, \u201caddress\u201d\u2026', !got.length);
+  }
+  mf.cmic = { rec: null, on: false, base: '', committed: '', interim: '', msg: '' };
+  function mfCustMicPaint() {
+    var btn = $('mf-cmic'); if (!btn) return;
+    btn.classList.toggle('rec', !!mf.cmic.on); btn.setAttribute('aria-pressed', mf.cmic.on ? 'true' : 'false');
+    var lbl = $('mf-cmic-lbl'); if (lbl) lbl.textContent = mf.cmic.on ? 'Listening\u2026 tap when done' : 'Tap to talk \u2014 say all the details';
+    var st = $('mf-cmic-state');
+    if (st) { st.className = 'micstate' + (mf.cmic.on ? ' rec' : '') + (mf.cmic.msg && !mf.cmic.on ? ' warn' : ''); st.textContent = mf.cmic.on ? 'Listening\u2026' : (mf.cmic.msg || '\u00a0'); }
+  }
+  function mfCustMicStop(quiet) {
+    var r = mf.cmic.rec;
+    if (quiet) { mf.cmic.rec = null; mf.cmic.on = false; try { r && r.abort(); } catch (e) {} mfCustMicPaint(); return; }
+    if (r) { try { r.stop(); } catch (e2) { mf.cmic.rec = null; mf.cmic.on = false; mfCustMicPaint(); } }
+    else { mf.cmic.on = false; mfCustMicPaint(); }
+  }
+  function mfCustMicStart() {
+    var c = mf.cmic;
+    if (!SR) { c.msg = MIC_NA; var d0 = document.querySelector('#screen-mf .mfdict'); if (d0) d0.open = true; var t0 = $('mf-cf-dict'); if (t0) t0.focus(); mfCustMicPaint(); return; }
+    mfReadCustForm();
+    var dict = document.querySelector('#screen-mf .mfdict'); if (dict) dict.open = true;
+    var ta = $('mf-cf-dict'); if (!ta) return;
+    mfCustMicStop(true);
+    c.msg = ''; c.base = String(ta.value || ''); c.committed = ''; c.interim = '';
+    var rec; try { rec = new SR(); } catch (e) { c.msg = MIC_NA; mfCustMicPaint(); return; }
+    rec.continuous = true; rec.interimResults = true; rec.lang = 'en-US'; rec.maxAlternatives = 1;
+    rec.onresult = function (ev) {
+      var interim = '';
+      for (var i = ev.resultIndex; i < ev.results.length; i++) { var r = ev.results[i], t = r[0] ? r[0].transcript : ''; if (r.isFinal) c.committed = micSpace(c.committed, t.trim() + ' '); else interim += t; }
+      c.interim = interim.replace(/^\s+/, '');
+      var add = micSpace(c.committed, c.interim).trim(), el = $('mf-cf-dict');
+      if (el) { el.value = (c.base && add ? micSpace(c.base.replace(/\s+$/, '') + ' ', add) : (c.base || add)).slice(0, 2000); if (mf.custForm) mf.custForm.dict = el.value; }
+    };
+    rec.onerror = function (ev) {
+      var e = ev && ev.error;
+      if (e === 'not-allowed' || e === 'service-not-allowed' || e === 'audio-capture' || e === 'language-not-supported') { c.msg = MIC_NA; c.on = false; c.rec = null; mfCustMicPaint(); return; }
+      if (e === 'network') { c.msg = 'The speech service couldn\u2019t be reached. Use your keyboard\u2019s mic in the box below, then Fill fields.'; c.on = false; c.rec = null; mfCustMicPaint(); return; }
+      if (e === 'no-speech') c.msg = 'Didn\u2019t catch anything. Tap the mic and try again.';
+    };
+    rec.onend = function () {
+      if (c.rec !== rec) return;
+      c.on = false; c.rec = null;
+      mfCustMicPaint();
+      var el = $('mf-cf-dict');
+      if (el && mf.custForm && String(el.value || '').trim()) { mf.custForm.dict = el.value; mfReadCustForm(); mfCustApplyDict(); }   // fill the fields for review
+    };
+    c.rec = rec; c.on = true;
+    try { rec.start(); } catch (e2) { c.msg = MIC_NA; c.on = false; c.rec = null; }
+    mfCustMicPaint();
+  }
+  window.__mfParseDict = mfParseDict;   // for tests / console
   function mfRenderCustForm() {
     var f = mf.custForm || mfBlankCustForm();
     var sel = {}; (f.prefs || []).forEach(function (p) { sel[p] = 1; });
     return '<div class="mfform">' +
-      '<button type="button" class="navbtn mfback" data-mf="cust-back">&lsaquo; Customers</button>' +
-      '<h3 class="sechead">' + (f.id ? 'Edit customer' : 'Add customer') + '</h3>' +
-      '<label class="mflbl" for="mf-cf-name">Name</label>' +
+      '<button type="button" class="navbtn mfback" data-mf="cust-back">&lsaquo; ' + (mf.custReturn ? 'New order' : 'Customers') + '</button>' +
+      '<h3 class="sechead">' + (f.id ? 'Edit client' : 'New client') + '</h3>' +
+      mfCustMicHtml(f) +
+      '<label class="mflbl' + mfFilled(f, 'name') + '" for="mf-cf-name">Name</label>' +
       '<input class="wlin" id="mf-cf-name" data-mf-cf="name" value="' + esc(f.name) + '" placeholder="Full name" maxlength="80" autocomplete="name">' +
-      '<label class="mflbl" for="mf-cf-phone">Phone</label>' +
+      '<label class="mflbl' + mfFilled(f, 'phone') + '" for="mf-cf-phone">Phone</label>' +
       '<input class="wlin" id="mf-cf-phone" data-mf-cf="phone" value="' + esc(f.phone) + '" placeholder="(xxx) xxx-xxxx" maxlength="30" inputmode="tel" autocomplete="tel">' +
-      '<label class="mflbl" for="mf-cf-venmo">Venmo <span class="mfopt">(optional)</span></label>' +
+      '<label class="mflbl' + mfFilled(f, 'venmo') + '" for="mf-cf-venmo">Venmo <span class="mfopt">(optional)</span></label>' +
       '<input class="wlin" id="mf-cf-venmo" data-mf-cf="venmo" value="' + esc(f.venmo) + '" placeholder="@handle" maxlength="40">' +
-      '<div class="mflbl">Prefs</div><div class="mfchipwrap" id="mf-cf-prefs">' + mfPrefsChips(null, true, sel) + '</div>' +
-      '<label class="mflbl" for="mf-cf-notes">Notes</label>' +
+      '<label class="mflbl' + mfFilled(f, 'address') + '" for="mf-cf-address">Address <span class="mfopt">(optional)</span></label>' +
+      '<input class="wlin" id="mf-cf-address" data-mf-cf="address" value="' + esc(f.address) + '" placeholder="Street, town" maxlength="160" autocomplete="street-address">' +
+      '<label class="mflbl' + mfFilled(f, 'handoff') + '" for="mf-cf-handoff">Pickup / drop-off</label>' +
+      '<input class="wlin" id="mf-cf-handoff" data-mf-cf="handoff" value="' + esc(f.handoff) + '" placeholder="e.g. drops off at the laundromat Tuesdays" maxlength="200">' +
+      '<label class="mflbl' + mfFilled(f, 'care') + '" for="mf-cf-care">Detergent / allergies</label>' +
+      '<input class="wlin" id="mf-cf-care" data-mf-cf="care" value="' + esc(f.care) + '" placeholder="e.g. fragrance-free, allergic to dyes" maxlength="200">' +
+      '<div class="mflbl' + mfFilled(f, 'prefs') + '">Prefs</div><div class="mfchipwrap" id="mf-cf-prefs">' + mfPrefsChips(null, true, sel) + '</div>' +
+      '<label class="mflbl' + mfFilled(f, 'notes') + '" for="mf-cf-notes">Notes</label>' +
       '<textarea class="notebox" id="mf-cf-notes" data-mf-cf="notes" rows="3" maxlength="500" placeholder="Ready text, specials\u2026">' + esc(f.notes || '') + '</textarea>' +
       '<div class="noteflash" id="mf-flash" hidden></div>' +
-      '<div class="draftbtns mfactions"><button type="button" class="bigsave" data-mf="cust-save">Save customer</button>' +
+      '<div class="draftbtns mfactions"><button type="button" class="bigsave" data-mf="cust-save">Save client</button>' +
       '<button type="button" class="navbtn" data-mf="cust-back">Cancel</button></div></div>';
   }
   function mfRenderCustDetail() {
@@ -16414,6 +16568,9 @@
       '<div class="mfcrow1"><h3 class="mfherotitle">' + esc(c.name) + '</h3>' + (c.demo ? mfDemoStamp() : '') + '</div>' +
       '<div class="mfprow"><span class="mflbl">Phone</span><span>' + esc(c.phone || '\u2014') + '</span></div>' +
       '<div class="mfprow"><span class="mflbl">Venmo</span><span>' + esc(c.venmo || '\u2014') + '</span></div>' +
+      (c.address ? '<div class="mfprow"><span class="mflbl">Address</span><span>' + esc(c.address) + '</span></div>' : '') +
+      (c.handoff ? '<div class="mfprow"><span class="mflbl">Pickup / drop-off</span><span>' + esc(c.handoff) + '</span></div>' : '') +
+      (c.care ? '<div class="mfprow"><span class="mflbl">Detergent / allergies</span><span>' + esc(c.care) + '</span></div>' : '') +
       '<div class="mfprow"><span class="mflbl">Bags / last</span><span>' + (c.bags != null ? c.bags : '\u2014') +
       (c.lastOrder ? ' \u00b7 ' + esc(c.lastOrder) : '') + '</span></div>' +
       '<div class="mflbl">Prefs</div><div class="mfcprefs">' + mfPrefsChips(c.prefs) + '</div>' +
@@ -16427,6 +16584,7 @@
   /* ---- ORDERS ---- */
   function mfRenderOrders() {
     if (mf.view === 'ord-form') return mfRenderOrderForm();
+    if (mf.view === 'cust-form') return mfRenderCustForm();   // v181: '+ New client' from New order (Save goes back to the order)
     if (mf.view === 'ord-detail') return mfRenderOrderDetail();
     var orders = mfLoadOrders();
     var filter = mf.statusFilter || '';
@@ -16468,16 +16626,18 @@
   }
   function mfRenderOrderForm() {
     var f = mf.orderForm || mfBlankOrderForm();
-    var custs = mfLoadCustomers();
-    var opts = '<option value="">Select customer\u2026</option>' + custs.map(function (c) {
-      return '<option value="' + esc(c.id) + '"' + (f.customerId === c.id ? ' selected' : '') + '>' + esc(c.name) + '</option>';
-    }).join('');
+    var picked = f.customerId ? mfFindCust(f.customerId) : null;
+    var custHtml = picked && mf.ofq == null ?
+      '<div class="mfpicked"><input type="hidden" id="mf-of-cust" value="' + esc(picked.id) + '"><span><b>' + esc(picked.name) + '</b>' + (picked.phone ? ' \u00b7 ' + esc(picked.phone) : '') + '</span>' +
+        '<button type="button" class="navbtn" data-mf="of-clear">Change</button></div>' :
+      '<input type="hidden" id="mf-of-cust" value=""><input class="wlin" id="mf-of-cname" type="search" value="' + esc(mf.ofq || '') + '" placeholder="Type a name\u2026" autocomplete="off" aria-label="Client name">' +
+        '<div class="mfsugg" id="mf-of-sugg">' + mfOfSuggHtml(mf.ofq || '') + '</div>';
     var sel = {}; (f.prefs || []).forEach(function (p) { sel[p] = 1; });
     return '<div class="mfform">' +
       '<button type="button" class="navbtn mfback" data-mf="ord-back">&lsaquo; Orders</button>' +
       '<h3 class="sechead">New order (intake)</h3>' +
-      '<label class="mflbl" for="mf-of-cust">Customer</label>' +
-      '<select class="wlin" id="mf-of-cust" data-mf-of="customerId">' + opts + '</select>' +
+      '<div class="mflblrow"><label class="mflbl" for="mf-of-cname">Client</label><button type="button" class="navbtn mfnewcl2" data-mf="of-newcust" data-n="">+ New client</button></div>' +
+      custHtml +
       '<div class="mffields2">' +
       '<div><label class="mflbl" for="mf-of-bags">Bags</label>' +
       '<input class="wlin" id="mf-of-bags" data-mf-of="bags" value="' + esc(f.bags) + '" inputmode="numeric" maxlength="3"></div>' +
@@ -16537,6 +16697,11 @@
       var ta = $('mf-answer');
       if (ta) ta.addEventListener('input', function () { mf.draft = ta.value; });
     }
+    var oq = $('mf-of-cname');
+    if (oq) oq.addEventListener('input', function () { mf.ofq = oq.value; var sg = $('mf-of-sugg'); if (sg) sg.innerHTML = mfOfSuggHtml(oq.value); });
+    var dq = $('mf-cf-dict');
+    if (dq) dq.addEventListener('input', function () { if (mf.custForm) mf.custForm.dict = dq.value; });
+    mfCustMicPaint();
     var sq = $('mf-cust-q');
     if (sq) {
       sq.addEventListener('input', function () {
@@ -16553,6 +16718,8 @@
     var name = $('mf-cf-name'), phone = $('mf-cf-phone'), venmo = $('mf-cf-venmo'), notes = $('mf-cf-notes');
     if (name) f.name = name.value; if (phone) f.phone = phone.value;
     if (venmo) f.venmo = venmo.value; if (notes) f.notes = notes.value;
+    ['address', 'handoff', 'care'].forEach(function (k) { var el = $('mf-cf-' + k); if (el) f[k] = el.value; });
+    var dt = $('mf-cf-dict'); if (dt) f.dict = dt.value;
     mf.custForm = f; return f;
   }
   function mfReadOrderForm() {
@@ -16623,12 +16790,32 @@
       mfRender();
     }
     else if (a === 'cust-new') {
-      mf.view = 'cust-form'; mf.custForm = mfBlankCustForm(); mfRender();
+      if (mf.tab === 'home') { state.mfTab = 'customers'; if (location.hash !== '#mf/customers') navPush('mf', '#mf/customers'); }
+      mf.custReturn = null;
+      mf.view = 'cust-form'; mf.custForm = mfBlankCustForm(); mf.custForm.name = mfTitleCase(b.getAttribute('data-n') || ''); mfRender();
+      var nm = $(mf.custForm.name ? 'mf-cf-phone' : 'mf-cf-name'); if (nm) try { nm.focus(); } catch (e3) {}
     }
+    else if (a === 'of-newcust') {   // v181: from the New order type-ahead
+      mf.custReturn = mfReadOrderForm(); mf.custReturn.customerId = ''; mf.custReturn.customer = '';
+      mf.view = 'cust-form'; mf.custForm = mfBlankCustForm(); mf.custForm.name = mfTitleCase(b.getAttribute('data-n') || ''); mfRender();
+    }
+    else if (a === 'of-pick') {
+      var pf = mfReadOrderForm(), pc = mfFindCust(b.getAttribute('data-id'));
+      if (pc) { pf.customerId = pc.id; pf.customer = pc.name; pf.prefs = (pc.prefs || []).slice(); }
+      mf.orderForm = pf; mf.ofq = null; mfRender();
+    }
+    else if (a === 'of-clear') {
+      var xf = mfReadOrderForm(); xf.customerId = ''; xf.customer = ''; mf.orderForm = xf; mf.ofq = ''; mfRender();
+      var oi = $('mf-of-cname'); if (oi) try { oi.focus(); } catch (e4) {}
+    }
+    else if (a === 'cmic') { if (mf.cmic.on) mfCustMicStop(); else mfCustMicStart(); }
+    else if (a === 'cdict-fill') { mfReadCustForm(); mfCustApplyDict(); }
     else if (a === 'cust-open') {
       mf.custId = b.getAttribute('data-id') || ''; mf.view = 'cust-detail'; mfRender();
     }
     else if (a === 'cust-back') {
+      mfCustMicStop(true);
+      if (mf.custReturn && mf.view === 'cust-form') { mf.orderForm = mf.custReturn; mf.custReturn = null; mf.custForm = null; mf.view = 'ord-form'; mfRender(); return; }
       mf.view = ''; mf.custForm = null; mf.custId = ''; mfRender();
     }
     else if (a === 'cust-edit') {
@@ -16643,15 +16830,22 @@
         for (var ci = 0; ci < clist.length; ci++) {
           if (clist[ci].id === cf.id) {
             var prev = clist[ci];
-            clist[ci] = { id: prev.id, demo: !!prev.demo, name: cf.name.trim(), phone: String(cf.phone || '').trim(), venmo: String(cf.venmo || '').trim(), notes: String(cf.notes || '').trim(), prefs: cf.prefs || [], bags: prev.bags, lastOrder: prev.lastOrder };
+            clist[ci] = { id: prev.id, demo: !!prev.demo, name: cf.name.trim(), phone: String(cf.phone || '').trim(), venmo: String(cf.venmo || '').trim(), notes: String(cf.notes || '').trim(), address: String(cf.address || '').trim(), handoff: String(cf.handoff || '').trim(), care: String(cf.care || '').trim(), prefs: cf.prefs || [], bags: prev.bags, lastOrder: prev.lastOrder };
             break;
           }
         }
       } else {
-        clist.unshift({ id: mfUid('c'), demo: false, name: cf.name.trim(), phone: String(cf.phone || '').trim(), venmo: String(cf.venmo || '').trim(), notes: String(cf.notes || '').trim(), prefs: cf.prefs || [], bags: 0, lastOrder: '' });
+        var newId = mfUid('c');
+        clist.unshift({ id: newId, demo: false, name: cf.name.trim(), phone: String(cf.phone || '').trim(), venmo: String(cf.venmo || '').trim(), notes: String(cf.notes || '').trim(), address: String(cf.address || '').trim(), handoff: String(cf.handoff || '').trim(), care: String(cf.care || '').trim(), prefs: cf.prefs || [], bags: 0, lastOrder: '' });
       }
+      mfCustMicStop(true);
       if (!mfSaveCustomers(clist)) return mfFlash('Could not save on this phone.', true);
-      mf.view = ''; mf.custForm = null; mfToast('Customer saved'); mfRender();
+      if (mf.custReturn) {   // v181: came from New order -> back to it with the new client picked
+        var ro = mf.custReturn; mf.custReturn = null; mf.custForm = null;
+        if (newId) { ro.customerId = newId; ro.customer = cf.name.trim(); if (!ro.prefs || !ro.prefs.length) ro.prefs = (cf.prefs || []).slice(); }
+        mf.orderForm = ro; mf.ofq = null; mf.view = 'ord-form'; mfToast('Client saved'); mfRender(); return;
+      }
+      mf.view = ''; mf.custForm = null; mfToast('Client saved'); mfRender();
     }
     else if (a === 'pref-tog') {
       var p = b.getAttribute('data-p');
@@ -16682,7 +16876,7 @@
     }
     else if (a === 'ord-save') {
       var of = mfReadOrderForm();
-      if (!of.customerId) return mfFlash('Pick a customer.', true);
+      if (!of.customerId) return mfFlash('Pick a client, or tap + New client.', true);
       var bagsN = parseInt(of.bags, 10) || 0;
       if (bagsN < 1) return mfFlash('Bags must be at least 1.', true);
       var olist = mfLoadOrders();
