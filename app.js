@@ -290,11 +290,11 @@
     re: function () { loadRe(true); },
     lt: function () {
       var cfg = LT_PARTS[state.ltPart];
-      if (!cfg) return;
+      if (!cfg) { ingSync(false); return; }
       if (cfg.orders) return odEnsure();
       if (cfg.wish) return wlLoadList();
       if (cfg.notes || cfg.cost || cfg.gen || cfg.add) return;
-      if (cfg.ing) return;      // v183: Ingredients render from the phone copy; sync runs on its own schedule
+      if (cfg.ing) { ingSync(false); return; }      // v183: Ingredients render from the phone copy; v184: a refresh on Lisa's Table also runs the (throttled) sync
       loadLt(true);
     },
     fin: function () { loadFin(true); },
@@ -5675,6 +5675,7 @@
       }).join('') + '</div>' + (state.ltFolderUrl ? '<a class="linkrow" data-title="Lisa\u2019s Table" href="' + esc(state.ltFolderUrl) + '">Open Lisa\u2019s Table folder &rsaquo;</a>' : '');
       if (!state.ltFolderUrl && !state.links) ensureLinks(function () { if (state.ltPart === '' && $('screen-lt').classList.contains('active') && state.ltFolderUrl) loadLt(); });
       ltmSync(false);       // v127: menus made on the phone go up to Drive once the server can take them
+      ingSync(false);       // v184: ingredients + meals saved on the phone catch up too (throttled; retried each open while not synced)
       return;
     }
     if (cfg.wish) { openWish(); return; }
@@ -12745,7 +12746,7 @@
    * Ingredients are the SAME records as the Cost & Macros checklist (localStorage cc_lt_cost_macros), so nothing is kept twice.
    * Photos (product + nutrition label) live in IndexedDB on the phone; meals/recipes in cc_lt_ing_meals.
    * Sync: action=lting / ltingset / ltingphoto (server v59, backend/LtIngredients.gs). Until it is deployed the area works on the phone
-   * and shows a "not synced yet" badge; it retries every 30 minutes and pushes everything once the server has the actions.
+   * and shows a "not synced yet" badge; v184: retried on every open (at least 1 min apart) until it syncs, plus a Sync now button (no throttle).
    */
   var ING_META_KEY = 'cc_lt_ing_meta', ING_MEAL_KEY = 'cc_lt_ing_meals', ING_SRV_KEY = 'cc_lt_ing_srv', ING_IDB = 'cc_lt_ingphotos';
   var ING_OCR_URLS = ['https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js', 'https://unpkg.com/tesseract.js@5.1.1/dist/tesseract.min.js'];
@@ -12884,8 +12885,9 @@
   }
   function ingR(n, d) { return n === null || n === undefined || !isFinite(n) ? '\u2014' : String(+n.toFixed(d == null ? 0 : d)); }
   function ingMoney(n) { return n === null || n === undefined || !isFinite(n) ? '\u2014' : '$' + n.toFixed(2); }
-  function ingIsMine(it) {
-    return it.source === 'manual' || it.source === 'ing' || cmHasMacros(it) || String(it.packagePrice || '').trim() !== '' || String(it.brand || '').trim() !== '';
+  function ingIsMine(it, meta) {     // v184: a record saved through the Ingredients form (it has an entry in cc_lt_ing_meta) always counts
+    if (!meta || typeof meta !== 'object') meta = ingMeta();
+    return it.source === 'manual' || it.source === 'ing' || !!meta[it.id] || cmHasMacros(it) || String(it.packagePrice || '').trim() !== '' || String(it.brand || '').trim() !== '';
   }
   function ingAll() { return ltCostLoad(); }
   function ingFindByName(d, name) {
@@ -13032,14 +13034,24 @@
   function ingFlash(text, bad) { ing.flash = text || ''; ing.flashBad = !!bad; ing.flashAt = Date.now(); var el = $('ing-flash'); if (el) { el.textContent = ing.flash; el.hidden = !ing.flash; el.className = 'noteflash' + (ing.flash ? ' show' : '') + (bad ? ' bad' : ''); } }
   function ingFlashHtml() { if (ing.flash && Date.now() - (ing.flashAt || 0) > 6000) ing.flash = '';   // a message belongs to the screen it was made on
     return '<div class="noteflash' + (ing.flash ? ' show' : '') + (ing.flashBad ? ' bad' : '') + '" id="ing-flash"' + (ing.flash ? '' : ' hidden') + '>' + esc(ing.flash) + '</div>'; }
-  function ingBadge() {
-    var s = ing.srv || {}, d = ingAll(), meta = ingMeta(), md = ingMeals(), wait = 0;
-    d.items.forEach(function (x) { if (ingIsMine(x) && (meta[x.id] || {}).pushed !== x.upd) wait++; });
+  function ingWaiting() {
+    var d = ingAll(), meta = ingMeta(), md = ingMeals(), wait = 0;
+    d.items.forEach(function (x) { if (ingIsMine(x, meta) && (meta[x.id] || {}).pushed !== x.upd) wait++; });
     md.items.forEach(function (x) { if (x.pushed !== x.upd) wait++; });
-    if (ing.syncing) return '<div class="ingbadge sync">Checking sync\u2026</div>';
-    if (s.state === 'ok' && !wait) return '<div class="ingbadge ok">Synced to Drive' + (s.sheetUrl ? ' \u00b7 <a class="ingsheet" data-title="Ingredients sheet" href="' + esc(s.sheetUrl) + '">Open sheet</a>' : '') + '</div>';
-    if (s.state === 'ok') return '<div class="ingbadge wait">' + wait + ' waiting to sync</div>';
-    return '<div class="ingbadge na">Saved on this phone \u00b7 not synced yet' + (s.state === 'na' ? ' (server update pending)' : '') + '</div>';
+    return wait;
+  }
+  function ingBadge() {      // v184: status pill + Sync now button + the last manual sync result, in one bar (#ing-syncbar)
+    var s = ing.srv || {}, wait = ingWaiting(), fail = +s.fail || 0, b;
+    if (ing.syncing) b = '<div class="ingbadge sync">Syncing\u2026</div>';
+    else if ((s.state === 'ok' || s.state === 'err') && fail) b = '<div class="ingbadge bad">' + fail + ' not synced \u2014 tap Sync now</div>';
+    else if (s.state === 'ok' && !wait) b = '<div class="ingbadge ok">Synced to Drive' + (s.sheetUrl ? ' \u00b7 <a class="ingsheet" data-title="Ingredients sheet" href="' + esc(s.sheetUrl) + '">Open sheet</a>' : '') + '</div>';
+    else if (s.state === 'ok') b = '<div class="ingbadge wait">' + wait + ' waiting to sync</div>';
+    else if (s.state === 'err') b = '<div class="ingbadge bad">' + (wait ? wait + ' not synced' : 'Not synced') + ' \u2014 couldn\u2019t reach the server \u00b7 tap Sync now</div>';
+    else b = '<div class="ingbadge na">Saved on this phone \u00b7 ' + (wait ? wait + ' not synced yet' : 'not synced yet') + (s.state === 'na' ? ' (server update pending)' : '') + '</div>';
+    var m = ing.syncMsg && Date.now() - ing.syncMsg.at < 10 * 60000 ? ing.syncMsg : null;
+    return '<div class="ingsyncbar" id="ing-syncbar">' + b +
+      '<button type="button" class="navbtn ingsyncbtn" data-ing="sync-now"' + (ing.syncing ? ' disabled aria-busy="true"' : '') + '>' + (ing.syncing ? 'Syncing\u2026' : '\u21bb Sync now') + '</button>' +
+      (m ? '<div class="ingsyncmsg' + (m.bad ? ' bad' : '') + '" role="status">' + esc(m.text) + '</div>' : '') + '</div>';
   }
   function ingMicHtml(where) {
     var help = where === 'meal'
@@ -13084,8 +13096,8 @@
     ingSync(false);
   }
   function ingRenderHome() {
-    var d = ingAll(), q = cmNormName(ing.q), mine = [], sug = [];
-    d.items.forEach(function (x) { if (q && cmNormName(x.name + ' ' + x.brand).indexOf(q) < 0) return; (ingIsMine(x) ? mine : sug).push(x); });
+    var d = ingAll(), q = cmNormName(ing.q), mine = [], sug = [], hmeta = ingMeta();
+    d.items.forEach(function (x) { if (q && cmNormName(x.name + ' ' + x.brand).indexOf(q) < 0) return; (ingIsMine(x, hmeta) ? mine : sug).push(x); });
     mine.sort(function (a, b) { return a.name.localeCompare(b.name); });
     var nMeals = ingMeals().items.length;
     var h = '<div class="ing">' + ingBadge() + ingFlashHtml() +
@@ -13316,7 +13328,7 @@
       '<div class="ingcamrow"><label class="navbtn ingcam">' + vsvg('cam', 20) + ' Snap a label<input type="file" accept="image/*" capture="environment" hidden data-ingcam="meal-label"></label>' +
       '<label class="navbtn ingcam">' + vsvg('cam', 20) + ' Snap a product<input type="file" accept="image/*" capture="environment" hidden data-ingcam="meal-product"></label></div>' +
       '<p class="inghelp">A photo starts a new ingredient (a label photo is read for its macros). Save there drops it into this meal.</p>' +
-      '<h4 class="sechead">Components <small>' + m.lines.length + '</small></h4><datalist id="ing-dl">' + d.items.filter(ingIsMine).map(function (x) { return '<option value="' + esc(x.name) + '">'; }).join('') + '</datalist>';
+      '<h4 class="sechead">Components <small>' + m.lines.length + '</small></h4><datalist id="ing-dl">' + (function (mt) { return d.items.filter(function (x) { return ingIsMine(x, mt); }); })(ingMeta()).map(function (x) { return '<option value="' + esc(x.name) + '">'; }).join('') + '</datalist>';
     h += t.rows.map(function (r) {
       var l = r.line, it = r.it;
       return '<div class="inglinebox' + (r.why ? ' warn' : '') + '" data-line="' + esc(l.id) + '"><div class="ingline"><input class="wlin ingln" list="ing-dl" data-lf="name" placeholder="Ingredient" value="' + esc(l.name || (it && it.name) || '') + '">' +
@@ -13483,58 +13495,96 @@
   function ingSrvSave() { lsSet(ING_SRV_KEY, ing.srv); }
   function ingRec(it) { var r = {}; CM_FIELDS.forEach(function (k) { r[k] = it[k]; }); r.id = it.id; r.upd = it.upd; r.costPerServing = ingCostPerServing(it); return r; }
   function ingBadgePaint() {
-    var b = document.querySelector('#lt-body .ingbadge'); if (!b) return;
+    var b = document.querySelector('#lt-body #ing-syncbar'); if (!b) return;
     var tmp = document.createElement('div'); tmp.innerHTML = ingBadge(); b.parentNode.replaceChild(tmp.firstChild, b);
   }
-  function ingPushAll() {
+  function ingSyncRes() { return { ing: 0, meal: 0, photo: 0, fail: 0, err: '', state: '', none: true }; }
+  function ingErrText(e) { return e instanceof AuthError ? 'Passcode no longer valid.' : friendly(e); }
+  // v184: every push is counted (res.ing / res.meal / res.fail); the first failure's text is kept in res.err
+  function ingPushAll(res) {
+    res = res || ingSyncRes();
     var meta = ingMeta(), jobs = [];
-    ingAll().items.forEach(function (it) { if (ingIsMine(it) && (meta[it.id] || {}).pushed !== it.upd) jobs.push({ kind: 'ingredient', it: it }); });
+    ingAll().items.forEach(function (it) { if (ingIsMine(it, meta) && (meta[it.id] || {}).pushed !== it.upd) jobs.push({ kind: 'ingredient', it: it }); });
     ingMeals().items.forEach(function (m) { if (m.pushed !== m.upd) jobs.push({ kind: 'meal', m: m }); });
+    if (jobs.length) res.none = false;
     return jobs.reduce(function (p, job) {
       return p.then(function () {
-        var rec;
-        if (job.kind === 'ingredient') {
-          rec = ingRec(job.it);
-          var mt = ingMeta()[job.it.id] || {};
-          ['product', 'label'].forEach(function (sl) { var ph = mt[sl] && ing.photos && ing.photos[mt[sl]]; if (ph && ph.url) rec[sl + 'PhotoUrl'] = ph.url; });
-        } else {
-          rec = JSON.parse(JSON.stringify(job.m)); delete rec.pushed;
-          var t = ingTotals(job.m, ingAll());
-          rec.totals = { calories: t.per.calories, protein: t.per.protein, carbs: t.per.carbs, fat: t.per.fat, fiber: t.per.fiber, cost: t.tot.cost, costPerServing: t.per.cost };
-        }
+        var rec, label = job.kind === 'ingredient' ? job.it.name : job.m.name;
+        try {
+          if (job.kind === 'ingredient') {
+            rec = ingRec(job.it);
+            var mt = ingMeta()[job.it.id] || {};
+            ['product', 'label'].forEach(function (sl) { var ph = mt[sl] && ing.photos && ing.photos[mt[sl]]; if (ph && ph.url) rec[sl + 'PhotoUrl'] = ph.url; });
+          } else {
+            rec = JSON.parse(JSON.stringify(job.m)); delete rec.pushed;
+            var t = ingTotals(job.m, ingAll());
+            rec.totals = { calories: t.per.calories, protein: t.per.protein, carbs: t.per.carbs, fat: t.per.fat, fiber: t.per.fiber, cost: t.tot.cost, costPerServing: t.per.cost };
+          }
+        } catch (e0) { res.fail++; if (!res.err) res.err = '\u201c' + label + '\u201d: ' + ingErrText(e0); return; }
         return apiPostRaw('ltingset', { kind: job.kind, rec: JSON.stringify(rec), cid: 'ing-' + rec.id + '-' + rec.upd + (rec.productPhotoUrl || rec.labelPhotoUrl ? '-p' : '') }).then(function (r) {
-          if (!r || r.error) return;
-          if (job.kind === 'ingredient') { var m2 = ingMeta(); m2[job.it.id] = m2[job.it.id] || {}; m2[job.it.id].pushed = job.it.upd; ingMetaSave(m2); }
-          else { var md2 = ingMeals(); md2.items.forEach(function (x) { if (x.id === job.m.id && x.upd === job.m.upd) x.pushed = x.upd; }); ingMealsSave(md2); }
-        }, function () {});
+          if (!r || r.error) throw new Error((r && (r.message || r.error)) || 'No answer from the server.');
+          if (job.kind === 'ingredient') { var m2 = ingMeta(); m2[job.it.id] = m2[job.it.id] || {}; m2[job.it.id].pushed = job.it.upd; ingMetaSave(m2); res.ing++; }
+          else { var md2 = ingMeals(); md2.items.forEach(function (x) { if (x.id === job.m.id && x.upd === job.m.upd) x.pushed = x.upd; }); ingMealsSave(md2); res.meal++; }
+        }).catch(function (e) { res.fail++; if (!res.err) res.err = '\u201c' + label + '\u201d: ' + ingErrText(e); });
       });
-    }, Promise.resolve());
+    }, Promise.resolve()).then(function () { return res; });
   }
-  function ingPushPhotos() {
+  function ingPushPhotos(res) {
+    res = res || ingSyncRes();
     return ingPhotosLoad().then(function (ph) {
       var names = {}, meta = ingMeta(), live = {};
       ingAll().items.forEach(function (x) { names[x.id] = x.name; });
       Object.keys(meta).forEach(function (k) { ['product', 'label'].forEach(function (s) { if (meta[k][s]) live[meta[k][s]] = 1; }); });
-      return Object.keys(ph).map(function (k) { return ph[k]; }).filter(function (r) { return !r.url && names[r.ingId] && live[r.id]; }).reduce(function (p, r) {
+      var todo = Object.keys(ph).map(function (k) { return ph[k]; }).filter(function (r) { return !r.url && names[r.ingId] && live[r.id]; });
+      if (todo.length) res.none = false;
+      return todo.reduce(function (p, r) {
         return p.then(function () {
           var u8 = new Uint8Array(r.bytes), s = '';
           for (var i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
           return apiPostRaw('ltingphoto', { ingId: r.ingId, name: names[r.ingId], slot: r.slot, mime: r.mime || 'image/jpeg', data: btoa(s), cid: r.cid }, 120000).then(function (x) {
-            if (!x || x.error || !x.data || !x.data.url) return;
-            r.url = x.data.url; r.driveId = x.data.id;
+            if (!x || x.error || !x.data || !x.data.url) throw new Error((x && (x.message || x.error)) || 'The server did not return a photo link.');
+            r.url = x.data.url; r.driveId = x.data.id; res.photo++;
             return ingPhotoPut(r).then(function () { var m3 = ingMeta(); if (m3[r.ingId]) { m3[r.ingId].pushed = 0; ingMetaSave(m3); } });   // re-send the record with its photo link
-          }, function () {});
+          }).catch(function (e) { res.fail++; if (!res.err) res.err = 'Photo of \u201c' + names[r.ingId] + '\u201d: ' + ingErrText(e); });
         });
       }, Promise.resolve());
-    });
+    }, function () { return null; }).then(function () { return res; });
   }
-  function ingSync(force) {
-    if (ing.syncing || !getPc()) return;
+  function ingSyncText(res) {
+    if (!res) return { text: 'Nothing new to send \u2014 all synced.', bad: false };
+    if (res.state === 'na' || res.state === 'err') return { text: res.err, bad: true };
+    var parts = [];
+    if (res.ing) parts.push(res.ing + ' ingredient' + (res.ing === 1 ? '' : 's'));
+    if (res.meal) parts.push(res.meal + ' meal' + (res.meal === 1 ? '' : 's'));
+    if (res.photo) parts.push(res.photo + ' photo' + (res.photo === 1 ? '' : 's'));
+    var list = parts.length > 1 ? parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1] : parts[0];
+    if (!res.fail) return { text: parts.length ? 'Synced ' + list + ' to the server.' : 'Nothing new to send \u2014 all synced.', bad: false };
+    return { text: (parts.length ? 'Synced ' + list + '. ' : '') + res.fail + ' not synced: ' + res.err, bad: true };
+  }
+  // v184: automatic sync never gets stuck. Server answered ok and nothing failed: every 5 min (a save pushes at once).
+  // Server said bad_action ('na'), errored, or something failed to send: retried on every open, at least 1 min apart.
+  // manual (the Sync now button): no throttle at all; shows the result under the badge.
+  var ING_OK_MS = 5 * 60000, ING_RETRY_MS = 60000;
+  function ingSync(force, manual) {
+    if (ing.syncing) return manual && ing.syncP ? ing.syncP.then(function () { return ingSync(force, true); }) : (ing.syncP || Promise.resolve(null));
+    if (!getPc()) {
+      if (manual) { ing.syncMsg = { text: 'Unlock the app with the passcode first.', bad: true, at: Date.now() }; ingBadgePaint(); }
+      return Promise.resolve(null);
+    }
     var s = ing.srv || {};
-    if (s.at && Date.now() - s.at < (s.state === 'na' ? 30 * 60000 : (force ? 0 : 5 * 60000))) return;
+    if (!manual && s.at) {
+      var gap = s.state === 'ok' && !(+s.fail) ? (force ? 0 : ING_OK_MS) : ING_RETRY_MS;
+      if (Date.now() - s.at < gap) return Promise.resolve(null);
+    }
+    var res = ingSyncRes(), prev = s;
     ing.syncing = true;
-    apiRaw('lting', {}).then(function (j) {
-      if (j.error === 'bad_action') { ing.srv = { state: 'na', at: Date.now() }; ingSrvSave(); return; }
+    if (manual) ing.syncMsg = null;
+    ingBadgePaint();
+    ing.syncP = apiRaw('lting', {}).then(function (j) {
+      if (j.error === 'bad_action') {
+        res.state = 'na'; res.err = 'The server doesn\u2019t have the Ingredients update yet (it answered bad_action). Nothing was sent.';
+        ing.srv = { state: 'na', at: Date.now() }; ingSrvSave(); return;
+      }
       if (j.error || !j.data) throw new Error(j.message || j.error || 'sync failed');
       ing.srv = { state: 'ok', at: Date.now(), sheetUrl: j.data.sheetUrl || '', folderUrl: j.data.folderUrl || '' }; ingSrvSave();
       var d = ingAll(), meta = ingMeta(), md = ingMeals(), chD = false, chM = false;
@@ -13556,19 +13606,30 @@
       if (chD) ltCostSave(d);
       if (chM) ingMealsSave(md);
       ingMetaSave(meta);
-      return ingPushPhotos().then(ingPushAll);
-    }).catch(function () { ing.srv = { state: (ing.srv && ing.srv.state) || '', at: Date.now() }; ingSrvSave(); })
-      .then(function () {
-        ing.syncing = false;
-        if ($('screen-lt').classList.contains('active') && /^ing/.test(state.ltPart)) { ingBadgePaint(); if (state.ltPart === 'ingredients') ingRenderHome(); else if (state.ltPart === 'ing-meals') ingRenderMeals(); }
+      return ingPushPhotos(res).then(function () { return ingPushAll(res); }).then(function () {
+        ing.srv.fail = res.fail; ing.srv.ferr = res.err; ingSrvSave();
       });
+    }).catch(function (e) {
+      res.state = 'err'; res.err = 'Couldn\u2019t sync: ' + ingErrText(e);
+      ing.srv = { state: 'err', at: Date.now(), err: res.err, fail: 0, sheetUrl: prev.sheetUrl || '', folderUrl: prev.folderUrl || '' }; ingSrvSave();
+    }).then(function () {
+      ing.syncing = false; ing.syncP = null;
+      if (manual) { var t = ingSyncText(res); ing.syncMsg = { text: t.text, bad: t.bad, at: Date.now() }; }
+      if ($('screen-lt').classList.contains('active') && /^ing/.test(state.ltPart)) { ingBadgePaint(); if (state.ltPart === 'ingredients') ingRenderHome(); else if (state.ltPart === 'ing-meals') ingRenderMeals(); }
+      return res;
+    });
+    return ing.syncP;
   }
+  document.addEventListener('visibilitychange', function () {     // v184: back to the app on an Ingredients screen: same throttled catch-up as opening it
+    if (document.visibilityState === 'visible' && $('screen-lt').classList.contains('active') && /^ing/.test(state.ltPart || '')) ingSync(false);
+  });
 
   /* ---- events ---- */
   $('lt-body').addEventListener('click', function (e) {
     var b = e.target.closest('[data-ing]'); if (!b || !/^ing/.test(state.ltPart)) return;
     var a = b.getAttribute('data-ing'), id = b.getAttribute('data-id');
-    if (a === 'new-ing') { ing.form = null; ing.ret = ''; ing.dictOpen = false; ingFlash(''); show('lt/ing-item/new'); }
+    if (a === 'sync-now') { if (!ing.syncing) ingSync(true, true); }
+    else if (a === 'new-ing') { ing.form = null; ing.ret = ''; ing.dictOpen = false; ingFlash(''); show('lt/ing-item/new'); }
     else if (a === 'new-meal') { ing.mform = null; ing.dictOpen = false; ingFlash(''); show('lt/ing-meal/new'); }
     else if (a === 'mic') { if (ing.mic.on) ingMicStop(false); else ingMicStart(); }
     else if (a === 'dict-fill') { ingMicStop(true); if (state.ltPart === 'ing-meal') { ingReadMeal(); ingMealApplyDict(); } else { ingReadForm(); ingApplyDict(); } }
