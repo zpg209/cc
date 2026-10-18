@@ -3301,6 +3301,13 @@ body.fc-modal { overflow: hidden; }
 #screen-lt .ingbadge.na, #screen-lt .ingbadge.wait { color: #ffb74d; border-color: rgba(255,183,77,.55); }
 #screen-lt .ingbadge.ok { color: #7fd69a; border-color: rgba(127,214,154,.55); }
 #screen-lt .ingbadge a { color: inherit; text-decoration: underline; }
+/* v185: USDA produce suggestion in the ingredient form */
+#screen-lt .ingusda { margin: 4px 0 12px; padding: 10px 12px; border: 0.75px solid rgba(127,214,154,.55); border-radius: 12px; background: rgba(127,214,154,.06); }
+#screen-lt .ingusdah { font: 600 13px/1.4 'Inter', sans-serif; color: #cfe9d6; margin-bottom: 8px; }
+#screen-lt .ingusdap { font: 600 13px/1.4 'Inter', sans-serif; color: #7fd69a; margin: 8px 0; }
+#screen-lt .ingusdap small { display: block; font-weight: 400; color: var(--muted); }
+#screen-lt .ingusdabtn { min-height: 40px; font-size: 15px; }
+#screen-lt .ingusdatag { display: inline-block; padding: 1px 7px; border-radius: 999px; border: 0.75px solid rgba(127,214,154,.6); color: #7fd69a; font: 700 11px/1.4 'Inter', sans-serif; vertical-align: middle; }
 /* v184: sync bar (badge + Sync now + last result) */
 #screen-lt .ingsyncbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 10px; }
 #screen-lt .ingsyncbar .ingbadge { margin: 0; }
