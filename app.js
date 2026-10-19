@@ -5798,6 +5798,7 @@
     if (cfg.check) ltSelPrune(data.items, c0 && c0.data ? c0.data.items.filter(function (x) { return !(x.sources && x.sources.length); }) : null);
     if (cfg.check) ltSelBar();
     paint();
+    if (part === 'macros' || part === 'recipes') ingMenuAutoSync();     // v188: linked recipes -> their menu items
     if (part === 'menus') ltmMountSaved();
     if (cfg.check) {
       if (state.ltAddedFlash) { macFlash(state.ltAddedFlash); state.ltAddedFlash = ''; }
@@ -5853,7 +5854,7 @@
     if (!items.length) return '<div class="loading">' + (term ? 'No matches.' : 'No items in the sheet yet.') + '</div>';
     var h = '<div class="card mac"><div class="mac-head"><span></span><span style="text-align:left">Item</span><span>Calories</span><span>Protein</span><span>Carbs</span><span>Fat</span></div>';
     var cats = d.categories.filter(function (c) { return items.some(function (x) { return x.category === c; }); });
-    var done = d.items.filter(macIsMeasured).length;
+    var done = d.items.filter(macIsMeasured).length, rmap = ingMenuMap(d.items);
     cats.forEach(function (c) {
       h += '<div class="mac-cat">' + esc(c) + '</div>';
       items.forEach(function (x, i) {
@@ -5861,7 +5862,7 @@
         var idx = d.items.indexOf(x), meas = macIsMeasured(x);
         h += '<div class="mac-row' + (meas ? ' measured' : '') + '" data-mac="' + idx + '" role="button" tabindex="0" aria-label="' + esc(x.item) + ': ' + (meas ? 'measured' : 'estimate, to be measured') + '. Tap to enter measured numbers">' +
           '<span class="macck' + (meas ? ' on' : '') + '" aria-hidden="true">' + (meas ? '\u2713' : '') + '</span>' +
-          '<div class="mac-name">' + esc(x.item) + (x.serving ? '<small>' + esc(x.serving) + '</small>' : '') + '</div>' +
+          '<div class="mac-name">' + esc(x.item) + (x.serving ? '<small>' + esc(x.serving) + '</small>' : '') + ingMenuRecHtml(rmap[idx], x) + '</div>' +
           '<div class="cell">' + fmtN(x.cal) + '</div><div class="cell">' + fmtN(x.protein) + '</div><div class="cell">' + fmtN(x.carbs) + '</div><div class="cell">' + fmtN(x.fat) + '</div></div>';
       });
     });
@@ -5971,6 +5972,12 @@
     var it = mgMatch({ id: x.id, n: x.name }, c.data.items);
     return it ? c.data.items.indexOf(it) : -1;
   }
+  function ltRecChip(idx) {          // v188: Menu Items row -> its recipe (open it) or "+ recipe" (opens the item's sheet with the recipe picker)
+    var c = state.ltCache.macros; if (idx < 0 || !c || !c.data || !c.data.items[idx]) return '';
+    var x = c.data.items[idx], m = ingMealOfMenu(x);
+    return m ? '<a class="ltrec" href="#lt/ing-meal/' + esc(m.id) + '" data-go="lt/ing-meal/' + esc(m.id) + '" aria-label="Recipe for ' + esc(x.item) + ': ' + esc(m.name) + '">Recipe</a>'
+      : '<button type="button" class="ltrec none" data-ltrec="' + idx + '" aria-label="Link a recipe to ' + esc(x.item) + '">+ Recipe</button>';
+  }
   function ltPriceChip(idx) {
     var c = state.ltCache.macros; if (!c || !c.data || idx < 0 || !c.data.items[idx]) return '';
     var it = c.data.items[idx], p = it.price;
@@ -6016,7 +6023,7 @@
     });
   }
   function ltCheckRow(x, label) {
-    var on = ltSelIdx(x.id) >= 0, chip = ltPriceChip(ltMacIdx(x));
+    var on = ltSelIdx(x.id) >= 0, mi0 = ltMacIdx(x), chip = ltPriceChip(mi0) + ltRecChip(mi0);
     if (x.added) {
       return '<li class="ltck"><button type="button" class="ltbox' + (on ? ' on' : '') + '" data-ltsel="' + esc(x.id) + '" data-n="' + esc(x.name) + '" role="checkbox" aria-checked="' + on + '" aria-label="Select ' + esc(label) + '">' + (on ? '\u2713' : '') + '</button>' +
         '<button type="button" class="ltname" data-ltedit="' + x.idx + '"><span class="ft">added</span>' + esc(label) + '</button>' + chip + '</li>';
@@ -6318,6 +6325,8 @@
       if (!(q && q.value.trim())) { var st = lsGet(LT_CAT_KEY, {}); if (nowClosed) st[cname] = true; else delete st[cname]; lsSet(LT_CAT_KEY, st); }
       return;
     }
+    var rc = e.target.closest('[data-ltrec]');
+    if (rc && state.ltPart === 'recipes') { macOpen(+rc.getAttribute('data-ltrec')); return; }
     var ed = e.target.closest('[data-ltedit]');
     if (ed && state.ltPart === 'recipes') { macOpen(+ed.getAttribute('data-ltedit')); return; }
     var k = e.target.closest('[data-ltk]');
@@ -6955,7 +6964,7 @@
       '<div class="macinfo">' + (measured ? '<span class="badge ok">' + esc(x.basis || 'Measured') + '</span>' : '<span class="badge">Estimate \u2014 to be measured</span>') +
       (x.category ? ' <span class="macsub">' + esc(x.category) + '</span>' : '') +
       (x.ingredients ? '<div><b>Key ingredients</b> ' + esc(x.ingredients) + '</div>' : '') +
-      (src ? '<div><b>Source</b> ' + src + '</div>' : '') + '</div>' +
+      (src ? '<div><b>Source</b> ' + src + '</div>' : '') + '</div>' + '<div id="mac-rec">' + macRecHtml(x) + '</div>' +
       '<div class="micstage macmic"><button type="button" class="micbtn" id="mac-mic" data-mac2="mic" aria-pressed="false" aria-label="Start dictation"><span class="micico" aria-hidden="true">' + vsvg('mic', 34) + '</span><span class="miclbl" id="mac-lbl">Tap to talk</span></button>' +
       '<div class="micstate" id="mac-state">&nbsp;</div></div>' +
       '<textarea id="mac-text" class="notebox" rows="2" maxlength="400" autocapitalize="off" placeholder="e.g. calories 480 protein 24 carbs 30 fat 29 serving one burrito"></textarea>' +
@@ -6971,6 +6980,51 @@
     document.body.classList.add('macopen');
     macUi();
     if (restored) macMsg('Restored your unsaved numbers. Nothing is saved until you tap Save.');
+  }
+  /* v188: the recipe linked to this menu item (or a picker to link one) */
+  function macRecHtml(x) {
+    var m = ingMealOfMenu(x), price = x.price != null ? +x.price : null;
+    if (m) {
+      var v = ingMenuVals(m);
+      return '<div class="macrec card"><div><b>Recipe</b> <button type="button" class="navbtn macrecbtn" data-mac2="recopen" data-id="' + esc(m.id) + '">' + esc(m.name) + ' \u203a</button> <small>(makes ' + esc(m.servings) + ')</small></div>' +
+        '<div>Recipe per serving: ' + ingR(v.cal) + ' cal \u00b7 ' + ingR(v.protein, 1) + 'P ' + ingR(v.carbs, 1) + 'C ' + ingR(v.fat, 1) + 'F \u00b7 ' + ingR(v.fiber, 1) + ' g fiber</div>' +
+        '<div>Cost per serving ' + ingMoney(v.cost) + (price != null ? ' \u00b7 price ' + ingMoney(price) + (v.cost > 0 ? ' \u00b7 margin <b>' + ingMoney(price - v.cost) + '</b>' : '') : ' \u00b7 no price yet') + '</div>' +
+        '<div class="macrecst">' + ingMenuStTxt(m, x, v) + '</div>' +
+        (m.menuMode === 'ask' ? '<div class="vdelq">Recipe says ' + ingR(v.cal) + ' cal \u00b7 ' + ingR(v.protein, 1) + 'P ' + ingR(v.carbs, 1) + 'C ' + ingR(v.fat, 1) + 'F \u2014 use recipe values?</div><div class="draftbtns"><button type="button" class="navbtn" data-mac2="recauto" data-id="' + esc(m.id) + '">Use recipe values</button><button type="button" class="navbtn" data-mac2="recmanual" data-id="' + esc(m.id) + '">Keep these numbers</button></div>'
+          : m.menuMode === 'manual' ? '<div class="draftbtns"><button type="button" class="navbtn" data-mac2="recauto" data-id="' + esc(m.id) + '">Sync from the recipe</button></div>' : '') + '</div>';
+    }
+    var md = ingMeals().items, items = ingMenuList() || [x];
+    if (!md.length) return '<div class="macrec card"><b>Recipe</b> none yet. <button type="button" class="navbtn macrecbtn" data-mac2="recnew">+ Build its recipe</button> <small>(cost, fiber and margin come from it)</small></div>';
+    var rows = md.map(function (q) { var o = q.menuKey ? ingMenuOf(q, items) : null; return { m: q, s: Math.max(ingSim(q.name, x.item), !q.menuKey && q.menuItem && mgNorm(q.menuItem) === mgNorm(x.item) ? 1.01 : 0), other: o && o !== x ? o.item : '' }; })
+      .sort(function (a, b) { return b.s - a.s || a.m.name.localeCompare(b.m.name); });
+    return '<div class="macrec card"><label class="vfield"><span>Link a recipe <small>its numbers keep these in sync</small></span><select class="wlin" id="mac-recsel">' +
+      rows.map(function (r, i) { return '<option value="' + esc(r.m.id) + '"' + (i === 0 && r.s >= 0.34 ? ' selected' : '') + '>' + (r.s >= 0.34 ? '\u2605 ' : '') + esc(r.m.name) + (r.other ? ' (linked to ' + esc(r.other) + ')' : '') + '</option>'; }).join('') +
+      '</select></label>' + (rows[0].s >= 0.34 ? '<div class="macsub">\u2605 = name looks like this item (suggested, nothing is linked until you tap Link)</div>' : '') +
+      '<div class="draftbtns"><button type="button" class="navbtn" data-mac2="reclink">Link</button><button type="button" class="navbtn macrecbtn" data-mac2="recnew">+ New recipe for this item</button></div></div>';
+  }
+  function macRecPaint() { var el = $('mac-rec'), x = macItem(); if (el && x) el.innerHTML = macRecHtml(x); }
+  function macRecAct(a, b) {
+    var x = macItem(); if (!x) return;
+    var id = b.getAttribute('data-id'), md = ingMeals();
+    if (a === 'recopen') { macClose(); show('lt/ing-meal/' + id); return; }
+    if (a === 'recnew') {
+      macClose(); ing.mform = { id: 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), isNew: true, name: x.item, servings: '1', menuItem: '', menuPrice: '', notes: '', lines: [], upd: 0, dict: '' };
+      ingMenuLink(ing.mform, x); ing.mmConfirm = false; ing.confirm = ''; ing.dictOpen = false; ingFlash('New recipe for \u201c' + x.item + '\u201d. Add its components, then Save meal.');
+      show('lt/ing-meal/new'); return;
+    }
+    var m = md.items.filter(function (q) { return q.id === (a === 'reclink' ? ($('mac-recsel') || {}).value : id); })[0]; if (!m) return;
+    if (a === 'reclink') {
+      md.items.forEach(function (q) { if (q.id !== m.id && q.menuKey && ingMenuOf(q) === x) { ingMenuUnlink(q); q.upd = Date.now(); } });   // one recipe per menu item
+      ingMenuLink(m, x);
+    } else m.menuMode = a === 'recauto' ? 'auto' : 'manual';
+    m.upd = Date.now(); ingMealsSave(md);
+    if (ing.mform && ing.mform.id === m.id) ING_LINKF.forEach(function (k) { ing.mform[k] = m[k]; });
+    ingSync(true);
+    macRecPaint(); if (state.ltPaint) state.ltPaint();
+    var msg = a === 'recmanual' ? 'Keeping these numbers. The recipe link stays for cost and margin.' : m.menuMode === 'ask' ? 'Linked \u201c' + m.name + '\u201d. This item already has its own measured numbers: choose below.'
+      : (ingMenuVals(m).t.missing ? 'Linked. Menu Macros follows \u201c' + m.name + '\u201d once the recipe is complete.' : 'Linked. Updating from \u201c' + m.name + '\u201d\u2026');
+    macMsg(msg);
+    if (m.menuMode === 'auto') ingMenuAutoSync().then(function (n) { if (n) { macRecPaint(); macMsg('Menu Macros now shows \u201c' + m.name + '\u201d\u2019s numbers.'); } });
   }
   function macClose(quiet) {
     macMicStop(true);
@@ -7059,9 +7113,13 @@
         else { if (body.serving) it.serving = body.serving; if (body.notes) it.notes = body.notes; }
       }
       try { localStorage.removeItem(MAC_DRAFT_KEY); } catch (e) {}
-      var nm = x.item; macClose(true);
+      var nm = x.item, lm = it ? ingMealOfMenu(it) : null, off = false; macClose(true);
+      if (lm && lm.menuMode !== 'manual') {       // v188: numbers typed here win; the recipe stops overwriting them (re-sync from the recipe any time)
+        var md = ingMeals(); md.items.forEach(function (q) { if (q.id === lm.id) { q.menuMode = 'manual'; q.upd = Date.now(); } }); ingMealsSave(md); off = true;
+        if (ing.mform && ing.mform.id === lm.id) ing.mform.menuMode = 'manual'; ingSync(true);
+      }
       if (state.ltPaint) state.ltPaint();
-      macFlash('Saved \u2014 ' + nm + ' is now marked Measured.');
+      macFlash('Saved \u2014 ' + nm + ' is now marked Measured.' + (off ? ' Recipe sync for \u201c' + lm.name + '\u201d is off so your numbers stay (turn it back on from the recipe).' : ''));
     }, function (err) {
       mm.busy = false;
       var b = $('mac-save'); if (b) { b.disabled = false; b.textContent = 'Save as Measured'; }
@@ -7080,6 +7138,7 @@
     else if (a === 'mic') { if (mm.on) macMicStop(); else macMicStart(); }
     else if (a === 'parse') { macMicStop(true); mm.on = false; macFill(); }
     else if (a === 'save') macSave();
+    else if (/^rec/.test(a)) macRecAct(a, b);
   });
   $('screen-lt').addEventListener('input', function (e) {
     var t = e.target;
@@ -12765,7 +12824,8 @@
     var d = lsGet(ING_MEAL_KEY, null); if (!d || !Array.isArray(d.items)) d = { items: [] };
     d.items = d.items.filter(function (x) { return x && x.id && typeof x.name === 'string'; }).map(function (x) {
       return { id: String(x.id), name: String(x.name).slice(0, 120), servings: String(x.servings || '1').slice(0, 8), menuItem: String(x.menuItem || '').slice(0, 200),
-        menuPrice: String(x.menuPrice || '').slice(0, 12), notes: String(x.notes || '').slice(0, 500), upd: x.upd || 0, pushed: x.pushed || 0,
+        menuPrice: String(x.menuPrice || '').slice(0, 12), menuKey: String(x.menuKey || '').slice(0, 200), menuRow: +x.menuRow || 0,
+        menuMode: /^(auto|ask|manual)$/.test(x.menuMode || '') ? x.menuMode : '', notes: String(x.notes || '').slice(0, 500), upd: x.upd || 0, pushed: x.pushed || 0,
         lines: (Array.isArray(x.lines) ? x.lines : []).slice(0, 60).map(function (l) {
           return { id: String(l.id || cmNewId()), ingId: String(l.ingId || ''), name: String(l.name || '').slice(0, 120), qty: String(l.qty || '').slice(0, 12), unit: String(l.unit || '').slice(0, 12) };
         }) };
@@ -13982,27 +14042,22 @@
     ingRenderMeal();
     ingMenuLoad();
   }
-  function ingMenuLoad() {
-    if (ing.menu || ing.menuP) return;
-    ing.menuP = apiRaw('ltmacros', {}).then(function (j) {
-      ing.menuP = null; ing.menu = j && j.data && Array.isArray(j.data.items) ? j.data.items : [];
-      var sel = $('ing-m-menu');
-      if (state.ltPart === 'ing-meal' && ing.mform && sel) {      // fill the menu list in place (a full re-render would close the dictation box)
-        var cur = ing.mform.menuItem || '';
-        sel.innerHTML = '<option value="">\u2014 none \u2014</option>' + ing.menu.map(function (x) { return '<option' + (x.item === cur ? ' selected' : '') + '>' + esc(x.item) + '</option>'; }).join('') +
-          (cur && !ing.menu.some(function (x) { return x.item === cur; }) ? '<option selected>' + esc(cur) + '</option>' : '');
-      }
-    }).catch(function () { ing.menuP = null; });
+  function ingMenuLoad() {          // v188: the shared Menu Macros list (same cache as the Menu Macros screen); repaints just the link box
+    if (ing.menuP) return; ing.menuP = 1;
+    ingMenuEnsure(function () {
+      ing.menuP = null;
+      if (state.ltPart === 'ing-meal' && ing.mform) { if (ingMenuHeal(ingMenuList() || [])) ingReadMeal(); ingMenuPaint(); }
+      ingMenuAutoSync();
+    });
   }
   function ingRenderMeal(partial) {
     var m = ing.mform; if (!m) return;
-    var d = ingAll(), t = ingTotals(m, d), menu = ing.menu || [];
-    var mi = m.menuItem ? menu.filter(function (x) { return x.item === m.menuItem; })[0] : null, price = mi && mi.price != null ? +mi.price : ingNum(m.menuPrice);
+    var d = ingAll(), t = ingTotals(m, d);
+    var mi = ingMenuOf(m), price = mi && mi.price != null ? +mi.price : ingNum(m.menuPrice);      // v188: the menu item's price is the price
     var h = '<div class="ing ingmeal vform card">' + ingFlashHtml() +
       '<label class="vfield"><span>Meal / recipe name</span><input class="wlin" id="ing-m-name" maxlength="120" placeholder="e.g. Chicken burrito bowl" value="' + esc(m.name) + '"></label>' +
-      '<div class="vrow2"><label class="vfield"><span>Makes (servings)</span><input class="wlin" id="ing-m-servings" inputmode="decimal" value="' + esc(m.servings) + '"></label>' +
-      '<label class="vfield"><span>Menu item <small>optional</small></span><select class="wlin" id="ing-m-menu"><option value="">' + (ing.menu ? '\u2014 none \u2014' : 'Loading\u2026') + '</option>' +
-      menu.map(function (x) { return '<option' + (x.item === m.menuItem ? ' selected' : '') + '>' + esc(x.item) + '</option>'; }).join('') + (m.menuItem && !mi ? '<option selected>' + esc(m.menuItem) + '</option>' : '') + '</select></label></div>' +
+      '<label class="vfield"><span>Makes (servings)</span><input class="wlin" id="ing-m-servings" inputmode="decimal" value="' + esc(m.servings) + '"></label>' +
+      ingMenuCardHtml(m) +
       '<h4 class="sechead">Add components</h4>' + ingMicHtml('meal') +
       '<div class="ingcamrow"><label class="navbtn ingcam">' + vsvg('cam', 20) + ' Snap a label<input type="file" accept="image/*" capture="environment" hidden data-ingcam="meal-label"></label>' +
       '<label class="navbtn ingcam">' + vsvg('cam', 20) + ' Snap a product<input type="file" accept="image/*" capture="environment" hidden data-ingcam="meal-product"></label></div>' +
@@ -14034,16 +14089,11 @@
     }).join('') + '<tr class="ingcost"><td colspan="3">Total (makes ' + ingR(sv, 2) + ')</td><td>' + ingMoney(t.tot.cost) + '</td></tr></table>' : '<div class="foot empty">Add components to see this.</div>') + '</div>';
     h += '<label class="vfield"><span>Notes</span><textarea class="notebox" id="ing-m-notes" rows="2" maxlength="500">' + esc(m.notes || '') + '</textarea></label>' +
       '<button class="bigsave" data-ing="save-meal">Save meal</button>';
-    if (m.menuItem && !m.isNew) {
-      h += ing.mmConfirm ? '<div class="vdelq">Write per-serving ' + ingR(t.per.calories) + ' cal, ' + ingR(t.per.protein, 1) + 'P ' + ingR(t.per.carbs, 1) + 'C ' + ingR(t.per.fat, 1) + 'F to \u201c' + esc(m.menuItem) + '\u201d in Menu Macros (marks it Measured)?' + (t.missing ? ' ' + t.missing + ' component(s) are incomplete.' : '') + '</div>' +
-        '<div class="draftbtns"><button class="navbtn" data-ing="mm-yes">Yes, write it</button><button class="navbtn" data-ing="mm-no">Cancel</button></div>'
-        : '<button class="navbtn ingmm" data-ing="mm">Save per-serving macros to Menu Macros</button>';
-    }
     if (!m.isNew) h += ing.confirm === m.id ? '<div class="vdelq">Delete this meal from the phone?</div><div class="draftbtns"><button class="navbtn vdelbtn" data-ing="del-meal-yes">Yes, delete</button><button class="navbtn" data-ing="del-no">Keep</button></div>'
       : '<button class="navbtn vdelbtn ingdel" data-ing="del-meal">Delete meal</button>';
     if (partial && document.querySelector('#lt-body .ingmeal')) {     // only the numbers: keeps the inputs, focus and the dictation box as they are
       var tmp = document.createElement('div'); tmp.innerHTML = h + '</div>';
-      ['.ingtot', '.ingusage'].forEach(function (q) { var a = document.querySelector('#lt-body ' + q), b = tmp.querySelector(q); if (a && b) a.parentNode.replaceChild(b, a); });
+      ['.ingtot', '.ingusage', '#ing-mlink'].forEach(function (q) { var a = document.querySelector('#lt-body ' + q), b = tmp.querySelector(q); if (a && b && a.parentNode) a.parentNode.replaceChild(b, a); });
       Array.prototype.forEach.call(tmp.querySelectorAll('.inglinebox'), function (nb) {
         var ob = document.querySelector('#lt-body .inglinebox[data-line="' + nb.getAttribute('data-line') + '"]'); if (!ob) return;
         ob.className = nb.className; var a = ob.querySelector('.ingres'), b = nb.querySelector('.ingres'); if (a && b) a.parentNode.replaceChild(b, a);
@@ -14056,7 +14106,15 @@
   function ingReadMeal() {
     var m = ing.mform; if (!m || !$('ing-m-name')) return m;
     m.name = $('ing-m-name').value.trim(); m.servings = $('ing-m-servings').value.trim(); if ($('ing-m-notes')) m.notes = $('ing-m-notes').value;
-    var mm = $('ing-m-menu'); if (mm && (ing.menu || mm.value)) m.menuItem = mm.value;
+    var mm = $('ing-m-menu'), mis = ingMenuList();       // v188: the typed menu item counts only when it's one of the real menu items
+    if (mm && mis) {
+      var q = mm.value.trim(), cur = ingMenuOf(m, mis);
+      if (!q) { if (m.menuKey) { ingMenuUnlink(m); ingMealLinkSave(m); } m.menuQ = ''; }
+      else if (!cur || mgNorm(q) !== mgNorm(cur.item)) {
+        var hit = mis.filter(function (x) { return x.item === q; })[0] || mis.filter(function (x) { return mgNorm(x.item) === mgNorm(q); })[0];
+        if (hit) ingMenuApply(m, hit); else m.menuQ = q;
+      } else m.menuQ = '';
+    }
     var dt = $('ing-dict'); if (dt) m.dict = dt.value;
     var d = ingAll();
     Array.prototype.forEach.call(document.querySelectorAll('#lt-body .inglinebox'), function (box) {
@@ -14114,7 +14172,8 @@
       } else if (!l.ingId) { var hit = ingFindByName(d, l.name); if (hit) l.ingId = hit.id; }
     });
     if (added && !ltCostSave(d)) return ingFlash('This phone is out of storage space. Nothing saved.', true);
-    var md = ingMeals(), rec = { id: m.id, name: m.name, servings: m.servings, menuItem: m.menuItem || '', menuPrice: m.menuPrice || '', notes: m.notes || '', lines: m.lines, upd: now, pushed: 0 };
+    var md = ingMeals(), rec = { id: m.id, name: m.name, servings: m.servings, menuItem: m.menuKey ? m.menuItem || '' : (m.menuItem || ''), menuPrice: m.menuPrice || '',
+      menuKey: m.menuKey || '', menuRow: m.menuRow || 0, menuMode: m.menuMode || '', notes: m.notes || '', lines: m.lines, upd: now, pushed: 0 };
     var i = -1; md.items.forEach(function (x, k) { if (x.id === m.id) i = k; });
     if (i >= 0) { rec.pushed = md.items[i].pushed; md.items[i] = rec; } else md.items.unshift(rec);
     if (!ingMealsSave(md)) return ingFlash('This phone is out of storage space. Nothing saved.', true);
@@ -14123,20 +14182,185 @@
     if (state.ltSub !== rec.id) navReplace('lt/ing-meal/' + rec.id); else ingRenderMeal();
     ingSync(true);
   }
-  function ingMmWrite() {
-    var m = ingReadMeal(), t = ingTotals(m, ingAll()), mi = (ing.menu || []).filter(function (x) { return x.item === m.menuItem; })[0];
-    var r1 = function (n) { return String(Math.round(n * 10) / 10); };
-    var body = { item: m.menuItem, cal: String(Math.round(t.per.calories)), protein: r1(t.per.protein), carbs: r1(t.per.carbs), fat: r1(t.per.fat), notes: ('From Ingredients: ' + m.name + ' (makes ' + m.servings + ')').slice(0, 300) };
-    if (mi && mi.row) body.row = mi.row;
-    var sig = JSON.stringify(body); if (m.mmSig !== sig) { m.mmSig = sig; m.mmCid = vNewCid(); }
-    body.cid = m.mmCid; ing.mmConfirm = false; ingRenderMeal(); ingFlash('Writing to Menu Macros\u2026');
-    apiRaw('ltmacroset', body).then(function (j) {
-      if (j.error === 'bad_action') return ingFlash('Saving to Menu Macros will work after the next server update.', true);
-      if (j.error) return ingFlash((j.message || ('Server error: ' + j.error)) + ' Nothing was changed.', true);
-      ing.menu = null; if (state.ltCache) state.ltCache.macros = null;
-      ingFlash('Menu Macros updated for \u201c' + m.menuItem + '\u201d.');
-      if (state.ltPart === 'ing-meal') ingMenuLoad();
-    }).catch(function (e) { ingFlash((e && e.message) || 'Couldn\u2019t reach the server. Nothing was changed.', true); });
+  function ingMmWrite() {            // v188: "send current numbers anyway" (recipe still incomplete) for a linked meal
+    var m = ingReadMeal(), x = ingMenuOf(m); ing.mmConfirm = false;
+    if (!x) { ingRenderMeal(); return ingFlash('Link a menu item first.', true); }
+    ingRenderMeal(); ingFlash('Writing to Menu Macros\u2026');
+    ingMenuPush(m, x, true).then(function (r) { ingFlash(r.ok ? 'Menu Macros updated for \u201c' + x.item + '\u201d.' : 'Menu Macros not changed: ' + r.msg + '.', !r.ok); ingMenuPaint(); });
+  }
+  /* ---- v188: a meal / recipe linked to a Menu Macros item (the menu item). Both screens show the link; the recipe's numbers keep the menu item's
+   * measured macros up to date; the menu item's price is the one price (the meal just shows it).
+   * The menu side has no id of its own (a sheet row), so the meal keeps: menuKey (normalised item name), menuRow, menuItem (name as shown) and
+   * menuMode: 'auto' (recipe -> Menu Macros, kept synced) | 'ask' (Menu Macros had other measured numbers: ask once) | 'manual' (keep the sheet's numbers).
+   * The Notes cell written to the sheet ends with [r:<meal id>], so a renamed menu item is still found. Fiber and cost per serving have no
+   * columns in the sheet: they show from the recipe (and live in the meal record on the server). */
+  var ING_MSYNC_KEY = 'cc_lt_menu_sync';
+  function ingMenuList() { var c = state.ltCache && state.ltCache.macros; return c && c.data && Array.isArray(c.data.items) ? c.data.items : (ing.menu || null); }
+  function ingMenuEnsure(cb) {
+    var c = state.ltCache.macros;
+    if (c && c.data && Date.now() - c.at < LT_TTL * 5) { ing.menu = c.data.items; if (cb) cb(); return; }
+    ltEnsureMacros(function () { var c2 = state.ltCache.macros; if (c2 && c2.data) ing.menu = c2.data.items; if (cb) cb(); });
+  }
+  function ingSim(a, b) {
+    var A = mgNorm(a).split(' ').filter(Boolean), B = mgNorm(b).split(' ').filter(Boolean); if (!A.length || !B.length) return 0;
+    var s = {}, n = 0, seen = {}; A.forEach(function (t) { s[t] = 1; }); B.forEach(function (t) { if (s[t] && !seen[t]) { n++; seen[t] = 1; } });
+    var ua = {}; A.concat(B).forEach(function (t) { ua[t] = 1; }); return n / Object.keys(ua).length;
+  }
+  function ingMenuOf(m, items) {      // the menu item a meal is linked to (null = not linked / not found)
+    items = items || ingMenuList(); if (!items || !m || !m.menuKey) return null;
+    var hit = null, tag = '[r:' + m.id + ']';
+    items.forEach(function (x) { if (!hit && mgNorm(x.item) === m.menuKey) hit = x; });
+    if (!hit) items.forEach(function (x) { if (!hit && String(x.notes || '').indexOf(tag) >= 0) hit = x; });                 // renamed in the sheet
+    if (!hit && m.menuRow) items.forEach(function (x) { if (!hit && x.row === m.menuRow && ingSim(x.item, m.menuItem) >= 0.5) hit = x; });
+    return hit;
+  }
+  function ingMealOfMenu(x, md) {     // menu item -> its linked meal (or null)
+    var items = ingMenuList() || [x], out = null;
+    (md || ingMeals()).items.forEach(function (m) { if (!out && m.menuKey && ingMenuOf(m, items) === x) out = m; });
+    return out;
+  }
+  function ingR1(n) { return Math.round(n * 10) / 10; }
+  function ingMenuVals(m) {
+    var t = ingTotals(m, ingAll()), empty = !m.lines.length;
+    if (empty) { t = JSON.parse(JSON.stringify(t)); t.missing = 1; }      // no components: nothing to send yet
+    return { t: t, empty: empty, cal: Math.round(t.per.calories), protein: ingR1(t.per.protein), carbs: ingR1(t.per.carbs), fat: ingR1(t.per.fat), fiber: ingR1(t.per.fiber), cost: t.per.cost };
+  }
+  function ingMissTxt(v) { return v.empty ? 'the recipe has no components yet' : v.t.missing + ' component' + (v.t.missing === 1 ? ' is' : 's are') + ' incomplete'; }
+  function ingMenuSame(v, x) { return x.cal != null && Math.abs(+x.cal - v.cal) < 1 && ['protein', 'carbs', 'fat'].every(function (k) { return x[k] != null && Math.abs(+x[k] - v[k]) < 0.1; }); }
+  function ingMenuNotes(m, x) {
+    var base = String(x.notes || '').replace(/\s*From (?:recipe|Ingredients): .*?(?:\[r:[^\]]*\]|\(makes [^)]*\))\s*/g, ' ').replace(/\s*\[r:[^\]]*\]\s*/g, ' ').trim();
+    var tag = 'From recipe: ' + m.name + ' (makes ' + m.servings + ') [r:' + m.id + ']';
+    var room = 300 - tag.length - 1; return ((base && room > 10 ? base.slice(0, room) + ' ' : '') + tag).slice(0, 300);
+  }
+  function ingHash(s) { var h = 5381; for (var i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
+  function ingMsync() { return lsGet(ING_MSYNC_KEY, {}) || {}; }
+  function ingMenuLink(m, x) {        // sets the link fields on a meal object (not saved)
+    m.menuKey = mgNorm(x.item); m.menuItem = x.item; m.menuRow = x.row || 0; m.menuPrice = x.price != null ? String(x.price) : '';
+    var v = ingMenuVals(m), mine = String(x.notes || '').indexOf('[r:' + m.id + ']') >= 0;
+    m.menuMode = macIsMeasured(x) && x.cal != null && !mine && !ingMenuSame(v, x) ? 'ask' : 'auto';
+  }
+  function ingMenuUnlink(m) { m.menuKey = ''; m.menuItem = ''; m.menuRow = 0; m.menuMode = ''; m.menuPrice = ''; }
+  var ING_LINKF = ['menuKey', 'menuItem', 'menuRow', 'menuMode', 'menuPrice'];
+  function ingMealLinkSave(m) {      // a saved meal: store just the link fields now (so it syncs) - the rest of the form waits for Save meal
+    if (m.isNew) return;
+    var md = ingMeals(), it = md.items.filter(function (x) { return x.id === m.id; })[0]; if (!it) return;
+    ING_LINKF.forEach(function (k) { it[k] = m[k]; }); it.upd = m.upd = Date.now(); ingMealsSave(md);
+    ingSync(true);
+  }
+  function ingMenuHeal(items) {      // follow renames / row moves / price changes in the sheet
+    var md = ingMeals(), ch = false;
+    md.items.forEach(function (m) {
+      var x = m.menuKey ? ingMenuOf(m, items) : null; if (!x) return;
+      var pr = x.price != null ? String(x.price) : '';
+      if (mgNorm(x.item) !== m.menuKey || x.item !== m.menuItem || (x.row && x.row !== m.menuRow) || pr !== m.menuPrice) {
+        m.menuKey = mgNorm(x.item); m.menuItem = x.item; m.menuRow = x.row || m.menuRow; m.menuPrice = pr; m.upd = Date.now(); ch = true;
+        if (ing.mform && ing.mform.id === m.id) ING_LINKF.forEach(function (k) { ing.mform[k] = m[k]; });
+      }
+    });
+    if (ch) ingMealsSave(md);
+    return ch;
+  }
+  function ingMenuPush(m, x, force) {  // recipe per-serving numbers -> Menu Macros (ltmacroset); resolves {ok, msg}
+    var v = ingMenuVals(m);
+    if (v.empty || (v.t.missing && !force)) return Promise.resolve({ ok: false, msg: ingMissTxt(v) });
+    if (!(v.cal >= 0) || !isFinite(v.protein) || !isFinite(v.carbs) || !isFinite(v.fat)) return Promise.resolve({ ok: false, msg: 'the recipe has no numbers yet' });
+    var body = { item: x.item, cal: String(v.cal), protein: String(v.protein), carbs: String(v.carbs), fat: String(v.fat), notes: ingMenuNotes(m, x) };
+    if (x.row) body.row = x.row;
+    body.cid = ('mr-' + m.id + '-' + ingHash(JSON.stringify(body) + '|' + [x.cal, x.protein, x.carbs, x.fat, x.basis].join('/'))).slice(0, 80);
+    var st = ingMsync();
+    return apiRaw('ltmacroset', body).then(function (j) {
+      if (j.error) {
+        var msg = j.error === 'bad_action' ? 'the server can\u2019t save Menu Macros yet' : (j.message || j.error);
+        st = ingMsync(); st[m.id] = { at: Date.now(), ok: false, err: msg }; lsSet(ING_MSYNC_KEY, st); return { ok: false, msg: msg };
+      }
+      var u = j.data && j.data.item;
+      ['cal', 'protein', 'carbs', 'fat'].forEach(function (k) { x[k] = u && u[k] != null ? u[k] : Number(body[k]); });
+      x.basis = u && u.basis ? u.basis : 'Measured ' + vToday(); x.measured = true; x.notes = u && u.notes != null ? u.notes : body.notes;
+      st = ingMsync(); st[m.id] = { at: Date.now(), ok: true, item: x.item }; lsSet(ING_MSYNC_KEY, st);
+      return { ok: true };
+    }, function (e) { st = ingMsync(); st[m.id] = { at: Date.now(), ok: false, err: (e && e.message) || 'offline' }; lsSet(ING_MSYNC_KEY, st); return { ok: false, msg: (e && e.message) || 'offline' }; });
+  }
+  function ingMenuAutoSync() {       // every linked meal in 'auto' whose numbers differ from its menu item -> push (one at a time)
+    if (ing.msBusy || !getPc()) return Promise.resolve(0);
+    var items = ingMenuList(); if (!items) return Promise.resolve(0);
+    ingMenuHeal(items);
+    var jobs = ingMeals().items.filter(function (m) { return m.menuMode === 'auto' && m.menuKey; }).map(function (m) { return { m: m, x: ingMenuOf(m, items) }; })
+      .filter(function (jb) { if (!jb.x) return false; var v = ingMenuVals(jb.m); return !v.t.missing && !ingMenuSame(v, jb.x); });
+    if (!jobs.length) return Promise.resolve(0);
+    ing.msBusy = true; var n = 0;
+    return jobs.reduce(function (p, jb) { return p.then(function () { return ingMenuPush(jb.m, jb.x).then(function (r) { if (r.ok) n++; }); }); }, Promise.resolve()).then(function () {
+      ing.msBusy = false;
+      if (n && $('screen-lt').classList.contains('active')) {
+        if (state.ltPart === 'ing-meal' && ing.mform) ingMenuPaint(); else if ((state.ltPart === 'macros' || state.ltPart === 'recipes') && state.ltPaint) state.ltPaint();
+      }
+      return n;
+    });
+  }
+  function ingMenuSugg(m, items) {    // menu items that look like this meal (suggested, never applied on its own)
+    var taken = {}; ingMeals().items.forEach(function (o) { if (o.id !== m.id && o.menuKey) taken[o.menuKey] = o.name; });
+    return items.map(function (x) {
+      var s = Math.max(ingSim(m.name, x.item), m.menuItem && !m.menuKey && mgNorm(m.menuItem) === mgNorm(x.item) ? 1.01 : 0);
+      return { x: x, s: s, taken: taken[mgNorm(x.item)] || '' };
+    }).filter(function (o) { return o.s >= 0.34; }).sort(function (a, b) { return b.s - a.s; }).slice(0, 3);
+  }
+  function ingMacTxt(x) { var f = function (k) { return x[k] == null || x[k] === '' ? '\u2014' : ingR(+x[k], 1); }; return x.cal == null ? 'no numbers' : f('cal') + ' cal \u00b7 ' + f('protein') + 'P ' + f('carbs') + 'C ' + f('fat') + 'F'; }
+  function ingMenuCardHtml(m) {       // the meal editor's menu item box (#ing-mlink)
+    var items = ingMenuList(), h = '<div class="inglink card" id="ing-mlink">';
+    if (!items) return h + '<div class="foot">Loading menu items\u2026</div></div>';
+    var x = ingMenuOf(m, items), v = ingMenuVals(m), st = ingMsync()[m.id];
+    h += '<label class="vfield"><span>Menu item <small>pick from your menu items</small></span><input class="wlin" id="ing-m-menu" list="ing-mdl" autocomplete="off" placeholder="Type to find a menu item" value="' + esc(x ? x.item : (m.menuQ || (m.menuKey ? m.menuItem : ''))) + '"></label>' +
+      '<datalist id="ing-mdl">' + items.map(function (it) { return '<option value="' + esc(it.item) + '">'; }).join('') + '</datalist>';
+    if (m.menuQ && !x) h += '<div class="ingwarn">\u201c' + esc(m.menuQ) + '\u201d isn\u2019t a menu item. Pick one from the list.</div>';
+    if (m.menuKey && !x) h += '<div class="ingwarn">Linked to \u201c' + esc(m.menuItem) + '\u201d, but that menu item isn\u2019t in Menu Macros any more. Pick it again.</div>';
+    if (x) {
+      var price = x.price != null ? +x.price : null;
+      h += '<div class="inglinkhd">Linked: <b>' + esc(x.item) + '</b>' + (price != null ? ' \u00b7 price ' + ingMoney(price) : ' \u00b7 <span class="ingwarn">no price yet (set it on Menu Items)</span>') + '</div>' +
+        '<div class="inglinkrow">Menu Macros now: ' + esc(ingMacTxt(x)) + ' <small>(' + esc(x.basis || (macIsMeasured(x) ? 'Measured' : 'Estimate')) + ')</small></div>' +
+        '<div class="inglinkrow">This recipe, per serving: ' + ingR(v.cal) + ' cal \u00b7 ' + ingR(v.protein, 1) + 'P ' + ingR(v.carbs, 1) + 'C ' + ingR(v.fat, 1) + 'F \u00b7 ' + ingR(v.fiber, 1) + ' g fiber \u00b7 cost ' + ingMoney(v.cost) +
+        (price > 0 && v.cost > 0 ? ' \u00b7 margin <b>' + ingMoney(price - v.cost) + '</b>' : '') + '</div>';
+      if (m.menuMode === 'ask') {
+        h += '<div class="vdelq">Menu Macros already has measured numbers for this item: ' + esc(ingMacTxt(x)) + '. The recipe says ' + ingR(v.cal) + ' cal \u00b7 ' + ingR(v.protein, 1) + 'P ' + ingR(v.carbs, 1) + 'C ' + ingR(v.fat, 1) + 'F' +
+          (v.t.missing ? ' (' + ingMissTxt(v) + ')' : '') + '. Use the recipe values, and keep them synced?</div>' +
+          '<div class="draftbtns"><button type="button" class="navbtn" data-ing="mlink-auto">Use recipe values</button><button type="button" class="navbtn" data-ing="mlink-manual">Keep the measured numbers</button></div>';
+      } else if (m.menuMode === 'manual') {
+        h += '<div class="inglinkst">Not synced: Menu Macros keeps its own measured numbers.</div><div class="draftbtns"><button type="button" class="navbtn" data-ing="mlink-auto">Sync from this recipe</button></div>';
+      } else {
+        h += '<div class="inglinkst">' + (v.t.missing ? '<span class="ingwarn">Sync waiting: ' + ingMissTxt(v) + '. Menu Macros updates when the recipe is complete.</span>'
+          : ingMenuSame(v, x) ? '\u2713 Synced: Menu Macros shows this recipe\u2019s numbers and follows its changes.' : ing.msBusy ? 'Syncing\u2026' : st && !st.ok ? '<span class="ingwarn">Not synced yet: ' + esc(st.err) + '</span>' : 'Will sync on the next save.') + '</div>';
+        if (v.t.missing && !v.empty && m.isNew !== true) h += ing.mmConfirm ? '<div class="vdelq">Send the incomplete numbers to Menu Macros now?</div><div class="draftbtns"><button class="navbtn" data-ing="mm-yes">Yes, send</button><button class="navbtn" data-ing="mm-no">Cancel</button></div>'
+          : '<div class="draftbtns"><button type="button" class="navbtn" data-ing="mm">Send current numbers anyway</button></div>';
+      }
+      h += '<div class="draftbtns"><a class="navbtn" href="#lt/macros" data-go="lt/macros">Open Menu Macros</a><button type="button" class="navbtn" data-ing="mlink-off">Unlink</button></div>';
+    } else {
+      var sg = ingMenuSugg(m, items);
+      if (sg.length) h += '<div class="inglinksg">' + (m.menuItem && !m.menuKey ? 'Link this recipe to its menu item?' : 'Looks like:') + sg.map(function (o) {
+        var i = items.indexOf(o.x);
+        return '<button type="button" class="navbtn inglinkbtn" data-ing="mlink" data-i="' + i + '">Link \u201c' + esc(o.x.item) + '\u201d' + (o.x.price != null ? ' \u00b7 ' + esc(ltPriceTxt(o.x.price)) : '') + (macIsMeasured(o.x) ? ' \u00b7 measured' : '') + (o.taken ? ' (now linked to ' + esc(o.taken) + ')' : '') + '</button>';
+      }).join('') + '</div>';
+    }
+    return h + '</div>';
+  }
+  function ingMenuMap(items) { var o = {}; ingMeals().items.forEach(function (m) { var x = m.menuKey ? ingMenuOf(m, items) : null; if (x) { var i = items.indexOf(x); if (!o[i]) o[i] = m; } }); return o; }
+  function ingMenuStTxt(m, x, v) {
+    v = v || ingMenuVals(m);
+    if (m.menuMode === 'ask') return 'Linked \u00b7 waiting for your choice';
+    if (m.menuMode === 'manual') return 'Linked \u00b7 numbers kept by hand (not synced)';
+    if (v.t.missing) return 'Linked \u00b7 sync waiting: ' + (v.empty ? 'recipe has no components yet' : v.t.missing + ' recipe component' + (v.t.missing === 1 ? '' : 's') + ' incomplete');
+    return ingMenuSame(v, x) ? 'Linked \u00b7 \u2713 synced from the recipe' : 'Linked \u00b7 syncing\u2026';
+  }
+  function ingMenuRecHtml(m, x) {
+    if (!m) return '';
+    return '<small class="macrecl">Recipe: <a href="#lt/ing-meal/' + esc(m.id) + '" data-go="lt/ing-meal/' + esc(m.id) + '">' + esc(m.name) + '</a> \u00b7 ' + esc(ingMenuStTxt(m, x).replace(/^Linked \u00b7 /, '')) + '</small>';
+  }
+  function ingMenuPaint() { var el = $('ing-mlink'); if (el && ing.mform) el.outerHTML = ingMenuCardHtml(ing.mform); }
+  function ingMenuApply(m, x) {       // link from the meal editor
+    ingMenuLink(m, x); m.menuQ = '';
+    var md = ingMeals(), ch = false;       // one recipe per menu item: another meal linked to it lets go
+    md.items.forEach(function (q) { if (q.id !== m.id && q.menuKey && ingMenuOf(q) === x) { ingMenuUnlink(q); q.upd = Date.now(); ch = true; } });
+    if (ch) ingMealsSave(md);
+    ingMealLinkSave(m);
+    ingFlash(m.menuMode === 'ask' ? 'Linked to \u201c' + x.item + '\u201d. Menu Macros has its own measured numbers: choose below.' : 'Linked to \u201c' + x.item + '\u201d. Menu Macros will follow this recipe' + (ingMenuVals(m).t.missing ? ' once it\u2019s complete.' : '.'));
+    if (m.menuMode === 'auto') ingMenuAutoSync();
   }
 
   /* ---- mic (one per form) ---- */
@@ -14323,6 +14547,7 @@
       ing.syncing = false; ing.syncP = null;
       if (manual) { var t = ingSyncText(res); ing.syncMsg = { text: t.text, bad: t.bad, at: Date.now() }; }
       if ($('screen-lt').classList.contains('active') && /^ing/.test(state.ltPart)) { ingBadgePaint(); if (state.ltPart === 'ingredients') ingRenderHome(); else if (state.ltPart === 'ing-meals') ingRenderMeals(); }
+      ingMenuEnsure(ingMenuAutoSync);         // v188: linked menu items follow their recipes
       return res;
     });
     return ing.syncP;
@@ -14381,6 +14606,13 @@
     else if (a === 'mm') { ingReadMeal(); ing.mmConfirm = true; ingRenderMeal(); }
     else if (a === 'mm-no') { ingReadMeal(); ing.mmConfirm = false; ingRenderMeal(); }
     else if (a === 'mm-yes') ingMmWrite();
+    else if (a === 'mlink') { ingReadMeal(); var lx = (ingMenuList() || [])[+b.getAttribute('data-i')]; if (lx) { ingMenuApply(ing.mform, lx); ingRenderMeal(); } }
+    else if (a === 'mlink-off') { ingReadMeal(); var ox = ing.mform.menuItem; ingMenuUnlink(ing.mform); ingMealLinkSave(ing.mform); ingRenderMeal(); ingFlash('Unlinked from \u201c' + ox + '\u201d. Menu Macros keeps its numbers.'); }
+    else if (a === 'mlink-auto' || a === 'mlink-manual') {
+      ingReadMeal(); ing.mform.menuMode = a === 'mlink-auto' ? 'auto' : 'manual'; ingMealLinkSave(ing.mform); ingRenderMeal();
+      if (a === 'mlink-auto') { ingFlash(ingMenuVals(ing.mform).t.missing ? 'Synced from now on. Menu Macros updates once the recipe is complete.' : 'Using the recipe values: Menu Macros is being updated.'); ingMenuAutoSync(); }
+      else ingFlash('Kept the measured numbers. The link stays (price, cost and margin still show).');
+    }
   });
   $('lt-body').addEventListener('change', function (e) {
     if (!/^ing/.test(state.ltPart)) return;
@@ -14395,7 +14627,10 @@
     }
     if (state.ltPart === 'ing-item' && /^ing-f-/.test(t.id || '')) ingCalcPaint();
     if (state.ltPart === 'ing-item' && (t.id === 'ing-usda-k' || t.id === 'ing-usda-sv')) { ingUsdaPick(); ingUsdaPaint(); }
-    if (state.ltPart === 'ing-meal' && (t.closest('.inglinebox') || t.id === 'ing-m-servings' || t.id === 'ing-m-menu')) { ingReadMeal(); ingRenderMeal(true); }
+    if (state.ltPart === 'ing-meal' && (t.closest('.inglinebox') || t.id === 'ing-m-servings' || t.id === 'ing-m-menu')) {
+      if (ing.inChg) return; ing.inChg = true;       // v188: repainting the link box blurs its input, which fires change again
+      try { ingReadMeal(); ingRenderMeal(true); } finally { ing.inChg = false; }
+    }
   });
   $('lt-body').addEventListener('input', function (e) {
     if (state.ltPart === 'ingredients' && e.target.id === 'ing-q') { ing.q = e.target.value; var pos = e.target.selectionStart; ingRenderHome(); var q = $('ing-q'); if (q) { q.focus(); try { q.setSelectionRange(pos, pos); } catch (x) {} } }
