@@ -12825,7 +12825,8 @@
     d.items = d.items.filter(function (x) { return x && x.id && typeof x.name === 'string'; }).map(function (x) {
       return { id: String(x.id), name: String(x.name).slice(0, 120), servings: String(x.servings || '1').slice(0, 8), menuItem: String(x.menuItem || '').slice(0, 200),
         menuPrice: String(x.menuPrice || '').slice(0, 12), menuKey: String(x.menuKey || '').slice(0, 200), menuRow: +x.menuRow || 0,
-        menuMode: /^(auto|ask|manual)$/.test(x.menuMode || '') ? x.menuMode : '', notes: String(x.notes || '').slice(0, 500), upd: x.upd || 0, pushed: x.pushed || 0,
+        menuMode: /^(auto|ask|manual)$/.test(x.menuMode || '') ? x.menuMode : '',
+        srvOz: String(x.srvOz || '').slice(0, 8), srvLbl: /^(cup|bowl)$/.test(x.srvLbl || '') ? x.srvLbl : '', yield: String(x.yield || '').slice(0, 60), notes: String(x.notes || '').slice(0, 500), upd: x.upd || 0, pushed: x.pushed || 0,
         lines: (Array.isArray(x.lines) ? x.lines : []).slice(0, 60).map(function (l) {
           return { id: String(l.id || cmNewId()), ingId: String(l.ingId || ''), name: String(l.name || '').slice(0, 120), qty: String(l.qty || '').slice(0, 12), unit: String(l.unit || '').slice(0, 12) };
         }) };
@@ -13987,7 +13988,7 @@
     h += md.items.slice().sort(function (a, b) { return b.upd - a.upd; }).map(function (m) {
       var t = ingTotals(m, d);
       return '<button class="wlitem cmitem ingrow" data-go="lt/ing-meal/' + esc(m.id) + '"><span class="cmmain"><span class="wlname">' + esc(m.name || 'Untitled meal') + '</span>' +
-        '<span class="wlmeta">' + m.lines.length + ' component' + (m.lines.length === 1 ? '' : 's') + ' \u00b7 makes ' + esc(m.servings || '1') + (m.menuItem ? ' \u00b7 ' + esc(m.menuItem) : '') + '</span>' +
+        '<span class="wlmeta">' + m.lines.length + ' component' + (m.lines.length === 1 ? '' : 's') + (ingSrvOz(m) ? ' \u00b7 ' + esc(ingSrvTxt(m)) + ' servings' : ' \u00b7 makes ' + esc(m.servings || '1')) + (m.menuItem ? ' \u00b7 ' + esc(m.menuItem) : '') + '</span>' +
         '<span class="wlmeta">Per serving: ' + ingR(t.per.calories) + ' cal \u00b7 ' + ingR(t.per.protein) + 'P ' + ingR(t.per.carbs) + 'C ' + ingR(t.per.fat) + 'F \u00b7 ' + ingMoney(t.per.cost) + (t.missing ? ' <span class="ingwarn">(' + t.missing + ' incomplete)</span>' : '') + '</span></span></button>';
     }).join('') + '</div>';
     $('lt-body').innerHTML = h;
@@ -14004,10 +14005,132 @@
     if (l.newIng) return l.newIng;
     return (l.ingId && cmFind(d, l.ingId)) || (l.name ? ingFindByName(d, l.name) : null);
   }
+  /* ---- v189: serving by size (a soup sold as a 16 fl oz bowl). Each line's volume in fl oz -> its share of the batch; per serving =
+   * batch totals x (serving fl oz / batch fl oz). A measured cooked yield (what the pot really holds) beats the raw-ingredient estimate. ---- */
+  var ING_FLOZ = { ml: 1 / 29.5735, l: 1000 / 29.5735, floz: 1, cup: 8, tbsp: 0.5, tsp: 1 / 6 };
+  var ING_GW = { g: 1, kg: 1000, oz: 28.3495, lb: 453.592 };
+  var ING_MEAT = /\b(ground|turkey|beef|chicken|pork|sausage|chorizo|lamb|bison|venison|meat|steak|brisket|thighs?|breasts?|carnitas|mince)\b/i;
+  var ING_WATERY = /\b(salsa|sauce|stock|broth|juice|milk|soup|puree|passata|crushed tomato(?:es)?|diced tomato(?:es)?|enchilada|salsa verde|water)\b/i;
+  var ING_NOT_MEAT = /\b(stock|broth|bouillon|soup|base|seasoning|sauce|gravy|salsa)\b/i;
+  var ING_SRV_OPTS = [['', 'Servings count'], ['8', '8 fl oz'], ['12', '12 fl oz'], ['16', '16 fl oz'], ['20', '20 fl oz'], ['24', '24 fl oz'], ['cup', '1 cup (8 fl oz)'], ['custom', '1 bowl (custom size)']];
+  function ingSrvOz(m) { var n = ingNum(m && m.srvOz); return n > 0 && n <= 200 ? n : 0; }
+  function ingSrvSel(m) { var n = ingSrvOz(m); if (!n) return ''; if (m.srvLbl === 'cup') return 'cup'; if (m.srvLbl === 'bowl') return 'custom'; return ['8', '12', '16', '20', '24'].indexOf(String(n)) >= 0 ? String(n) : 'custom'; }
+  function ingSrvTxt(m) { var n = ingSrvOz(m); if (!n) return ''; var o = ingR(n, 1) + ' fl oz'; return m.srvLbl === 'cup' ? (n === 8 ? '1 cup' : ingR(n / 8, 2) + ' cups') + ' (' + o + ')' : m.srvLbl === 'bowl' ? '1 bowl (' + o + ')' : o; }
+  function ingWordNum(w) {
+    w = String(w || '').toLowerCase().trim().replace(/-/g, ' ');
+    var W = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, eighteen: 18, twenty: 20, 'twenty four': 24, thirty: 30, 'thirty two': 32, forty: 40, half: 0.5, 'a half': 0.5 };
+    return W[w] != null ? W[w] : ingLineQty(w);
+  }
+  var ING_NUMW = '\\d+(?:\\.\\d+)?(?:\\s+\\d+\\/\\d+)?|\\d+\\/\\d+|twenty[- ]four|thirty[- ]two|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|eighteen|twenty|thirty|forty|a half|half|an|a';
+  var ING_VUNW = 'gallons?|gal|quarts?|qts?|pints?|pts?|cups?|fl\\.? ?oz|fluid ounces?|ounces?|oz|liters?|litres?|ml|milliliters?|l';
+  function ingVolU(u) {
+    u = String(u || '').toLowerCase().replace(/\./g, '');
+    return /^(gallons?|gal)$/.test(u) ? 128 : /^(quarts?|qts?)$/.test(u) ? 32 : /^(pints?|pts?)$/.test(u) ? 16 : /^cups?$/.test(u) ? 8 : /^(fl ?oz|fluid ounces?|ounces?|oz)$/.test(u) ? 1
+      : /^(liters?|litres?|l)$/.test(u) ? 33.814 : /^(ml|milliliters?)$/.test(u) ? 0.033814 : 0;
+  }
+  function ingVolParse(s) {         // "1.5 gallons", "190 oz", "12 quarts", "about 3 gal", "1 gallon and 2 quarts" -> fl oz (0 = can't read it)
+    s = String(s || '').toLowerCase().replace(/\bhalf an? (gallon|quart|pint|cup|liter|litre)\b/g, '0.5 $1'); var re = new RegExp('\\b(' + ING_NUMW + ')\\s*(' + ING_VUNW + ')\\b(\\s+and\\s+a\\s+half)?', 'g'), m, tot = 0;
+    while ((m = re.exec(s))) { var n = ingWordNum(m[1]), k = ingVolU(m[2]); if (n > 0 && k) tot += (n + (m[3] ? 0.5 : 0)) * k; }
+    return tot > 0 ? tot : 0;
+  }
+  function ingVolTxt(oz) { if (!(oz > 0)) return '\u2014'; return ingR(oz, 0) + ' fl oz' + (oz >= 64 ? ' (' + ingR(oz / 128, 2) + ' gal)' : oz >= 16 ? ' (' + ingR(oz / 8, 1) + ' cups)' : ''); }
+  function ingVolOf(it, n, u) {      // a meal line's volume: { oz, how, est } (est = an assumption, not from the label/USDA) | null = unknown
+    if (!it || !(n > 0)) return null;
+    u = ingUnit(u) || 'each';
+    var k = ingPkg(it), sv = ingQty(it.servingSize), pre = '';
+    if (u === 'pkg') {
+      if (k.type === 'each' || k.type === 'lb') u = k.type;
+      else {
+        var cn = ingContQty(it, n);
+        if (k.net && ING_FLOZ[k.net.u]) return { oz: n * k.net.n * ING_FLOZ[k.net.u], how: cn + ' \u00d7 ' + ingQtyStr(k.net.n, k.net.u) };
+        if (k.spc !== null && k.spcFrom === 'label' && sv && ING_FLOZ[sv.u]) return { oz: n * k.spc * sv.n * ING_FLOZ[sv.u], how: cn + ' \u00d7 ' + ingR(k.spc, 2) + ' servings \u00d7 ' + ingQtyStr(sv.n, sv.u) };
+        if (k.net && ING_GW[k.net.u]) { pre = cn + ' \u00d7 ' + ingQtyStr(k.net.n, k.net.u) + '; '; n = n * k.net.n; u = k.net.u; }
+        else if (k.spc !== null) { pre = cn + ' \u00d7 ' + ingR(k.spc, 2) + ' servings; '; n = n * k.spc; u = 'serving'; }
+        else return null;
+      }
+    }
+    if (ING_FLOZ[u]) return { oz: n * ING_FLOZ[u], how: pre || 'by volume' };
+    if (u === 'serving') {
+      if (sv && ING_FLOZ[sv.u]) return { oz: n * sv.n * ING_FLOZ[sv.u], how: pre + ingR(n, 2) + ' \u00d7 ' + ingQtyStr(sv.n, sv.u) };
+      if (sv && ING_GW[sv.u]) { n = n * sv.n; u = sv.u; } else if (sv && sv.g && (sv.gk || 'g') === 'g') { n = n * sv.g; u = 'g'; } else return null;
+    }
+    var pm = ingProOf(it) ? null : (ingIsPro(it) ? ingProMatch(it.name) : null), p = ingProOf(it) || (pm && pm.p), g = null;
+    if (ING_GW[u]) g = n * ING_GW[u];
+    else if (u === 'each' && p) g = ingProGrams(p, n, 'each', pm && pm.size);
+    if (g === null || !(g > 0)) return null;
+    if (sv && sv.g && (sv.gk || 'g') === 'g' && ING_FLOZ[sv.u]) return { oz: g / sv.g * sv.n * ING_FLOZ[sv.u], how: pre + 'label: ' + ingQtyStr(sv.n, sv.u) + ' = ' + ingR(sv.g, 1) + ' g' };
+    if (p) { var cp = ingProPor(p, 'cup'); if (cp && cp[3] > 0) return { oz: g / (cp[3] / cp[1]) * 8, how: pre + ingR(g, 0) + ' g; USDA ' + cp[0] + ' = ' + ingR(cp[3], 0) + ' g' }; }
+    if (ING_MEAT.test(it.name || '') && !ING_NOT_MEAT.test(it.name || '')) return { oz: g / 28.3495, how: pre + 'assumed ~1 cup per 8 oz cooked ground meat', est: true };
+    if (ING_WATERY.test(it.name || '')) return { oz: g / 28.3495, how: pre + 'assumed ~1 fl oz per oz (pourable, like water)', est: true };
+    return null;
+  }
+  function ingBatch(m, rows) {       // batch volume: estimate from the lines, or the measured cooked yield
+    var est = 0, known = 0, unk = 0, assumed = 0;
+    rows.forEach(function (r) { if (!r.it || !(r.n > 0)) return; if (r.vol) { est += r.vol.oz; known++; if (r.vol.est) assumed++; } else unk++; });
+    var y = ingVolParse(m.yield || '');
+    return { est: est, known: known, unk: unk, assumed: assumed, yieldOz: y, yieldBad: !!String(m.yield || '').trim() && !y, oz: y || est, from: y ? 'yield' : 'estimate' };
+  }
+  function ingMealFieldSave(m, keys) {   // a saved meal: store just these fields now (one-tap choices) - the rest of the form waits for Save meal
+    if (m.isNew) return;
+    var md = ingMeals(), it = md.items.filter(function (x) { return x.id === m.id; })[0]; if (!it) return;
+    keys.forEach(function (k) { it[k] = m[k]; }); it.upd = m.upd = Date.now(); ingMealsSave(md); ingSync(true);
+  }
+  var ING_SRVASK_KEY = 'cc_lt_ing_srvask';
+  function ingSrvCtlHtml(m, t) {
+    var sel = ingSrvSel(m), so = ingSrvOz(m);
+    var h = '<div class="vrow2"><label class="vfield"><span>Serving</span><select class="wlin" id="ing-m-srvsel">' + ING_SRV_OPTS.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === sel ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select></label>';
+    if (!sel) return h + '<label class="vfield"><span>Makes (servings)</span><input class="wlin" id="ing-m-servings" inputmode="decimal" value="' + esc(m.servings) + '"></label></div>';
+    h += sel === 'custom' ? '<label class="vfield"><span>Bowl size (fl oz)</span><input class="wlin" id="ing-m-srvoz" inputmode="decimal" value="' + esc(m.srvOz) + '"></label>'
+      : '<div class="vfield"><span>Servings in batch</span><div class="ingsrvn">' + (t.batch.oz > 0 && so ? '<b>' + ingR(t.batch.oz / so, 1) + '</b> \u00d7 ' + esc(ingSrvTxt(m)) : '\u2014') + '</div></div>';
+    h += '</div><label class="vfield"><span>Measured cooked yield <small>recommended: overrides the estimate</small></span><input class="wlin" id="ing-m-yield" maxlength="60" placeholder="e.g. 1.5 gallons, 190 oz, 12 quarts" value="' + esc(m.yield || '') + '"></label>';
+    return h;
+  }
+  function ingSrvAskHtml(m) {
+    if (ingSrvOz(m) || !/\b(chili|chilli|soup|stew|chowder|bisque|gumbo|curry|broth|pozole|posole|ramen|pho|congee|oatmeal|porridge)\b/i.test(m.name || '') || (lsGet(ING_SRVASK_KEY, {}) || {})[m.id]) return '';
+    return '<div class="ingsrvask card"><div>Sell this by size? With <b>16 oz servings</b>, each ingredient counts by its share of the batch volume, and one serving = 16 fl oz of the pot.</div>' +
+      '<div class="draftbtns"><button type="button" class="navbtn" data-ing="srv16">Use 16 oz servings</button><button type="button" class="navbtn" data-ing="srvno">Keep servings count</button></div></div>';
+  }
+  function ingVolHtml(m, t) {
+    var b = t.batch, so = ingSrvOz(m);
+    if (!so) return '<div class="ingvol"></div>';          // only when servings are by size
+    var h = '<div class="ingvol"><h4 class="sechead">Batch volume <small>' + (b.from === 'yield' ? 'measured' : 'estimated from the ingredients') + '</small></h4>';
+    var tot = b.est;
+    h += '<table class="ingtab"><tr><th>Ingredient</th><th>Volume</th><th>% of batch</th></tr>' + t.rows.map(function (r) {
+      if (!r.it || !(r.n > 0)) return '';
+      var nm = esc(r.it.name) + ' <small>' + esc(ingUnit(r.line.unit) === 'pkg' ? ingContQty(r.it, r.n) : ingQtyStr(r.n, ingUnit(r.line.unit))) + '</small>';
+      if (!r.vol) return '<tr class="warn"><td>' + nm + '</td><td colspan="2" class="ingwarn">volume unknown</td></tr>';
+      return '<tr><td>' + nm + '<div class="ingmath">' + esc(r.vol.how) + (r.vol.est ? ' (estimate)' : '') + '</div></td><td>' + ingR(r.vol.oz, 1) + ' fl oz</td><td>' + (tot > 0 ? ingR(r.vol.oz / tot * 100, 0) + '%' : '\u2014') + '</td></tr>';
+    }).join('') + '<tr class="ingcost"><td>Estimated batch' + (b.unk ? ' (' + b.unk + ' unknown)' : '') + '</td><td colspan="2">' + ingVolTxt(b.est) + '</td></tr></table>';
+    if (b.unk) h += '<div class="ingwarn">' + b.unk + ' ingredient' + (b.unk === 1 ? '' : 's') + ' with volume unknown: left out of the % and the estimate (their macros still count in the totals)' + (b.yieldOz ? '.' : ', so the estimate runs small. Enter the measured cooked yield.') + '</div>';
+    if (b.assumed) h += '<div class="inghelp">Lines marked (estimate) use an assumption: ~1 cup per 8 oz cooked ground meat; pourable sauces/stock ~1 fl oz per oz.</div>';
+    h += b.yieldOz ? '<div class="ingcpm">Using the measured cooked yield: <b>' + ingVolTxt(b.yieldOz) + '</b>' + (b.est > 0 ? ' (ingredients add up to ' + ingVolTxt(b.est) + ')' : '') + '</div>'
+      : b.yieldBad ? '<div class="ingwarn">Can\u2019t read the cooked yield. Try \u201c1.5 gallons\u201d, \u201c190 oz\u201d or \u201c12 quarts\u201d.</div>'
+      : '<div class="inghelp">Cooking changes the volume (liquid boils off, beans soak it up). For the most accurate per-serving numbers, measure the finished pot and enter it as the cooked yield.</div>';
+    if (so) h += '<div class="ingcpm">' + (b.oz > 0 ? 'Servings in this batch: <b>' + ingR(b.oz / so, 1) + '</b> (' + ingR(b.oz, 0) + ' fl oz \u00f7 ' + ingR(so, 1) + ' fl oz)' : '<span class="ingwarn">No batch volume yet: add amounts the volume can be worked out from, or the cooked yield.</span>') + '</div>';
+    return h + '</div>';
+  }
+  function ingMealDictMeta(text) {   // "serving is 16 ounces", "made about 3 gallons" -> serving size / cooked yield (taken out of the text)
+    var s = String(text || ''), out = { srvOz: 0, srvLbl: '', yield: '', rest: s }, N = '(' + ING_NUMW + ')', m;
+    var rs = [new RegExp('\\b(?:each\\s+|per\\s+|the\\s+|a\\s+)?(?:serving(?:\\s+size)?|servings|portion(?:\\s+size)?|portions)\\s+(?:is|are|=|of|will be|should be|at)?\\s*(?:about\\s+|around\\s+)?' + N + '\\s*(fl\\.? ?oz|fluid ounces?|ounces?|oz|cups?)\\b', 'i'),
+      new RegExp('\\b' + N + '[- ]?(fl\\.? ?oz|fluid ounces?|ounces?|oz|cups?)\\s+(?:servings?|portions?)\\b', 'i'),
+      new RegExp('\\b(?:a\\s+|the\\s+|one\\s+)?bowls?\\s+(?:is|are|=|of|holds)\\s*(?:about\\s+)?' + N + '\\s*(fl\\.? ?oz|fluid ounces?|ounces?|oz|cups?)\\b', 'i')];
+    rs.forEach(function (re, i) {
+      if (out.srvOz || !(m = re.exec(out.rest))) return;
+      var n = ingWordNum(m[1]), k = ingVolU(m[2]); if (!(n > 0) || !k) return;
+      out.srvOz = n * k; out.srvLbl = i === 2 ? 'bowl' : /^cups?$/i.test(m[2]) ? 'cup' : '';
+      out.rest = out.rest.replace(m[0], ' ');
+    });
+    var VQ = '(?:' + ING_NUMW + ')\\s*(?:' + ING_VUNW + ')\\b(?:\\s+and\\s+a\\s+half)?';
+    var ry = new RegExp('\\b(?:it\\s+|we\\s+|i\\s+|this\\s+|the\\s+batch\\s+|the\\s+pot\\s+)?(?:made|makes|making|yield(?:s|ed)?|cooked yield(?:\\s+is|\\s+was)?|batch (?:is|was|makes|made)|pot (?:is|was|holds|held)|came out to|comes to|total(?: volume)?(?: is| was)?)\\s+(?:is\\s+|was\\s+|of\\s+)?(?:about\\s+|around\\s+|roughly\\s+|approximately\\s+|approx\\s+|nearly\\s+|almost\\s+|~\\s*)?(' + VQ + '(?:\\s+(?:and\\s+)?' + VQ + ')?)', 'i');
+    if ((m = ry.exec(out.rest))) { var y = ingVolParse(m[1]); if (y) { out.yield = m[1].trim(); out.rest = out.rest.replace(m[0], ' '); } }
+    out.rest = out.rest.replace(/\s*,\s*,/g, ',').replace(/^\s*(?:and|then|also|next)\b|\b(?:and|then)\s*$/gi, '').replace(/^\s*[,.;]\s*|\s*[,;]\s*$/g, '').replace(/\s{2,}/g, ' ').trim();
+    return out;
+  }
   function ingTotals(m, d) {
     var tot = { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, cost: 0 }, rows = [], missing = 0;
     m.lines.forEach(function (l) {
-      var it = ingLineIng(l, d), n = ingLineQty(l.qty), r = { line: l, it: it, n: n, mac: null, cost: null, why: '', math: '' };
+      var it = ingLineIng(l, d), n = ingLineQty(l.qty), r = { line: l, it: it, n: n, mac: null, cost: null, why: '', math: '', vol: null };
+      if (it && n > 0) r.vol = ingVolOf(it, n, l.unit);      // v189
       if (!it) { r.why = (l.name || '').trim() ? 'Not in your ingredients yet' : 'Pick an ingredient'; missing++; }
       else if (!(n > 0)) { r.why = 'Add an amount'; missing++; }
       else {
@@ -14029,8 +14152,10 @@
       rows.push(r);
     });
     var sv = ingNum(m.servings); if (!(sv > 0)) sv = 1;
-    var per = {}; Object.keys(tot).forEach(function (k) { per[k] = tot[k] / sv; });
-    return { tot: tot, per: per, rows: rows, missing: missing, servings: sv };
+    var batch = ingBatch(m, rows), so = ingSrvOz(m), noVol = false;
+    if (so) { if (batch.oz > 0) sv = batch.oz / so; else { noVol = true; missing++; } }     // v189: servings = batch fl oz / serving fl oz
+    var per = {}; Object.keys(tot).forEach(function (k) { per[k] = noVol ? NaN : tot[k] / sv; });
+    return { tot: tot, per: per, rows: rows, missing: missing, servings: sv, batch: batch, srvOz: so, noVol: noVol };
   }
   function ingOpenMeal(id) {
     var md = ingMeals(), m = id && id !== 'new' ? md.items.filter(function (x) { return x.id === id; })[0] : null;
@@ -14056,7 +14181,7 @@
     var mi = ingMenuOf(m), price = mi && mi.price != null ? +mi.price : ingNum(m.menuPrice);      // v188: the menu item's price is the price
     var h = '<div class="ing ingmeal vform card">' + ingFlashHtml() +
       '<label class="vfield"><span>Meal / recipe name</span><input class="wlin" id="ing-m-name" maxlength="120" placeholder="e.g. Chicken burrito bowl" value="' + esc(m.name) + '"></label>' +
-      '<label class="vfield"><span>Makes (servings)</span><input class="wlin" id="ing-m-servings" inputmode="decimal" value="' + esc(m.servings) + '"></label>' +
+      ingSrvCtlHtml(m, t) + ingSrvAskHtml(m) +
       ingMenuCardHtml(m) +
       '<h4 class="sechead">Add components</h4>' + ingMicHtml('meal') +
       '<div class="ingcamrow"><label class="navbtn ingcam">' + vsvg('cam', 20) + ' Snap a label<input type="file" accept="image/*" capture="environment" hidden data-ingcam="meal-label"></label>' +
@@ -14079,10 +14204,12 @@
     h += '<button type="button" class="wladd navbtn" data-ing="line-add">+ Add component</button>';
     var sv = t.servings, cpm = t.per.cost;
     h += '<div class="ingtot"><h4 class="sechead">Totals' + (t.missing ? ' <small class="ingwarn">' + t.missing + ' component' + (t.missing === 1 ? '' : 's') + ' incomplete</small>' : '') + '</h4>' +
-      '<table class="ingtab"><tr><th></th><th>Whole recipe</th><th>Per serving' + (sv !== 1 ? ' (\u00f7' + ingR(sv, 2) + ')' : '') + '</th></tr>' +
+      (t.noVol ? '<div class="ingwarn">Per serving needs the batch volume (see Batch volume below).</div>' : '') +
+      '<table class="ingtab"><tr><th></th><th>Whole recipe</th><th>Per serving' + (t.srvOz ? ' (' + esc(ingSrvTxt(m)) + ')' : sv !== 1 ? ' (\u00f7' + ingR(sv, 2) + ')' : '') + '</th></tr>' +
       ING_MAC.map(function (k) { var dd = k[0] === 'calories' ? 0 : 1, u = k[2] === 'g' ? ' g' : ''; return '<tr><td>' + k[1] + '</td><td>' + ingR(t.tot[k[0]], dd) + u + '</td><td>' + ingR(t.per[k[0]], dd) + u + '</td></tr>'; }).join('') +
       '<tr class="ingcost"><td>Food cost</td><td>' + ingMoney(t.tot.cost) + '</td><td><b>' + ingMoney(cpm) + '</b></td></tr></table>' +
-      '<div class="ingcpm">Cost per meal (1 serving): <b>' + ingMoney(cpm) + '</b>' + (price > 0 && cpm > 0 ? '<br>Menu price ' + ingMoney(price) + ' \u00b7 food cost ' + Math.round(cpm / price * 100) + '% \u00b7 margin ' + ingMoney(price - cpm) : '') + '</div></div>';
+      '<div class="ingcpm">Cost per meal (1 serving' + (t.srvOz ? ', ' + esc(ingSrvTxt(m)) : '') + '): <b>' + ingMoney(cpm) + '</b>' + (price > 0 && cpm > 0 ? '<br>Menu price ' + ingMoney(price) + ' \u00b7 food cost ' + Math.round(cpm / price * 100) + '% \u00b7 margin ' + ingMoney(price - cpm) : '') + '</div></div>';
+    h += ingVolHtml(m, t);
     h += '<div class="ingusage"><h4 class="sechead">What it used + what it cost</h4>' + (t.rows.length ? '<table class="ingtab"><tr><th>Ingredient</th><th>Used</th><th>Package</th><th>Cost</th></tr>' + t.rows.map(function (r) {
       var it = r.it;
       return '<tr><td>' + esc((it && it.name) || r.line.name || '?') + '</td><td>' + esc(r.n > 0 ? (ingUnit(r.line.unit) === 'pkg' && it ? ingContQty(it, r.n) : ingQtyStr(r.n, ingUnit(r.line.unit))) : '\u2014') + '</td><td>' + esc(it && (it.packageSize || it.packagePrice) ? (it.packageSize || '?') + ' @ ' + (it.packagePrice ? '$' + it.packagePrice : '?') : '\u2014') + '</td><td>' + ingMoney(r.cost) + '</td></tr>';
@@ -14093,7 +14220,7 @@
       : '<button class="navbtn vdelbtn ingdel" data-ing="del-meal">Delete meal</button>';
     if (partial && document.querySelector('#lt-body .ingmeal')) {     // only the numbers: keeps the inputs, focus and the dictation box as they are
       var tmp = document.createElement('div'); tmp.innerHTML = h + '</div>';
-      ['.ingtot', '.ingusage', '#ing-mlink'].forEach(function (q) { var a = document.querySelector('#lt-body ' + q), b = tmp.querySelector(q); if (a && b && a.parentNode) a.parentNode.replaceChild(b, a); });
+      ['.ingtot', '.ingusage', '#ing-mlink', '.ingvol', '.ingsrvn'].forEach(function (q) { var a = document.querySelector('#lt-body ' + q), b = tmp.querySelector(q); if (a && b && a.parentNode) ingSwap(a, b); });
       Array.prototype.forEach.call(tmp.querySelectorAll('.inglinebox'), function (nb) {
         var ob = document.querySelector('#lt-body .inglinebox[data-line="' + nb.getAttribute('data-line') + '"]'); if (!ob) return;
         ob.className = nb.className; var a = ob.querySelector('.ingres'), b = nb.querySelector('.ingres'); if (a && b) a.parentNode.replaceChild(b, a);
@@ -14103,9 +14230,31 @@
     $('lt-body').innerHTML = h + '</div>';
     ingMicPaint();
   }
+  function ingSwap(a, b) {         // v189: replace only what changed, so a button being tapped (the tap blurs an input -> repaint) stays put
+    if (a.outerHTML === b.outerHTML) return;
+    if (a.tagName === b.tagName && a.className === b.className && a.children.length && a.children.length === b.children.length && a.childNodes.length === b.childNodes.length) {
+      var bs = Array.prototype.slice.call(b.childNodes);
+      Array.prototype.slice.call(a.childNodes).forEach(function (c, i) {
+        var d = bs[i]; if (c.nodeType === 1 && d.nodeType === 1) ingSwap(c, d); else if (c.nodeType !== d.nodeType || c.textContent !== d.textContent) a.replaceChild(d, c);
+      });
+      return;
+    }
+    a.parentNode.replaceChild(b, a);
+  }
   function ingReadMeal() {
     var m = ing.mform; if (!m || !$('ing-m-name')) return m;
-    m.name = $('ing-m-name').value.trim(); m.servings = $('ing-m-servings').value.trim(); if ($('ing-m-notes')) m.notes = $('ing-m-notes').value;
+    m.name = $('ing-m-name').value.trim(); if ($('ing-m-servings')) m.servings = $('ing-m-servings').value.trim(); if ($('ing-m-notes')) m.notes = $('ing-m-notes').value;
+    var ss = $('ing-m-srvsel');            // v189: serving by size
+    if (ss) {
+      var was = ingSrvSel(m), now = ss.value, so = $('ing-m-srvoz');
+      if (now !== was) {
+        if (!now) { m.srvOz = ''; m.srvLbl = ''; }
+        else if (now === 'cup') { m.srvOz = '8'; m.srvLbl = 'cup'; }
+        else if (now === 'custom') { m.srvLbl = 'bowl'; if (!ingSrvOz(m)) m.srvOz = '16'; }
+        else { m.srvOz = now; m.srvLbl = ''; }
+      } else if (now === 'custom' && so) { var cz = ingVolParse(so.value) || ingNum(so.value); m.srvOz = cz > 0 ? String(+cz.toFixed(2)) : so.value.trim(); m.srvLbl = 'bowl'; }
+    }
+    if ($('ing-m-yield')) m.yield = $('ing-m-yield').value.trim();
     var mm = $('ing-m-menu'), mis = ingMenuList();       // v188: the typed menu item counts only when it's one of the real menu items
     if (mm && mis) {
       var q = mm.value.trim(), cur = ingMenuOf(m, mis);
@@ -14133,7 +14282,10 @@
   }
   function ingMealApplyDict() {
     var m = ing.mform; if (!m) return;
-    var comps = ingParseDict(m.dict || '', 'meal'), d = ingAll(), n = 0;
+    var meta = ingMealDictMeta(m.dict || ''), said = [];       // v189: "serving is 16 ounces", "made about 3 gallons"
+    if (meta.srvOz) { m.srvOz = String(+meta.srvOz.toFixed(2)); m.srvLbl = meta.srvLbl; said.push('serving ' + ingSrvTxt(m)); }
+    if (meta.yield) { m.yield = meta.yield; said.push('cooked yield ' + meta.yield); }
+    var comps = meta.rest ? ingParseDict(meta.rest, 'meal') : [], d = ingAll(), n = 0;
     comps.forEach(function (c) {
       var hit = c.name ? ingFindByName(d, c.name) : null;
       var l = { id: cmNewId(), ingId: hit ? hit.id : '', name: hit ? hit.name : (c.name || ''), qty: c.used ? String(c.used.n) : '', unit: c.used ? c.used.u : (c.pkg ? c.pkg.u : 'g') };
@@ -14154,8 +14306,8 @@
       }
       m.lines.push(l); n++;
     });
-    ingFlash(n ? 'Added ' + n + ' component' + (n === 1 ? '' : 's') + ' from what I heard. Check the amounts, then Save meal.' : 'I couldn\u2019t pick out any components. Try \u201cchicken thighs 2 pounds, next rice 1 cup\u201d.', !n);
-    if (n) m.dict = '';
+    ingFlash(n || said.length ? (said.length ? 'Set ' + said.join(' and ') + '. ' : '') + (n ? 'Added ' + n + ' component' + (n === 1 ? '' : 's') + ' from what I heard. ' : '') + 'Check it, then Save meal.' : 'I couldn\u2019t pick out any components. Try \u201cchicken thighs 2 pounds, next rice 1 cup\u201d.', !n && !said.length);
+    if (n || said.length) m.dict = '';
     ingRenderMeal();
   }
   function ingSaveMeal() {
@@ -14172,8 +14324,10 @@
       } else if (!l.ingId) { var hit = ingFindByName(d, l.name); if (hit) l.ingId = hit.id; }
     });
     if (added && !ltCostSave(d)) return ingFlash('This phone is out of storage space. Nothing saved.', true);
+    if (ingSrvOz(m)) { var t9 = ingTotals(m, d); if (t9.batch.oz > 0) m.servings = String(+(t9.batch.oz / ingSrvOz(m)).toFixed(1)); }   // v189: kept for older phones / lists
+    else if (m.srvOz) return ingFlash('Serving size must be a number of fl oz like 16.', true);
     var md = ingMeals(), rec = { id: m.id, name: m.name, servings: m.servings, menuItem: m.menuKey ? m.menuItem || '' : (m.menuItem || ''), menuPrice: m.menuPrice || '',
-      menuKey: m.menuKey || '', menuRow: m.menuRow || 0, menuMode: m.menuMode || '', notes: m.notes || '', lines: m.lines, upd: now, pushed: 0 };
+      menuKey: m.menuKey || '', menuRow: m.menuRow || 0, menuMode: m.menuMode || '', srvOz: m.srvOz || '', srvLbl: m.srvLbl || '', yield: m.yield || '', notes: m.notes || '', lines: m.lines, upd: now, pushed: 0 };
     var i = -1; md.items.forEach(function (x, k) { if (x.id === m.id) i = k; });
     if (i >= 0) { rec.pushed = md.items[i].pushed; md.items[i] = rec; } else md.items.unshift(rec);
     if (!ingMealsSave(md)) return ingFlash('This phone is out of storage space. Nothing saved.', true);
@@ -14223,13 +14377,13 @@
   function ingMenuVals(m) {
     var t = ingTotals(m, ingAll()), empty = !m.lines.length;
     if (empty) { t = JSON.parse(JSON.stringify(t)); t.missing = 1; }      // no components: nothing to send yet
-    return { t: t, empty: empty, cal: Math.round(t.per.calories), protein: ingR1(t.per.protein), carbs: ingR1(t.per.carbs), fat: ingR1(t.per.fat), fiber: ingR1(t.per.fiber), cost: t.per.cost };
+    return { t: t, empty: empty, srv: ingSrvTxt(m), cal: Math.round(t.per.calories), protein: ingR1(t.per.protein), carbs: ingR1(t.per.carbs), fat: ingR1(t.per.fat), fiber: ingR1(t.per.fiber), cost: t.per.cost };
   }
   function ingMissTxt(v) { return v.empty ? 'the recipe has no components yet' : v.t.missing + ' component' + (v.t.missing === 1 ? ' is' : 's are') + ' incomplete'; }
-  function ingMenuSame(v, x) { return x.cal != null && Math.abs(+x.cal - v.cal) < 1 && ['protein', 'carbs', 'fat'].every(function (k) { return x[k] != null && Math.abs(+x[k] - v[k]) < 0.1; }); }
+  function ingMenuSame(v, x) { return (!v.srv || String(x.serving || '').trim() === v.srv) && x.cal != null && Math.abs(+x.cal - v.cal) < 1 && ['protein', 'carbs', 'fat'].every(function (k) { return x[k] != null && Math.abs(+x[k] - v[k]) < 0.1; }); }
   function ingMenuNotes(m, x) {
     var base = String(x.notes || '').replace(/\s*From (?:recipe|Ingredients): .*?(?:\[r:[^\]]*\]|\(makes [^)]*\))\s*/g, ' ').replace(/\s*\[r:[^\]]*\]\s*/g, ' ').trim();
-    var tag = 'From recipe: ' + m.name + ' (makes ' + m.servings + ') [r:' + m.id + ']';
+    var tag = 'From recipe: ' + m.name + (ingSrvOz(m) ? ' (per ' + ingSrvTxt(m) + ')' : ' (makes ' + m.servings + ')') + ' [r:' + m.id + ']';
     var room = 300 - tag.length - 1; return ((base && room > 10 ? base.slice(0, room) + ' ' : '') + tag).slice(0, 300);
   }
   function ingHash(s) { var h = 5381; for (var i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
@@ -14266,6 +14420,7 @@
     if (!(v.cal >= 0) || !isFinite(v.protein) || !isFinite(v.carbs) || !isFinite(v.fat)) return Promise.resolve({ ok: false, msg: 'the recipe has no numbers yet' });
     var body = { item: x.item, cal: String(v.cal), protein: String(v.protein), carbs: String(v.carbs), fat: String(v.fat), notes: ingMenuNotes(m, x) };
     if (x.row) body.row = x.row;
+    if (v.srv) body.serving = v.srv;        // v189: the numbers are per this size
     body.cid = ('mr-' + m.id + '-' + ingHash(JSON.stringify(body) + '|' + [x.cal, x.protein, x.carbs, x.fat, x.basis].join('/'))).slice(0, 80);
     var st = ingMsync();
     return apiRaw('ltmacroset', body).then(function (j) {
@@ -14275,6 +14430,7 @@
       }
       var u = j.data && j.data.item;
       ['cal', 'protein', 'carbs', 'fat'].forEach(function (k) { x[k] = u && u[k] != null ? u[k] : Number(body[k]); });
+      if (body.serving) x.serving = u && u.serving != null ? u.serving : body.serving;
       x.basis = u && u.basis ? u.basis : 'Measured ' + vToday(); x.measured = true; x.notes = u && u.notes != null ? u.notes : body.notes;
       st = ingMsync(); st[m.id] = { at: Date.now(), ok: true, item: x.item }; lsSet(ING_MSYNC_KEY, st);
       return { ok: true };
@@ -14606,6 +14762,8 @@
     else if (a === 'mm') { ingReadMeal(); ing.mmConfirm = true; ingRenderMeal(); }
     else if (a === 'mm-no') { ingReadMeal(); ing.mmConfirm = false; ingRenderMeal(); }
     else if (a === 'mm-yes') ingMmWrite();
+    else if (a === 'srv16') { ingReadMeal(); ing.mform.srvOz = '16'; ing.mform.srvLbl = ''; ingMealFieldSave(ing.mform, ['srvOz', 'srvLbl']); ingRenderMeal(); ingFlash('Servings are now 16 fl oz each. Enter the measured cooked yield for the best numbers.'); ingMenuAutoSync(); }
+    else if (a === 'srvno') { var sa = lsGet(ING_SRVASK_KEY, {}) || {}; sa[ing.mform.id] = 1; lsSet(ING_SRVASK_KEY, sa); ingReadMeal(); ingRenderMeal(); }
     else if (a === 'mlink') { ingReadMeal(); var lx = (ingMenuList() || [])[+b.getAttribute('data-i')]; if (lx) { ingMenuApply(ing.mform, lx); ingRenderMeal(); } }
     else if (a === 'mlink-off') { ingReadMeal(); var ox = ing.mform.menuItem; ingMenuUnlink(ing.mform); ingMealLinkSave(ing.mform); ingRenderMeal(); ingFlash('Unlinked from \u201c' + ox + '\u201d. Menu Macros keeps its numbers.'); }
     else if (a === 'mlink-auto' || a === 'mlink-manual') {
@@ -14627,7 +14785,8 @@
     }
     if (state.ltPart === 'ing-item' && /^ing-f-/.test(t.id || '')) ingCalcPaint();
     if (state.ltPart === 'ing-item' && (t.id === 'ing-usda-k' || t.id === 'ing-usda-sv')) { ingUsdaPick(); ingUsdaPaint(); }
-    if (state.ltPart === 'ing-meal' && (t.closest('.inglinebox') || t.id === 'ing-m-servings' || t.id === 'ing-m-menu')) {
+    if (state.ltPart === 'ing-meal' && t.id === 'ing-m-srvsel') { ingReadMeal(); ingRenderMeal(); return; }
+    if (state.ltPart === 'ing-meal' && (t.closest('.inglinebox') || t.id === 'ing-m-servings' || t.id === 'ing-m-menu' || t.id === 'ing-m-srvoz' || t.id === 'ing-m-yield')) {
       if (ing.inChg) return; ing.inChg = true;       // v188: repainting the link box blurs its input, which fires change again
       try { ingReadMeal(); ingRenderMeal(true); } finally { ing.inChg = false; }
     }

@@ -3399,3 +3399,10 @@ body.fc-modal { overflow: hidden; }
 .macrecst { color: var(--muted); }
 .macrecbtn { min-height: 32px; padding: 4px 10px; font-size: 13px; }
 #screen-lt .inglink a.navbtn { text-decoration: none; text-align: center; }
+
+/* v189: serving by size + batch volume */
+#screen-lt .ingsrvask { margin: 10px 0; padding: 12px; font-size: 13px; }
+#screen-lt .ingsrvn { min-height: 40px; display: flex; align-items: center; font-size: 14px; }
+#screen-lt .ingvol td small { display: block; color: var(--muted); font-size: 11px; }
+#screen-lt .ingvol .ingmath { font-size: 11px; }
+#screen-lt .ingvol tr.warn td { opacity: .9; }
