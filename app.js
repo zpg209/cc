@@ -13273,7 +13273,11 @@
   function ingParseChunk(t) {      // one comma chunk -> fields + leftover words (the name)
     var o = {}, m, U = ING_U_RE;
     t = ' ' + t + ' ';
+    // v191: an explicit rename is the only way dictation changes an existing ingredient's name
+    if ((m = t.match(/\b(?:(?:the\s+)?name\s+(?:is|should be|=)|rename(?:\s+it)?\s+(?:to|as)|call\s+it|it'?s\s+called|named)\s+(.+)$/i))) { var rn = m[1].replace(/[.!?]+\s*$/, '').trim(); if (/[a-z]{2}/i.test(rn)) o.rename = rn; t = t.replace(m[0], ' '); }
     if ((m = t.match(/\$\s*(\d+(?:\.\d{1,2})?)/))) { o.price = m[1]; t = t.replace(m[0], ' '); }
+    if ((m = t.match(/\bservings?\s*(?:per|a|an|in (?:a|each|the|one))\s*(container|package|pack|can|jar|bottle|bag|box|carton|tub|pouch|tray)\s*(?:is|are|=|of)?\s*(?:about\s+)?(\d+(?:\.\d+)?)/i))) { o.spc = m[2]; o.cont = ingContOf(m[1]); t = t.replace(m[0], ' '); }   // v191: "servings per container 3.5"
+    if ((m = t.match(new RegExp('\\bnet\\s*(?:wt\\.?|weight|contents|size|amount)?\\s*(?:is|of|=)?\\s*(\\d+(?:\\.\\d+)?)\\s*' + U + '\\b', 'i')))) { o.pkg = { n: +m[1], u: ingUnit(m[2]) }; t = t.replace(m[0], ' '); }   // v191: "net weight 15 ounces"
     if ((m = t.match(/(\d+(?:\.\d+)?)\s*servings?\s*(?:per|a|an|in (?:a|each|the|one))\s*(container|package|pack|can|jar|bottle|bag|box|carton|tub|pouch|tray)?\b/i))) { o.spc = m[1]; if (m[2]) o.cont = ingContOf(m[2]); t = t.replace(m[0], ' '); }   // v186
     var rePk1 = new RegExp('(\\d+(?:\\.\\d+)?)\\s*-?\\s*' + U + '\\s*(pack|package|bag|box|bottle|jar|container|tub|carton|block|case|tray|bundle|can|pouch)s?\\b', 'i'),
       rePk2 = new RegExp('\\b(?:pack|package|bag|box|bottle|jar|container|carton|case|tray)s?\\s*(?:of|is|size|was)?\\s*(\\d+(?:\\.\\d+)?)\\s*' + U + '\\b', 'i'),
@@ -13282,11 +13286,12 @@
       reQty = new RegExp('(\\d+(?:\\.\\d+)?)\\s*' + U + '\\b', 'i');
     if ((m = t.match(rePk1)) || (m = t.match(rePk2))) { o.pkg = { n: +m[1], u: ingUnit(m[2]) }; if (m[3] && ingContOf(m[3])) o.cont = ingContOf(m[3]); t = t.replace(m[0], ' '); }
     if ((m = t.match(reSv))) { o.serving = { n: +m[1], u: ingUnit(m[2] || 'g') }; t = t.replace(m[0], ' '); }
-    var mac = { calories: /(\d+(?:\.\d+)?)\s*(?:calories|cals?|kcals?)\b|\bcalories\s*(?:is|are|of)?\s*(\d+(?:\.\d+)?)/i,
-      protein: /(\d+(?:\.\d+)?)\s*(?:g|grams?)?\s*(?:of\s+)?protein\b|\bprotein\s*(?:is|of)?\s*(\d+(?:\.\d+)?)/i,
-      carbs: /(\d+(?:\.\d+)?)\s*(?:g|grams?)?\s*(?:of\s+)?(?:carbs?|carbohydrates?)\b|\b(?:carbs?|carbohydrates?)\s*(?:is|of)?\s*(\d+(?:\.\d+)?)/i,
-      fat: /(\d+(?:\.\d+)?)\s*(?:g|grams?)?\s*(?:of\s+)?fats?\b|\bfats?\s*(?:is|of)?\s*(\d+(?:\.\d+)?)/i,
-      fiber: /(\d+(?:\.\d+)?)\s*(?:g|grams?)?\s*(?:of\s+)?fib(?:er|re)\b|\bfib(?:er|re)\s*(?:is|of)?\s*(\d+(?:\.\d+)?)/i };
+    var G = '(?:\\s*(?:g|gs|grams?|gram)\\b)?';     // v191: "fiber 1 gram" - the unit after the number belongs to the macro, not the name
+    var mac = { calories: new RegExp('(\\d+(?:\\.\\d+)?)\\s*(?:calories|cals?|kcals?)\\b|\\b(?:calories|cals?|kcals?)\\s*(?:is|are|of|=)?\\s*(\\d+(?:\\.\\d+)?)(?:\\s*(?:calories|cals?|kcals?)\\b)?', 'i'),
+      protein: new RegExp('(\\d+(?:\\.\\d+)?)\\s*(?:g|grams?)?\\s*(?:of\\s+)?protein\\b|\\bprotein\\s*(?:is|of|=)?\\s*(\\d+(?:\\.\\d+)?)' + G, 'i'),
+      carbs: new RegExp('(\\d+(?:\\.\\d+)?)\\s*(?:g|grams?)?\\s*(?:of\\s+)?(?:total\\s+)?(?:carbs?|carbohydrates?)\\b|\\b(?:total\\s+)?(?:carbs?|carbohydrates?)\\s*(?:is|are|of|=)?\\s*(\\d+(?:\\.\\d+)?)' + G, 'i'),
+      fat: new RegExp('(\\d+(?:\\.\\d+)?)\\s*(?:g|grams?)?\\s*(?:of\\s+)?(?:total\\s+)?fats?\\b|\\b(?:total\\s+)?fats?\\s*(?:is|of|=)?\\s*(\\d+(?:\\.\\d+)?)' + G, 'i'),
+      fiber: new RegExp('(\\d+(?:\\.\\d+)?)\\s*(?:g|grams?)?\\s*(?:of\\s+)?(?:dietary\\s+)?fib(?:er|re)\\b|\\b(?:dietary\\s+)?fib(?:er|re)\\s*(?:is|of|=)?\\s*(\\d+(?:\\.\\d+)?)' + G, 'i') };
     Object.keys(mac).forEach(function (k) { var x = t.match(mac[k]); if (x) { o[k] = x[1] || x[2]; t = t.replace(x[0], ' '); } });
     if ((m = t.match(reUse))) { o.used = { n: +m[1], u: ingUnit(m[2] || 'each') }; if (ingContOf(m[2])) o.cont = o.cont || ingContOf(m[2]); t = t.replace(m[0], ' '); }
     if ((m = t.match(/\bbrand\s*(?:is|name)?\s*([a-z0-9'& ]{2,40})/i))) { o.brand = m[1].trim(); t = t.replace(m[0], ' '); }
@@ -13294,8 +13299,16 @@
     else if ((m = t.match(/(?:^|\s)(\d+(?:\.\d+)?)(?=\s+[a-z])/i))) { o.qty = { n: +m[1], u: 'each' }; t = t.replace(m[0], ' '); }
     t = t.replace(/\b(?:it'?s|it is|is|was|the|a|an|of|for|and|cost|costs|price|priced|at|pack|package|per|total|about|roughly|in this|this meal|we|i|we've|our|they|got|had|in it)\b/gi, ' ').replace(/[^a-z0-9'&\- ]/gi, ' ').replace(/\s+/g, ' ').trim();
     if (t && !/[a-z]{2}/i.test(t)) t = '';
+    t = ingNameClean(t);              // v191: unit / nutrient words are never a name
     o.name = t;
     return o;
+  }
+  var ING_NOTNAME = /^(?:g|gs|gram|grams|gm|kg|kgs|kilo|kilos|kilogram|kilograms|mg|oz|ozs|ounce|ounces|fl|floz|fluid|lb|lbs|pound|pounds|ml|milliliters?|l|liters?|litres?|cups?|c|tbsp|tbs|tablespoons?|tsp|teaspoons?|calories|calorie|cals?|kcals?|protein|proteins|carbs?|carbohydrates?|fats?|fib(?:er|re)s?|sugars?|sodium|total|dietary|added|serving|servings|size|per|container|containers|net|wt|weight|contents|amount|each|count|ct|percent|daily|value|dv|is|are|of|and|with|about|around|roughly|approximately|equals|=)$/i;
+  function ingNameClean(t) {        // drop unit / nutrient / filler words at the ends; nothing but those -> no name
+    var w = String(t || '').split(/\s+/).filter(Boolean);
+    while (w.length && ING_NOTNAME.test(w[0])) w.shift();
+    while (w.length && ING_NOTNAME.test(w[w.length - 1])) w.pop();
+    return w.join(' ');
   }
   function ingTitle(s) { return String(s || '').replace(/\b([a-z])/g, function (m, a) { return a.toUpperCase(); }).replace(/\b(And|Of|With|In)\b/g, function (w) { return w.toLowerCase(); }); }
   function ingParseDict(text, mode) {   // mode 'ing' -> one record; 'meal' -> list of components
@@ -13313,6 +13326,7 @@
     });
     comps.forEach(function (c) {
       if (c.name) c.name = ingTitle(c.name);
+      if (c.rename) c.rename = ingTitle(c.rename);
       if (mode === 'ing') { if (c.qty && !c.pkg) { c.pkg = c.qty; c.pkgQ = 1; } else if (c.qty && !c.used) c.used = c.qty; }
       else if (c.qty && !c.used) c.used = c.qty;
       delete c.qty;
@@ -13915,10 +13929,11 @@
   function ingApplyDict() {
     var f = ing.form; if (!f) return;
     var o = ingParseDict(f.dict || '', 'ing'), n = 0, fl = f.filled = {};
-    if (o.name) { f.name = o.name; fl.name = 1; n++; }
+    var hadName = !!String(f.name || '').trim(), nm = o.rename || (!hadName ? o.name : '');   // v191: an existing name changes only on "name is / rename to / call it"
+    if (nm) { f.name = nm; fl.name = 1; n++; }
     if (o.brand) { f.brand = ingTitle(o.brand); fl.brand = 1; n++; }
     // v185: produce named without macros ("one red bell pepper", "2 cups chopped onion"): the amount is the serving, macros come from USDA
-    var mt = o.name ? ingProMatch(o.name) : null, pro = null;
+    var mt = nm ? ingProMatch(nm) : null, pro = null;
     if (mt && ING_MAC.every(function (k) { return o[k[0]] == null; })) {
       var amt = o.serving || (o.pkgQ && !o.price ? o.pkg : null);
       if (amt && amt === o.pkg) delete o.pkg;
