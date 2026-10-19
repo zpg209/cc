@@ -3375,3 +3375,10 @@ body.fc-modal { overflow: hidden; }
 #screen-lt .ingmicbtn .miclbl { font: 700 16px/1.25 'Inter', sans-serif; letter-spacing: 0; text-transform: none; }
 #screen-lt .ing .bigsave { display: block; width: 100%; box-sizing: border-box; }
 #screen-lt .ing .vfield > span small { font-weight: 400; text-transform: none; letter-spacing: 0; }
+/* v187: label reader results */
+#screen-lt .inglsug { margin: 6px 0 10px; padding: 8px 10px; border: 1px solid rgba(255, 196, 0, .45); border-radius: 10px; font: 13px/1.4 'Inter', sans-serif; color: #f3e2b0; }
+#screen-lt .inglsugrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
+#screen-lt .inglsugrow .navbtn { flex: none; padding: 4px 10px; font-size: 12px; }
+#screen-lt .inglpass { margin: 8px 0; padding: 8px 10px; border: 1px solid rgba(120, 200, 140, .45); border-radius: 10px; font: 13px/1.45 'Inter', sans-serif; color: #cfe9d6; }
+#screen-lt .inglpass.busy { border-style: dashed; color: #e8e2c8; }
+#screen-lt .inglpass .navbtn { margin-top: 6px; padding: 4px 12px; font-size: 12px; }

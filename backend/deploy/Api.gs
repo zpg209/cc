@@ -1,5 +1,5 @@
-// Command Center API v59 (2026-10-18): v55 + zac-lists (v56) + lisa-trade-ptphotos (v56) + family-chase (v57, FamilyChase.gs) + workout-set (v58, WorkoutSet.gs) + Lisa's Table Ingredients (v59, LtIngredients.gs).
-var API_VERSION = 59;
+// Command Center API v60 (2026-10-18): v59 + ltingocr (v60, LtIngredients.gs: label photo OCR through Google Drive). v59 = v55 + zac-lists (v56) + lisa-trade-ptphotos (v56) + family-chase (v57, FamilyChase.gs) + workout-set (v58, WorkoutSet.gs) + Lisa's Table Ingredients (v59, LtIngredients.gs).
+var API_VERSION = 60;
 /**
  * Command Center — JSON data API for the GitHub Pages front end (https://zpg209.github.io/cc/).
  *
@@ -143,6 +143,7 @@ function apiDispatch_(pc, action, offset, id, extra) {
       case 'ltingset':   return apiLtIngSet_(extra.all || {});      // v59: upsert one ingredient / meal (cid, dry)
       case 'ltingdel':   return apiLtIngDel_(extra.all || {});      // v59: delete one ingredient / meal row (cid, dry)
       case 'ltingphoto': return apiLtIngPhoto_(extra.all || {});    // v59: product / label photo -> Lisa's Table > Ingredient Photos
+      case 'ltingocr':   return apiLtIngOcr_(extra.all || {});      // v60: label photo -> text via Drive OCR (needs Services > Drive API)
       case 'ltpriceset': return apiLtPriceSet_(extra.all || {});
       case 'orders':    return apiOrders_(extra.all || {});
       case 'orderset':  return apiOrderSet_(extra.all || {});

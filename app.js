@@ -127,7 +127,7 @@
     orderset: ['orders'], orderpaid: ['orders'], orderdel: ['orders'], weekmenuset: ['orders'], menusave: ['folder'], ltmenusave: ['folder'],
     wishadd: ['wishlist'], wishset: ['wishlist'], wishdel: ['wishlist'],
     ptclientset: ['ptclients'], ptclientdel: ['ptclients'], ptworkoutset: ['ptclients'], ptworkoutdel: ['ptclients'],
-    ltingset: [], ltingdel: [], ltingphoto: [],   // v183: Lisa's Table Ingredients (server patch v59); outside the read cache
+    ltingset: [], ltingdel: [], ltingphoto: [], ltingocr: [],   // v183: Lisa's Table Ingredients (server patch v59); outside the read cache
     listsave: [],     // v149: Zac's project lists (phone copy + Script Properties, server patch v56)
     investsave: [],   // v121: Investments live outside the read cache (phone copy + Script Properties)
     bizreceiptsave: ['folder'],   // v135: receipt into KiwiT / TiwiK › Expenses › Receipts (server patch v55)
@@ -13270,64 +13270,360 @@
     });
     return ingScriptP.ocr;
   }
-  function ingOcrCanvas(blob) {    // grey + enlarge: the reader does much better on a big, high-contrast image
+  /* v187: the label reader copes with real phone photos.
+   * Each photo gets up to 6 passes: straightened (EXIF), resized so the text is ~2000 px tall, grey with the contrast stretched;
+   * then a black/white pass that evens out shadows and glare; then the photo turned 90/270/180 degrees if no label words were seen.
+   * Every pass is parsed and the answers are voted on, so one bad read doesn't win. */
+  var ingOcrW = null;
+  function ingOcrWorker(T) {
+    if (!T || !T.createWorker) return Promise.resolve(null);
+    if (!ingOcrW) ingOcrW = Promise.resolve().then(function () { return T.createWorker('eng'); }).catch(function () { ingOcrW = null; return null; });
+    return ingOcrW;
+  }
+  function ingImgOf(blob) {        // an <img> draws with the EXIF rotation applied (Safari 13.1+, Chrome 81+)
     return new Promise(function (res, rej) {
       var url = URL.createObjectURL(blob), im = new Image();
-      im.onload = function () {
-        URL.revokeObjectURL(url);
-        var W = im.naturalWidth, H = im.naturalHeight, sc = Math.min(2.5, Math.max(1, 1800 / Math.max(W, H)));
-        if (Math.max(W, H) * sc > 2600) sc = 2600 / Math.max(W, H);
-        var cv = document.createElement('canvas'); cv.width = Math.round(W * sc); cv.height = Math.round(H * sc);
-        var cx = cv.getContext('2d'); cx.drawImage(im, 0, 0, cv.width, cv.height);
-        try {
-          var d = cx.getImageData(0, 0, cv.width, cv.height), p = d.data;
-          for (var i = 0; i < p.length; i += 4) { var y = 0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2]; y = y > 170 ? 255 : y < 80 ? 0 : (y - 80) * 255 / 90; p[i] = p[i + 1] = p[i + 2] = y; }
-          cx.putImageData(d, 0, 0);
-        } catch (e) {}
-        res(cv);
-      };
+      im.onload = function () { URL.revokeObjectURL(url); res(im); };
       im.onerror = function () { URL.revokeObjectURL(url); rej(new Error('That photo could not be read.')); };
       im.src = url;
     });
   }
-  function ingParseLabel(raw) {
-    var t = String(raw || '').replace(/\r/g, '').replace(/[|]/g, ' ')
-      .replace(/(\d)\s*[oO](?=\s*m?g\b)/g, '$10').replace(/\b[oO](?=\s*m?g\b)/g, '0').replace(/(\d),(\d)/g, '$1.$2');
-    var flat = t.replace(/\s+/g, ' '), o = {}, m, num = '(\\d+(?:\\.\\d+)?)';
-    if ((m = flat.match(/serving\s*size\s*:?\s*(\d[\d\/ .]*\s*[a-zA-Z]+\.?\s*(?:\([^)]{1,15}\))?)/i))) { var q = ingQty(m[1].trim()); if (q) o.serving = q; }
-    if ((m = flat.match(/(?:about\s*)?(\d+(?:\.\d+)?)\s*servings?\s*per\s*(?:container|package|pack)/i)) || (m = flat.match(/servings?\s*per\s*(?:container|package)\s*:?\s*(?:about\s*)?(\d+(?:\.\d+)?)/i))) o.servingsPer = +m[1];
-    if (!o.servingsPer && (m = flat.match(/(?:about\s*)?(\d+(?:\.\d+)?)\s*servings?\s*per\s*(?:can|jar|bottle|bag|box|carton|tub|pouch|tray)/i))) o.servingsPer = +m[1];   // v186
-    if ((m = flat.match(/net\s*(?:wt|weight|contents?|vol(?:ume)?)\.?\s*:?\s*(\d+(?:\.\d+)?)\s*(fl\.?\s*oz|oz|lbs?|kg|g|ml|l|liters?|gallons?|qt|pt)\b/i))) {   // v186: Net Wt 15 oz (425 g) / Net Contents 32 fl oz
-      var nu = m[2].toLowerCase().replace(/[.\s]/g, ''), nn = +m[1];
-      if (nu === 'gallon' || nu === 'gallons') { nn = nn * 128; nu = 'floz'; } else if (nu === 'qt') { nn = nn * 32; nu = 'floz'; } else if (nu === 'pt') { nn = nn * 16; nu = 'floz'; }
-      o.net = { n: nn, u: ingUnit(nu) };
+  function ingOcrPrep(im, rot, bin) {
+    var W = im.naturalWidth || im.width, H = im.naturalHeight || im.height, L = Math.max(W, H);
+    var sc = Math.max(0.25, Math.min(4, 2000 / L)), w = Math.max(1, Math.round(W * sc)), h = Math.max(1, Math.round(H * sc));
+    var sw = rot % 180 ? h : w, sh = rot % 180 ? w : h, cv = document.createElement('canvas'); cv.width = sw; cv.height = sh;
+    var cx = cv.getContext('2d'); cx.imageSmoothingEnabled = true; try { cx.imageSmoothingQuality = 'high'; } catch (e0) {}
+    cx.fillStyle = '#fff'; cx.fillRect(0, 0, sw, sh);
+    cx.translate(sw / 2, sh / 2); cx.rotate(rot * Math.PI / 180); cx.drawImage(im, -w / 2, -h / 2, w, h); cx.setTransform(1, 0, 0, 1, 0, 0);
+    try {
+      var d = cx.getImageData(0, 0, sw, sh), p = d.data, n = sw * sh, g = new Uint8ClampedArray(n), hist = new Uint32Array(256), i, k;
+      for (i = 0, k = 0; k < n; i += 4, k++) { var y = (0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2]) | 0; g[k] = y; hist[y]++; }
+      var lo = 0, hi = 255, acc = 0; for (i = 0; i < 256; i++) { acc += hist[i]; if (acc > n * 0.01) { lo = i; break; } }
+      acc = 0; for (i = 255; i >= 0; i--) { acc += hist[i]; if (acc > n * 0.01) { hi = i; break; } }
+      var med = 0; acc = 0; for (i = 0; i < 256; i++) { acc += hist[i]; if (acc >= n / 2) { med = i; break; } }
+      var inv = med < 90, span = Math.max(30, hi - lo);       // light text on a dark label: flip it
+      for (k = 0; k < n; k++) { var v = (g[k] - lo) * 255 / span; v = v < 0 ? 0 : v > 255 ? 255 : v; g[k] = inv ? 255 - v : v; }
+      if (bin) {                   // local mean threshold (shadows, curved cans, glare)
+        var r = Math.max(8, Math.round(Math.min(sw, sh) / 40)), S = new Uint32Array((sw + 1) * (sh + 1)), x, yy;
+        for (yy = 1; yy <= sh; yy++) { var row = 0; for (x = 1; x <= sw; x++) { row += g[(yy - 1) * sw + x - 1]; S[yy * (sw + 1) + x] = S[(yy - 1) * (sw + 1) + x] + row; } }
+        for (yy = 0; yy < sh; yy++) for (x = 0; x < sw; x++) {
+          var x0 = Math.max(0, x - r), x1 = Math.min(sw, x + r + 1), y0 = Math.max(0, yy - r), y1 = Math.min(sh, yy + r + 1);
+          var sum = S[y1 * (sw + 1) + x1] - S[y0 * (sw + 1) + x1] - S[y1 * (sw + 1) + x0] + S[y0 * (sw + 1) + x0], m = sum / ((x1 - x0) * (y1 - y0));
+          p[(yy * sw + x) * 4] = g[yy * sw + x] < m * 0.88 ? 0 : 255;
+        }
+        for (k = 0; k < n; k++) { i = k * 4; p[i + 1] = p[i + 2] = p[i]; }
+      } else for (k = 0; k < n; k++) { i = k * 4; p[i] = p[i + 1] = p[i + 2] = g[k]; }
+      cx.putImageData(d, 0, 0);
+    } catch (e) {}
+    return cv;
+  }
+  function ingOcrScore(o) {
+    var f = 0; ['servingsPer', 'calories', 'protein', 'carbs', 'fat', 'fiber', 'sugar'].forEach(function (k) { if (o[k] != null && o[k] !== '') f++; });
+    if (o.serving) f++; if (o.net) f++;
+    return f * 2 + (o.kw || 0);
+  }
+  // blob -> { text, got (merged answers), passes }   kind: 'label' | 'product' (front of the package: net size + container only)
+  function ingOcrRun(blob, kind, onStep) {
+    return ingLoadOcr().then(function (T) {
+      return Promise.all([ingOcrWorker(T), ingImgOf(blob)]).then(function (a) {
+        var w = a[0], im = a[1], runs = [], plan = kind === 'product' ? [[0, 0, '3'], [0, 1, '11'], [90, 0, '3'], [270, 0, '3']] : [[0, 0, '3'], [0, 1, '6'], [0, 0, '4'], [90, 0, '3'], [270, 0, '3'], [180, 0, '3']];
+        function enough() {
+          if (!runs.length) return false;
+          var g = ingOcrMerge(runs);
+          if (kind === 'product') return !!g.net && !!g.cont;
+          return g.servingsPer != null && g.serving && g.calories != null && g.protein != null && g.carbs != null && g.fat != null;
+        }
+        function sawLabel() { return runs.some(function (r) { return (r.got.kw || 0) >= (kind === 'product' ? 1 : 3); }); }
+        return plan.reduce(function (p, st, ix) {
+          return p.then(function () {
+            if (enough()) return;
+            if (st[0] && sawLabel()) return;                      // turn the photo only if no label words were found upright
+            if (onStep) onStep(ix + 1, plan.length);
+            var cv = ingOcrPrep(im, st[0], !!st[1]);
+            var q = w ? w.setParameters({ tessedit_pageseg_mode: st[2] }).then(function () { return w.recognize(cv); }) : T.recognize(cv, 'eng');
+            return q.then(function (r) {
+              var text = (r && r.data && r.data.text) || '', got = ingParseLabel(text);
+              runs.push({ text: text, got: got, score: ingOcrScore(got), rot: st[0], bin: !!st[1], psm: st[2] });
+              cv.width = cv.height = 0;
+            }, function () {});
+          });
+        }, Promise.resolve()).then(function () {
+          var best = runs.slice().sort(function (x, y) { return y.score - x.score; })[0];
+          return { text: best ? best.text : '', got: ingOcrMerge(runs), passes: runs.length, runs: runs };
+        });
+      });
+    });
+  }
+  function ingOcrMerge(runs) {     // the most common answer per field, ties to the best-scoring pass; calories must agree with protein/carbs/fat
+    var out = { kw: 0 }, keys = ['servingsPer', 'calories', 'protein', 'carbs', 'fat', 'fiber', 'sugar', 'serving', 'net', 'cont'], cand = {};
+    var rs = runs.slice().sort(function (x, y) { return y.score - x.score; });
+    rs.forEach(function (r) { out.kw = Math.max(out.kw, r.got.kw || 0); });
+    keys.forEach(function (k) {
+      var votes = {}, first = {};
+      rs.forEach(function (r, i) {
+        var v = r.got[k], al = r.got.alt && r.got.alt[k];
+        if (v != null && v !== '') { var key = JSON.stringify(v); votes[key] = (votes[key] || 0) + 1; if (!(key in first)) first[key] = i; }
+        if (al != null) { var k2 = JSON.stringify(al); votes[k2] = (votes[k2] || 0) + 0.5; if (!(k2 in first)) first[k2] = i + 0.5; }
+      });
+      cand[k] = Object.keys(votes).map(function (key) { return { v: JSON.parse(key), n: votes[key], f: first[key] }; }).sort(function (x, y) { return y.n - x.n || x.f - y.f; });
+      if (cand[k].length) out[k] = cand[k][0].v;
+    });
+    var mk = ['calories', 'protein', 'carbs', 'fat'];
+    if (cand.calories.length && (cand.protein.length || cand.carbs.length || cand.fat.length)) {
+      var lists = mk.map(function (k) { return cand[k].length ? cand[k].slice(0, 3) : [{ v: null, n: 0 }]; }), best = null;
+      lists[0].forEach(function (c) { lists[1].forEach(function (p) { lists[2].forEach(function (cb) { lists[3].forEach(function (f) {
+        var cal = +c.v, est = 4 * (+p.v || 0) + 4 * (+cb.v || 0) + 9 * (+f.v || 0), all = p.v !== null && cb.v !== null && f.v !== null, tol = Math.max(15, 0.25 * Math.max(cal, est));
+        var bad = all ? Math.abs(cal - est) > tol : est - cal > tol;           // with a macro missing, only "too few calories" is a contradiction
+        var sc = c.n + p.n + cb.n + f.n - (bad ? 3 : 0);
+        if (!best || sc > best.sc) best = { sc: sc, v: [c.v, p.v, cb.v, f.v], bad: bad };
+      }); }); }); });
+      mk.forEach(function (k, i) { if (best.v[i] !== null) out[k] = best.v[i]; });
+      if (best.bad) { var est2 = 4 * (+out.protein || 0) + 4 * (+out.carbs || 0) + 9 * (+out.fat || 0); if (+out.calories < est2 * 0.5) delete out.calories; }   // still contradicts: drop the calories rather than guess
     }
-    var cw = flat.replace(/servings?\s*per\s*[a-z]+/gi, ' ').match(/\b(can|jar|bottle|bag|box|carton|tub|pouch|tray)\b/i); if (cw) o.cont = ingContOf(cw[1]);
-    if ((m = flat.match(/calories\s*(?:per\s*serving)?\s*:?\s*(\d{1,4})\b(?!\s*%)/i)) || (m = flat.match(/(\d{1,4})\s*(?:kcal|calories)\b/i))) o.calories = m[1];
-    var rx = { fat: new RegExp('total\\s*fat\\s*:?\\s*' + num + '\\s*g', 'i'), carbs: new RegExp('total\\s*carb[a-z.]*\\s*:?\\s*' + num + '\\s*g', 'i'),
-      fiber: new RegExp('(?:dietary\\s*)?fib(?:er|re)\\s*:?\\s*' + num + '\\s*g', 'i'), protein: new RegExp('protein\\s*:?\\s*' + num + '\\s*g', 'i'),
-      sugar: new RegExp('(?:total\\s*)?sugars?\\s*:?\\s*' + num + '\\s*g', 'i') };
-    var alt = { fat: /\bfat\s*:?\s*(\d+(?:\.\d+)?)\s*g/i, carbs: /carbohydrates?\s*:?\s*(\d+(?:\.\d+)?)\s*g/i };
-    Object.keys(rx).forEach(function (k) { var x = flat.match(rx[k]) || (alt[k] && flat.match(alt[k])); if (x) o[k] = x[1]; });
+    ['sugar', 'fiber'].forEach(function (k) {   // sugar and fiber are part of the carbs
+      if (out[k] == null || out.carbs == null || +out[k] <= +out.carbs + 0.5) return;
+      var ok = cand[k].filter(function (c) { return +c.v <= +out.carbs + 0.5; })[0]; if (ok) out[k] = ok.v; else delete out[k];
+    });
+    return out;
+  }
+  function ingLabelNorm(raw) {     // undo the usual misreads before parsing
+    return String(raw || '').replace(/\r/g, '').replace(/[|\u201c\u201d"]/g, ' ').replace(/\u00bd/g, ' 1/2').replace(/\u00bc/g, ' 1/4').replace(/\u00be/g, ' 3/4').replace(/\u2153/g, ' 1/3')
+      .replace(/(\d),(\d{3})\b/g, '$1$2').replace(/(\d),(\d)/g, '$1.$2')
+      .replace(/\b\w?[aeo]r[vy][il1!|]n[gq9]s\b/gi, 'servings').replace(/\b\w?[aeo]r[vy][il1!|]n[gq9]\b/gi, 'serving').replace(/\bserv\.?(?=\s*s[il1]z)/gi, 'serving')
+      .replace(/\b[s5][il1!|]z?[e\u20acc]\b/gi, 'size')
+      .replace(/\b[cgo0]\s?[o0]?\s?n\s?ta[il1!|]n\w{0,2}\b/gi, 'container').replace(/\bservings\s+pe\b/gi, 'servings per').replace(/\bp[ae]ckage\b/gi, 'package')
+      .replace(/\bca[l1i|]?[o0]r[il1!|]?[e\u20ac]s\b|\bcal[o0]n[e\u20ac]s\b|\bca[l1i][o0]r[il1]as?\b/gi, 'calories')
+      .replace(/\b[pa]?r?[o0]t[eco](?:[il1!|]n[as]?|a\b|[il1!|]\w?n)/gi, 'protein ')
+      .replace(/\b(?:t[o0]ta[l1i|]\s*)?(?:carb[o0]?\w*\.?|\w{0,7}hydrat\w*)/gi, 'total carbohydrate ')
+      .replace(/\bt[o0]ta[l1i|]\s*f[a@]t\b/gi, 'total fat').replace(/\b(?:dietary\s*)?f[il1!|]b(?:er|re)\b/gi, 'fiber').replace(/\b(?:t[o0]ta[l1i|]\s*)?s[uv]gars?\b/gi, 'sugars')
+      .replace(/\bn[e\u20ac]t\s*w[t+]\b/gi, 'net wt')
+      .replace(/(\d)\s*[oO](?=\s*m?[g9]\b)/g, '$10').replace(/\b[oO](?=\s*m?[g9]\b)/g, '0').replace(/\b(\d)[oO]\b/g, '$10')
+      .replace(/(amount\s*per\s*serving|calories)\s+(\d)\s(\d)\b/gi, '$1 $2$3')                 // a big "10" read as "1 0"
+      .replace(/\((\s*\d{2,3})[9gy3]\s*\)/g, '($1g)');                                          // "(279)" / "(130y)" / "(1123)" -> grams
+  }
+  var ING_DV = { fat: [78, 65], carbs: [275, 300], fiber: [28, 25], protein: [50, 50], sugar: [50, 50] };
+  var ING_LBL_MAX = { fat: 60, carbs: 90, protein: 70, fiber: 25, sugar: 60 };
+  function ingLblMacro(flat, key, k) {   // "Total carbohydrate 179 6%" -> 17 (a g read as 9, checked against the % Daily Value)
+    var re = new RegExp(key + '[^\\d%]{0,24}?(<\\s*)?(\\d{1,3}(?:\\.\\d{1,2})?)\\s*(mg|g|9|q)?(?![\\d.])\\s*(?:\\(?\\s*(\\d{1,3})\\s*%)?', 'i');
+    var m = flat.match(re); if (!m) return null;
+    var v = m[2], u = (m[3] || '').toLowerCase(), pct = m[4] != null ? +m[4] : null;
+    if (u === 'mg') return null;
+    if (/\.\d9$/.test(v) && (u === '' || u === 'g')) v = v.slice(0, -1);              // "0.59" = "0.5g" (labels use halves)
+    var c = [+v]; if ((u === '' || u === '9' || u === 'q') && /\d9$/.test(v) && v.indexOf('.') < 0) c.push(+v.slice(0, -1));
+    if (u === '9' && v.indexOf('.') < 0) c = [+v];
+    var dv = ING_DV[k], pick = c[0];
+    if (c.length > 1 && pct !== null && dv) { var err = function (x) { return Math.min(Math.abs(x / dv[0] * 100 - pct), Math.abs(x / dv[1] * 100 - pct)); }; pick = err(c[1]) < err(c[0]) ? c[1] : c[0]; }
+    else if (c.length > 1 && c[0] > (ING_LBL_MAX[k] || 999)) pick = c[1];
+    if (pick > (ING_LBL_MAX[k] || 999) * 2) return null;
+    if (c.length > 1 && pct === null) return { v: String(pick), alt: String(pick === c[0] ? c[1] : c[0]) };   // can't tell "29" from "2g": keep both, the merge decides
+    return String(pick);
+  }
+  function ingLblServing(s) {      // "1/2 cup (130g)", "J cup (130g)", "2 Tbsp (30ml)", "4 oz (112g)", "(240mL)" -> ingQty object
+    s = String(s || '').replace(/^\s*[:.]\s*/, '');
+    s = s.replace(/^\s*(?:[JjYy%l]|V[z2]|Y[z2]|1\s*[\/I]\s*2)\s*(?=c\s*u?p|cup)/i, '1/2 ').replace(/^\s*1\s*[\/I]\s*4\s*(?=c)/i, '1/4 ');
+    var m = s.match(/^(\d+\s+\d\/\d|\d\/\d|\d*\.?\d+)\s*(cups?|c\b|tbsp|tbs|tablespoons?|tsp|teaspoons?|oz|fl\.?\s*oz|g|grams?|ml|pieces?|slices?|each|pcs?|links?|patty|patties|container|can|pouch|bar|packet)\.?\s*(?:\(\s*(?:about\s*)?(\d+(?:\.\d+)?)\s*(g|ml)\s*\)?)?/i);
+    if (m) {
+      var u = m[2].replace(/\s+/g, '').toLowerCase(); if (u === 'c') u = 'cup';
+      var q = ingQty(m[1] + ' ' + u + (m[3] ? ' (' + m[3] + ' ' + m[4].toLowerCase() + ')' : ''));
+      if (q && q.n > 0 && q.n < 1000) return q;
+    }
+    var g = s.slice(0, 40).match(/\(\s*(\d+(?:\.\d+)?)\s*(g|ml)\s*\)?/i);
+    if (g) return { n: +g[1], u: g[2].toLowerCase() === 'ml' ? 'ml' : 'g' };
+    return null;
+  }
+  function ingParseLabel(raw) {
+    var t = ingLabelNorm(raw), flat = t.replace(/\s+/g, ' '), low = flat.toLowerCase(), o = {}, m;
+    o.kw = ['nutrition', 'serving', 'calories', 'total fat', 'sodium', 'carbohydrate', 'protein', 'daily value', 'container'].filter(function (w) { return low.indexOf(w) >= 0; }).length;
+    if ((m = flat.match(/serving\s*size\s*:?\s*(.{0,48})/i))) { var q = ingLblServing(m[1]); if (q) o.serving = q; }
+    if (!o.serving && (m = flat.match(/(?:serving|size)\s*:?\s*(\d.{0,40})/i))) { var q2 = ingLblServing(m[1]); if (q2 && q2.u !== 'g' && q2.u !== 'ml') o.serving = q2; }
+    var cw = '(?:container|package|pack|can|jar|bottle|bag|box|carton|tub|pouch|tray|envase|recipiente)';
+    if ((m = flat.match(new RegExp('(?:about|approx\\.?|abt\\.?|aprox\\.?)?\\s*(\\d+(?:\\.\\d+)?)\\s*servings?\\s*per\\s*' + cw, 'i'))) ||
+        (m = flat.match(new RegExp('servings?\\s*per\\s*' + cw + '\\s*:?\\s*(?:about|approx\\.?|abt\\.?)?\\s*(\\d+(?:\\.\\d+)?)', 'i'))) ||
+        (m = flat.match(/servings?\s*:\s*(?:about\s*)?(\d+(?:\.\d+)?)/i)) || (m = flat.match(/per\s*container\s*:?\s*(?:about\s*)?(\d+(?:\.\d+)?)/i)) ||
+        (m = flat.match(/(?:about|approx\.?)\s*(\d+)\.?\s*servings/i))) { var sp = +m[1]; if (sp > 0 && sp <= ING_SPC_MAX) o.servingsPer = sp; }
+    var nre = /net\s*(?:wt|weight|contents?|vol(?:ume)?|qty)\.?\s*:?\s*(\d+(?:\.\d+)?)\s*(fl\.?\s*oz|oz|lbs?|kg|g|ml|l|liters?|gallons?|qt|pt)\b/i;
+    var nm = flat.match(nre), noSv = flat.replace(/serving\s*size\s*:?\s*.{0,30}/gi, ' ');
+    if (!nm) nm = noSv.match(/\b(\d+(?:\.\d+)?)\s*(fl\.?\s*oz|oz|lbs?)\s*[\(\/]\s*(?:\d+\s*lbs?\s*)?\d+(?:\.\d+)?\s*(?:g|kg|ml|l)\b/i);
+    if (nm) {
+      var nu = nm[2].toLowerCase().replace(/[.\s]/g, ''), nn = +nm[1];
+      if (/^gallons?$/.test(nu)) { nn *= 128; nu = 'floz'; } else if (nu === 'qt') { nn *= 32; nu = 'floz'; } else if (nu === 'pt') { nn *= 16; nu = 'floz'; }
+      if (nn > 0 && nn < 5000) o.net = { n: nn, u: ingUnit(nu) };
+    }
+    var cm = flat.replace(/servings?\s*per\s*[a-z]+/gi, ' ').match(/\b(can|jar|bottle|bag|box|carton|tub|pouch|tray)\b/i); if (cm) o.cont = ingContOf(cm[1]);
+    if ((m = flat.match(/calories\s*(?:\/\s*calor\w*\s*)?(?:per\s*serving\s*)?:?\s*(\d{1,4})\b(?!\s*%)(?!\s*calorie)/i)) && +m[1] < 2000) o.calories = m[1];
+    else if ((m = flat.match(/amount\s*per\s*serving\s*(\d{1,4})\b/i)) && +m[1] < 2000) o.calories = m[1];
+    else if ((m = flat.match(/(?:^|[^\d.])(\d{1,4})\s*(?:kcal|calories)\b(?!\s*(?:a\s*day|diet))/i)) && +m[1] < 2000) o.calories = m[1];
+    var mk = { fat: 'total\\s*fat', carbs: 'total\\s*carbohydrate', fiber: 'fiber', protein: 'protein', sugar: 'sugars' };
+    Object.keys(mk).forEach(function (k) {
+      var v = ingLblMacro(flat, mk[k], k); if (v === null && k === 'fat') v = ingLblMacro(flat, '(?:^|[^a-z])fat', k);
+      if (v && typeof v === 'object') { o.alt = o.alt || {}; o.alt[k] = v.alt; v = v.v; }
+      if (v !== null) o[k] = v;
+    });
     return o;
   }
-  function ingReadLabel(blob) {
-    ing.ocr.busy = true; ing.ocr.msg = 'Reading the label\u2026 (the first time loads the reader, ~10 s)'; ingOcrPaint();
-    return ingLoadOcr().then(function (T) { return ingOcrCanvas(blob).then(function (cv) { return T.recognize(cv, 'eng'); }); }).then(function (r) {
-      var text = (r && r.data && r.data.text) || '', got = ingParseLabel(text), f = ing.form, n = 0;
-      ing.ocr.busy = false; ing.ocr.text = text.trim().slice(0, 3000);
-      if (f && state.ltPart === 'ing-item') {
-        ingReadForm();
-        ['calories', 'protein', 'carbs', 'fat', 'fiber', 'sugar'].forEach(function (k) { if (got[k] != null && got[k] !== '') { f[k] = String(got[k]); f.filled[k] = 1; n++; } });
-        if (got.serving) { f.svN = String(+got.serving.n.toFixed(3)); f.svU = got.serving.u; if (got.serving.g && got.serving.u !== 'g') f.svG = String(got.serving.g); f.filled.sv = 1; n++; }
-        if (got.servingsPer) { f.spc = String(got.servingsPer); f.filled.spc = 1; n++; }      // v186: the Package section
-        if (got.net) { f.pkN = String(+got.net.n.toFixed(3)); f.pkU = got.net.u; f.pkRaw = ''; f.filled.pk = 1; n++; }
-        if (got.cont && !f.cont) { f.cont = got.cont; f.filled.cont = 1; }
-      }
-      ing.ocr.msg = n ? 'Filled ' + n + ' field' + (n === 1 ? '' : 's') + ' from the label (highlighted). Check them against the photo.' : 'Couldn\u2019t read numbers from that photo. Try a straight, close, well-lit shot, or type them.';
-      if (f && state.ltPart === 'ing-item') ingRenderForm(); else ingOcrPaint();
+  /* ---- v187: label -> ingredient (fill what's blank or clearly wrong; suggest, never overwrite, a different value someone typed) ---- */
+  function ingLblSvStr(q) { return +(+q.n).toFixed(3) + ' ' + ingUnitLbl(q.u) + (q.g && q.u !== 'g' && q.u !== 'ml' ? ' (' + (+(+q.g).toFixed(1)) + ' ' + (q.gk || 'g') + ')' : ''); }
+  function ingSameQty(a, b) {
+    if (!a || !b) return false;
+    var x = ingBase(a.n, a.u), y = ingBase(b.n, b.u);
+    if (x.k !== y.k) { if (a.g && b.g) return Math.abs(a.g - b.g) <= Math.max(1, b.g * 0.03); return false; }
+    return Math.abs(x.n - y.n) <= Math.max(0.01, y.n * 0.03);
+  }
+  var ING_LBL_NM = { calories: [' cal', ''], protein: ['g protein', 'Protein'], carbs: ['g carbs', 'Carbs'], fat: ['g fat', 'Fat'], fiber: ['g fiber', 'Fiber'], sugar: ['g sugar', 'Sugar'] };
+  function ingLblPlan(rec, got) {
+    var fill = {}, sugg = [], said = [], pro = ingIsPro(rec), one = ingContName(got.cont || rec.containerType || ingContGuess(rec.name), 1);
+    function blank(v) { return String(v == null ? '' : v).trim() === ''; }
+    if (got.servingsPer != null) {
+      said.push(ingR(got.servingsPer, 2) + ' servings/' + one);
+      var cs = ingNum(rec.servingsPer);
+      if (blank(rec.servingsPer) || !(cs > 0 && cs <= ING_SPC_MAX)) fill.servingsPer = String(got.servingsPer);
+      else if (Math.abs(cs - got.servingsPer) > 1e-9) sugg.push({ k: 'servingsPer', what: 'Servings per container', cur: rec.servingsPer, val: String(got.servingsPer) });
+    }
+    if (got.net) {
+      var nv = ingQtyStr(got.net.n, got.net.u), pq = ingQty(rec.packageSize); said.push(nv);
+      if (!pq || pq.u === 'serving' || pq.u === 'pkg' || (pq.u === 'each' && !pro)) fill.packageSize = nv;
+      else if (!ingSameQty(pq, got.net)) sugg.push({ k: 'packageSize', what: 'Net size', cur: rec.packageSize, val: nv });
+    }
+    if (got.cont && blank(rec.containerType)) fill.containerType = got.cont;
+    if (got.serving) {
+      var sv = ingLblSvStr(got.serving), cq = ingQty(rec.servingSize); said.push(sv);
+      if (!cq) fill.servingSize = sv; else if (!ingSameQty(cq, got.serving)) sugg.push({ k: 'servingSize', what: 'Serving size', cur: rec.servingSize, val: sv });
+    }
+    ['calories', 'protein', 'carbs', 'fat', 'fiber', 'sugar'].forEach(function (k) {
+      if (got[k] == null || got[k] === '') return;
+      said.push(got[k] + ING_LBL_NM[k][0]);
+      if (blank(rec[k]) || !(ingNum(rec[k]) >= 0)) fill[k] = String(got[k]);
+      else if (Math.abs(ingNum(rec[k]) - +got[k]) > 1e-9) sugg.push({ k: k, what: k === 'calories' ? 'Calories' : ING_LBL_NM[k][1] + ' (g)', cur: rec[k], val: String(got[k]) });
+    });
+    return { fill: fill, sugg: sugg, said: said };
+  }
+  function ingLblToForm(f, fill) {     // record-style fields -> the form; returns how many were filled
+    var n = 0;
+    Object.keys(fill).forEach(function (k) {
+      var v = fill[k], q;
+      if (k === 'servingSize') { q = ingQty(v); if (!q) return; f.svN = String(+q.n.toFixed(3)); f.svU = q.u; f.svG = q.g && q.u !== 'g' ? String(q.g) : ''; f.svRaw = v; f.filled.sv = 1; }
+      else if (k === 'packageSize') { q = ingQty(v); if (!q) return; f.pkN = String(+q.n.toFixed(3)); f.pkU = q.u; f.pkRaw = ''; f.filled.pk = 1; }
+      else if (k === 'servingsPer') { f.spc = v; f.filled.spc = 1; }
+      else if (k === 'containerType') { f.cont = v; f.filled.cont = 1; return; }
+      else { f[k] = v; f.filled[k] = 1; }
+      n++;
+    });
+    return n;
+  }
+  function ingLblNeeds(it) {          // blank or invalid fields a label photo could answer
+    if (['servingSize', 'calories', 'protein', 'carbs', 'fat'].some(function (k) { return String(it[k] || '').trim() === '' || (k !== 'servingSize' && !(ingNum(it[k]) >= 0)); })) return true;
+    var k2 = ingPkg(it); if (k2.bad || k2.spc === null) return true;
+    var pq = ingQty(it.packageSize); return !pq || (pq.u === 'each' && !ingIsPro(it));
+  }
+  function ingLblKey(it, meta) { var m = (meta || ingMeta())[it.id] || {}; return m.label || (it.photo ? 'cm' + it.photo.length : ''); }
+  function ingBlobOfPid(pid) { var r = pid && ing.photos && ing.photos[pid]; return r ? new Blob([r.bytes], { type: r.mime || 'image/jpeg' }) : null; }
+  function ingLblBlobs(it, photos) {  // -> Promise { label: Blob|null, product: Blob|null }   photos: form f.photos (unsaved) first
+    var m = ingMeta()[it.id] || {}, lp = (photos && photos.label) || m.label, pp = (photos && photos.product) || m.product;
+    var out = { label: ingBlobOfPid(lp), product: ingBlobOfPid(pp) };
+    if (out.label || !it.photo) return Promise.resolve(out);
+    return fetch(it.photo).then(function (x) { return x.blob(); }).then(function (b) { out.label = b; return out; }, function () { return out; });
+  }
+  // server OCR (Drive) when the phone's reader got too little; only once the server has it (v60 'ltingocr'), else quietly skipped
+  var ING_SOCR_KEY = 'cc_lt_ing_socr';
+  function ingSrvOcr(blob) {
+    var st = lsGet(ING_SOCR_KEY, null);
+    if (st && st.na && Date.now() - st.na < 6 * 3600000) return Promise.resolve(null);
+    if (!getPc()) return Promise.resolve(null);
+    return ingImgOf(blob).then(function (im) {
+      var W = im.naturalWidth, H = im.naturalHeight, sc = Math.min(1, 2000 / Math.max(W, H)), cv = document.createElement('canvas');
+      cv.width = Math.round(W * sc); cv.height = Math.round(H * sc); cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height);
+      var data = cv.toDataURL('image/jpeg', 0.85).split(',')[1]; cv.width = cv.height = 0;
+      return apiPostRaw('ltingocr', { mime: 'image/jpeg', data: data }, 90000);
+    }).then(function (j) {
+      if (!j) return null;
+      if (j.error === 'bad_action') { lsSet(ING_SOCR_KEY, { na: Date.now() }); return null; }
+      return j.ok && j.data && typeof j.data.text === 'string' ? j.data.text : null;
+    }, function () { return null; });
+  }
+  function ingLblCore(g) { return ['servingsPer', 'calories', 'protein', 'carbs', 'fat'].filter(function (k) { return g[k] != null && g[k] !== ''; }).length + (g.serving ? 1 : 0); }
+  // label (+ product) photo -> { got, text, src }
+  function ingLblRead(blobs, onStep) {
+    return ingOcrRun(blobs.label, 'label', onStep).then(function (r) {
+      var res = { got: r.got, text: r.text, src: 'phone' };
+      var p1 = blobs.product && (!res.got.net || !res.got.cont) ? ingOcrRun(blobs.product, 'product').then(function (p) {
+        if (!res.got.net && p.got.net) res.got.net = p.got.net; if (!res.got.cont && p.got.cont) res.got.cont = p.got.cont; res.ptext = p.text;
+      }, function () {}) : Promise.resolve();
+      return p1.then(function () {
+        if (ingLblCore(res.got) >= 5) return res;
+        return ingSrvOcr(blobs.label).then(function (st) {
+          if (!st) return res;
+          var g2 = ingParseLabel(st); if ((g2.kw || 0) < 2) return res;
+          Object.keys(g2).forEach(function (k) { if (k !== 'kw' && g2[k] != null && g2[k] !== '') res.got[k] = g2[k]; });   // Drive's reading wins where it has one
+          res.text = st; res.src = 'server';
+          return res;
+        });
+      });
+    });
+  }
+  function ingReadLabel(blobs) {
+    var f0 = ing.form; if (!f0) return Promise.resolve();
+    if (blobs instanceof Blob) blobs = { label: blobs, product: null };
+    ing.ocr.busy = true; ing.ocr.msg = 'Reading the label\u2026 (the first time loads the reader, ~10 s)'; ing.lsug = null; ingOcrPaint();
+    return ingLblRead(blobs, function (i, n) { if (ing.form === f0) { ing.ocr.msg = 'Reading the label\u2026 try ' + i + ' of up to ' + n; ingOcrPaint(); } }).then(function (r) {
+      var f = ing.form; ing.ocr.busy = false; ing.ocr.text = (r.text || '').trim().slice(0, 3000);
+      if (!f || f !== f0 || state.ltPart !== 'ing-item') return;
+      ingReadForm();
+      var plan = ingLblPlan(ingFormRec(f), r.got), n = ingLblToForm(f, plan.fill);
+      ing.lsug = { id: f.id, list: plan.sugg }; f.lread = 1;
+      ing.ocr.msg = plan.said.length ? 'Read from label' + (r.src === 'server' ? ' (server)' : '') + ': ' + plan.said.join(' \u00b7 ') + '. ' + (n ? 'Filled ' + n + ' field' + (n === 1 ? '' : 's') + ' (highlighted) \u2014 check them, then Save.' : 'Nothing blank to fill.') +
+        (plan.sugg.length ? ' The label differs on ' + plan.sugg.length + ' \u2014 see below.' : '')
+        : 'Couldn\u2019t read the label in that photo. Retake it straight on, close, with no glare, or type the numbers.';
+      ingRenderForm();
     }).catch(function (e) { ing.ocr.busy = false; ing.ocr.msg = (e && e.message) || 'The label reader failed.'; ingOcrPaint(); });
   }
+  function ingLblSuggHtml() {
+    var f = ing.form, s = ing.lsug; if (!f || !s || s.id !== f.id || !s.list.length) return '';
+    return '<div class="inglsug" id="ing-lsug"><b>The label says something different:</b>' + s.list.map(function (x, i) {
+      return '<div class="inglsugrow"><span>' + esc(x.what) + ': label <b>' + esc(x.val) + '</b>, you have ' + esc(x.cur) + '</span><button type="button" class="navbtn" data-ing="lbl-use" data-i="' + i + '">Use ' + esc(x.val) + '</button></div>';
+    }).join('') + '</div>';
+  }
+  // one pass on the Ingredients home: re-read each saved label photo whose ingredient still has blank / invalid fields (once per photo)
+  var ingLP = { running: false, ran: false, step: '', list: [] };
+  function ingLblPass() {
+    if (ingLP.running || ingLP.ran) return;
+    ingLP.ran = true;
+    ingPhotosLoad().then(function () {
+      var d = ingAll(), meta = ingMeta();
+      var todo = d.items.filter(function (it) { var k = ingLblKey(it, meta); return k && ((meta[it.id] || {}).lread || {}).pid !== k && ingLblNeeds(it); });
+      if (!todo.length) return;
+      ingLP.running = true; ingLP.list = []; ingLblPassPaint();
+      var changed = 0;
+      return todo.reduce(function (p, it0, ix) {
+        return p.then(function () {
+          ingLP.step = 'Reading saved label photos\u2026 ' + (ix + 1) + ' of ' + todo.length + ' (' + it0.name + ')'; ingLblPassPaint();
+          var key = ingLblKey(it0, ingMeta());
+          return ingLblBlobs(it0).then(function (bl) {
+            if (!bl.label) return;
+            return ingLblRead(bl).then(function (r) {
+              var d2 = ingAll(), it = cmFind(d2, it0.id); if (!it) return;
+              var plan = ingLblPlan(it, r.got), ks = Object.keys(plan.fill);
+              ks.forEach(function (k) { it[k] = plan.fill[k]; });
+              if (ks.length) { it.upd = Date.now(); if (cmAutoDone(it)) it.done = true; ltCostSave(d2); changed++; }
+              var m = ingMeta(); m[it.id] = m[it.id] || {}; m[it.id].lread = { pid: key, v: 187, at: Date.now() }; if (plan.sugg.length) m[it.id].lsug = plan.sugg; else delete m[it.id].lsug; ingMetaSave(m);
+              ingLP.list.push({ id: it.id, name: it.name, said: plan.said, n: ks.length, fill: plan.fill, sugg: plan.sugg.length });
+            });
+          }).catch(function (e) { ingLP.list.push({ id: it0.id, name: it0.name, said: [], n: 0, err: (e && e.message) || 'failed' }); });
+        });
+      }, Promise.resolve()).then(function () {
+        ingLP.running = false; ingLP.step = '';
+        if (changed) ingSync(true);
+        if (state.ltPart === 'ingredients') ingRenderHome(); else ingLblPassPaint();
+      });
+    });
+  }
+  function ingLblPassHtml() {
+    if (ingLP.running) return '<div class="inglpass busy" id="ing-lpass">' + esc(ingLP.step || 'Reading saved label photos\u2026') + '</div>';
+    if (!ingLP.list.length) return '<div id="ing-lpass" hidden></div>';
+    return '<div class="inglpass" id="ing-lpass"><b>Read your saved label photos:</b>' + ingLP.list.map(function (x) {
+      return '<div>' + esc(x.name) + ': ' + (x.err ? 'couldn\u2019t read (' + esc(x.err) + ')' : x.said.length ? esc(x.said.join(' \u00b7 ')) + ' \u2014 ' + (x.n ? 'filled ' + x.n : 'nothing blank to fill') + (x.sugg ? ', ' + x.sugg + ' to check (open it)' : '') : 'no numbers found in the photo \u2014 retake it or type them') + '</div>';
+    }).join('') + '<button type="button" class="navbtn" data-ing="lpass-ok">OK</button></div>';
+  }
+  function ingLblPassPaint() { var el = $('ing-lpass'); if (el) el.outerHTML = ingLblPassHtml(); }
   function ingOcrPaint() { var el = $('ing-ocr'); if (el) { el.textContent = ing.ocr.msg || ''; el.hidden = !ing.ocr.msg; el.className = 'ingocr' + (ing.ocr.busy ? ' busy' : ''); } }
 
   /* ---- shared UI bits ---- */
@@ -13427,7 +13723,7 @@
     d.items.forEach(function (x) { if (q && cmNormName(x.name + ' ' + x.brand).indexOf(q) < 0) return; (ingIsMine(x, hmeta) ? mine : sug).push(x); });
     mine.sort(function (a, b) { return a.name.localeCompare(b.name); });
     var nMeals = ingMeals().items.length;
-    var h = '<div class="ing">' + ingBadge() + ingFlashHtml() +
+    var h = '<div class="ing">' + ingBadge() + ingFlashHtml() + ingLblPassHtml() +
       '<div class="grid2 ingtop"><button class="tile ingtile" data-ing="new-ing"><span class="ingplus">+</span>Add ingredient<small>camera \u00b7 mic</small></button>' +
       '<button class="tile ingtile" data-go="lt/ing-meals"><span class="ingplus">\u2211</span>Meals &amp; Recipes<small>' + nMeals + ' saved \u00b7 macros + cost</small></button></div>' +
       '<input class="searchbox" id="ing-q" type="search" placeholder="Search ingredients" value="' + esc(ing.q) + '" autocomplete="off">' +
@@ -13442,6 +13738,7 @@
       sug.map(function (x) { return '<button class="wlitem cmitem ingrow" data-go="lt/ing-item/' + esc(x.id) + '"><span class="cmthumb empty"></span><span class="cmmain"><span class="wlname">' + esc(x.name) + '</span><span class="wlmeta">Tap to add macros + price</span></span></button>'; }).join('') + '</details>';
     h += '<p class="inghelp">Same list as <a href="#lt/cost" data-go="lt/cost">Cost &amp; Macros</a>, so an ingredient is only entered once.</p></div>';
     $('lt-body').innerHTML = h;
+    ingLblPass();
   }
   function ingBlankForm(it) {
     it = it || {};
@@ -13458,11 +13755,23 @@
   function ingOpenForm(id) {
     var d = ingAll(), it = id && id !== 'new' ? cmFind(d, id) : null;
     if (id && id !== 'new' && !it) { $('lt-body').innerHTML = '<div class="foot empty">That ingredient isn\u2019t on this phone.</div>'; return; }
-    if (!ing.form || (it ? ing.form.id !== it.id : !ing.form.isNew)) { ing.form = ingBlankForm(it); ing.confirm = ''; ing.usda = null; ing.ocr = { busy: false, msg: '', text: '' }; if (!it) ing.ret = ''; }
+    var fresh = false;
+    if (!ing.form || (it ? ing.form.id !== it.id : !ing.form.isNew)) {
+      ing.form = ingBlankForm(it); ing.confirm = ''; ing.usda = null; ing.ocr = { busy: false, msg: '', text: '' }; if (!it) ing.ret = ''; fresh = true;
+      var ls = it && (ingMeta()[it.id] || {}).lsug; ing.lsug = ls && ls.length ? { id: it.id, list: ls } : null;   // v187: what the home pass found differing
+    }
     if (ing.form.isNew && !ing.form.id) ing.form.id = cmNewId();
     var p = ing.pend; ing.pend = null;
     ingRenderForm();
     if (p && p.file) ingAttach(p.file, p.slot || 'label');
+    else if (fresh && it) {      // v187: a saved label photo nobody has read with this reader yet, and fields still blank -> read it now
+      var f1 = ing.form;
+      ingPhotosLoad().then(function () {
+        var key = ingLblKey(it), lr = (ingMeta()[it.id] || {}).lread || {};
+        if (!key || lr.pid === key || !ingLblNeeds(it) || ing.form !== f1 || ing.ocr.busy) return;
+        return ingLblBlobs(it, f1.photos).then(function (bl) { if (bl.label && ing.form === f1 && state.ltPart === 'ing-item') ingReadLabel(bl); });
+      });
+    }
   }
   function ingFld(key, label, val, attrs, filled) {
     return '<label class="vfield' + (filled ? ' ingfilled' : '') + '"><span>' + label + '</span><input class="wlin" id="ing-f-' + key + '" value="' + esc(val || '') + '" ' + (attrs || '') + '></label>';
@@ -13472,7 +13781,7 @@
     var url = pid ? ingPhotoUrl(pid) : ingPhotoOf(it, slot);
     return '<div class="ingslot">' + (url ? '<img class="ingprev" alt="' + esc(label) + '" src="' + esc(url) + '">' : '<div class="ingprev empty">' + vsvg('cam', 34) + '</div>') +
       '<label class="navbtn ingcam">' + (url ? 'Retake' : esc(label)) + '<input type="file" accept="image/*" capture="environment" hidden data-ingcam="' + slot + '"></label>' +
-      (slot === 'label' && url ? '<button type="button" class="navbtn ingread" data-ing="ocr"' + (ing.ocr.busy ? ' disabled' : '') + '>Read label</button>' : '') + '</div>';
+      (slot === 'label' && url ? '<button type="button" class="navbtn ingread" data-ing="ocr"' + (ing.ocr.busy ? ' disabled' : '') + '>Re-read label</button>' : '') + '</div>';
   }
   function ingRetMeal() { return ing.ret && ing.mform && ing.mform.id === ing.ret ? ing.mform : null; }
   function ingRenderForm() {
@@ -13481,7 +13790,7 @@
     var h = '<div class="ing ingform vform card">' + ingFlashHtml() +
       (rm ? '<div class="ingret">Adding to <b>' + esc(rm.name || 'the new meal') + '</b>. Save puts it in the meal with the amount below.</div>' : '') +
       '<h4 class="sechead">Photos <small>product + nutrition label</small></h4><div class="ingslots">' + ingPhotoSlot('product', 'Product photo') + ingPhotoSlot('label', 'Nutrition label') + '</div>' +
-      '<div class="ingocr' + (ing.ocr.busy ? ' busy' : '') + '" id="ing-ocr"' + (ing.ocr.msg ? '' : ' hidden') + '>' + esc(ing.ocr.msg) + '</div>' +
+      '<div class="ingocr' + (ing.ocr.busy ? ' busy' : '') + '" id="ing-ocr"' + (ing.ocr.msg ? '' : ' hidden') + '>' + esc(ing.ocr.msg) + '</div>' + ingLblSuggHtml() +
       (ing.ocr.text ? '<details class="ingdict"><summary>What I read on the label</summary><pre class="ingocrtext">' + esc(ing.ocr.text) + '</pre></details>' : '') +
       ingMicHtml('ing') +
       ingFld('name', 'Name', f.name, 'placeholder="e.g. Chicken thighs" maxlength="120"', fl.name) + ingFld('brand', 'Brand', f.brand, 'placeholder="e.g. Kirkland" maxlength="80"', fl.brand) + ingUsdaHtml(f) +
@@ -13578,7 +13887,11 @@
     if (!ltCostSave(d)) return ingFlash('This phone is out of storage space. Nothing saved.', true);
     var meta = ingMeta(), m = meta[it.id] || {};
     Object.keys(f.photos).forEach(function (slot) { if (m[slot] && m[slot] !== f.photos[slot]) ingPhotoDel(m[slot]); m[slot] = f.photos[slot]; });
-    meta[it.id] = m; ingMetaSave(meta);
+    meta[it.id] = m;
+    if (f.lread) { var lk = ingLblKey(it, meta); if (lk) m.lread = { pid: lk, v: 187, at: now }; }     // v187: this photo has been read
+    if (ing.lsug && ing.lsug.id === it.id) { if (ing.lsug.list.length) m.lsug = ing.lsug.list; else delete m.lsug; }
+    ing.lsug = null;
+    ingMetaSave(meta);
     var rm = ingRetMeal(), useN = ingNum(f.useN), useU = f.useU;
     ing.form = null; ing.ret = '';
     if (rm) {
@@ -13601,7 +13914,7 @@
         ingReadForm(); f.photos[slot] = rec.id; ingFlash('');
         if (slot === 'label') { ing.ocr.busy = true; ing.ocr.msg = 'Reading the label\u2026'; }
         ingRenderForm();
-        if (slot === 'label') ingReadLabel(file);
+        if (slot === 'label') ingReadLabel({ label: file, product: ingBlobOfPid(f.photos.product || (ingMeta()[f.id] || {}).product) });   // v187: + the front for net size
       });
     }).catch(function (e) { ingFlash((e && e.message) || 'That photo could not be saved.', true); });
   }
@@ -13910,9 +14223,21 @@
       });
     }, Promise.resolve()).then(function () { return res; });
   }
+  function ingCmPhotos() {     // v187: a label photo taken on the Cost & Macros screen (kept inside the record) becomes a normal label photo, so it syncs to Drive
+    var meta = ingMeta(), adds = [];
+    ingAll().items.forEach(function (it) {
+      if (!it.photo || !/^data:image\/jpeg;base64,/.test(it.photo) || !ingIsMine(it, meta) || (meta[it.id] || {}).label) return;
+      var rec = { id: 'ip' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ingId: it.id, slot: 'label', mime: 'image/jpeg', bytes: ingB64ToBuf(it.photo.split(',')[1]), created: Date.now(), cid: vNewCid(), url: '', fromCm: 1 };
+      meta[it.id] = meta[it.id] || {}; meta[it.id].label = rec.id;
+      var lr = meta[it.id].lread; if (lr && lr.pid === 'cm' + it.photo.length) lr.pid = rec.id;
+      adds.push(rec);
+    });
+    if (!adds.length) return Promise.resolve();
+    return adds.reduce(function (p, r) { return p.then(function () { return ingPhotoPut(r); }); }, Promise.resolve()).then(function () { ingMetaSave(meta); }, function () {});
+  }
   function ingPushPhotos(res) {
     res = res || ingSyncRes();
-    return ingPhotosLoad().then(function (ph) {
+    return ingPhotosLoad().then(function () { return ingCmPhotos(); }).then(function () { return ingPhotosLoad(); }).then(function (ph) {
       var names = {}, meta = ingMeta(), live = {};
       ingAll().items.forEach(function (x) { names[x.id] = x.name; });
       Object.keys(meta).forEach(function (k) { ['product', 'label'].forEach(function (s) { if (meta[k][s]) live[meta[k][s]] = 1; }); });
@@ -14017,11 +14342,15 @@
     else if (a === 'dict-fill') { ingMicStop(true); if (state.ltPart === 'ing-meal') { ingReadMeal(); ingMealApplyDict(); } else { ingReadForm(); ingApplyDict(); } }
     else if (a === 'ocr') {
       var f0 = ing.form; if (!f0) return;
-      var pid = f0.photos.label || (ingMeta()[f0.id] || {}).label, r0 = pid && ing.photos && ing.photos[pid];
-      if (r0) ingReadLabel(new Blob([r0.bytes], { type: r0.mime || 'image/jpeg' }));
-      else { var u0 = ingPhotoOf(cmFind(ingAll(), f0.id) || { id: f0.id }, 'label'); if (u0) fetch(u0).then(function (x) { return x.blob(); }).then(ingReadLabel); }
+      if (ing.ocr.busy) return;
+      ingLblBlobs(cmFind(ingAll(), f0.id) || { id: f0.id }, f0.photos).then(function (bl) { if (bl.label && ing.form === f0) ingReadLabel(bl); });
     }
     else if (a === 'save-ing') { ingMicStop(true); ingSaveForm(); }
+    else if (a === 'lbl-use') {        // v187: take the label's value over the typed one
+      var ls0 = ing.lsug, x0 = ls0 && ls0.list[+b.getAttribute('data-i')]; if (!x0 || !ing.form) return;
+      ingReadForm(); var fo = {}; fo[x0.k] = x0.val; ingLblToForm(ing.form, fo); ls0.list.splice(+b.getAttribute('data-i'), 1); ingRenderForm();
+    }
+    else if (a === 'lpass-ok') { ingLP.list = []; ingLblPassPaint(); }
     else if (a === 'del-ing') { ingReadForm(); ing.confirm = ing.form.id; ingRenderForm(); }
     else if (a === 'del-meal') { ingReadMeal(); ing.confirm = ing.mform.id; ingRenderMeal(); }
     else if (a === 'del-no') { ing.confirm = ''; if (state.ltPart === 'ing-meal') { ingReadMeal(); ingRenderMeal(); } else { ingReadForm(); ingRenderForm(); } }

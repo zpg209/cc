@@ -180,3 +180,33 @@ function apiLtIngPhoto_(p) {
     return { error: 'write_failed', message: String(werr && werr.message || werr).substring(0, 200) };
   } finally { lock.releaseLock(); }
 }
+
+/* v60: read a nutrition label photo with Google Drive's OCR (much better than the phone's reader on curved cans, glare, small print).
+ * Needs the Advanced Drive service: Apps Script editor > Services (+) > Drive API > Add (v3 or v2 both work).
+ * POST action=ltingocr, mime=image/jpeg|image/png, data=<base64>[, dry=1]  ->  { text }
+ * A temporary Google Doc is made from the photo, its text read, and the Doc trashed at once. Nothing else is written. */
+function apiLtIngOcr_(p) {
+  p = p || {};
+  var dry = apiAdminBool_(p.dry), ok = typeof Drive !== 'undefined' && Drive && Drive.Files;
+  if (dry) return { ok: true, data: { dry: true, available: !!ok, version: 60 } };
+  if (!ok) return { error: 'ocr_unavailable', message: 'Server OCR needs the Drive API service turned on in the Apps Script editor.' };
+  var mime = String(p.mime || 'image/jpeg').toLowerCase(), ext = API_LTING.MIME[mime];
+  if (!ext) return { error: 'bad_value', message: 'mime must be image/jpeg or image/png.' };
+  var b64 = String(p.data || '').replace(/^data:[^,]*,/, '').replace(/\s+/g, ''), bytes;
+  if (!b64 || !/^[A-Za-z0-9+\/]+={0,2}$/.test(b64)) return { error: 'bad_value', message: 'data must be base64.' };
+  try { bytes = Utilities.base64Decode(b64); } catch (e1) { return { error: 'bad_value', message: 'data is not valid base64.' }; }
+  if (bytes.length > API_LTING.MAX_BYTES) return { error: 'too_big', message: 'The photo is larger than 8 MB.' };
+  var b0 = bytes[0] & 255, b1 = bytes[1] & 255;
+  if (bytes.length < 100 || !(ext === 'jpg' ? (b0 === 0xFF && b1 === 0xD8) : (b0 === 0x89 && b1 === 0x50))) return { error: 'bad_value', message: 'data does not match ' + mime + '.' };
+  var blob = Utilities.newBlob(bytes, mime, 'CC label OCR ' + Date.now() + '.' + ext), id = null, text = '';
+  try {
+    if (Drive.Files.create) id = Drive.Files.create({ name: blob.getName(), mimeType: 'application/vnd.google-apps.document' }, blob, { ocrLanguage: 'en', fields: 'id' }).id;   // Drive API v3
+    else id = Drive.Files.insert({ title: blob.getName(), mimeType: mime }, blob, { ocr: true, ocrLanguage: 'en' }).id;                                                     // Drive API v2
+    text = DocumentApp.openById(id).getBody().getText();
+  } catch (e) {
+    return { error: 'ocr_failed', message: String(e && e.message || e).substring(0, 200) };
+  } finally {
+    if (id) { try { DriveApp.getFileById(id).setTrashed(true); } catch (e2) {} }
+  }
+  return { ok: true, data: { text: String(text || '').substring(0, 20000), version: 60 } };
+}
