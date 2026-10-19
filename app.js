@@ -14,7 +14,7 @@
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', ovKey: '', invAcct: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
-  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring', 'ownership', 'zl', 'fchase', 'bankrev', 'ptpl', 'cart', 'generator', 'adu', 'mkt'];
+  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring', 'ownership', 'zl', 'fchase', 'bankrev', 'ptpl', 'cart', 'generator', 'adu', 'mkt', 'tlc'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -635,6 +635,7 @@
     if (name === 'pc') pcOpen();
     if (name === 'lr') lrOpen();
     if (name === 'hiring') hiringOpen();
+    if (name === 'tlc') tlcOpen();   // v192: TiwiK equipment loan comparison
     if (name === 'cart') cartOpen();   // v176: Zac > Heavy Object Cart Build
     if (name === 'generator') generatorOpen();   // v177: Zac > Generator
     if (name === 'adu') aduOpen();
@@ -1311,6 +1312,80 @@
     $('cart-back').setAttribute('data-go', hlItemBack('cart', 'hf/zac'));
     $('cart-body').innerHTML = '<div class="grid2" id="cart-list">' + CART.docs.map(function (d) { return tile(d, 'Google Doc'); }).join('') + '</div>' +
       '<a class="linkrow" data-title="Heavy Object Cart Build" href="' + esc(CART.folderUrl) + '">Open folder &rsaquo;</a>';
+  }
+
+  /* ---------------- v192: TiwiK Equipment Loan - Options Comparison (#tlc; Home > Business, next to TiwiK) ----------------
+   * Static snapshot (no server read). Numbers from: Equipment Payoff - Comparison Table (10/2/2026), Mark Steichen (BoS) email 9/24/2026,
+   * and the Sheet 'TiwiK Equipment Loan - Options Comparison (2026-10-19)' (model: Prime flat 7.00%, refi right after the 12/5/2026 payment).
+   * Arithmetic only - not lending, tax or legal advice. */
+  var TLC = {
+    sheet: 'https://docs.google.com/spreadsheets/d/1Jjmq15GaeZEkkm_HNZTKSTaXKCxQ81-b50IXlwIY8QU/edit',
+    doc: 'https://docs.google.com/document/d/1KYk0XPQwZsYVifI3QBBpUz-d0Zi4gWUMCJw4ceN5aRs/edit',
+    opts: [
+      { k: 'A', c: '#9aa3ad', name: 'Keep Alliance', tag: 'Baseline', start: 211644, rate: '6.75% \u2192 8.75% from ~12/3/26 (Prime + 1.75%, variable)',
+        pay: '$3,167 now \u2192 $3,377 from 1/5/27', cash: 0, payoff: '~12/2033 (matures 12/5/33)', int: 72186, int60: 65215, bal60: 74245, note: 'Variable after the step-up; each +1% Prime \u2248 +$2.1k/yr.' },
+      { k: 'B1', c: '#f07a2a', name: 'BoS fixed loan', tag: 'Mark: $170k, ~7.25%, 5 yr', start: 170000, rate: '~7.25% fixed (estimate, not locked)',
+        pay: '$3,386/mo (Mark wrote $3,187 \u2014 doesn\u2019t match)', cash: 41894, payoff: '12/2031', int: 33177, int60: 33177, bal60: 0, note: '$250 fee, no prepay penalty (get in writing). Needs ~$41.9k cash.' },
+      { k: 'B2', c: '#4fb3ff', name: 'Line, interest-only', tag: 'Mark: $170k at Prime + 0', start: 170000, rate: '7.00% variable (Prime + 0)',
+        pay: '$992/mo interest only', cash: 41644, payoff: 'Never, unless you pay principal', int: null, int60: 59500, bal60: 170000, note: 'Same cash in as the fixed loan. Principal is at your discretion.' },
+      { k: 'C', c: '#5cc98a', name: 'HELOC full payoff', tag: 'Earlier doc: $3,377/mo', start: 211644, rate: '7.00% variable (Prime + 0)',
+        pay: '$3,377/mo (self-imposed; minimum \u2248 $1,235)', cash: 0, payoff: '~7/2033', int: 52564, int60: 49239, bal60: 58263, note: 'No cash used; home is the collateral; rate floats.' }
+    ],
+    xo: 6, xoAll: 34, waitFix: 265, waitLine: 309
+  };
+  var TLC_SERIES = {"bal":{"A":[211644,209810,207963,206103,204229,202341,200440,198524,196595,194651,192694,190722,188736,186735,184720,182690,180645,178585,176510,174421,172316,170195,168059,165908,163741,161558,159359,157144,154913,152665,150402,148121,145825,143511,141180,138833,136468,134087,131687,129271,126836,124384,121914,119426,116920,114396,111853,109292,106712,104113,101495,98858,96202,93527,90832,88117,85383,82629,79854,77060,74245,71409,68553,65676,62778,59859,56918,53956,50973,47968,44941,41891,38820,35726,32610,29470,26308,23123,19915,16683,13428,10149,6846,3519,168,0,0,0,0,0,0,0,0,0,0,0,0],"B1":[170000,167641,165267,162880,160477,158061,155629,153183,150722,148247,145756,143250,140730,138194,135642,133075,130493,127895,125282,122652,120007,117346,114668,111975,109265,106539,103796,101037,98261,95469,92659,89833,86989,84128,81250,78355,75442,72512,69563,66597,63613,60611,57591,54553,51496,48421,45327,42215,39084,35934,32764,29576,26368,23141,19895,16629,13343,10037,6712,3366,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"B2":[170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000,170000],"C":[211644,209502,207347,205179,202999,200806,198601,196382,194151,191906,189649,187378,185094,182797,180486,178162,175824,173473,171108,168729,166336,163929,161509,159074,156625,154161,151684,149191,146685,144163,141627,139077,136511,133930,131334,128724,126097,123456,120799,118127,115439,112735,110016,107281,104529,101762,98979,96179,93363,90531,87682,84816,81934,79035,76119,73186,70236,67269,64284,61282,58263,55226,52171,49098,46007,42899,39772,36627,33464,30282,27082,23863,20625,17368,14092,10798,7484,4150,797,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]},"ci":{"A":[0,1543,3073,4590,6092,7582,9057,10518,11966,13400,14819,16224,17615,18991,20352,21699,23031,24349,25651,26938,28210,29466,30707,31933,33142,34336,35514,36676,37822,38952,40065,41162,42242,43305,44351,45381,46393,47388,48366,49326,50269,51194,52101,52989,53860,54713,55547,56363,57160,57938,58697,59437,60158,60859,61541,62203,62846,63469,64071,64653,65215,65757,66277,66777,67256,67714,68150,68565,68959,69330,69680,70008,70313,70596,70857,71095,71310,71501,71670,71815,71937,72035,72109,72159,72184,72186,72186,72186,72186,72186,72186,72186,72186,72186,72186,72186,72186],"B1":[0,1027,2040,3038,4022,4992,5947,6887,7813,8723,9619,10500,11365,12215,13050,13870,14674,15462,16235,16992,17733,18458,19167,19860,20536,21196,21840,22467,23077,23671,24248,24808,25350,25876,26384,26875,27349,27804,28242,28663,29065,29449,29816,30164,30493,30804,31097,31371,31626,31862,32079,32277,32456,32615,32755,32875,32975,33056,33117,33157,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177,33177],"B2":[0,992,1983,2975,3967,4958,5950,6942,7933,8925,9917,10908,11900,12892,13883,14875,15867,16858,17850,18842,19833,20825,21817,22808,23800,24792,25783,26775,27767,28758,29750,30742,31733,32725,33717,34708,35700,36692,37683,38675,39667,40658,41650,42642,43633,44625,45617,46608,47600,48592,49584,50575,51567,52559,53550,54542,55534,56525,57517,58509,59500,60492,61484,62475,63467,64459,65450,66442,67434,68425,69417,70409,71400,72392,73384,74375,75367,76359,77350,78342,79334,80325,81317,82309,83300,84292,85284,86275,87267,88259,89250,90242,91234,92225,93217,94209,95200],"C":[0,1235,2457,3666,4863,6047,7219,8377,9523,10655,11775,12881,13974,15054,16120,17173,18212,19238,20250,21248,22232,23202,24159,25101,26029,26942,27842,28726,29597,30452,31293,32119,32931,33727,34508,35274,36025,36761,37481,38186,38875,39548,40206,40848,41473,42083,42677,43254,43815,44360,44888,45399,45894,46372,46833,47277,47704,48114,48506,48881,49239,49578,49901,50205,50491,50760,51010,51242,51456,51651,51828,51986,52125,52245,52346,52429,52492,52535,52559,52564,52564,52564,52564,52564,52564,52564,52564,52564,52564,52564,52564,52564,52564,52564,52564,52564,52564]}};
+  function tlcMoney(n) { return n === null ? '\u2014' : '$' + Math.round(n).toLocaleString('en-US'); }
+  function tlcChart(kind) {
+    var S = TLC_SERIES[kind], W = 340, Hh = 170, pl = 38, pb = 20, n = 96, keys = kind === 'bal' ? ['A', 'B1', 'B2', 'C'] : ['B1', 'B2'];
+    var max = 0; keys.forEach(function (k) { S[k].forEach(function (v) { if (v > max) max = v; }); });
+    max = Math.ceil(max / 50000) * 50000 || 1;
+    var x = function (m) { return pl + (W - pl - 6) * m / n; }, y = function (v) { return 6 + (Hh - pb - 6) * (1 - v / max); };
+    var h = '<svg class="tlc-svg" viewBox="0 0 ' + W + ' ' + Hh + '" role="img">';
+    for (var g = 0; g <= max; g += max / 4) h += '<line x1="' + pl + '" x2="' + (W - 6) + '" y1="' + y(g) + '" y2="' + y(g) + '" class="tlc-grid"/><text x="' + (pl - 4) + '" y="' + (y(g) + 3) + '" class="tlc-ax" text-anchor="end">' + Math.round(g / 1000) + 'k</text>';
+    [0, 24, 48, 72, 96].forEach(function (m) { h += '<text x="' + x(m) + '" y="' + (Hh - 5) + '" class="tlc-ax" text-anchor="middle">' + (2027 + m / 12 | 0) + '</text>'; });
+    keys.forEach(function (k) {
+      var o = TLC.opts.filter(function (z) { return z.k === k; })[0];
+      h += '<polyline fill="none" stroke="' + o.c + '" stroke-width="2.2" points="' + S[k].map(function (v, m) { return x(m).toFixed(1) + ',' + y(v).toFixed(1); }).join(' ') + '"/>';
+    });
+    if (kind === 'ci') {
+      [[TLC.xo, 'mo ' + TLC.xo + ': IO passes fixed'], [TLC.xoAll, 'mo ' + TLC.xoAll + ': IO > fixed\u2019s total']].forEach(function (p, i) {
+        var v = TLC_SERIES.ci.B2[p[0]];
+        h += '<circle cx="' + x(p[0]) + '" cy="' + y(v) + '" r="4.5" class="tlc-xo"/><text x="' + (x(p[0]) + 7) + '" y="' + (y(v) - 6 - i * 12) + '" class="tlc-xol">' + p[1] + '</text>';
+      });
+    } else {
+      h += '<line x1="' + x(60) + '" x2="' + x(60) + '" y1="6" y2="' + (Hh - pb) + '" class="tlc-mark"/><text x="' + (x(60) + 3) + '" y="16" class="tlc-xol">fixed paid off 12/2031</text>';
+    }
+    return h + '</svg><div class="tlc-legend">' + keys.map(function (k) { var o = TLC.opts.filter(function (z) { return z.k === k; })[0]; return '<span><i style="background:' + o.c + '"></i>' + esc(o.name) + '</span>'; }).join('') + '</div>';
+  }
+  function tlcOpen() {
+    $('tlc-back').setAttribute('data-go', hlItemBack('tlc', 'biz/tiwik'));
+    var cards = TLC.opts.map(function (o) {
+      return '<div class="tlc-card" style="border-top-color:' + o.c + '"><div class="tlc-tag">' + esc(o.tag) + '</div><h3 class="tlc-name">' + esc(o.name) + '</h3>' +
+        '<div class="tlc-big">' + esc(o.pay) + '</div>' +
+        [['Payoff', o.payoff], ['Total interest', o.int === null ? 'Keeps growing ($11.9k/yr)' : tlcMoney(o.int)], ['Interest, first 5 yrs', tlcMoney(o.int60)], ['Owed after 5 yrs', tlcMoney(o.bal60)],
+         ['Cash up front', o.cash ? tlcMoney(o.cash) : '$0'], ['Rate', o.rate]].map(function (r) { return '<div class="tlc-row"><span>' + r[0] + '</span><b>' + esc(r[1]) + '</b></div>'; }).join('') +
+        '<p class="tlc-note">' + esc(o.note) + '</p></div>';
+    }).join('');
+    var tbl = '<table class="tlc-tbl"><tr><th></th>' + TLC.opts.map(function (o) { return '<th style="color:' + o.c + '">' + esc(o.name) + '</th>'; }).join('') + '</tr>' +
+      [['Monthly', ['$3,377', '$3,386', '$992', '$3,377']], ['Paid off', ['~12/33', '12/31', 'never', '~7/33']], ['Interest', TLC.opts.map(function (o) { return o.int === null ? '\u221e' : '$' + Math.round(o.int / 1000) + 'k'; })],
+       ['Cash in', TLC.opts.map(function (o) { return o.cash ? '$' + Math.round(o.cash / 1000) + 'k' : '$0'; })]].map(function (r) { return '<tr><td>' + r[0] + '</td>' + r[1].map(function (v) { return '<td>' + esc(v) + '</td>'; }).join('') + '</tr>'; }).join('') + '</table>';
+    var means = [
+      'Doing nothing is the most expensive path: about $72k more interest from 2027, and the rate floats at Prime + 1.75% after ~12/3/2026.',
+      'Every month you stay on Alliance after the step-up costs about $' + TLC.waitFix + ' more interest than the fixed loan, or $' + TLC.waitLine + ' more than a Prime + 0 line.',
+      'Interest-only vs fixed (same $170k): interest-only has the lower payment, but its interest total passes the fixed loan\u2019s by month ' + TLC.xo + ' (mid-2027) and passes the fixed loan\u2019s whole 5-year interest ($33.2k) by month ' + TLC.xoAll + ' (10/2029), and you still owe $170k.',
+      'Fixed wins if Prime stays above about 7.25% on average, or if you want a locked payment and the home kept out of the deal.',
+      'A line (HELOC) wins if Prime falls, or if you will pay well over the minimum. It\u2019s about $1.3k cheaper at flat Prime with the same cash in. It also keeps the most cash flexible.',
+      'Keeping the ~$41.9k gap in cash instead: only the HELOC full payoff ($0 cash) or Alliance avoid it.'
+    ];
+    $('tlc-body').innerHTML =
+      '<p class="tlc-sub">Refinance right after the 12/5/2026 Alliance payment (balance \u2248 $211,644). Prime held at 7.00%. Arithmetic only, not lending advice.</p>' +
+      '<div class="tlc-swipe">' + cards + '</div><p class="tlc-hint">Swipe for each option &rsaquo;</p>' + tbl +
+      '<div class="card tlc-chart"><h3>Balance owed over time</h3>' + tlcChart('bal') + '</div>' +
+      '<div class="card tlc-chart"><h3>Total interest paid: fixed vs interest-only ($170k)</h3>' + tlcChart('ci') + '</div>' +
+      '<div class="card"><h3>What this means</h3><ul class="tlc-ul">' + means.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul></div>' +
+      '<div class="card"><h3>Still to confirm</h3><ul class="tlc-ul"><li>Mark: corrected fixed payment ($3,187 vs $3,386), rate lock, collateral, guaranty, written no-prepay.</li><li>Alliance: written payoff quote and whether the post-reset payment is level ($3,377) or ~$3,520.</li><li>Which property secures the HELOC.</li></ul></div>' +
+      '<a class="linkrow" data-title="TiwiK Equipment Loan - Options Comparison" href="' + esc(TLC.sheet) + '">Open the comparison Sheet &rsaquo;</a>' +
+      '<a class="linkrow" data-title="Equipment Payoff - Comparison Table" href="' + esc(TLC.doc) + '">Earlier Payoff Comparison Table &rsaquo;</a>';
   }
 
   /* ---------------- Generator (#generator; Home > Zac, v177) ---------------- */
@@ -5348,6 +5423,7 @@
     var h;
     if (BD_EXP[b.slug]) { bdEnsure(b.slug); h = bdTreeHtml('biz:' + b.slug, b.slug, b); }   // v135: KiwiT / TiwiK as the collapsible tree (same as their Business Documents tab)
     else h = '<p class="hint">' + esc(b.name) + ' · ' + b.count + ' documents · tap to view</p>' + bizGroupsHtml(b.groups);
+    if (b.slug === 'tiwik') h = '<button class="linkrow"' + goAttr('tlc') + '>Equipment Loan Options · compare &rsaquo;</button>' + h;   // v192
     if (b.folderUrl) h += '<a class="linkrow" data-title="' + esc(b.short || b.name) + '" href="' + esc(b.folderUrl) + '">Open ' + esc(b.short || b.name) + ' folder &rsaquo;</a>';
     $('biz-body').innerHTML = h;
   }
@@ -23731,6 +23807,7 @@
     'f:lisa':    { label: 'Lisa', go: 'hf/lisa', folder: true },
     'f:zac':     { label: 'Zac', go: 'hf/zac', folder: true },           // v149: Home folder (next to Lisa); holds Wetumka
     'f:wetumka': { label: 'Wetumka', go: 'hf/wetumka', folder: true },
+    'tlc':       { label: 'Equipment Loan Options', go: 'tlc', sub: 'TiwiK · Alliance vs BoS fixed vs interest-only', cls: 'hiring-entry' },   // v192 (#tlc)
     'cart':      { label: 'Heavy Object Cart Build', go: 'cart', sub: 'Materials \u00b7 cut list', cls: 'hiring-entry' },   // v176: Zac > after Wetumka (#cart)   // v149: Zac > Wetumka (project lists)
     'generator': { label: 'Generator', go: 'generator', sub: 'Power cell \u00b7 overview', cls: 'hiring-entry' },   // v177: Zac > Generator (#generator)
     'adu':       { label: 'ADU', go: 'adu', sub: 'Floor plans', cls: 'hiring-entry' },   // v177: Zac > ADU (#adu)
@@ -23766,7 +23843,7 @@
     'f:zac': ['f:wetumka', 'generator', 'cart', 'adu', 'f:mkt'],   // v180: + Marketing
     'f:mkt': ['mkt/lt', 'mkt/pt', 'mkt/mvl', 'mkt/mf'],   // v177: + Generator, + ADU; v176 cart (hlNormalize slots into saved layouts)
     'f:wetumka': ['zl/garage', 'zl/connex', 'zl/landscaping'],         // v149   // v130: saved layouts get it too (hlNormalize slots new items into their default folder)
-    biz: ['f:archive'],   // v147: the v141-v146 'ownership' tile is gone from Business (it now lives only on Trust & Estate); hlNormalize drops it from saved layouts
+    biz: ['tlc', 'f:archive'],   // v192: + TiwiK Equipment Loan Options (draggable; hlNormalize slots it into saved layouts)   // v147: the v141-v146 'ownership' tile is gone from Business (it now lives only on Trust & Estate); hlNormalize drops it from saved layouts
     fin: ['fin/ledger', 'fin/invest', 'fchase', 'bankrev', 'f:finwork'],   // v170: + Workspace folder at the end (hlNormalize slots it into saved layouts)   // v169: the v163 Finances > Archive folder is gone (hlLoad moves anything in it back to Finances)   // v150: Family Chase after Investments (hlNormalize slots it into saved layouts too)
     'f:archive': HL_TO_ARCHIVE.slice()
   };
