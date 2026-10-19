@@ -5659,7 +5659,8 @@
     ingredients: { label: 'Ingredients', ing: 'home' },                          // v183: ingredients (camera + mic) + meal/recipe builder with macros + cost
     'ing-item': { label: 'Ingredient', ing: 'item', back: 'lt/ingredients' },    // #lt/ing-item/<id|new>
     'ing-meals': { label: 'Meals & Recipes', ing: 'meals', back: 'lt/ingredients' },
-    'ing-meal': { label: 'Meal builder', ing: 'meal', back: 'lt/ing-meals' }     // #lt/ing-meal/<id|new>
+    'ing-meal': { label: 'Meal builder', ing: 'meal', back: 'lt/ing-meals' },    // #lt/ing-meal/<id|new>
+    'ing-brk': { label: 'Where it comes from', ing: 'brk', back: 'lt/ing-meals' }   // v190: #lt/ing-brk/<meal id>~<calories|protein|carbs|fat|fiber|cost>~<tot|per>[~e]
   };
   var LT_ORDER = ['ops', 'recipes', 'orders', 'menus', 'macros', 'wish', 'notes', 'cost', 'ingredients'];
   var LT_TTL = 60000;
@@ -6987,8 +6988,8 @@
     if (m) {
       var v = ingMenuVals(m);
       return '<div class="macrec card"><div><b>Recipe</b> <button type="button" class="navbtn macrecbtn" data-mac2="recopen" data-id="' + esc(m.id) + '">' + esc(m.name) + ' \u203a</button> <small>(makes ' + esc(m.servings) + ')</small></div>' +
-        '<div>Recipe per serving: ' + ingR(v.cal) + ' cal \u00b7 ' + ingR(v.protein, 1) + 'P ' + ingR(v.carbs, 1) + 'C ' + ingR(v.fat, 1) + 'F \u00b7 ' + ingR(v.fiber, 1) + ' g fiber</div>' +
-        '<div>Cost per serving ' + ingMoney(v.cost) + (price != null ? ' \u00b7 price ' + ingMoney(price) + (v.cost > 0 ? ' \u00b7 margin <b>' + ingMoney(price - v.cost) + '</b>' : '') : ' \u00b7 no price yet') + '</div>' +
+        '<div>Recipe per serving: ' + macBrk(m, 'calories', ingR(v.cal) + ' cal') + ' \u00b7 ' + macBrk(m, 'protein', ingR(v.protein, 1) + 'P') + ' ' + macBrk(m, 'carbs', ingR(v.carbs, 1) + 'C') + ' ' + macBrk(m, 'fat', ingR(v.fat, 1) + 'F') + ' \u00b7 ' + macBrk(m, 'fiber', ingR(v.fiber, 1) + ' g fiber') + '</div>' +
+        '<div>Cost per serving ' + macBrk(m, 'cost', ingMoney(v.cost)) + (price != null ? ' \u00b7 price ' + ingMoney(price) + (v.cost > 0 ? ' \u00b7 margin <b>' + ingMoney(price - v.cost) + '</b>' : '') : ' \u00b7 no price yet') + '</div>' +
         '<div class="macrecst">' + ingMenuStTxt(m, x, v) + '</div>' +
         (m.menuMode === 'ask' ? '<div class="vdelq">Recipe says ' + ingR(v.cal) + ' cal \u00b7 ' + ingR(v.protein, 1) + 'P ' + ingR(v.carbs, 1) + 'C ' + ingR(v.fat, 1) + 'F \u2014 use recipe values?</div><div class="draftbtns"><button type="button" class="navbtn" data-mac2="recauto" data-id="' + esc(m.id) + '">Use recipe values</button><button type="button" class="navbtn" data-mac2="recmanual" data-id="' + esc(m.id) + '">Keep these numbers</button></div>'
           : m.menuMode === 'manual' ? '<div class="draftbtns"><button type="button" class="navbtn" data-mac2="recauto" data-id="' + esc(m.id) + '">Sync from the recipe</button></div>' : '') + '</div>';
@@ -7002,11 +7003,13 @@
       '</select></label>' + (rows[0].s >= 0.34 ? '<div class="macsub">\u2605 = name looks like this item (suggested, nothing is linked until you tap Link)</div>' : '') +
       '<div class="draftbtns"><button type="button" class="navbtn" data-mac2="reclink">Link</button><button type="button" class="navbtn macrecbtn" data-mac2="recnew">+ New recipe for this item</button></div></div>';
   }
+  function macBrk(m, k, inner) { return '<button type="button" class="ingbrk" data-mac2="recbrk" data-id="' + esc(m.id) + '" data-k="' + k + '">' + inner + '</button>'; }
   function macRecPaint() { var el = $('mac-rec'), x = macItem(); if (el && x) el.innerHTML = macRecHtml(x); }
   function macRecAct(a, b) {
     var x = macItem(); if (!x) return;
     var id = b.getAttribute('data-id'), md = ingMeals();
     if (a === 'recopen') { macClose(); show('lt/ing-meal/' + id); return; }
+    if (a === 'recbrk') { macClose(); show('lt/ing-brk/' + id + '~' + b.getAttribute('data-k') + '~per'); return; }
     if (a === 'recnew') {
       macClose(); ing.mform = { id: 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), isNew: true, name: x.item, servings: '1', menuItem: '', menuPrice: '', notes: '', lines: [], upd: 0, dict: '' };
       ingMenuLink(ing.mform, x); ing.mmConfirm = false; ing.confirm = ''; ing.dictOpen = false; ingFlash('New recipe for \u201c' + x.item + '\u201d. Add its components, then Save meal.');
@@ -12354,7 +12357,7 @@
   // No server action is used. Empty seed only — no real financials in the repo.
   var LT_COST_KEY = 'cc_lt_cost_macros';
   var CM_PHOTO_MAX = 480000;      // ~360 KB JPEG budget per photo (localStorage-safe)
-  var CM_FIELDS = ['name', 'brand', 'servingSize', 'calories', 'protein', 'carbs', 'fat', 'fiber', 'sugar', 'packageSize', 'packagePrice', 'notes', 'containerType', 'servingsPer'];   // v186: + container type, servings per container
+  var CM_FIELDS = ['name', 'brand', 'servingSize', 'calories', 'protein', 'carbs', 'fat', 'fiber', 'sugar', 'packageSize', 'packagePrice', 'notes', 'containerType', 'servingsPer', 'src'];   // v186: + container type, servings per container
   var cm = { filter: 'need', q: '', editId: '', confirmId: '', flash: '', flashBad: false, photoBusy: false,
     mic: { rec: null, on: false, field: '', base: '', committed: '', interim: '', msg: '' } };
   function ltCostLoad() {
@@ -12368,7 +12371,7 @@
         protein: String(x.protein || '').slice(0, 12), carbs: String(x.carbs || '').slice(0, 12), fat: String(x.fat || '').slice(0, 12),
         fiber: String(x.fiber || '').slice(0, 12), sugar: String(x.sugar || '').slice(0, 12),
         packageSize: String(x.packageSize || '').slice(0, 40), packagePrice: String(x.packagePrice || '').slice(0, 16),
-        notes: String(x.notes || '').slice(0, 500), containerType: String(x.containerType || '').slice(0, 20), servingsPer: String(x.servingsPer || '').slice(0, 16), photo: typeof x.photo === 'string' && x.photo.indexOf('data:image/') === 0 ? x.photo : '',
+        notes: String(x.notes || '').slice(0, 500), containerType: String(x.containerType || '').slice(0, 20), servingsPer: String(x.servingsPer || '').slice(0, 16), src: String(x.src || '').slice(0, 400), photo: typeof x.photo === 'string' && x.photo.indexOf('data:image/') === 0 ? x.photo : '',
         done: !!x.done, source: x.source || 'manual', at: x.at || 0, upd: x.upd || x.at || 0
       };
     });
@@ -12607,7 +12610,8 @@
       '<button type="button" class="navbtn" data-cm="toggle" data-id="' + id + '">' + (cmIsDone(it) ? 'Mark incomplete' : 'Mark complete') + '</button>' +
       '<button type="button" class="navbtn discard" data-cm="cancel">Cancel</button></div></div></div>';
   }
-  function cmReadForm(it) {
+  function cmReadForm(it) { var b0 = ingSrcSnap(it); cmReadForm0(it); ingSrcMark(it, b0, 'cm'); }   // v190: edits here are 'typed on Cost & Macros'
+  function cmReadForm0(it) {
     document.querySelectorAll('[data-cmf]').forEach(function (el) {
       var k = el.getAttribute('data-cmf');
       if (CM_FIELDS.indexOf(k) >= 0) it[k] = el.value;
@@ -13206,6 +13210,7 @@
     f.svN = String(+(+n).toFixed(3)); f.svU = u; f.svG = u === 'g' ? '' : ingProR(g); f.filled.sv = 1;
     ING_MAC.forEach(function (k) { f[k[0]] = mac[k[0]]; f.filled[k[0]] = 1; });
     f.notes = ingProNotes(f.notes, ingProTag(p, label || ingQtyStr(n, u), g)).slice(0, 500);
+    ingFormSrc(f, ['servingSize', 'calories', 'protein', 'carbs', 'fat', 'fiber'], 'usda.' + p.key);
   }
   function ingProRec(p, size, c) {   // a new ingredient record (meal builder) straight from the table
     var x = ingProDef(p, size), mac = ingProMac(p, x[3]); c = c || {};
@@ -13558,7 +13563,7 @@
     });
     return { fill: fill, sugg: sugg, said: said };
   }
-  function ingLblToForm(f, fill) {     // record-style fields -> the form; returns how many were filled
+  function ingLblToForm(f, fill, code) {     // record-style fields -> the form; returns how many were filled (code: v190 provenance)
     var n = 0;
     Object.keys(fill).forEach(function (k) {
       var v = fill[k], q;
@@ -13569,6 +13574,7 @@
       else { f[k] = v; f.filled[k] = 1; }
       n++;
     });
+    if (code) ingFormSrc(f, Object.keys(fill), code);
     return n;
   }
   function ingLblNeeds(it) {          // blank or invalid fields a label photo could answer
@@ -13629,7 +13635,7 @@
       var f = ing.form; ing.ocr.busy = false; ing.ocr.text = (r.text || '').trim().slice(0, 3000);
       if (!f || f !== f0 || state.ltPart !== 'ing-item') return;
       ingReadForm();
-      var plan = ingLblPlan(ingFormRec(f), r.got), n = ingLblToForm(f, plan.fill);
+      var plan = ingLblPlan(ingFormRec(f), r.got), n = ingLblToForm(f, plan.fill, r.src === 'server' ? 'socr' : 'lbl');
       ing.lsug = { id: f.id, list: plan.sugg }; f.lread = 1;
       ing.ocr.msg = plan.said.length ? 'Read from label' + (r.src === 'server' ? ' (server)' : '') + ': ' + plan.said.join(' \u00b7 ') + '. ' + (n ? 'Filled ' + n + ' field' + (n === 1 ? '' : 's') + ' (highlighted) \u2014 check them, then Save.' : 'Nothing blank to fill.') +
         (plan.sugg.length ? ' The label differs on ' + plan.sugg.length + ' \u2014 see below.' : '')
@@ -13663,7 +13669,7 @@
             return ingLblRead(bl).then(function (r) {
               var d2 = ingAll(), it = cmFind(d2, it0.id); if (!it) return;
               var plan = ingLblPlan(it, r.got), ks = Object.keys(plan.fill);
-              ks.forEach(function (k) { it[k] = plan.fill[k]; });
+              var so = ingSrcGet(it); ks.forEach(function (k) { it[k] = plan.fill[k]; so[k] = { c: r.src === 'server' ? 'socr' : 'lbl', t: Date.now() }; }); it.src = ingSrcStr(so);
               if (ks.length) { it.upd = Date.now(); if (cmAutoDone(it)) it.done = true; ltCostSave(d2); changed++; }
               var m = ingMeta(); m[it.id] = m[it.id] || {}; m[it.id].lread = { pid: key, v: 187, at: Date.now() }; if (plan.sugg.length) m[it.id].lsug = plan.sugg; else delete m[it.id].lsug; ingMetaSave(m);
               ingLP.list.push({ id: it.id, name: it.name, said: plan.said, n: ks.length, fill: plan.fill, sugg: plan.sugg.length });
@@ -13763,7 +13769,7 @@
   }
 
   /* ---- screens ---- */
-  var ING_VIEW = { home: 'ingredients', item: 'ing-item', meals: 'ing-meals', meal: 'ing-meal' };
+  var ING_VIEW = { home: 'ingredients', item: 'ing-item', meals: 'ing-meals', meal: 'ing-meal', brk: 'ing-brk' };
   function openIng(view, sub) {
     var title = $('lt-title');
     var nMig = ingMigrate186(); if (nMig) ingFlash('Updated ' + nMig + ' meal line' + (nMig === 1 ? '' : 's') + ' from \u201ceach\u201d to the ingredient\u2019s container (cans, jars\u2026). Amounts unchanged.');
@@ -13775,6 +13781,7 @@
       if (view === 'home') ingRenderHome();
       else if (view === 'item') ingOpenForm(sub);
       else if (view === 'meals') ingRenderMeals();
+      else if (view === 'brk') ingRenderBrk(sub);
       else ingOpenMeal(sub);
     });
     ingSync(false);
@@ -13928,6 +13935,8 @@
     if (o.serving) { f.svN = String(o.serving.n); f.svU = o.serving.u; fl.sv = 1; n++; }
     ['calories', 'protein', 'carbs', 'fat', 'fiber'].forEach(function (k) { if (o[k] != null) { f[k] = String(o[k]); fl[k] = 1; n++; } });
     if (o.used) { f.useN = String(o.used.n); f.useU = o.used.u; fl.use = 1; n++; }
+    var FK = { sv: 'servingSize', pk: 'packageSize', spc: 'servingsPer', price: 'packagePrice', cont: 'containerType', calories: 'calories', protein: 'protein', carbs: 'carbs', fat: 'fat', fiber: 'fiber' };
+    ingFormSrc(f, Object.keys(fl).map(function (x) { return FK[x]; }).filter(Boolean), 'dict');
     if (pro) { ingProFillForm(f, mt.p, pro.n, pro.u, pro.g, pro.label); n += 6; ing.usda = null; }
     if (pro) ingFlash('Filled ' + n + ' fields (highlighted). Macros for ' + pro.label + ' (' + ingProR(pro.g) + ' g) from USDA ' + mt.p.name + '. Check them, then Save.');
     else ingFlash(n ? 'Filled ' + n + ' field' + (n === 1 ? '' : 's') + ' (highlighted). Check them, then Save.' : 'I couldn\u2019t pick out any fields. Try \u201cChicken thighs, 5 pound pack, $14.99, used 2 pounds\u201d.', !n);
@@ -13942,7 +13951,9 @@
     if (bad.length) return ingFlash(bad.join(', ') + ' must be a number.', true);
     var d = ingAll(), it = cmFind(d, f.id), now = Date.now(), r = ingFormRec(f);
     if (!it) { it = { id: f.id, name: '', done: false, source: 'ing', at: now, photo: '' }; d.items.unshift(it); }
+    var src9 = ingSrcMerge(it, r, f.src);         // v190: provenance per field
     Object.keys(r).forEach(function (k) { it[k] = String(r[k] == null ? '' : r[k]); });
+    it.src = src9;
     it.upd = now;
     if (cmAutoDone(it)) it.done = true;
     if (!ltCostSave(d)) return ingFlash('This phone is out of storage space. Nothing saved.', true);
@@ -14126,6 +14137,118 @@
     out.rest = out.rest.replace(/\s*,\s*,/g, ',').replace(/^\s*(?:and|then|also|next)\b|\b(?:and|then)\s*$/gi, '').replace(/^\s*[,.;]\s*|\s*[,;]\s*$/g, '').replace(/\s{2,}/g, ' ').trim();
     return out;
   }
+  /* ---- v190: where each number comes from. Provenance per field on the ingredient record (field src, synced with it):
+   * "calories=lbl@<t36>,protein=usda.pepper_red,..." codes: lbl (label photo read on the phone), socr (label read by the server OCR),
+   * sugg (a label suggestion accepted), usda.<key>, dict (dictated), typed (Ingredients form), cm (Cost & Macros). Values without an entry
+   * are inferred: USDA tag in notes -> USDA; a label photo that was read (v187) -> Label photo; else Typed in (source not recorded). ---- */
+  var ING_SRCF = ['servingSize', 'calories', 'protein', 'carbs', 'fat', 'fiber', 'sugar', 'packageSize', 'servingsPer', 'packagePrice', 'containerType'];
+  function ingSrcGet(it) {
+    var o = {};
+    String((it && it.src) || '').split(',').forEach(function (e) { var m = /^([a-zA-Z]+)=([a-z]+(?:\.[a-z0-9_]+)?)(?:@([0-9a-z]+))?$/.exec(e.trim()); if (m) o[m[1]] = { c: m[2], t: m[3] ? parseInt(m[3], 36) : 0 }; });
+    return o;
+  }
+  function ingSrcStr(o) { return Object.keys(o).filter(function (k) { return ING_SRCF.indexOf(k) >= 0; }).map(function (k) { return k + '=' + o[k].c + (o[k].t ? '@' + Math.round(o[k].t).toString(36) : ''); }).join(',').slice(0, 400); }
+  function ingSrcEq(k, a, b) {
+    a = String(a == null ? '' : a).trim(); b = String(b == null ? '' : b).trim(); if (a === b) return true; if (!a || !b) return false;
+    if (k === 'servingSize' || k === 'packageSize') { var qa = ingQty(a), qb = ingQty(b); return !!(qa && qb && ingSameQty(qa, qb) && (qa.g || 0) === (qb.g || 0)); }
+    var na = ingNum(a), nb = ingNum(b); return isFinite(na) && isFinite(nb) && Math.abs(na - nb) < 1e-9;
+  }
+  function ingFormSrc(f, keys, code) {   // the form just got these record fields from `code`
+    f.src = f.src || {}; var rec = ingFormRec(f), now = Date.now();
+    keys.forEach(function (k) { if (ING_SRCF.indexOf(k) >= 0 && String(rec[k] || '').trim()) f.src[k] = { c: code, t: now, v: rec[k] }; });
+  }
+  function ingSrcMerge(old, r, fsrc, defCode) {   // old record -> new values r: filled-and-unchanged keep their code, other changes are typed
+    var o = ingSrcGet(old), now = Date.now();
+    ING_SRCF.forEach(function (k) {
+      if (!(k in r)) return;
+      var nv = String(r[k] == null ? '' : r[k]).trim();
+      if (!nv) { delete o[k]; return; }
+      var fs = fsrc && fsrc[k];
+      if (fs && ingSrcEq(k, fs.v, nv)) { o[k] = { c: fs.c, t: fs.t }; return; }
+      if (!ingSrcEq(k, old ? old[k] : '', nv)) o[k] = { c: defCode || 'typed', t: now };
+    });
+    return ingSrcStr(o);
+  }
+  function ingSrcSnap(it) { var o = {}; ING_SRCF.forEach(function (k) { o[k] = it[k]; }); o.src = it.src; return o; }
+  function ingSrcMark(it, before, code) { var r = {}; ING_SRCF.forEach(function (k) { r[k] = it[k]; }); it.src = ingSrcMerge(before, r, null, code); }
+  function ingDay(t) { return t ? new Date(t).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }) : ''; }
+  function ingSrcInfo(it, k, meta) {     // -> { txt, c: label|usda|typed|none, photo, inf }
+    var v = String(it[k] == null ? '' : it[k]).trim(); if (!v) return { txt: 'missing', c: 'none' };
+    var e = ingSrcGet(it)[k], m = (meta || ingMeta())[it.id] || {}, p = ingProOf(it);
+    var usda = function (pp) { return pp ? 'USDA FoodData Central #' + pp.fdc + ' (' + pp.desc + ')' : 'USDA FoodData Central'; };
+    if (e) {
+      if (e.c === 'lbl') return { txt: 'Label photo (read ' + ingDay(e.t) + ')', c: 'label', photo: true };
+      if (e.c === 'sugg') return { txt: 'Label photo (read ' + ingDay(e.t) + ', you tapped Use)', c: 'label', photo: true };
+      if (e.c === 'socr') return { txt: 'Label (server OCR, ' + ingDay(e.t) + ')', c: 'label', photo: true };
+      if (/^usda/.test(e.c)) return { txt: usda(ingProByKey(e.c.split('.')[1] || '') || p), c: 'usda' };
+      if (e.c === 'dict') return { txt: 'Dictated (' + ingDay(e.t) + ')', c: 'typed' };
+      if (e.c === 'cm') return { txt: 'Typed in on Cost & Macros (' + ingDay(e.t) + ')', c: 'typed' };
+      return { txt: 'Typed in (' + ingDay(e.t) + ')', c: 'typed' };
+    }
+    if (p && /^(servingSize|calories|protein|carbs|fat|fiber)$/.test(k)) return { txt: usda(p), c: 'usda', inf: true };
+    if (m.lread && ingLblKey(it, meta) && k !== 'packagePrice') return { txt: 'Label photo (read ' + ingDay(m.lread.at) + ')', c: 'label', photo: true, inf: true };
+    return { txt: 'Typed in (source not recorded)', c: 'typed', inf: true };
+  }
+  var ING_BRK = { calories: ['Calories', 'cal', 0], protein: ['Protein', 'g', 1], carbs: ['Carbs', 'g', 1], fat: ['Fat', 'g', 1], fiber: ['Fiber', 'g', 1], cost: ['Cost', '$', 2] };
+  function ingF(n, k) { if (n === null || n === undefined || !isFinite(n)) return '\u2014'; var b = ING_BRK[k] || ['', '', 1]; if (k === 'cost') return '$' + n.toFixed(2); return Number(n.toFixed(b[2])).toLocaleString('en-US') + (b[1] === 'cal' ? ' cal' : ' ' + b[1]); }
+  function ingBrkBtn(k, v, inner, extra) { return '<button type="button" class="ingbrk" data-ing="brk" data-k="' + k + '" data-v="' + v + '"' + (extra || '') + ' aria-label="Where the ' + esc((ING_BRK[k] || [''])[0]) + ' comes from">' + inner + '</button>'; }
+  function ingBrkMeal(sub) {
+    var p = String(sub || '').split('~'), id = p[0], md = ingMeals(), m = null;
+    if (p[3] === 'e' && ing.mform && ing.mform.id === id) m = ing.mform;
+    if (!m) m = md.items.filter(function (x) { return x.id === id; })[0] || (ing.mform && ing.mform.id === id ? ing.mform : null);
+    return { m: m, id: id, k: ING_BRK[p[1]] ? p[1] : 'calories', v: p[2] === 'per' ? 'per' : 'tot', e: p[3] === 'e' };
+  }
+  function ingRenderBrk(sub) {
+    var B = ingBrkMeal(sub), m = B.m, k = B.k, per = B.v === 'per';
+    if (!m) { $('lt-body').innerHTML = '<div class="foot empty">That meal isn\u2019t on this phone.</div>'; return; }
+    var d = ingAll(), meta = ingMeta(), t = ingTotals(m, d), info = ING_BRK[k], tot = t.tot[k], sv = t.servings, fac = t.noVol ? NaN : 1 / sv;
+    $('lt-title').textContent = info[0] + ': where it comes from';
+    var route = function (kk, vv) { return 'lt/ing-brk/' + m.id + '~' + kk + '~' + vv + (B.e ? '~e' : ''); };
+    var h = '<div class="ing ingbrkv">' + ingFlashHtml() +
+      '<div class="ingbrktabs">' + Object.keys(ING_BRK).map(function (kk) { return '<button type="button" class="ingchip' + (kk === k ? ' on' : '') + '" data-ing="brk-to" data-r="' + esc(route(kk, B.v)) + '">' + ING_BRK[kk][0] + '</button>'; }).join('') + '</div>' +
+      '<div class="ingbrktabs"><button type="button" class="ingchip' + (!per ? ' on' : '') + '" data-ing="brk-to" data-r="' + esc(route(k, 'tot')) + '">Whole recipe</button><button type="button" class="ingchip' + (per ? ' on' : '') + '" data-ing="brk-to" data-r="' + esc(route(k, 'per')) + '">Per serving' + (t.srvOz ? ' (' + esc(ingSrvTxt(m)) + ')' : '') + '</button></div>' +
+      '<div class="card ingbrkhd"><div class="ingbrkmeal">' + esc(m.name || 'Untitled meal') + '</div><div class="ingbrkbig">' + (per ? ingF(t.per[k], k) + ' <small>per serving' + (t.srvOz ? ' (' + esc(ingSrvTxt(m)) + ')' : '') + '</small>' : ingF(tot, k) + ' <small>whole recipe</small>') + '</div>';
+    if (per) {
+      var b = t.batch;
+      if (t.srvOz) h += t.noVol ? '<div class="ingwarn">No batch volume yet, so there\u2019s no per-serving number. Add the measured cooked yield in the meal.</div>'
+        : '<div class="ingbrkstep">Whole recipe ' + ingF(tot, k) + ' \u00d7 ' + ingR(t.srvOz, 1) + ' fl oz \u00f7 ' + ingR(b.oz, 0) + ' fl oz batch = <b>' + ingF(t.per[k], k) + '</b></div>' +
+          '<div class="ingbrknote">' + (b.from === 'yield' ? 'Batch = your measured cooked yield (' + esc(m.yield) + ').' : 'Batch = estimated from the ingredients\u2019 volumes' + (b.unk ? ' (' + b.unk + ' with volume unknown left out)' : '') + (b.assumed ? '; includes assumptions' : '') + '. Enter the measured cooked yield in the meal to replace the estimate.') + '</div>';
+      else h += '<div class="ingbrkstep">Whole recipe ' + ingF(tot, k) + ' \u00f7 ' + ingR(sv, 2) + ' serving' + (sv === 1 ? '' : 's') + ' = <b>' + ingF(t.per[k], k) + '</b></div>';
+    }
+    h += '</div>';
+    var counted = 0, rowsH = t.rows.map(function (r) {
+      var l = r.line, it = r.it, n = r.n, u = ingUnit(l.unit), val = k === 'cost' ? r.cost : (r.mac ? r.mac[k] : null);
+      var amt = it && n > 0 ? (u === 'pkg' ? ingContQty(it, n) : ingQtyStr(n, u)) : (l.qty ? l.qty + ' ' + ingUnitLbl(u) : 'no amount');
+      var nm = esc((it && it.name) || l.name || 'Unnamed line'), go = it ? ' data-ing="brk-ing" data-id="' + esc(it.id) + '"' : ' data-ing="brk-meal"';
+      if (val === null || val === undefined || !isFinite(val)) {
+        var why = !it ? ((l.name || '').trim() ? 'not one of your ingredients yet' : 'no ingredient picked') : !(n > 0) ? 'no amount'
+          : k === 'cost' ? (r.why && /price|package/.test(r.why) ? r.why : 'needs a package price') : !String(it[k] || '').trim() ? 'no ' + info[0].toLowerCase() + ' on the ingredient' : (r.why || 'can\u2019t convert the amount');
+        return '<button type="button" class="ingbrkrow miss"' + go + '><div class="ingbrkr1"><b>' + nm + '</b><span class="ingwarn">missing \u2014 not counted</span></div><div class="ingbrkmath">' + esc(amt) + ' \u00b7 ' + esc(why) + '</div><div class="ingbrkgo">' + (it ? 'Open ' + nm + ' \u203a' : 'Open the meal \u203a') + '</div></button>';
+      }
+      counted++;
+      var k2 = ingPkg(it), pv = ingNum(it[k]), fld = k === 'cost' ? 'packagePrice' : k, math;
+      if (k === 'cost') {
+        math = u === 'pkg' && k2.type !== 'each' && k2.type !== 'lb' ? esc(ingContQty(it, n)) + ' \u00d7 ' + ingMoney(ingPrice(it)) + ' = ' + ingF(val, k)
+          : esc(amt) + ' of ' + esc(it.packageSize || 'its package') + ' @ ' + ingMoney(ingPrice(it)) + ' = ' + ingF(val, k);
+      } else if (u === 'pkg' && k2.type !== 'each' && k2.type !== 'lb' && k2.spc !== null) {
+        math = esc(ingContQty(it, n)) + ' \u00d7 ' + ingR(k2.spc, 2) + ' servings \u00d7 ' + ingF(pv, k) + ' = ' + ingF(val, k);
+      } else {
+        math = esc(amt) + (u === 'serving' ? '' : ' = ' + ingR(r.mac.s, 2) + ' serving' + (Math.abs(r.mac.s - 1) < 1e-9 ? '' : 's') + ' of ' + esc(it.servingSize || '1 serving')) + ' \u00d7 ' + ingF(pv, k) + ' = ' + ingF(val, k);
+      }
+      var si = ingSrcInfo(it, fld, meta), url = si.photo ? ingPhotoOf(it, 'label') : '';
+      var sub2 = '';
+      if (u === 'pkg' && k2.type !== 'each' && k2.type !== 'lb' && k !== 'cost') sub2 = 'Servings per ' + esc(ingContName(k2.type, 1)) + ': ' + (k2.spcFrom === 'derived' ? 'net size \u00f7 serving size (' + esc(it.packageSize) + ' \u00f7 ' + esc(it.servingSize) + ')' : esc(ingSrcInfo(it, 'servingsPer', meta).txt));
+      else if (k !== 'cost' && u !== 'serving') sub2 = 'Serving size ' + esc(it.servingSize || '?') + ': ' + esc(ingSrcInfo(it, 'servingSize', meta).txt);
+      var pct = tot > 0 ? Math.round(val / tot * 100) : null;
+      return '<button type="button" class="ingbrkrow"' + go + '><div class="ingbrkr1"><b>' + nm + '</b><span class="ingbrkc">' + (per ? ingF(val * fac, k) + ' <small>of ' + ingF(val, k) + '</small>' : ingF(val, k)) + (pct !== null ? ' \u00b7 ' + pct + '%' : '') + '</span></div>' +
+        '<div class="ingbrkmath">' + math + (per && isFinite(fac) ? ' \u2192 \u00d7 ' + (t.srvOz ? ingR(t.srvOz, 1) + '/' + ingR(t.batch.oz, 0) : '1/' + ingR(sv, 2)) + ' = ' + ingF(val * fac, k) + ' per serving' : '') + '</div>' +
+        '<div class="ingbrksrc">' + (url ? '<span class="ingbrkth" data-ing="brk-photo" data-u="' + esc(url) + '" role="button" aria-label="Open the label photo"><img alt="" src="' + esc(url) + '"></span>' : '') +
+        '<span class="ingsrc ' + si.c + '">' + esc(si.txt) + '</span>' + (sub2 ? '<span class="ingbrksub">' + sub2 + '</span>' : '') +
+        (per && t.srvOz && r.vol && r.vol.est ? '<span class="ingbrksub">Batch volume: ' + esc(r.vol.how) + ' (estimate/assumption)</span>' : '') + '</div></button>';
+    }).join('');
+    h += '<div class="ingbrklist">' + rowsH + '</div><div class="foot">Counted ' + counted + ' of ' + t.rows.length + ' line' + (t.rows.length === 1 ? '' : 's') + ' \u00b7 total ' + ingF(tot, k) + ' \u00b7 tap a line to open the ingredient</div></div>';
+    $('lt-body').innerHTML = h;
+  }
   function ingTotals(m, d) {
     var tot = { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, cost: 0 }, rows = [], missing = 0;
     m.lines.forEach(function (l) {
@@ -14206,9 +14329,10 @@
     h += '<div class="ingtot"><h4 class="sechead">Totals' + (t.missing ? ' <small class="ingwarn">' + t.missing + ' component' + (t.missing === 1 ? '' : 's') + ' incomplete</small>' : '') + '</h4>' +
       (t.noVol ? '<div class="ingwarn">Per serving needs the batch volume (see Batch volume below).</div>' : '') +
       '<table class="ingtab"><tr><th></th><th>Whole recipe</th><th>Per serving' + (t.srvOz ? ' (' + esc(ingSrvTxt(m)) + ')' : sv !== 1 ? ' (\u00f7' + ingR(sv, 2) + ')' : '') + '</th></tr>' +
-      ING_MAC.map(function (k) { var dd = k[0] === 'calories' ? 0 : 1, u = k[2] === 'g' ? ' g' : ''; return '<tr><td>' + k[1] + '</td><td>' + ingR(t.tot[k[0]], dd) + u + '</td><td>' + ingR(t.per[k[0]], dd) + u + '</td></tr>'; }).join('') +
-      '<tr class="ingcost"><td>Food cost</td><td>' + ingMoney(t.tot.cost) + '</td><td><b>' + ingMoney(cpm) + '</b></td></tr></table>' +
-      '<div class="ingcpm">Cost per meal (1 serving' + (t.srvOz ? ', ' + esc(ingSrvTxt(m)) : '') + '): <b>' + ingMoney(cpm) + '</b>' + (price > 0 && cpm > 0 ? '<br>Menu price ' + ingMoney(price) + ' \u00b7 food cost ' + Math.round(cpm / price * 100) + '% \u00b7 margin ' + ingMoney(price - cpm) : '') + '</div></div>';
+      ING_MAC.map(function (k) { var dd = k[0] === 'calories' ? 0 : 1, u = k[2] === 'g' ? ' g' : ''; return '<tr><td>' + ingBrkBtn(k[0], 'tot', k[1]) + '</td><td>' + ingBrkBtn(k[0], 'tot', ingR(t.tot[k[0]], dd) + u) + '</td><td>' + ingBrkBtn(k[0], 'per', ingR(t.per[k[0]], dd) + u) + '</td></tr>'; }).join('') +
+      '<tr class="ingcost"><td>' + ingBrkBtn('cost', 'tot', 'Food cost') + '</td><td>' + ingBrkBtn('cost', 'tot', ingMoney(t.tot.cost)) + '</td><td>' + ingBrkBtn('cost', 'per', '<b>' + ingMoney(cpm) + '</b>') + '</td></tr></table>' +
+      '<div class="inghelp ingbrkhint">Tap any number to see where it comes from.</div>' +
+      '<div class="ingcpm">Cost per meal (1 serving' + (t.srvOz ? ', ' + esc(ingSrvTxt(m)) : '') + '): ' + ingBrkBtn('cost', 'per', '<b>' + ingMoney(cpm) + '</b>') + (price > 0 && cpm > 0 ? '<br>Menu price ' + ingMoney(price) + ' \u00b7 food cost ' + Math.round(cpm / price * 100) + '% \u00b7 margin ' + ingMoney(price - cpm) : '') + '</div></div>';
     h += ingVolHtml(m, t);
     h += '<div class="ingusage"><h4 class="sechead">What it used + what it cost</h4>' + (t.rows.length ? '<table class="ingtab"><tr><th>Ingredient</th><th>Used</th><th>Package</th><th>Cost</th></tr>' + t.rows.map(function (r) {
       var it = r.it;
@@ -14319,7 +14443,9 @@
     m.lines.forEach(function (l) {
       if (l.newIng) {
         var ex = ingFindByName(d, l.newIng.name);
-        if (!ex) { ex = { id: l.newIng.id, done: false, source: 'ing', at: now, upd: now, photo: '' }; CM_FIELDS.forEach(function (k) { ex[k] = String(l.newIng[k] || ''); }); d.items.unshift(ex); added++; }
+        if (!ex) { ex = { id: l.newIng.id, done: false, source: 'ing', at: now, upd: now, photo: '' }; CM_FIELDS.forEach(function (k) { ex[k] = String(l.newIng[k] || ''); });
+          var pq = ingProOf(ex), so2 = {}; ING_SRCF.forEach(function (k) { if (String(ex[k] || '').trim()) so2[k] = { c: pq && /^(servingSize|calories|protein|carbs|fat|fiber)$/.test(k) ? 'usda.' + pq.key : 'dict', t: now }; }); ex.src = ingSrcStr(so2);
+          d.items.unshift(ex); added++; }
         l.ingId = ex.id; l.name = ex.name; delete l.newIng;
       } else if (!l.ingId) { var hit = ingFindByName(d, l.name); if (hit) l.ingId = hit.id; }
     });
@@ -14472,7 +14598,7 @@
       var price = x.price != null ? +x.price : null;
       h += '<div class="inglinkhd">Linked: <b>' + esc(x.item) + '</b>' + (price != null ? ' \u00b7 price ' + ingMoney(price) : ' \u00b7 <span class="ingwarn">no price yet (set it on Menu Items)</span>') + '</div>' +
         '<div class="inglinkrow">Menu Macros now: ' + esc(ingMacTxt(x)) + ' <small>(' + esc(x.basis || (macIsMeasured(x) ? 'Measured' : 'Estimate')) + ')</small></div>' +
-        '<div class="inglinkrow">This recipe, per serving: ' + ingR(v.cal) + ' cal \u00b7 ' + ingR(v.protein, 1) + 'P ' + ingR(v.carbs, 1) + 'C ' + ingR(v.fat, 1) + 'F \u00b7 ' + ingR(v.fiber, 1) + ' g fiber \u00b7 cost ' + ingMoney(v.cost) +
+        '<div class="inglinkrow">This recipe, per serving: ' + ingBrkBtn('calories', 'per', ingR(v.cal) + ' cal') + ' \u00b7 ' + ingBrkBtn('protein', 'per', ingR(v.protein, 1) + 'P') + ' ' + ingBrkBtn('carbs', 'per', ingR(v.carbs, 1) + 'C') + ' ' + ingBrkBtn('fat', 'per', ingR(v.fat, 1) + 'F') + ' \u00b7 ' + ingBrkBtn('fiber', 'per', ingR(v.fiber, 1) + ' g fiber') + ' \u00b7 cost ' + ingBrkBtn('cost', 'per', ingMoney(v.cost)) +
         (price > 0 && v.cost > 0 ? ' \u00b7 margin <b>' + ingMoney(price - v.cost) + '</b>' : '') + '</div>';
       if (m.menuMode === 'ask') {
         h += '<div class="vdelq">Menu Macros already has measured numbers for this item: ' + esc(ingMacTxt(x)) + '. The recipe says ' + ingR(v.cal) + ' cal \u00b7 ' + ingR(v.protein, 1) + 'P ' + ingR(v.carbs, 1) + 'C ' + ingR(v.fat, 1) + 'F' +
@@ -14729,7 +14855,7 @@
     else if (a === 'save-ing') { ingMicStop(true); ingSaveForm(); }
     else if (a === 'lbl-use') {        // v187: take the label's value over the typed one
       var ls0 = ing.lsug, x0 = ls0 && ls0.list[+b.getAttribute('data-i')]; if (!x0 || !ing.form) return;
-      ingReadForm(); var fo = {}; fo[x0.k] = x0.val; ingLblToForm(ing.form, fo); ls0.list.splice(+b.getAttribute('data-i'), 1); ingRenderForm();
+      ingReadForm(); var fo = {}; fo[x0.k] = x0.val; ingLblToForm(ing.form, fo, 'sugg'); ls0.list.splice(+b.getAttribute('data-i'), 1); ingRenderForm();
     }
     else if (a === 'lpass-ok') { ingLP.list = []; ingLblPassPaint(); }
     else if (a === 'del-ing') { ingReadForm(); ing.confirm = ing.form.id; ingRenderForm(); }
@@ -14762,6 +14888,12 @@
     else if (a === 'mm') { ingReadMeal(); ing.mmConfirm = true; ingRenderMeal(); }
     else if (a === 'mm-no') { ingReadMeal(); ing.mmConfirm = false; ingRenderMeal(); }
     else if (a === 'mm-yes') ingMmWrite();
+    else if (a === 'brk') { ingReadMeal(); var mb = ing.mform; if (mb) show('lt/ing-brk/' + mb.id + '~' + b.getAttribute('data-k') + '~' + b.getAttribute('data-v') + '~e'); }
+    else if (a === 'brk-to') navReplace(b.getAttribute('data-r'));
+    else if (a === 'brk-ing') { ing.form = null; ing.ret = ''; show('lt/ing-item/' + id); }
+    else if (a === 'brk-meal') { var bm = ingBrkMeal(state.ltSub); show('lt/ing-meal/' + (ing.mform && ing.mform.id === bm.id && ing.mform.isNew ? 'new' : bm.id)); }
+    else if (a === 'brk-photo') { e.stopPropagation(); var ov = document.createElement('div'); ov.className = 'ingphov'; ov.setAttribute('data-ing', 'brk-phx'); ov.innerHTML = '<img alt="Label photo" src="' + esc(b.getAttribute('data-u')) + '"><div class="foot">Tap to close</div>'; $('lt-body').appendChild(ov); }
+    else if (a === 'brk-phx') { if (b.parentNode) b.parentNode.removeChild(b); }
     else if (a === 'srv16') { ingReadMeal(); ing.mform.srvOz = '16'; ing.mform.srvLbl = ''; ingMealFieldSave(ing.mform, ['srvOz', 'srvLbl']); ingRenderMeal(); ingFlash('Servings are now 16 fl oz each. Enter the measured cooked yield for the best numbers.'); ingMenuAutoSync(); }
     else if (a === 'srvno') { var sa = lsGet(ING_SRVASK_KEY, {}) || {}; sa[ing.mform.id] = 1; lsSet(ING_SRVASK_KEY, sa); ingReadMeal(); ingRenderMeal(); }
     else if (a === 'mlink') { ingReadMeal(); var lx = (ingMenuList() || [])[+b.getAttribute('data-i')]; if (lx) { ingMenuApply(ing.mform, lx); ingRenderMeal(); } }
