@@ -3649,3 +3649,28 @@ body.hl-edit .homedock, body.hl-busy .homedock { display: none !important; }
 #screen-spend .vsec .entry .d b { color: #ddd; }
 #screen-spend .vsec .catrow .bar { background: rgba(255,255,255,.08); }
 #screen-spend .vsec .cashline, #screen-spend .vsec .cashtag { color: #D9B65E; }
+
+/* ---- v199: Vault (#spend) silver: no door art on the title plate (centered engraved title), every brass/gold accent -> polished silver/chrome.
+   Black cards and the v197 green/red/blue unchanged. --vault-door-art stays (Finances Vault tile). Scoped to #screen-spend. ---- */
+#screen-spend { --tt1: #FFFFFF; --tt2: #C9CED4; --tt3: #7D848D; --tln: 200,206,212; --copper: #C9CED4; --copper-edge: rgba(200,206,212,.55); --red: #C9CED4; }
+#screen-spend .vdoorhd { justify-content: center; text-align: center; padding: 14px 18px; color: #1f2328;
+  background: linear-gradient(135deg, #f2f4f7, #aeb4bd 45%, #e3e6ea 70%, #6f7680); border-color: #4a5058;
+  box-shadow: inset 0 0 0 3px rgba(255,255,255,.4), 0 6px 14px rgba(0,0,0,.55); }
+#screen-spend .vdoorhd .vdart { display: none; }
+#screen-spend .vdoorhd small, #screen-spend .vdoorhd b { color: #23272c; }
+#screen-spend .vdoorhd b { text-shadow: 0 1px 0 #ffffff, 0 -1px 0 rgba(0,0,0,.25); }
+#screen-spend .vdoorhd i { background: radial-gradient(circle at 35% 35%, #ffffff, #7d848d 70%); }
+#screen-spend .vmbar { border-color: rgba(200,206,212,.35); }
+#screen-spend .vmb.on { background: linear-gradient(135deg, #ffffff, #b9bfc7 55%, #e6e9ed); border-color: #4a5058;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.7), 0 0 10px rgba(200,206,212,.45); }
+#screen-spend .vmb.on small, #screen-spend .vmb.on b { color: #15181b; }
+#screen-spend .vmb:focus-visible { outline-color: #ffffff; }
+#screen-spend .vgcard { border-color: #8d949c; box-shadow: inset 0 0 0 3px #000, inset 0 0 0 4px rgba(200,206,212,.5), 0 6px 14px rgba(0,0,0,.5); }
+#screen-spend .vgbtn { color: #E4E7EA; border-color: #aeb4bd; }
+#screen-spend .vgbtn:active { border-color: #ffffff; }
+#screen-spend .vsec { --copper: #C9CED4; --red: #C9CED4; border-color: #8d949c;
+  box-shadow: inset 0 0 0 2px #0b0b0b, inset 0 0 0 3px rgba(200,206,212,.4), 0 2px 6px rgba(0,0,0,.5); }
+#screen-spend .vsec .vtot { border-color: #aeb4bd; box-shadow: inset 0 1px 0 rgba(255,255,255,.12); }
+#screen-spend .vsec .vtot:active, #screen-spend .vsec button:active { background: #16181b; }
+#screen-spend .vsec .card, #screen-spend .vsec .catrow.inc, #screen-spend .vsec .ncard.nest { border-color: rgba(200,206,212,.3); }
+#screen-spend .vsec .cashline, #screen-spend .vsec .cashtag { color: #C9CED4; }
