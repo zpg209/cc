@@ -2088,8 +2088,14 @@ var API_BIZ = {
 /* Only Doc ids listed in API_NOTES_DOCS can be read or written.            */
 /* ======================================================================= */
 var API_NOTES_DOCS = {
-  terravi: '1YprGTVSb6kM83f0Enfk2bSf8rAsbKVV7vHwCm_qoDg8',  // Terra Vi — Running Notes
-  hetchhetchy: '1UcmzxYhHvnPMzqy6JbE6GE81yPVf2D5h4v1EEdnsNoY'   // Hetch Hetchy — Running Notes (added 2026-10-01)
+  terravi: '1YprGTVSb6kM83f0Enfk2bSf8rAsbKVV7vHwCm_qoDg8',            // Terra Vi — Running Notes
+  hetchhetchy: '1UcmzxYhHvnPMzqy6JbE6GE81yPVf2D5h4v1EEdnsNoY',        // Hetch Hetchy — Running Notes (added 2026-10-01)
+  marval: '1QYFLyzaQQuBLJ8VWt1dtDOO7C8TzhspmCKqAvwwHbyQ',             // MarVal — Running Notes (Task Log, 2026-10-26)
+  mathiesen: '1TlX0iF4u8RO2pSRtvrR_StD7xkv6OMsn0Wm4-ZktEwE',          // Mathiesen — Running Notes (Boyer Matheson)
+  mariposagoldmine: '1kk1spt1o97eJzgKaYZ4asAVpM9ZWQzmFptiI-AFfAnU',   // Mariposa Gold Mine — Running Notes
+  ysf: '1jQ5a0PQtz6AvGt21XaXdKMo3rHUR_bSYNIRWASdl6qk',                // YSF — Running Notes
+  brocchini: '1Bz8I26Q_6QGNAWfgv2EToR1MeHsMHCqOtRafSPl_aS8',          // Brocchini — Running Notes
+  yosemitecleanenergy: '17JTpaGedaJFWDv4b4teddd_76mxGGmKjphMSh0apuIU'  // Yosemite Clean Energy — Running Notes
 };
 var API_NOTE_MAX = 1500;        // max characters per note
 var API_NOTE_RAW_MAX = 60000;   // max characters of raw text returned

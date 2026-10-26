@@ -550,7 +550,7 @@
       var mfOk = { home: 1, orders: 1, customers: 1, design: 1, pricing: 1 };
       state.mfTab = mfOk[R.kind] ? R.kind : 'home';   // #mf, #mf/home, #mf/orders, #mf/customers, #mf/design
     }
-    if (name === 'tm') state.tmView = (R.kind === 'today' || R.kind === 'sugg') ? R.kind : '';   // v131: #tm, #tm/today, #tm/sugg
+    if (name === 'tm') state.tmView = (R.kind === 'today' || R.kind === 'sugg' || R.kind === 'log') ? R.kind : '';   // v131: #tm, #tm/today, #tm/sugg; v205: #tm/log
     if (name === 'pc') {
       // #pc, #pc/list, #pc/new, #pc/<id>
       if (!R.kind || R.kind === 'list') state.pcRoute = { kind: 'list', id: '' };
@@ -21699,7 +21699,8 @@
   //    due, with Add to Today / Snooze 3d / Dismiss. Nothing is added unless tapped.
   var TK_KEY = 'cc.tasks.v1', TK_SUGG_KEY = 'cc.tasks.sugg.v1', TK_MAX_PINS = 3, TK_SNOOZE_DAYS = 3;
   var tk = { d: null, editId: '', exp: {}, sexp: {}, showDone: false, msg: '', msgUndo: null, msgT: 0, rec: null, on: false, base: '', committed: '', interim: '', micMsg: '',
-    sugg: null, suggSrc: '', suggLoading: false, suggTried: '', suggErr: false, bound: false, day: '', titleTouched: false };
+    sugg: null, suggSrc: '', suggLoading: false, suggTried: '', suggErr: false, bound: false, day: '', titleTouched: false,
+    lexp: {}, nmId: '', nmRec: null, nmLive: '', nmMsg: '', nmMsgId: '', flushing: false };
   function tkPad(n) { return (n < 10 ? '0' : '') + n; }
   function tkIso(d) { return d.getFullYear() + '-' + tkPad(d.getMonth() + 1) + '-' + tkPad(d.getDate()); }
   function tkToday() { return tkIso(new Date()); }
@@ -21810,6 +21811,13 @@
     if (d.v !== 2) { d.v = 2; mig = true; }
     d.open = d.open && typeof d.open === 'object' ? d.open : { panel: true, upc: false, sugg: true };
     d.sugg = d.sugg && typeof d.sugg === 'object' ? d.sugg : {};      // suggestion id -> { snooze: 'YYYY-MM-DD' } | { dismissed: 1 } | { added: 1 }
+    // v205: Task Log (every completed task, kept after the 60-day prune) + project tag. Backfill tasks already done on this phone.
+    d.log = (Array.isArray(d.log) ? d.log : []).filter(function (e) { return e && e.id; });
+    var inLog = {}; d.log.forEach(function (e) { inLog[e.id] = 1; });
+    d.tasks.forEach(function (t) {
+      if (typeof t.project !== 'string') { t.project = tkProjDetect(t.text + ' ' + (t.title || '')); mig = true; }
+      if (t.done && !inLog[t.id]) { d.log.push(tkLogEntry(t, true)); inLog[t.id] = 1; mig = true; }
+    });
     tk.d = d;
     if (mig && raw) tkSave();
     return d;
@@ -21818,7 +21826,51 @@
     var d = tkLoad();
     var cut = tkAddDays(tkToday(), -60);    // completed tasks older than 60 days are pruned
     d.tasks = d.tasks.filter(function (t) { return !t.done || !t.doneOn || t.doneOn >= cut; });
+    if (d.log && d.log.length > 2000) d.log = d.log.slice(-2000);
     try { localStorage.setItem(TK_KEY, JSON.stringify(d)); return true; } catch (e) { tkFlash('Could not save on this phone (storage full or blocked).'); return false; }
+  }
+  /* ---- v205: projects, Task Log, project Running Notes ----
+   * A task's project (t.project = Running Notes key) is detected from its text/title or the suggestion's project, and can be changed in Edit.
+   * Completing a task adds a Task Log entry (newest first). If it has a project, ~8 s later (after the Undo window) a dated line
+   * "Task done: <title> — <notes>" goes to that project's Running Notes Doc through the existing addnote action. Projects the server
+   * doesn't know yet (bad_project, until the API_NOTES_DOCS redeploy) stay queued on this phone and are retried each time Task Manager opens. */
+  var TK_PROJS = [
+    { k: 'terravi', n: 'Terra Vi', re: /terra\s*vi\b/i },
+    { k: 'marval', n: 'MarVal', re: /\bmar\s*-?\s*val\b/i },
+    { k: 'mathiesen', n: 'Mathiesen (Boyer Matheson)', re: /\bmath[ie]{1,2}s[eo]n|\bboyer\b/i },
+    { k: 'mariposagoldmine', n: 'Mariposa Gold Mine', re: /\bmariposa\b/i },
+    { k: 'ysf', n: 'YSF', re: /\bysf\b/i },
+    { k: 'brocchini', n: 'Brocchini', re: /\bbrocc?hini\b/i },
+    { k: 'hetchhetchy', n: 'Hetch Hetchy', re: /\bhetch\b/i },
+    { k: 'yosemitecleanenergy', n: 'Yosemite Clean Energy', re: /yosemite clean|\byce\b/i }
+  ];
+  function tkProjDetect(s) { s = String(s || ''); for (var i = 0; i < TK_PROJS.length; i++) if (TK_PROJS[i].re.test(s)) return TK_PROJS[i].k; return ''; }
+  function tkProjName(k) { for (var i = 0; i < TK_PROJS.length; i++) if (TK_PROJS[i].k === k) return TK_PROJS[i].n; return ''; }
+  function tkLogEntry(t, backfill) {
+    return { id: t.id, title: tkTitleOf(t), text: t.text, project: t.project || '', notes: t.notes || '', doneOn: t.doneOn || t.due || tkToday(), doneAt: t.doneAt || 0,
+      pj: t.project ? (backfill ? 'old' : 'wait') : '' };       // pj: '' none | wait (Undo window) | queued | sent | old (backfilled, not sent)
+  }
+  function tkLogFind(id) { var l = tkLoad().log; for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i]; return null; }
+  function tkLogDone(t) { var d = tkLoad(); if (tkLogFind(t.id)) tkLogUndo(t.id); d.log.push(tkLogEntry(t, false)); tkSave(); setTimeout(function () { tkLogQueue(t.id); }, 8000); }
+  function tkLogUndo(id) { var d = tkLoad(); d.log = d.log.filter(function (e) { return e.id !== id || e.pj === 'sent'; }); }
+  function tkLogSync(t) { var e = tkLogFind(t.id); if (!e || e.pj === 'sent') return; e.title = tkTitleOf(t); e.notes = t.notes || ''; e.text = t.text; if (e.project !== t.project) { e.project = t.project || ''; e.pj = e.project ? 'queued' : ''; } }
+  function tkLogQueue(id) {
+    var e = tkLogFind(id), t = tkFind(id); if (!e || (t && !t.done)) return;
+    if (e.pj === 'wait') { e.pj = 'queued'; tkSave(); }
+    tkNotesFlush();
+  }
+  function tkNoteSafe(s) { return String(s).replace(/\d{6,}/g, function (m) { return m.replace(/(\d{3})(?=\d)/g, '$1 '); }); }   // the server rejects 6+ digit runs
+  function tkNotesFlush() {
+    if (tk.flushing || !getPc()) return;
+    var e = tkLoad().log.filter(function (x) { return x.pj === 'queued' && x.project; })[0]; if (!e) return;
+    var text = tkNoteSafe('Task done ' + e.doneOn + ': ' + e.title + (e.notes ? ' — ' + e.notes.replace(/\s+/g, ' ').trim() : '') +
+      (e.text && e.text.toLowerCase() !== e.title.toLowerCase() ? ' (task: ' + e.text + ')' : '')).slice(0, 1450);
+    tk.flushing = true;
+    apiRaw('addnote', { project: e.project, text: text }).then(function (j) {
+      tk.flushing = false;
+      if (j && j.ok) { e.pj = 'sent'; tkSave(); tkLogRender(); return tkNotesFlush(); }
+      e.pjErr = (j && (j.error || '')) || 'error'; tkSave(); tkLogRender();   // bad_project / bad_action: waits for the server update; retried next open
+    }, function () { tk.flushing = false; });
   }
   function tkFind(id) { var l = tkLoad().tasks; for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i]; return null; }
   function tkPinsUsed() { var t = tkToday(); return tkLoad().tasks.filter(function (x) { return x.pin && !x.done && x.due <= t; }).length; }
@@ -21850,13 +21902,17 @@
     var v = state.tmView || '';
     if (v !== 'today') tkMicStop(true);
     tk.editId = ''; tk.titleTouched = false;
-    $('tm-title').textContent = v === 'today' ? 'Today' : v === 'sugg' ? 'Suggestions' : 'Task Manager';
+    tkNoteMicStop();
+    $('tm-title').textContent = v === 'today' ? 'Today' : v === 'sugg' ? 'Suggestions' : v === 'log' ? 'Task Log' : 'Task Manager';
     var back = $('tm-back'), bto = v ? 'tm' : hlItemBack('tm', 'home');
     back.setAttribute('data-go', bto); back.hidden = bto === 'home';
     tmBind();
     if (v === 'today') tmTodayBuild();
     else if (v === 'sugg') { tmSuggBuild(); tkSuggLoad(false); }
+    else if (v === 'log') tmLogBuild();
     else { tmHubBuild(); tkSuggLoad(false); }
+    tkLoad().log.forEach(function (e) { if (e.pj === 'wait') e.pj = 'queued'; });   // left during the Undo window
+    tkNotesFlush();
   }
   function tmBind() {
     if (tk.bound) return; tk.bound = true;
@@ -21886,13 +21942,15 @@
       '<div class="tm-hub">' +
         '<button type="button" class="bigbtn tm-hubbtn" data-go="tm/today" id="tm-go-today">Today<span class="sub" id="tm-cnt-today"></span></button>' +
         '<button type="button" class="bigbtn tm-hubbtn" data-go="tm/sugg" id="tm-go-sugg">Suggestions<span class="sub" id="tm-cnt-sugg"></span></button>' +
+        '<button type="button" class="bigbtn tm-hubbtn" data-go="tm/log" id="tm-go-log">Task Log<span class="sub" id="tm-cnt-log"></span></button>' +
       '</div>' +
       '<p class="hint tm-hint">Each task shows a short title. Tap it to see everything about it.</p>';
     tmHubCounts();
   }
   function tmHubCounts() {
     var a = $('tm-cnt-today'), b = $('tm-cnt-sugg'); if (!a) return;
-    var p = tkParts(tkToday());
+    var p = tkParts(tkToday()), lc = $('tm-cnt-log'), ln = tkLoad().log.length;
+    if (lc) lc.textContent = ln ? ln + ' completed' : 'Completed tasks show here';
     a.textContent = p.open.length + ' open' + (p.pinned.length ? ' \u00b7 ' + p.pinned.length + ' in Top 3' : '') + (p.upc.length ? ' \u00b7 ' + p.upc.length + ' upcoming' : '') + (p.doneToday.length ? ' \u00b7 ' + p.doneToday.length + ' done' : '');
     b.textContent = tk.sugg ? (function (n) { return n ? n + ' to pick from' : 'none right now'; })(tkSuggVisible().length) : (tk.suggLoading ? 'Loading\u2026' : '');
   }
@@ -21932,12 +21990,15 @@
         '<button type="button" class="tk-check" data-tk="check" role="checkbox" aria-checked="' + (t.done ? 'true' : 'false') + '" aria-label="' + (t.done ? 'Mark not done' : 'Mark done') + '"></button>' +
         '<button type="button" class="tm-rbtn" data-tk="exp" aria-expanded="' + open + '"><span class="tm-rmain"><span class="tm-rtitle">' + esc(tkTitleOf(t)) + '</span>' + (tags ? '<span class="tm-rtags">' + tags + '</span>' : '') + '</span>' +
         '<span class="tk-chev" aria-hidden="true">&#9662;</span></button>' +
-      '</div>';
+        '<button type="button" class="tk-mic tm-nmic' + (tk.nmId === t.id ? ' rec' : '') + '" data-tk="nmic" aria-pressed="' + (tk.nmId === t.id) + '" aria-label="Dictate a note about this task">' + vsvg('mic', 16) + '</button>' +
+      '</div>' + (tk.nmId === t.id || tk.nmMsgId === t.id ? '<div class="tk-micstate tm-nstate' + (tk.nmId === t.id ? '' : ' warn') + '">' + esc(tk.nmId === t.id ? 'Listening\u2026 ' + (tk.nmLive || '') : tk.nmMsg || '') + '</div>' : '');
     if (tk.editId === t.id) {
       h += '<div class="tm-rbody tm-edit">' +
         '<label class="tm-lbl" for="tk-etitle">Title</label><input type="text" id="tk-etitle" class="tk-input" maxlength="60" value="' + esc(tkTitleOf(t)) + '" data-auto="' + (t.tAuto ? '1' : '0') + '">' +
         '<label class="tm-lbl" for="tk-etext">Task</label><textarea id="tk-etext" class="tk-input tm-ta" rows="3" maxlength="1000">' + esc(t.text) + '</textarea>' +
         '<label class="tm-lbl" for="tk-enotes">Notes</label><textarea id="tk-enotes" class="tk-input tm-ta" rows="3" maxlength="2000" placeholder="Anything else to remember">' + esc(t.notes || '') + '</textarea>' +
+        '<label class="tm-lbl" for="tk-eproj">Project</label><select id="tk-eproj" class="tk-input">' + '<option value="">None</option>' +
+          TK_PROJS.map(function (p) { return '<option value="' + p.k + '"' + (t.project === p.k ? ' selected' : '') + '>' + esc(p.n) + '</option>'; }).join('') + '</select>' +
         '<div class="tk-erow"><span class="tk-for">Date</span><input type="date" id="tk-edue" class="tk-date" value="' + esc(t.due) + '" aria-label="Due date"></div>' +
         '<div class="tm-acts"><button type="button" class="tk-addbtn" data-tk="esave">Save</button><button type="button" class="tk-chip" data-tk="ecancel">Cancel</button></div>' +
         '</div></div>';
@@ -21949,6 +22010,7 @@
       else if (!upc) facts += tkFact('Top 3', t.pin ? 'Pinned' : 'Not pinned');
       if (carried) facts += tkFact('Carry-over', 'Carried ' + carried + ' day' + (carried === 1 ? '' : 's') + ' (was due ' + esc(tkLong(t.due)) + ')');
       if (upc) facts += tkFact('Upcoming', 'Shows in Today on ' + esc(tkLong(t.due)));
+      if (t.project) facts += tkFact('Project', esc(tkProjName(t.project)) + ' <small>(goes to its Running Notes when done)</small>');
       if (t.notes) facts += tkFact('Notes', '<span class="tm-notes">' + esc(t.notes) + '</span>');
       if (t.src && /^sugg:/.test(t.src)) facts += tkFact('From', 'Suggestions' + (t.srcLabel ? ' (' + esc(t.srcLabel) + ')' : ''));
       if (tkValidIso(t.created) && t.created !== t.due) facts += tkFact('Added', esc(tkLong(t.created)));
@@ -21956,7 +22018,7 @@
         '<div class="tm-acts">' +
           (t.done ? '<button type="button" class="tk-addbtn" data-tk="check">Not done</button>' : '<button type="button" class="tk-addbtn" data-tk="check">Done</button>') +
           (t.done || upc ? '' : '<button type="button" class="tk-chip' + (t.pin ? ' on' : '') + '" data-tk="pin" aria-pressed="' + t.pin + '">' + (t.pin ? 'Unpin' : 'Pin to Top 3') + '</button>') +
-          (t.done ? '' : '<button type="button" class="tk-chip" data-tk="edit">Edit</button>') +
+          '<button type="button" class="tk-chip" data-tk="edit">Edit</button>' +
           '<button type="button" class="tk-chip tm-del" data-tk="del">Delete</button>' +
         '</div></div>';
     }
@@ -21991,7 +22053,7 @@
     var due = $('tk-due').value, today = tkToday(), tIn = ($('tk-title').value || '').replace(/\s+/g, ' ').trim(), auto = !tk.titleTouched || !tIn;
     if (!tkValidIso(due)) due = today;
     var title = (auto ? tkAutoTitle(text) : tIn).slice(0, 60);
-    tkLoad().tasks.push({ id: tkNewId(), text: text.slice(0, 1000), title: title, tAuto: auto, notes: '', due: due, created: today, at: Date.now(), done: false, pin: false });
+    tkLoad().tasks.push({ id: tkNewId(), text: text.slice(0, 1000), title: title, tAuto: auto, notes: '', project: tkProjDetect(text + ' ' + title), due: due, created: today, at: Date.now(), done: false, pin: false });
     tkSave();
     inp.value = ''; tk.base = ''; $('tk-title').value = ''; tk.titleTouched = false; $('tk-due').value = today;
     if (due > today) tkLoad().open.upc = true;
@@ -22006,6 +22068,8 @@
     t.text = text.slice(0, 1000);
     t.title = (auto ? tkAutoTitle(t.text) : tIn).slice(0, 60); t.tAuto = auto;
     t.notes = String($('tk-enotes').value || '').replace(/\s+$/, '').slice(0, 2000);
+    var ep = $('tk-eproj'); if (ep) t.project = ep.value || '';
+    if (t.done) tkLogSync(t);
     if (tkValidIso(due) && due !== t.due) { t.due = due; if (due > tkToday()) { t.pin = false; tkLoad().open.upc = true; } }
     tk.editId = ''; tk.exp[t.id] = true; tkSave(); tkRender(); tkFlash('Saved.');
   }
@@ -22025,6 +22089,8 @@
     var b = e.target.closest ? e.target.closest('[data-tk]') : null; if (!b) return;
     var a = b.getAttribute('data-tk'), row = b.closest('.tm-trow'), id = row ? row.getAttribute('data-id') : '', d = tkLoad(), t = id ? tkFind(id) : null;
     if (a === 'add') return tkAdd();
+    if (a === 'lgexp') { var lid = b.getAttribute('data-lid'); tk.lexp[lid] = !tk.lexp[lid]; return tkLogRender(); }
+    if (a === 'lgretry') { tkLoad().log.forEach(function (e) { if (e.project && (e.pj === 'old' || e.pj === 'queued')) { e.pj = 'queued'; e.pjErr = ''; } }); tkSave(); tkLogRender(); return tkNotesFlush(); }
     if (a === 'mic') { if (tk.on) tkMicStop(false); else tkMicStart(); return; }
     if (a === 'due') { $('tk-due').value = tkAddDays(tkToday(), +b.getAttribute('data-n') || 0); return; }
     if (a === 'undo') { var f = tk.msgUndo; tkFlash(''); if (f) f(); return; }
@@ -22042,14 +22108,15 @@
       return tkRender();
     }
     if (a === 'check') {
-      if (t.done) { t.done = false; t.doneOn = ''; t.doneAt = 0; tkSave(); return tkRender(); }
-      t.done = true; t.doneOn = tkToday(); t.doneAt = Date.now(); t.pin = false; tkSave();
+      if (t.done) { t.done = false; t.doneOn = ''; t.doneAt = 0; tkLogUndo(t.id); tkSave(); return tkRender(); }
+      t.done = true; t.doneOn = tkToday(); t.doneAt = Date.now(); t.pin = false; tkSave(); tkLogDone(t);
       row.classList.add('tk-isdone', 'tk-fading'); var cb = row.querySelector('.tk-check'); if (cb) cb.setAttribute('aria-checked', 'true');
-      tkFlash('Done: \u201c' + tkTitleOf(t) + '\u201d.', function () { var x = tkFind(t.id); if (x) { x.done = false; x.doneOn = ''; x.doneAt = 0; tkSave(); tkRender(); } });
+      tkFlash('Done: \u201c' + tkTitleOf(t) + '\u201d.', function () { var x = tkFind(t.id); if (x) { x.done = false; x.doneOn = ''; x.doneAt = 0; tkLogUndo(x.id); tkSave(); tkRender(); } });
       setTimeout(tkRender, 900);          // struck through for a moment, then moves to "Done today"
       return;
     }
-    if (a === 'edit') { if (t.done) return; tk.editId = t.id; tk.exp[t.id] = true; return tkRender(); }
+    if (a === 'nmic') { if (tk.nmId === t.id) tkNoteMicStop(); else tkNoteMicStart(t.id); return; }
+    if (a === 'edit') { tk.editId = t.id; tk.exp[t.id] = true; return tkRender(); }
     if (a === 'del') return tkDelete(t.id);
     if (a === 'pin') {
       if (t.pin) { t.pin = false; tkSave(); return tkRender(); }
@@ -22134,6 +22201,77 @@
     var r = tk.rec;
     if (quiet) { tk.rec = null; tk.on = false; try { r && r.abort(); } catch (e) {} tkMicUi(); return; }
     if (r) { try { r.stop(); } catch (e2) { tk.rec = null; tk.on = false; tkMicUi(); } }
+  }
+  /* ---- v205: per-task note mic: dictation is appended to the task's notes and saved (also into its Task Log entry) ---- */
+  function tkNoteMicFail(id, msg) {
+    tk.nmId = ''; var r = tk.nmRec; tk.nmRec = null; try { r && r.abort(); } catch (e) {}
+    tk.nmMsg = msg; tk.nmMsgId = id;
+    // keyboard-dictation fallback: open Edit with the Notes box focused (the keyboard's mic key types into it)
+    var t = tkFind(id); if (t) { tk.editId = id; tk.exp[id] = true; }
+    tkRender(); var n = $('tk-enotes'); if (n) { try { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } catch (e2) {} }
+    setTimeout(function () { if (tk.nmMsgId === id) { tk.nmMsg = ''; tk.nmMsgId = ''; if (!tk.editId) tkRender(); } }, 6000);
+  }
+  function tkNoteMicStart(id) {
+    if (tk.on) tkMicStop(true);
+    tkNoteMicStop();
+    var t = tkFind(id); if (!t) return;
+    tk.nmMsg = ''; tk.nmMsgId = '';
+    if (!SR) return tkNoteMicFail(id, 'Live mic isn\u2019t available here \u2014 use the keyboard\u2019s mic key in Notes.');
+    var rec; try { rec = new SR(); } catch (e) { return tkNoteMicFail(id, MIC_NA); }
+    var said = '', interim = '';
+    rec.continuous = false; rec.interimResults = true; rec.lang = 'en-US'; rec.maxAlternatives = 1;
+    rec.onresult = function (ev) {
+      interim = '';
+      for (var i = ev.resultIndex; i < ev.results.length; i++) { var r = ev.results[i], x = r[0] ? r[0].transcript : ''; if (r.isFinal) said = micSpace(said, x.trim() + ' '); else interim += x; }
+      tk.nmLive = (said + interim).trim(); var st = document.querySelector('.tm-nstate'); if (st) st.textContent = 'Listening\u2026 ' + tk.nmLive;
+    };
+    rec.onerror = function (ev) {
+      var er = ev && ev.error;
+      if (er === 'not-allowed' || er === 'service-not-allowed' || er === 'audio-capture' || er === 'language-not-supported' || er === 'network') return tkNoteMicFail(id, MIC_NA);
+    };
+    rec.onend = function () {
+      if (tk.nmRec !== rec) return;
+      tk.nmRec = null; tk.nmId = ''; tk.nmLive = '';
+      var v = micSpace(said, interim).replace(/\s+/g, ' ').trim(), x = tkFind(id);
+      if (v && x) {
+        v = v.charAt(0).toUpperCase() + v.slice(1);
+        x.notes = ((x.notes ? x.notes.replace(/\s+$/, '') + '\n' : '') + v).slice(0, 2000);
+        if (x.done) tkLogSync(x);
+        tkSave(); tk.exp[id] = true; tkRender(); tkFlash('Note saved to \u201c' + tkTitleOf(x) + '\u201d.');
+      } else { tk.nmMsg = 'Didn\u2019t catch anything. Tap the mic and try again.'; tk.nmMsgId = id; tkRender(); setTimeout(function () { if (tk.nmMsgId === id) { tk.nmMsgId = ''; tkRender(); } }, 4000); }
+    };
+    tk.nmRec = rec; tk.nmId = id; tk.nmLive = '';
+    try { rec.start(); } catch (e2) { return tkNoteMicFail(id, MIC_NA); }
+    tkRender();
+  }
+  function tkNoteMicStop() { var r = tk.nmRec; if (r) { try { r.stop(); } catch (e) { tk.nmRec = null; tk.nmId = ''; } } }
+
+  /* ---- v205: #tm/log: every completed task, newest first ---- */
+  function tmLogBuild() {
+    $('tm-body').innerHTML = '<div class="tm-log"><p class="hint tm-hint">Every completed task, newest first. Tasks with a project are also added to that project\u2019s Running Notes, dated, with their notes.</p>' +
+      '<div class="tk-msg" id="tk-msg" role="status" hidden></div><div id="tk-loglist"></div></div>';
+    tkLogRender();
+  }
+  function tkLogRender() {
+    var box = $('tk-loglist'); if (!box) return;
+    var l = tkLoad().log.slice().sort(function (a, b) { return (a.doneOn < b.doneOn ? 1 : a.doneOn > b.doneOn ? -1 : 0) || ((b.doneAt || 0) - (a.doneAt || 0)); });
+    if (!l.length) { box.innerHTML = '<div class="tk-empty">No completed tasks yet. Check one off in Today and it lands here.</div>'; return; }
+    var h = '', day = '', waiting = 0;
+    l.forEach(function (e) {
+      if (e.doneOn !== day) { day = e.doneOn; h += '<div class="tk-toplbl tm-logday">' + esc(tkLong(day)) + '</div>'; }
+      var open = !!tk.lexp[e.id], pn = tkProjName(e.project);
+      var st = !e.project ? '' : e.pj === 'sent' ? 'Added to ' + pn + ' Running Notes \u2713' : e.pj === 'old' ? 'Done before the Task Log; not sent to Running Notes' :
+        e.pjErr === 'bad_project' || e.pjErr === 'bad_action' ? 'Waiting for the server update to reach ' + pn + ' Running Notes' : 'Sending to ' + pn + ' Running Notes\u2026';
+      if (e.project && e.pj !== 'sent') waiting++;
+      h += '<div class="tm-row tm-lrow' + (open ? ' tm-open' : '') + '"><button type="button" class="tm-rbtn" data-tk="lgexp" data-lid="' + esc(e.id) + '" aria-expanded="' + open + '">' +
+        '<span class="tm-rmain"><span class="tm-rtitle">' + esc(e.title) + '</span><span class="tm-rtags">' + (pn ? '<span class="tk-tag tm-ptag">' + esc(pn) + '</span>' : '') +
+        (e.notes ? '<span class="tk-tag">notes</span>' : '') + '</span></span><span class="tk-chev" aria-hidden="true">&#9662;</span></button>';
+      if (open) h += '<div class="tm-rbody"><div class="tm-full">' + esc(e.text || e.title) + '</div><div class="tm-facts">' + tkFact('Completed', esc(tkLong(e.doneOn))) +
+        (pn ? tkFact('Project', esc(pn)) : '') + (e.notes ? tkFact('Notes', '<span class="tm-notes">' + esc(e.notes) + '</span>') : '') + (st ? tkFact('Running Notes', esc(st)) : '') + '</div></div>';
+      h += '</div>';
+    });
+    if (waiting) h += '<div class="retry"><button type="button" class="tk-chip" data-tk="lgretry">Send ' + waiting + ' to Running Notes</button></div>';
+    box.innerHTML = h;
   }
   /* ---- Suggestions: server (action=suggest, once deployed) else suggestions.json ---- */
   function tkSuggSrcLabel(s) { return /goal/i.test(String(s.source || s.kind || '')) ? 'Long-term goal' : 'Master list'; }
@@ -22239,7 +22377,7 @@
     if (!s) return;
     var prev = d.sugg[sid];
     if (a === 'sgadd') {
-      var nt = { id: tkNewId(), text: (s.project && s.text.toLowerCase().indexOf(s.project.toLowerCase()) < 0 ? s.project + ': ' : '') + s.text, title: s.title, tAuto: false,
+      var nt = { project: tkProjDetect(s.project + ' ' + s.text), id: tkNewId(), text: (s.project && s.text.toLowerCase().indexOf(s.project.toLowerCase()) < 0 ? s.project + ': ' : '') + s.text, title: s.title, tAuto: false,
         notes: s.notes || '', due: today, created: today, at: Date.now(), done: false, pin: false, src: 'sugg:' + s.id, srcLabel: s.source };
       d.tasks.push(nt);
       d.sugg[sid] = { added: 1, on: today };
@@ -22265,6 +22403,7 @@
     tk.d = null;                                   // pick up any change saved by another tab
     if (state.tmView === 'today') { if (!tk.editId && !($('tk-text') && $('tk-text').value)) tkRender(); }
     else if (state.tmView === 'sugg') tmSuggRender();
+    else if (state.tmView === 'log') tkLogRender();
     else tmHubCounts();
   });
 
