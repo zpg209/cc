@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lora:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=193">
+<link rel="stylesheet" href="app.css?v=194">
 </head>
 <body>
   <div class="bg"></div>
@@ -63,6 +63,17 @@
   </section>
   <!-- Refresh app: round icon button, fixed bottom-right, shown only while Home is the active screen (v=114) -->
   <button class="refreshbtn" id="cc-refresh" type="button" aria-label="Refresh app" title="Refresh app"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v4.5h-4.5"/></svg></button>
+  <!-- v194: Cash-spend mic: round icon button, fixed bottom-left, Home only (mirrors Refresh) -> 'Cash spend' sheet -->
+  <button class="cashmic" id="cash-mic" type="button" aria-label="Log cash spend by voice" title="Log cash spend"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="11.5" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg></button>
+  <div class="cashsheet" id="cash-sheet" hidden><div class="cashpanel" role="dialog" aria-label="Cash spend">
+    <div class="cashhead"><h3>Cash spend</h3><button type="button" class="cashmicbtn" id="cash-micbtn" aria-label="Start listening"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="11.5" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button></div>
+    <div class="cashstate" id="cash-state"></div>
+    <div class="cashtextrow"><input id="cash-text" type="text" autocomplete="off" placeholder="$20 tip Mono Village"><button type="button" class="navbtn" id="cash-fill">Parse</button></div>
+    <div class="cashform vform" id="cash-form"></div>
+    <div class="cashrr" id="cash-err"></div>
+    <div class="draftbtns"><button type="button" class="bigsave" id="cash-save">Save</button><button type="button" class="navbtn discard" id="cash-cancel">Cancel</button></div>
+  </div></div>
+  <div class="cashtoast" id="cash-toast" role="status"></div>
 
   <!-- ============ L&S PROJECTS ============ -->
   <section id="screen-projects" class="screen">
@@ -445,6 +456,6 @@
     <div class="own-card" id="own-card" hidden></div>
   </section>
 
-  <script src="app.js?v=193"></script>
+  <script src="app.js?v=194"></script>
 </body>
 </html>

@@ -24574,6 +24574,145 @@
     try { setPc(decodeURIComponent(km[1])); } catch (e) {}
     try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
   }
+  /* ---------------- v194: Home cash-spend mic (bottom-left). Tap -> compact 'Cash spend' sheet + voice capture (same SR / keyboard-mic fallback as #vmic)
+     -> VP.parse + cashParse tweaks -> editable form -> spendadd (method=Cash). ---------------- */
+  var CASH_LEAD = /^(tips?|tipped|coffee|lunch|dinner|breakfast|brunch|groceries|grocery|gas|fuel|snacks?|drinks?|beers?|food|parking|haircut|laundry|supplies|tacos?|pizza|bagels?)\b\s*/i;
+  function cashParse(text, today) {
+    var said = { cat: '', text: String(text || '') };
+    try { var k0 = vm.kind; vm.kind = 'exp'; said = vCatSaid(text); vm.kind = k0; } catch (e) {}
+    var p = VP.parse(said.text, 'exp', today);
+    var merch = p.merchant || '', notes = p.notes || '', cat = said.cat || p.category || 'Other';
+    var m = CASH_LEAD.exec(merch);
+    if (m && merch.length > m[0].length && !/\b(?:at|from)\b/i.test(said.text)) {           // "tip Mono Village" -> notes "Tip", merchant "Mono Village"
+      var lead = m[1]; merch = merch.slice(m[0].length).trim();
+      notes = (lead.charAt(0).toUpperCase() + lead.slice(1).toLowerCase() + (notes ? ' \u00b7 ' + notes : ''));
+    }
+    if (cat === 'Other' && /\btip(?:s|ped)?\b/i.test(said.text)) cat = 'Dining';
+    notes = notes.replace(/\d{6,}/g, '').replace(/\s+/g, ' ').trim();
+    return { amount: p.amount != null ? p.amount.toFixed(2) : '', category: cat, merchant: merch, date: p.date,
+      account: p.account || 'Household', who: p.who === 'Lisa' ? 'Lisa' : 'Zac', notes: notes };
+  }
+  window.ccCashParse = cashParse;
+  var cs = { rec: null, on: false, base: '', committed: '', interim: '', f: null, busy: false, cid: '' };
+  function csEl(id) { return document.getElementById(id); }
+  function csToast(html, bad) {
+    var t = csEl('cash-toast'); if (!t) return;
+    t.innerHTML = html; t.className = 'cashtoast show' + (bad ? ' bad' : '');
+    clearTimeout(cs.tt); cs.tt = setTimeout(function () { t.className = 'cashtoast'; }, 4200);
+  }
+  function csSeg(name, list, val) {
+    return '<div class="cseg" data-cseg="' + name + '">' + list.map(function (o) { return '<button type="button" class="' + (o === val ? 'on' : '') + '" data-v="' + esc(o) + '">' + esc(o) + '</button>'; }).join('') + '</div>';
+  }
+  function csRender() {
+    var f = cs.f, h = '';
+    h += '<div class="vrow2">' + vField('Amount', '<input id="cs-amount" type="text" inputmode="decimal" autocomplete="off" value="' + esc(f.amount) + '" placeholder="0.00">') +
+      vField('Date', '<input id="cs-date" type="date" value="' + esc(f.date) + '">') + '</div>';
+    h += vCatHtml('cs-cat', f.category, 'exp');
+    h += vField('Merchant', '<input id="cs-merchant" type="text" maxlength="120" autocomplete="off" value="' + esc(f.merchant) + '" placeholder="Where / what">');
+    h += '<div class="vfield"><span>Account</span>' + csSeg('account', VP.ACCTS, f.account) + '</div>';
+    h += '<div class="vfield"><span>Who</span>' + csSeg('who', ['Zac', 'Lisa'], f.who) + '</div>';
+    h += '<div class="cashmeta">Method: <b>Cash</b>' + (f.notes ? ' \u00b7 Note: ' + esc(f.notes) : '') + '</div>';
+    csEl('cash-form').innerHTML = h;
+  }
+  function csRead() {
+    var g = function (id) { var e = csEl(id); return e ? e.value : null; }, v;
+    if ((v = g('cs-amount')) != null) cs.f.amount = v;
+    if ((v = g('cs-date')) != null) cs.f.date = v;
+    if ((v = g('cs-cat')) != null) cs.f.category = v;
+    if ((v = g('cs-merchant')) != null) cs.f.merchant = v;
+  }
+  function csFill() { var t = csEl('cash-text').value; cs.f = t.trim() ? cashParse(t, vToday()) : (cs.f || cashParse('', vToday())); csRender(); }
+  function csUi(msg) {
+    var b = csEl('cash-micbtn'); if (b) { b.classList.toggle('rec', cs.on); b.setAttribute('aria-label', cs.on ? 'Stop listening' : 'Start listening'); }
+    csEl('cash-mic').classList.toggle('rec', cs.on);
+    csEl('cash-state').textContent = cs.on ? 'Listening\u2026 e.g. \u201c$20 tip Mono Village\u201d' : (msg || 'Say amount, what, where. Or type / use the keyboard mic.');
+  }
+  function csStop(quiet) {
+    var r = cs.rec;
+    if (quiet) { cs.rec = null; cs.on = false; try { r && r.abort(); } catch (e) {} return; }
+    if (r) { try { r.stop(); } catch (e) { cs.rec = null; cs.on = false; csUi(); } }
+  }
+  function csFail(msg) { cs.on = false; var r = cs.rec; cs.rec = null; try { r && r.abort(); } catch (e) {} csUi(msg); try { csEl('cash-text').focus(); } catch (e2) {} }
+  function csStart() {
+    var ta = csEl('cash-text');
+    if (!SR) { csUi(MIC_NA); ta.focus(); return; }           // iOS standalone / no Web Speech: keyboard dictation into the text box
+    cs.base = ta.value ? ta.value.replace(/\s+$/, '') + ' ' : ''; cs.committed = ''; cs.interim = '';
+    var rec; try { rec = new SR(); } catch (e) { return csFail(MIC_NA); }
+    rec.continuous = false; rec.interimResults = true; rec.lang = 'en-US'; rec.maxAlternatives = 1;
+    rec.onresult = function (ev) {
+      var interim = '';
+      for (var i = ev.resultIndex; i < ev.results.length; i++) { var r = ev.results[i], t = r[0] ? r[0].transcript : ''; if (r.isFinal) cs.committed = micSpace(cs.committed, t.trim() + ' '); else interim += t; }
+      cs.interim = interim.replace(/^\s+/, ''); ta.value = cs.base + cs.committed + cs.interim;
+    };
+    rec.onerror = function (ev) {
+      var e = ev && ev.error;
+      if (e === 'not-allowed' || e === 'service-not-allowed' || e === 'audio-capture' || e === 'language-not-supported') return csFail(MIC_NA);
+      if (e === 'network') return csFail('The speech service couldn\u2019t be reached. Tap the text box and use your keyboard\u2019s mic key.');
+    };
+    rec.onend = function () {
+      if (cs.rec !== rec) return;
+      cs.committed = micSpace(cs.committed, cs.interim ? cs.interim.trim() + ' ' : ''); cs.interim = '';
+      cs.on = false; cs.rec = null; ta.value = (cs.base + cs.committed).replace(/\s+$/, '');
+      if (ta.value.trim()) csFill(); csUi();
+    };
+    cs.rec = rec; cs.on = true;
+    try { rec.start(); } catch (e2) { return csFail(MIC_NA); }
+    csUi();
+  }
+  function csOpen() {
+    if (document.body.classList.contains('hl-edit')) return;
+    cs.cid = vNewCid(); cs.busy = false; csEl('cash-text').value = ''; cs.f = cashParse('', vToday());
+    csEl('cash-sheet').hidden = false; csEl('cash-err').textContent = '';
+    var sv = csEl('cash-save'); sv.disabled = false; sv.textContent = 'Save';
+    csRender(); csStart();
+  }
+  function csClose() { csStop(true); csEl('cash-sheet').hidden = true; csUi(); }
+  function csSave() {
+    if (cs.busy) return; csRead();
+    var f = cs.f, amt = vAmt(f.amount), err = csEl('cash-err');
+    if (amt === null) { err.textContent = 'Enter an amount like 12.50.'; return; }
+    if (!vDateOk(f.date)) { err.textContent = 'Pick a valid date.'; return; }
+    var merch = String(f.merchant || '').trim(); if (!merch) { err.textContent = 'Enter the merchant or what it was for.'; return; }
+    var cat = vCatClean(f.category), canon = cat ? vCatCanon(cat) : '', notes = String(f.notes || '').replace(/\d{6,}/g, '').trim();
+    var sp = { date: f.date, amount: amt.toFixed(2), merchant: merch, account: f.account, who: f.who, method: 'Cash', notes: notes, cid: cs.cid };
+    if (!cat) sp.category = 'Other';
+    else if (canon) sp.category = canon;
+    else if (vCatApiOn()) { sp.category = cat; sp.allow_new_category = '1'; }
+    else { sp.category = 'Other'; sp.notes = vCatJoin(cat, notes); }
+    cs.busy = true; err.textContent = ''; var sv = csEl('cash-save'); sv.disabled = true; sv.textContent = 'Saving\u2026';
+    apiRaw('spendadd', sp).then(function (j) {
+      cs.busy = false;
+      if (j.error) { sv.disabled = false; sv.textContent = 'Save'; err.textContent = vApiMsg(j); return; }
+      var r = j.data || {};
+      state.spendData = null; try { rcClear(); } catch (e) {}
+      if (cat && !r.duplicate) { try { vCatLearn('exp', cat, true); } catch (e2) {} }
+      csClose();
+      csToast((r.duplicate ? 'Already logged: ' : 'Logged cash: ') + '<b>' + esc(money(amt)) + '</b> \u00b7 ' + esc(merch) + ' \u00b7 ' + esc(sp.category === 'Other' && cat ? cat : sp.category) + ' \u00b7 ' + esc(f.account) + ' \u00b7 ' + esc(f.who) + (r.row ? ' \u00b7 row ' + esc(r.row) : ''));
+    }, function (e) {
+      cs.busy = false; sv.disabled = false; sv.textContent = 'Save';
+      if (vAuth(e)) return csClose();
+      err.textContent = friendly(e) + ' Tap Save to retry (same entry id, it will not double).';
+    });
+  }
+  (function () {
+    var mic = csEl('cash-mic'); if (!mic) return;
+    mic.addEventListener('click', csOpen);
+    csEl('cash-micbtn').addEventListener('click', function () { if (cs.on) csStop(); else csStart(); });
+    csEl('cash-fill').addEventListener('click', function () { csStop(true); csUi(); csFill(); });
+    csEl('cash-cancel').addEventListener('click', csClose);
+    csEl('cash-save').addEventListener('click', csSave);
+    csEl('cash-sheet').addEventListener('click', function (e) {
+      if (e.target === csEl('cash-sheet')) return csClose();
+      var b = e.target.closest('[data-cseg] button'); if (!b) return;
+      csRead(); var seg = b.parentNode, k = seg.getAttribute('data-cseg'); cs.f[k] = b.getAttribute('data-v');
+      [].forEach.call(seg.querySelectorAll('button'), function (x) { x.classList.toggle('on', x === b); });
+    });
+    csEl('cash-form').addEventListener('input', csRead);
+    csEl('cash-form').addEventListener('change', csRead);
+    window.addEventListener('hashchange', function () { if (!csEl('cash-sheet').hidden) csClose(); });
+    document.addEventListener('visibilitychange', function () { if (document.hidden && cs.on) csStop(true); });
+  })();
+
   if (getPc()) { rcPing(); show(location.hash.slice(1) || 'home', true); }     // v107: ping first so a cold Apps Script start begins now
   else lock();
 })();
