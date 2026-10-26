@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lora:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=197">
+<link rel="stylesheet" href="app.css?v=198">
 </head>
 <body>
   <div class="bg"></div>
@@ -62,9 +62,14 @@
     </div>
   </section>
   <!-- Refresh app: round icon button, fixed bottom-right, shown only while Home is the active screen (v=114) -->
-  <button class="refreshbtn" id="cc-refresh" type="button" aria-label="Refresh app" title="Refresh app"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v4.5h-4.5"/></svg></button>
   <!-- v194: Cash-spend mic: round icon button, fixed bottom-left, Home only (mirrors Refresh) -> 'Cash spend' sheet -->
+  <!-- v198: Home dock: one row of round buttons, Home only, hidden while jiggling (generic flex row; buttons keep their own looks) -->
+  <div class="homedock" id="home-dock">
   <button class="cashmic" id="cash-mic" type="button" aria-label="Log cash spend by voice" title="Log cash spend"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="11.5" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg></button>
+  <button class="dockbtn" id="dock-bigdog" type="button" data-ext="bigdog" aria-label="Big Dog: open Grok Bot chat" title="Big Dog"></button>
+  <button class="dockbtn" id="dock-grok" type="button" data-ext="grok" aria-label="Open Grok" title="Grok"></button>
+  <button class="refreshbtn" id="cc-refresh" type="button" aria-label="Refresh app" title="Refresh app"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v4.5h-4.5"/></svg></button>
+  </div>
   <div class="cashsheet" id="cash-sheet" hidden><div class="cashpanel" role="dialog" aria-label="Cash spend">
     <div class="cashhead"><h3>Cash spend</h3><button type="button" class="cashmicbtn" id="cash-micbtn" aria-label="Start listening"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="11.5" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button></div>
     <div class="cashstate" id="cash-state"></div>
@@ -457,6 +462,6 @@
     <div class="own-card" id="own-card" hidden></div>
   </section>
 
-  <script src="app.js?v=197"></script>
+  <script src="app.js?v=198"></script>
 </body>
 </html>
