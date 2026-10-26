@@ -24658,7 +24658,7 @@
   function csFill() { var t = csEl('cash-text').value; cs.f = t.trim() ? cashParse(t, vToday()) : (cs.f || cashParse('', vToday())); csRender(); }
   function csUi(msg) {
     var b = csEl('cash-micbtn'); if (b) { b.classList.toggle('rec', cs.on); b.setAttribute('aria-label', cs.on ? 'Stop listening' : 'Start listening'); }
-    csEl('cash-mic').classList.toggle('rec', cs.on);
+    var cm = csEl('cash-mic'); cm.classList.toggle('rec', cs.on); cm.classList.toggle('live', cs.on);   // v200: ON AIR dome lights while listening
     csEl('cash-state').textContent = cs.on ? 'Listening\u2026 e.g. \u201c$20 tip Mono Village\u201d' : (msg || 'Say amount, what, where. Or type / use the keyboard mic.');
   }
   function csStop(quiet) {

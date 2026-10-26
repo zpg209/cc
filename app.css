@@ -3674,3 +3674,15 @@ body.hl-edit .homedock, body.hl-busy .homedock { display: none !important; }
 #screen-spend .vsec .vtot:active, #screen-spend .vsec button:active { background: #16181b; }
 #screen-spend .vsec .card, #screen-spend .vsec .catrow.inc, #screen-spend .vsec .ncard.nest { border-color: rgba(200,206,212,.3); }
 #screen-spend .vsec .cashline, #screen-spend .vsec .cashtag { color: #C9CED4; }
+
+/* ---- v200: Home cash mic = studio ON AIR dome light (#cash-mic.oa.oa-1). Unlit when idle; while listening (.live) the dome flickers on like a bulb, then breathes with a red bloom. Replaces the green glyph glow / ring. ---- */
+#cash-mic.oa { padding: 0; border: 0; overflow: hidden; background: #200605; box-shadow: 0 6px 16px rgba(0,0,0,.6), inset 0 0 0 2px #3a3d40; }
+#cash-mic.oa svg.og { width: 100%; height: 100%; display: block; filter: none; }
+#cash-mic.oa.rec::after { display: none; }
+#cash-mic.oa .lit { opacity: 0; }
+#cash-mic.oa.live .dim { opacity: 0; }
+#cash-mic.oa.live .lit { opacity: 1; animation: oaflick .7s steps(1) 1, oabreath 1.6s ease-in-out .7s infinite alternate; }
+#cash-mic.oa.live { animation: oabloom 1.6s ease-in-out .7s infinite alternate; }
+@keyframes oaflick { 0% { opacity: 0 } 12% { opacity: 1 } 20% { opacity: .1 } 34% { opacity: .9 } 42% { opacity: .2 } 58% { opacity: 1 } 66% { opacity: .55 } 76%,100% { opacity: 1 } }
+@keyframes oabreath { from { opacity: .8 } to { opacity: 1 } }
+@keyframes oabloom { from { box-shadow: 0 6px 16px rgba(0,0,0,.6), inset 0 0 0 2px #3a3d40, 0 0 6px rgba(255,42,26,.45); } to { box-shadow: 0 6px 16px rgba(0,0,0,.6), inset 0 0 0 2px #3a3d40, 0 0 16px rgba(255,42,26,.9); } }
