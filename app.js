@@ -24658,8 +24658,12 @@
   function csFill() { var t = csEl('cash-text').value; cs.f = t.trim() ? cashParse(t, vToday()) : (cs.f || cashParse('', vToday())); csRender(); }
   function csUi(msg) {
     var b = csEl('cash-micbtn'); if (b) { b.classList.toggle('rec', cs.on); b.setAttribute('aria-label', cs.on ? 'Stop listening' : 'Start listening'); }
-    var cm = csEl('cash-mic'); cm.classList.toggle('rec', cs.on); cm.classList.toggle('live', cs.on);   // v200: ON AIR dome lights while listening
+    var cm = csEl('cash-mic'); cm.classList.toggle('rec', cs.on); cm.classList.toggle('live', cs.on); if (!cs.on) cm.classList.remove('speak');   // v200/v201: dome lights while listening
     csEl('cash-state').textContent = cs.on ? 'Listening\u2026 e.g. \u201c$20 tip Mono Village\u201d' : (msg || 'Say amount, what, where. Or type / use the keyboard mic.');
+  }
+  function csPulse() {          // v201: brief bright flash on each speech result / typed or dictated character (iOS keyboard-dictation fallback)
+    var cm = csEl('cash-mic'); if (!cm) return;
+    cm.classList.add('pulse'); clearTimeout(cs.pt); cs.pt = setTimeout(function () { cm.classList.remove('pulse'); }, 260);
   }
   function csStop(quiet) {
     var r = cs.rec;
@@ -24676,8 +24680,10 @@
     rec.onresult = function (ev) {
       var interim = '';
       for (var i = ev.resultIndex; i < ev.results.length; i++) { var r = ev.results[i], t = r[0] ? r[0].transcript : ''; if (r.isFinal) cs.committed = micSpace(cs.committed, t.trim() + ' '); else interim += t; }
-      cs.interim = interim.replace(/^\s+/, ''); ta.value = cs.base + cs.committed + cs.interim;
+      cs.interim = interim.replace(/^\s+/, ''); ta.value = cs.base + cs.committed + cs.interim; csPulse();
     };
+    rec.onspeechstart = function () { csEl('cash-mic').classList.add('speak'); };     // v201: dome brightens while he is speaking
+    rec.onspeechend = function () { csEl('cash-mic').classList.remove('speak'); };
     rec.onerror = function (ev) {
       var e = ev && ev.error;
       if (e === 'not-allowed' || e === 'service-not-allowed' || e === 'audio-capture' || e === 'language-not-supported') return csFail(MIC_NA);
@@ -24741,6 +24747,7 @@
       csRead(); var seg = b.parentNode, k = seg.getAttribute('data-cseg'); cs.f[k] = b.getAttribute('data-v');
       [].forEach.call(seg.querySelectorAll('button'), function (x) { x.classList.toggle('on', x === b); });
     });
+    csEl('cash-text').addEventListener('input', csPulse);
     csEl('cash-form').addEventListener('input', csRead);
     csEl('cash-form').addEventListener('change', csRead);
     window.addEventListener('hashchange', function () { if (!csEl('cash-sheet').hidden) csClose(); });

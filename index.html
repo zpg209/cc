@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lora:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=200">
+<link rel="stylesheet" href="app.css?v=201">
 </head>
 <body>
   <div class="bg"></div>
@@ -62,10 +62,10 @@
     </div>
   </section>
   <!-- Refresh app: round icon button, fixed bottom-right, shown only while Home is the active screen (v=114) -->
-  <!-- v200: ON AIR dome light face. v194: Cash-spend mic: round icon button, fixed bottom-left, Home only (mirrors Refresh) -> 'Cash spend' sheet -->
+  <!-- v201: studio dome light with a mic-grille face (voice-reactive). v200: ON AIR dome. v194: Cash-spend mic: round icon button, fixed bottom-left, Home only (mirrors Refresh) -> 'Cash spend' sheet -->
   <!-- v198: Home dock: one row of round buttons, Home only, hidden while jiggling (generic flex row; buttons keep their own looks) -->
   <div class="homedock" id="home-dock">
-  <button class="cashmic oa oa-1" id="cash-mic" type="button" aria-label="Log cash spend by voice" title="Log cash spend"><svg class="og" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><defs><radialGradient id="dgoadome" cx=".4" cy=".3" r=".75"><stop offset="0" stop-color="#5a1410"/><stop offset="1" stop-color="#1e0504"/></radialGradient><radialGradient id="dloadome" cx=".45" cy=".4" r=".7"><stop offset="0" stop-color="#ffd2a8"/><stop offset=".25" stop-color="#ff5a2a"/><stop offset=".7" stop-color="#d4140c"/><stop offset="1" stop-color="#6e0805"/></radialGradient><radialGradient id="hloadome" cx=".5" cy=".2" r=".5"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient></defs><circle cx="24" cy="24" r="21" fill="url(#dgoadome)"/><circle class="lit" cx="24" cy="24" r="21" fill="url(#dloadome)"/><g class="dim"><g transform="translate(17.5 5) scale(0.55)" fill="none" stroke="#7a2a24" stroke-width="2" stroke-linecap="round"><rect x="9" y="2.5" width="6" height="11" rx="3" fill="#7a2a24"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></g><text x="24" y="32" text-anchor="middle" font-size="10.5" font-family="-apple-system,Inter,Helvetica,Arial,sans-serif" font-weight="800" fill="#6b1c16">ON AIR</text></g><g class="lit"><g transform="translate(17.5 5) scale(0.55)" fill="none" stroke="#fff4ea" stroke-width="2" stroke-linecap="round"><rect x="9" y="2.5" width="6" height="11" rx="3" fill="#fff4ea"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></g><text x="24" y="32" text-anchor="middle" font-size="10.5" font-family="-apple-system,Inter,Helvetica,Arial,sans-serif" font-weight="800" fill="#fff4ea">ON AIR</text></g><ellipse cx="24" cy="12" rx="13" ry="6.5" fill="url(#hloadome)"/></svg></button>
+  <button class="cashmic oa oa-1" id="cash-mic" type="button" aria-label="Log cash spend by voice" title="Log cash spend"><svg class="og" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><defs><radialGradient id="dmB" cx=".4" cy=".3" r=".75"><stop offset="0" stop-color="#4a1210"/><stop offset="1" stop-color="#1a0504"/></radialGradient><radialGradient id="dmL" cx=".45" cy=".42" r=".7"><stop offset="0" stop-color="#ffd2a8"/><stop offset=".28" stop-color="#ff5a2a"/><stop offset=".72" stop-color="#d4140c"/><stop offset="1" stop-color="#6e0805"/></radialGradient><radialGradient id="dmH" cx=".5" cy=".2" r=".5"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient><radialGradient id="dmS" cx=".5" cy=".5" r=".5"><stop offset=".7" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".55"/></radialGradient><pattern id="dmG" width="3" height="3" patternUnits="userSpaceOnUse" patternTransform="rotate(45 24 24)"><path d="M0 0H3M0 0V3" stroke="#0d0202" stroke-width=".7" fill="none"/></pattern><clipPath id="dmC"><circle cx="24" cy="24" r="20"/></clipPath></defs><circle cx="24" cy="24" r="21" fill="url(#dmB)"/><circle class="lit" cx="24" cy="24" r="21" fill="url(#dmL)"/><g clip-path="url(#dmC)"><rect class="grille" x="0" y="0" width="48" height="48" fill="url(#dmG)"/></g><circle cx="24" cy="24" r="20" fill="url(#dmS)"/><circle cx="24" cy="24" r="20.2" fill="none" stroke="#000" stroke-opacity=".5" stroke-width=".8"/><ellipse cx="24" cy="12.5" rx="12.5" ry="6" fill="url(#dmH)"/></svg></button>
   <button class="dockbtn" id="dock-bigdog" type="button" data-ext="bigdog" aria-label="Big Dog: open Grok Bot chat" title="Big Dog"></button>
   <button class="dockbtn" id="dock-grok" type="button" data-ext="grok" aria-label="Open Grok" title="Grok"></button>
   <button class="refreshbtn" id="cc-refresh" type="button" aria-label="Refresh app" title="Refresh app"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v4.5h-4.5"/></svg></button>
@@ -462,6 +462,6 @@
     <div class="own-card" id="own-card" hidden></div>
   </section>
 
-  <script src="app.js?v=200"></script>
+  <script src="app.js?v=201"></script>
 </body>
 </html>
