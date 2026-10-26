@@ -3718,5 +3718,17 @@ body.hl-edit .homedock, body.hl-busy .homedock { display: none !important; }
 #screen-spend .vsec .vtot { border-color: #6a7078; box-shadow: inset 0 1px 0 rgba(255,255,255,.08); }
 #screen-spend .vsec .card, #screen-spend .vsec .catrow.inc, #screen-spend .vsec .ncard.nest { border-color: rgba(120,127,136,.35); }
 #screen-spend .vsec .cashline, #screen-spend .vsec .cashtag { color: #A3A9B1; }
+<<<<<<< Updated upstream
 #screen-spend #spend-body > .linkrow, #screen-spend #spend-body > a.linkrow { background: linear-gradient(180deg, #5a6068, #3a3f45); color: #F2F4F6; border: 1px solid #24272b;
   box-shadow: inset 0 1px 0 rgba(255,255,255,.18), 0 2px 5px rgba(0,0,0,.45); }
+=======
+/* v203: top buttons + month bar to gunmetal too (selected month = lighter brushed steel with a bright edge) */
+#screen-spend .topbar .homebtn { background: linear-gradient(180deg, #4a5058, #2f3439); color: #F2F4F6; border: 1px solid #1e2125;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.18), 0 2px 5px rgba(0,0,0,.45); }
+#screen-spend .topbar .homebtn:active { background: #2f3439; }
+#screen-spend .vmb { background: linear-gradient(180deg, #454a51, #2c3035); border-color: #1e2125; box-shadow: inset 0 1px 0 rgba(255,255,255,.15), 0 2px 4px rgba(0,0,0,.5); }
+#screen-spend .vmb small, #screen-spend .vmb b { color: #E4E7EA; }
+#screen-spend .vmb:active { background: #2c3035; }
+#screen-spend .vmb.on { background: linear-gradient(135deg, #6a7078, #50565d 55%, #62686f); border-color: #C9CED4;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.22), 0 0 8px rgba(200,206,212,.35); }
+>>>>>>> Stashed changes
