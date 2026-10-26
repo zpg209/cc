@@ -4696,8 +4696,6 @@
       h += vgHead('sum', 'Summary', '', '<span>Net ' + per + '</span><b class="amt ' + (monthNet >= 0 ? 'pos' : 'neg') + '">' + signedMoney(monthNet) + '</b>');
       h += vSec('summary', 'summary', 'Summary', cashAbove(tkCash, '<span class="amt ' + (monthNet >= 0 ? 'pos' : 'neg') + '">' + signedMoney(monthNet) + '</span>', 'TiwiK cash'), calcRoute('month-net'), sumBody);   // v138
       h += vgEnd();
-      h += '<button class="linkrow smallrow fc-vlink"' + goAttr('fchase') + '>Family Chase card review &rsaquo;</button>';   // v150
-      h += '<button class="linkrow smallrow fc-vlink bk-vlink"' + goAttr('bankrev') + '>Bank Review \u00b7 Bank of Stockton &rsaquo;</button>';   // v151
 
 
       if (d.missingColumns && d.missingColumns.length) h += '<div class="foot">Columns not found: ' + esc(d.missingColumns.join(', ')) + '</div>';

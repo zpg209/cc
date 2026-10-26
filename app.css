@@ -3697,3 +3697,26 @@ body.hl-edit .homedock, body.hl-busy .homedock { display: none !important; }
 #cash-mic.oa.live { animation: none; box-shadow: 0 6px 16px rgba(0,0,0,.6), inset 0 0 0 2px #3a3d40, 0 0 8px rgba(255,42,26,.45); transition: box-shadow .18s; }
 #cash-mic.oa.live.speak, #cash-mic.oa.live.pulse { box-shadow: 0 6px 16px rgba(0,0,0,.6), inset 0 0 0 2px #3a3d40, 0 0 18px rgba(255,42,26,.95), 0 0 30px rgba(255,110,50,.4); }
 @keyframes oaflick2 { 0% { opacity: 0 } 12% { opacity: .6 } 20% { opacity: .05 } 34% { opacity: .5 } 42% { opacity: .1 } 58% { opacity: .6 } 66% { opacity: .3 } 76%,100% { opacity: .55 } }
+
+/* ---- v202: Vault (#spend) darker silver: gunmetal / dark brushed silver trim, borders and fills instead of bright chrome.
+   Light text on the darker plates. Black section backgrounds and v197 green/red/blue unchanged. Family Chase / Bank Review entry rows removed from the Vault home (screens kept). ---- */
+#screen-spend { --tt2: #B4BAC2; --tt3: #8A9099; --tln: 120,127,136; --copper: #A3A9B1; --copper-edge: rgba(120,127,136,.55); --red: #A3A9B1; }
+#screen-spend .vdoorhd { color: #EEF0F2; background: linear-gradient(135deg, #5d636b, #3a3f45 45%, #50565e 70%, #2a2e33); border-color: #24272b;
+  box-shadow: inset 0 0 0 3px rgba(255,255,255,.12), 0 6px 14px rgba(0,0,0,.55); }
+#screen-spend .vdoorhd small, #screen-spend .vdoorhd b { color: #EEF0F2; }
+#screen-spend .vdoorhd b { text-shadow: 0 1px 0 rgba(0,0,0,.6), 0 -1px 0 rgba(255,255,255,.12); }
+#screen-spend .vdoorhd i { background: radial-gradient(circle at 35% 35%, #c3c8ce, #4a5058 70%); }
+#screen-spend .vmbar { border-color: rgba(120,127,136,.4); }
+#screen-spend .vmb.on { background: linear-gradient(135deg, #6a7078, #454a51 55%, #5a6068); border-color: #2a2e33;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.18), 0 0 8px rgba(120,127,136,.35); }
+#screen-spend .vmb.on small, #screen-spend .vmb.on b { color: #FFFFFF; }
+#screen-spend .vgcard { border-color: #5a6068; box-shadow: inset 0 0 0 3px #000, inset 0 0 0 4px rgba(120,127,136,.45), 0 6px 14px rgba(0,0,0,.5); }
+#screen-spend .vgbtn { color: #C9CED4; border-color: #6a7078; }
+#screen-spend .vgbtn:active { border-color: #A3A9B1; }
+#screen-spend .vsec { --copper: #A3A9B1; --red: #A3A9B1; border-color: #5a6068;
+  box-shadow: inset 0 0 0 2px #0b0b0b, inset 0 0 0 3px rgba(120,127,136,.35), 0 2px 6px rgba(0,0,0,.5); }
+#screen-spend .vsec .vtot { border-color: #6a7078; box-shadow: inset 0 1px 0 rgba(255,255,255,.08); }
+#screen-spend .vsec .card, #screen-spend .vsec .catrow.inc, #screen-spend .vsec .ncard.nest { border-color: rgba(120,127,136,.35); }
+#screen-spend .vsec .cashline, #screen-spend .vsec .cashtag { color: #A3A9B1; }
+#screen-spend #spend-body > .linkrow, #screen-spend #spend-body > a.linkrow { background: linear-gradient(180deg, #5a6068, #3a3f45); color: #F2F4F6; border: 1px solid #24272b;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.18), 0 2px 5px rgba(0,0,0,.45); }
