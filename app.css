@@ -3621,3 +3621,22 @@ body.hl-edit .cashmic, body.hl-busy .cashmic { display: none !important; }
 .tile.ext-tile { flex-direction: column; gap: 6px; }
 .tile .ext-ico { width: 52px; height: 52px; display: block; flex: none; }
 .ext-toast a { color: #8fd3ff; font-weight: 700; margin-left: 4px; }
+
+/* ---- v197: Vault (#spend) brass theme follow-up: black group cards / headers / section rows / total plates (brass trim kept);
+   money colors: green #22924D, red #E8344C, blue #5577EE (all >= 4.7:1 on #0b0b0b, WCAG AA). Scoped to #screen-spend. ---- */
+#screen-spend { --c-inc: #22924D; --c-spend: #E8344C; --c-sum: #5577EE; }
+#screen-spend .vgcard { background: #000; box-shadow: inset 0 0 0 3px #000, inset 0 0 0 4px rgba(201,169,91,.55), 0 6px 14px rgba(0,0,0,.5); }
+#screen-spend .vgcard.inc { --vg: #22924D; } #screen-spend .vgcard.exp { --vg: #E8344C; } #screen-spend .vgcard.sum { --vg: #5577EE; }
+#screen-spend .vgcard > .vghead { background: #000; }
+#screen-spend .vsec { --text: #f2f2f2; --muted: #a8a8a8; --line: rgba(255,255,255,.08); --btn: #0b0b0b; --btn-press: #1a1710;
+  --amt-in: #22924D; --amt-out: #E8344C; --green: #22924D; --neg: #E8344C; --pos: #22924D; --green-edge: rgba(34,146,77,.5);
+  --c-inc: #22924D; --c-spend: #E8344C; --c-sum: #5577EE; --c-acct: #5577EE; --copper: #D9B65E; --red: #D9B65E;
+  background: #0b0b0b; color: #f2f2f2; box-shadow: inset 0 0 0 2px #0b0b0b, inset 0 0 0 3px rgba(201,169,91,.45), 0 2px 6px rgba(0,0,0,.5); }
+#screen-spend .vgcard.inc .vsec { --sec: #22924D; } #screen-spend .vgcard.exp .vsec { --sec: #E8344C; } #screen-spend .vgcard.sum .vsec { --sec: #5577EE; }
+#screen-spend .vsec .vtot { background: #000; border: 1px solid #b89548; box-shadow: inset 0 1px 0 rgba(255,240,190,.12); }
+#screen-spend .vsec .vtot:active, #screen-spend .vsec button:active { background: #1a1710; }
+#screen-spend .vsec .card, #screen-spend .vsec .catrow.inc, #screen-spend .vsec .ncard.nest { border-color: rgba(201,169,91,.3); }
+#screen-spend .vsec .entry .notes { color: #8f8f8f; }
+#screen-spend .vsec .entry .d b { color: #ddd; }
+#screen-spend .vsec .catrow .bar { background: rgba(255,255,255,.08); }
+#screen-spend .vsec .cashline, #screen-spend .vsec .cashtag { color: #D9B65E; }
