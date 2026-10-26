@@ -3616,3 +3616,8 @@ body.hl-edit .cashmic, body.hl-busy .cashmic { display: none !important; }
 /* footer links (Family Chase / Bank Review) and other copper buttons: steel plates */
 #screen-spend #spend-body > .linkrow, #screen-spend #spend-body > a.linkrow, #screen-spend .fc-vlink { background: linear-gradient(180deg, #d6dade, #a9b0b6); color: #20262b; border: 1px solid #6d757c;
   box-shadow: inset 0 1px 0 #fff, 0 2px 5px rgba(0,0,0,.45); }
+
+/* v196: Home launcher tiles (Big Dog, Grok) */
+.tile.ext-tile { flex-direction: column; gap: 6px; }
+.tile .ext-ico { width: 52px; height: 52px; display: block; flex: none; }
+.ext-toast a { color: #8fd3ff; font-weight: 700; margin-left: 4px; }

@@ -666,6 +666,8 @@
   document.addEventListener('click', function (e) {
     var bb = e.target.closest('.backbtn');   // v179: every Back goes to the actual previous screen (navBack); ptpl's in-screen level Back keeps its own handler
     if (bb && !bb.hasAttribute('data-ptpl-up')) { e.preventDefault(); e.stopPropagation(); navBack(bb); return; }
+    var xt = e.target.closest('[data-ext]');
+    if (xt) { e.preventDefault(); e.stopPropagation(); extOpen(xt.getAttribute('data-ext')); return; }
     var el = e.target.closest('[data-go]');
     if (el) { e.preventDefault(); e.stopPropagation(); show(el.getAttribute('data-go')); return; }
     // Google Drive / Docs links open in the in-app viewer so "Back" returns to this screen.
@@ -23824,6 +23826,36 @@
   // v122: new Home folder 'Fitness & Health' (f:fh, #hf/fh) holding Daily Log (moved in), Food Log, Workout Log and a 'Medical'
   // sub-folder (f:medical, #hf/medical) with Health Metrics. Saved layouts from v120 and earlier (v:3 or lower) get a one-time move:
   // the folder takes the Daily Log button's place (same folder, same spot), the Daily Log goes inside it; nothing else moves.
+  // v196: Home launcher tiles. Big Dog = Zac's Grok Bot chat via the grokbot:// app link; if the app doesn't take over
+  // within ~1.5 s, a toast offers Grok Bot's own web hand-off page (cursor.com/grok-bot/link/v1/agent, which re-launches the app).
+  // Grok = https://grok.com (grok.com's apple-app-site-association matches '/*' for ai.x.GrokApp, so it opens the app when installed).
+  var EXT_LINKS = {
+    bigdog: { href: 'grokbot://app/v1/agent?id=8f7664c5-1c7f-4ef9-b2a4-452532c7e6a3', web: 'https://cursor.com/grok-bot/link/v1/agent?id=8f7664c5-1c7f-4ef9-b2a4-452532c7e6a3', app: 'Grok Bot' },
+    grok:   { href: 'https://grok.com/', web: true }
+  };
+  var EXT_ICONS = {
+    dog: '<svg class="ext-ico" viewBox="0 0 64 64" aria-hidden="true"><path d="M14 8c-6 2-9 12-7 22 1 5 5 6 8 3l3-6c-1 9 1 18 6 24 4 5 12 6 16 0 5-6 7-15 6-24l3 6c3 3 7 2 8-3 2-10-1-20-7-22-5-2-10 1-13 5-3-1-7-1-10 0-3-4-8-7-13-5z" fill="#3a2a1d"/><path d="M24 30c0-4 3-6 8-6s8 2 8 6c0 10-3 22-8 22s-8-12-8-22z" fill="#c8894a"/><circle cx="25" cy="27" r="3.2" fill="#fff"/><circle cx="39" cy="27" r="3.2" fill="#fff"/><circle cx="25.6" cy="27.4" r="1.7" fill="#111"/><circle cx="39.6" cy="27.4" r="1.7" fill="#111"/><path d="M20 22l9 2M44 22l-9 2" stroke="#111" stroke-width="2.4" stroke-linecap="round"/><path d="M27 41c0-3 2-4 5-4s5 1 5 4-3 4-5 4-5-1-5-4z" fill="#111"/><path d="M32 45v4M28 50c2 2 6 2 8 0" stroke="#111" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M22 54l10 4 10-4" stroke="#b22" stroke-width="3.5" fill="none" stroke-linecap="round"/><circle cx="32" cy="58.5" r="2.4" fill="#d4a017"/></svg>',
+    grok: '<svg class="ext-ico" viewBox="0 0 64 64" aria-hidden="true"><rect x="4" y="4" width="56" height="56" rx="14" fill="#111"/><path d="M42 20a15 15 0 1 0 3 16H33" stroke="#fff" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M48 10l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" fill="#fff"/></svg>'
+  };
+  function extToast(html) {
+    var t = $('ext-toast');
+    if (!t) { t = document.createElement('div'); t.id = 'ext-toast'; t.className = 'hl-toast ext-toast'; t.setAttribute('role', 'status'); document.body.appendChild(t); }
+    t.innerHTML = html; t.hidden = false; t.classList.add('show');
+    clearTimeout(t._h); t._h = setTimeout(function () { t.classList.remove('show'); t.hidden = true; }, 6000);
+  }
+  function extOpen(key) {
+    var L = EXT_LINKS[key]; if (!L) return;
+    if (L.web === true) { window.open(L.href, '_blank', 'noopener'); return; }   // web/universal link
+    var left = false, onHide = function () { if (document.hidden) left = true; };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', onHide);
+    window.location.href = L.href;   // custom scheme: the app takes over if installed
+    setTimeout(function () {
+      document.removeEventListener('visibilitychange', onHide); window.removeEventListener('pagehide', onHide);
+      if (left || document.hidden) return;
+      extToast('Open the ' + esc(L.app) + ' app' + (L.web ? ' \u00b7 <a href="' + esc(L.web) + '" target="_blank" rel="noopener">Open in ' + esc(L.app) + ' \u203a</a>' : ''));
+    }, 1500);
+  }
   var HL_KEY = 'cc_home_layout', HL_OLD_KEY = 'cc_home_order', HL_VER = 4;
   var HL_FH_IN = ['log', 'food', 'workouts', 'f:medical'], HL_FH_NEW = ['f:fh', 'food', 'workouts', 'f:medical', 'health'];
   var HL_BIZ_ORIG = ['biz/sierra', 'biz/kiwit', 'biz/tiwik'];
@@ -23876,10 +23908,13 @@
     'fin/laundromat': { label: FIN_PAGES.laundromat.label, go: 'fin/laundromat', sub: FIN_PAGES.laundromat.sub },
     'fchase':         { label: 'Family Chase', go: 'fchase', sub: 'Southwest card \u00b7\u00b7 1982 \u00b7 review', cls: 'fchase-entry' },   // v150: card review (#fchase)
     'bankrev':        { label: 'Bank Review', go: 'bankrev', sub: 'Bank of Stockton \u00b7 3 accounts \u00b7 review', cls: 'fchase-entry bankrev-entry' },   // v151: (#bankrev)
-    'fin/invest':     { label: FIN_PAGES.invest.label, go: 'fin/invest', sub: FIN_PAGES.invest.sub }   // v121: Finances > Investments (slots in after Ledger on saved layouts too)
+    'fin/invest':     { label: FIN_PAGES.invest.label, go: 'fin/invest', sub: FIN_PAGES.invest.sub },   // v121
+    // v196: launcher tiles (open another app; no screen). ext = how to open it (see extOpen).
+    'x:bigdog':       { label: 'Big Dog', go: 'home', ext: 'bigdog', icon: 'dog', cls: 'ext-tile' },
+    'x:grok':         { label: 'Grok', go: 'home', ext: 'grok', icon: 'grok', cls: 'ext-tile' }   // Finances > Investments: Finances > Investments (slots in after Ledger on saved layouts too)
   };
   var HL_DEFAULT = {
-    home: ['tm', 'projects', 'f:fh', 'spend', 'fin', 'insn', 'lt', 'pt', 'trust', 'ent/kiwit', 'ent/tiwik', 'mf', 'biz', 'f:lisa', 'f:zac'],   // v149: Zac right after Lisa (saved layouts too: hlNormalize slots it in after wherever Lisa is)
+    home: ['tm', 'projects', 'f:fh', 'spend', 'fin', 'insn', 'lt', 'pt', 'trust', 'ent/kiwit', 'ent/tiwik', 'mf', 'biz', 'f:lisa', 'f:zac', 'x:bigdog', 'x:grok'],   // v149: Zac right after Lisa (saved layouts too: hlNormalize slots it in after wherever Lisa is)
     projects: ['pc', 'hiring', 'ptpl'],   // v165: + Project Template after Hiring (hlNormalize slots it into saved layouts)
       // v132: Hiring after Plan Checks (saved layouts get it too: hlNormalize slots it in after Plan Checks)
     'f:fh': HL_FH_IN.slice(),
@@ -24042,7 +24077,7 @@
       esc(it.label) + (it.bsub ? '<span class="sub">' + esc(it.bsub) + '</span>' : '') +
       (it.cnt != null ? '<span class="sub cnt">' + esc(String(it.cnt)) + ' document' + (it.cnt === 1 ? '' : 's') + '</span>' : '') + '</button>';
     return '<button type="button" class="tile' + (it.sub ? ' small' : '') + (it.folder ? ' hl-folder' : '') + (it.cls ? ' ' + it.cls : '') +
-      '" data-go="' + esc(it.go) + '" data-hl="' + esc(id) + '"><span class="hl-dots" aria-hidden="true"></span>' + esc(it.label) + (it.sub ? '<span class="sub">' + esc(it.sub) + '</span>' : '') + '</button>';
+      '" data-go="' + esc(it.go) + '" data-hl="' + esc(id) + '"' + (it.ext ? ' data-ext="' + esc(it.ext) + '" data-href="' + esc(EXT_LINKS[it.ext].href) + '"' : '') + '><span class="hl-dots" aria-hidden="true"></span>' + (it.icon ? EXT_ICONS[it.icon] : '') + esc(it.label) + (it.sub ? '<span class="sub">' + esc(it.sub) + '</span>' : '') + '</button>';
   }
   function hlRenderGrid(el, fid, empty) {
     if (!el) return;
