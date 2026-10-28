@@ -3744,3 +3744,12 @@ body.hl-edit .homedock, body.hl-busy .homedock { display: none !important; }
 
 /* v207: Ledger cash flow card: year-to-date block */
 .ledmonth.ledyear { margin-top: 14px; border-top: 1px solid rgba(255,255,255,.12); padding-top: 12px; }
+
+/* v208: Ledger cash flow: Month / Year toggle, entity chips, PDF report */
+.ledtog { display: flex; gap: 6px; margin: 4px 0 8px; flex-wrap: wrap; }
+.ledtogb { flex: 1 1 0; min-height: 38px; padding: 6px 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,.22); background: #111; color: #ddd; font: 600 14px/1.2 'Inter', sans-serif; cursor: pointer; }
+.ledtogb.on { background: #2a2a2a; border-color: #F08A3C; color: #fff; }
+.ledent .ledtogb { font-size: 12.5px; min-height: 32px; }
+.ledrpt .linkrow { margin-top: 6px; }
+.ledchk { display: flex; gap: 8px; align-items: center; margin: 10px 2px 2px; font: 500 13.5px/1.3 'Inter', sans-serif; color: #ddd; }
+.ledchk input { width: 18px; height: 18px; }

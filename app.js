@@ -10683,42 +10683,146 @@
   }
 
   // ---- 2. Cash flow this month (same numbers as the Vault Summary: income logged, spend logged, net) ----
+  /* ---- v208: Cash flow card: Month / Year toggle, cash vs non-cash on both sides, and the income-statement PDF ----
+   * Cash = payment Method "Cash" (income: the Income tabs' Method / [Pay:] tag, e.g. TiwiK's Cash vs App + Scan Pay Wash; expenses: Daily Spend Method).
+   * Everything not typed Cash (card, app, check, transfer, or not set) counts as non-cash. */
+  var LED_VIEW_KEY = 'cc_led_view', LED_RPT_KEY = 'cc_led_rpt';
+  function ledView() { try { return localStorage.getItem(LED_VIEW_KEY) === 'year' ? 'year' : 'month'; } catch (e) { return 'month'; } }
+  function ledRpt() {
+    var r = null; try { r = JSON.parse(localStorage.getItem(LED_RPT_KEY) || 'null'); } catch (e) {}
+    r = r && typeof r === 'object' ? r : {};
+    return { ent: ACCOUNTS.indexOf(r.ent) >= 0 ? r.ent : 'All', exCash: r.exCash !== false };   // exCash: Accountant copy leaves out cash-paid EXPENSES (setting)
+  }
+  function ledRptSet(k, v) { var r = ledRpt(); r[k] = v; try { localStorage.setItem(LED_RPT_KEY, JSON.stringify(r)); } catch (e) {} }
+  // Which entity an income source belongs to (for the per-entity statement)
+  function ledSrcEnt(name) { return name === 'Mono Village Laundromat' ? 'TiwiK' : name === KR_SOURCE ? 'KiwiT' : 'Household'; }
+  function ledSplit(list) { var c = cashOf(list), t = sum(list); return { t: r2(t), c: r2(c), n: r2(t - c) }; }
+  function ledCashSub(sp) { return '<small>Cash ' + money(sp.c) + ' \u00b7 Non-cash ' + money(sp.n) + '</small>'; }
   function ledFlowCard() {
-    var s = led.sp, d = s.d;
-    if (!d) return ledCard('flow', 'Cash flow this month', ledTot('Net this month', '<span class="amt-bal">' + (s.s === 'load' ? '\u2026' : '\u2014') + '</span>', ''),
-      ledState(s.s === 'err' ? 'The Vault could not load' + (s.err ? ': ' + friendly(s.err) : '') + '.' : 'Loading the Vault\u2026', s.s === 'err'));
-    var M = spendModel(d), net = r2(M.incomeTotal - M.total), cls = net >= 0 ? 'amt-in' : 'amt-out', days = d.daysLogged != null ? Number(d.daysLogged) : 0;
-    var tot = ledTot('Net this month', '<span class="' + cls + '">' + signedMoney(net) + '</span>', calcRoute('month-net'));
-    var Y = led.yt.s === 'ok' && led.yt.d ? spendModel(led.yt.d) : null, yr = new Date().getFullYear();
-    var yNet = Y ? r2(Y.incomeTotal - Y.total) : 0, yCls = yNet >= 0 ? 'amt-in' : 'amt-out';
-    tot += ledTot('Net ' + yr + ' year to date', Y ? '<span class="' + yCls + '">' + signedMoney(yNet) + '</span>' : '<span class="amt-bal">' + (led.yt.s === 'err' ? '\u2014' : '\u2026') + '</span>', Y ? 'spend' : '');   // v207
-    var b = '<div class="ledmonth">' + esc(d.monthLabel || 'This month') + '</div>';
-    b += ledLine('Income', '<span class="amt-in">' + money(M.incomeTotal) + '</span>', incomeRoute('All'));
-    b += ledLine('Expenses', '<span class="amt-out">' + money(M.total) + '</span>', 'spend/all');
-    if (M.full) b += ledLine('Cash spent', '<span class="amt-out">' + money(cashOf(M.items)) + '</span>', cashRoute('All'), '', 'ledcash');   // v207
-    b += ledLine('<b>Net</b><small>income \u2212 expenses</small>', '<span class="' + cls + '">' + signedMoney(net) + '</span>', calcRoute('month-net'), '', 'grand');
+    var s = led.sp, d = s.d, view = ledView(), yr = new Date().getFullYear();
+    var title = view === 'year' ? 'Cash flow \u00b7 ' + yr + ' annual total' : 'Cash flow this month';
+    var tog = '<div class="ledtog" role="group" aria-label="Period"><button type="button" class="ledtogb' + (view === 'month' ? ' on' : '') + '" data-led-view="month" aria-pressed="' + (view === 'month') + '">This month</button>' +
+      '<button type="button" class="ledtogb' + (view === 'year' ? ' on' : '') + '" data-led-view="year" aria-pressed="' + (view === 'year') + '">' + yr + ' annual total</button></div>';
+    var loading = function (msg, err) { return ledCard('flow', title, ledTot(view === 'year' ? 'Net ' + yr + ' to date' : 'Net this month', '<span class="amt-bal">' + (err ? '\u2014' : '\u2026') + '</span>', ''), tog + ledState(msg, err)); };
+    if (view === 'month' && !d) return loading(s.s === 'err' ? 'The Vault could not load' + (s.err ? ': ' + friendly(s.err) : '') + '.' : 'Loading the Vault\u2026', s.s === 'err');
+    if (view === 'year' && !(led.yt.s === 'ok' && led.yt.d)) return loading(led.yt.s === 'err' ? 'The ' + yr + ' totals could not load.' : 'Loading the ' + yr + ' totals (one read per month)\u2026', led.yt.s === 'err');
+    var M = spendModel(view === 'year' ? led.yt.d : d), Y = view === 'year';
+    var net = r2(M.incomeTotal - M.total), cls = net >= 0 ? 'amt-in' : 'amt-out';
+    var inc = ledSplit(M.income), exp = ledSplit(M.items);
+    var r = function (route) { return Y ? 'spend' : route; };
+    var tot = ledTot(Y ? 'Net ' + yr + ' to date' : 'Net this month', '<span class="' + cls + '">' + signedMoney(net) + '</span>', r(calcRoute('month-net')));
+    var b = tog + '<div class="ledmonth">' + (Y ? yr + ' annual total \u00b7 Jan 1 to today' : esc(d.monthLabel || 'This month')) + '</div>';
+    b += ledLine('Income' + ledCashSub(inc), '<span class="amt-in">' + money(inc.t) + '</span>', r(incomeRoute('All')));
+    b += ledLine('Expenses' + ledCashSub(exp), '<span class="amt-out">' + money(exp.t) + '</span>', r('spend/all'));
+    b += ledLine('Cash earned', '<span class="amt-in">' + money(inc.c) + '</span>', r(incomeRoute('All')), '', 'ledcash');
+    b += ledLine('Cash spent', '<span class="amt-out">' + money(exp.c) + '</span>', r(cashRoute('All')), '', 'ledcash');
+    b += ledLine('<b>Net</b><small>income \u2212 expenses</small>', '<span class="' + cls + '">' + signedMoney(net) + '</span>', r(calcRoute('month-net')), '', 'grand');
     var src = M.sources.filter(function (x) { return x.amount && !ledSierra(x.name, x.label); });
-    if (src.length) b += '<div class="ledgrp"><div class="ledgh">Income by source</div>' + src.map(function (x) { return ledLine(esc(x.label), '<span class="amt-in">' + money(x.amount) + '</span>', incomeRoute(x.name)); }).join('') + '</div>';
+    if (src.length) b += '<div class="ledgrp"><div class="ledgh">Income by source</div>' + src.map(function (x) {
+      return ledLine(esc(x.label) + ledCashSub(ledSplit(M.income.filter(function (i) { return i.source === x.name; }))), '<span class="amt-in">' + money(x.amount) + '</span>', r(incomeRoute(x.name)));
+    }).join('') + '</div>';
     var acc = M.accounts.filter(function (x) { return x.amount && !ledSierra(x.name); });
-    if (acc.length) b += '<div class="ledgrp"><div class="ledgh">Expenses by entity</div>' + acc.map(function (x) { return ledLine(esc(x.name) + (M.full ? '<small>Cash ' + money(cashOf(M.items.filter(function (i) { return i.account === x.name; }))) + '</small>' : ''), '<span class="amt-out">' + money(x.amount) + '</span>', acctRoute(x.name)); }).join('') + '</div>';
-    // v207: the same breakdown for the year to date (Jan 1 to today)
-    b += '<div class="ledmonth ledyear">' + yr + ' year to date</div>';
-    if (!Y) b += ledNote(led.yt.s === 'err' ? 'The year-to-date totals could not load. Pull down or reopen to try again.' : 'Loading the ' + yr + ' totals\u2026');
-    else {
-      b += ledLine('Income', '<span class="amt-in">' + money(Y.incomeTotal) + '</span>', 'spend');
-      b += ledLine('Expenses', '<span class="amt-out">' + money(Y.total) + '</span>', 'spend');
-      b += ledLine('Cash spent', '<span class="amt-out">' + money(cashOf(Y.items)) + '</span>', 'spend', '', 'ledcash');
-      b += ledLine('<b>Net</b><small>income \u2212 expenses</small>', '<span class="' + yCls + '">' + signedMoney(yNet) + '</span>', 'spend', '', 'grand');
-      var ysrc = Y.sources.filter(function (x) { return x.amount && !ledSierra(x.name, x.label); });
-      if (ysrc.length) b += '<div class="ledgrp"><div class="ledgh">Income by source \u00b7 ' + yr + '</div>' + ysrc.map(function (x) { return ledLine(esc(x.label), '<span class="amt-in">' + money(x.amount) + '</span>', 'spend'); }).join('') + '</div>';
-      var yacc = Y.accounts.filter(function (x) { return x.amount && !ledSierra(x.name); });
-      if (yacc.length) b += '<div class="ledgrp"><div class="ledgh">Expenses by entity \u00b7 ' + yr + '</div>' + yacc.map(function (x) { return ledLine(esc(x.name) + '<small>Cash ' + money(cashOf(Y.items.filter(function (i) { return i.account === x.name; }))) + '</small>', '<span class="amt-out">' + money(x.amount) + '</span>', 'spend'); }).join('') + '</div>';
-    }
+    if (acc.length) b += '<div class="ledgrp"><div class="ledgh">Expenses by entity</div>' + acc.map(function (x) {
+      return ledLine(esc(x.name) + ledCashSub(ledSplit(M.items.filter(function (i) { return i.account === x.name; }))), '<span class="amt-out">' + money(x.amount) + '</span>', r(acctRoute(x.name)));
+    }).join('') + '</div>';
     if (M.liveNote) b += ledNote(esc(M.liveNote));
     else if (M.liveCount) b += ledNote('Lisa\u2019s Table income is live from Orders (paid only).');
-    b += ledNote((days > 0 ? days + ' day' + (days === 1 ? '' : 's') + ' logged this month' : 'No days logged yet') + '. Same numbers as the Vault Summary. Tap a number to open it in the Vault.');
+    b += ledNote('Cash = payment type Cash. Card, app (e.g. TiwiK App + Scan Pay Wash), check, transfer and not-set count as non-cash.');
+    // Income statement (P&L) PDF
+    var R = ledRpt();
+    b += '<div class="ledgrp ledrpt"><div class="ledgh">Income statement (PDF) \u00b7 ' + (Y ? yr + ' annual' : esc(d.monthLabel || 'this month')) + '</div>' +
+      '<div class="ledtog ledent" role="group" aria-label="Entity">' + ['All'].concat(ACCOUNTS).map(function (e) {
+        return '<button type="button" class="ledtogb' + (R.ent === e ? ' on' : '') + '" data-led-ent="' + e + '" aria-pressed="' + (R.ent === e) + '">' + (e === 'All' ? 'All combined' : esc(e)) + '</button>'; }).join('') + '</div>' +
+      '<button type="button" class="linkrow smallrow" data-led-pdf="full">Full record (with cash) &rsaquo;</button>' +
+      '<button type="button" class="linkrow smallrow" data-led-pdf="acct">Accountant copy &rsaquo;</button>' +
+      '<label class="ledchk"><input type="checkbox" data-led-excash="1"' + (R.exCash ? ' checked' : '') + '> Accountant copy: exclude cash-paid expenses</label>' +
+      '<div class="foot ledfoot">The Accountant copy has no cash columns or lines. All income stays in it, cash income included, so taxable income is complete.' +
+      (R.exCash ? ' Expenses paid in cash are left out.' : ' Cash-paid expenses are included.') + '</div><div class="foot ledfoot" id="led-pdfmsg"></div></div>';
     b += '<button class="linkrow smallrow" data-go="spend" data-ov-vsec="summary">Open the Vault &rsaquo;</button>';
-    return ledCard('flow', 'Cash flow this month', tot, b);
+    return ledCard('flow', title, tot, b);
+  }
+  function ledPdfData(kind) {
+    var view = ledView(), Y = view === 'year', yr = new Date().getFullYear(), R = ledRpt(), D = Y ? led.yt.d : led.sp.d;
+    if (!D) return null;
+    var M = spendModel(D), ent = R.ent, full = kind === 'full', exCash = !full && R.exCash;
+    var incs = M.income.filter(function (i) { return ent === 'All' || ledSrcEnt(i.source) === ent; });
+    var exps = M.items.filter(function (i) { return (ent === 'All' || i.account === ent) && !ledSierra(i.account) && !(exCash && isCash(i)); });
+    var period = Y ? 'For the period January 1, ' + yr + ' through ' + new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) + ' (year to date)' : 'For the month of ' + (D.monthLabel || '');
+    return { M: M, incs: incs, exps: exps, full: full, exCash: exCash, ent: ent, period: period, yr: yr, Y: Y, label: Y ? String(yr) : String(D.monthLabel || '').replace(/\s+/g, '-') };
+  }
+  function ledAcct(n) { n = r2(n); var s = Number(Math.abs(n)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); return n < 0 ? '(' + s + ')' : s; }
+  function ledPdf(kind) {
+    var P = ledPdfData(kind), msg = $('led-pdfmsg'); if (!P) return;
+    if (msg) msg.textContent = 'Building the PDF\u2026';
+    pcLoadScriptOnce('pdflib', PC_PDFLIB_URLS, function () { return window.PDFLib; }).then(function (L) {
+      return L.PDFDocument.create().then(function (doc) {
+        return Promise.all([doc.embedFont(L.StandardFonts.Helvetica), doc.embedFont(L.StandardFonts.HelveticaBold), doc.embedFont(L.StandardFonts.HelveticaOblique)]).then(function (F) {
+          var W = 612, H = 792, mx = 54, page, y, T = ltmWinAnsi, black = L.rgb(0, 0, 0), grey = L.rgb(0.35, 0.35, 0.35);
+          var cols = P.full ? [W - mx - 150, W - mx - 75, W - mx] : [W - mx];        // right edges: Cash | Non-cash | Total  or  Amount
+          var newPage = function () { page = doc.addPage([W, H]); y = H - 54; };
+          var need = function (h) { if (y - h < 54) { newPage(); hdrCols(); } };
+          var txt = function (s, x, f, sz, c) { page.drawText(T(s), { x: x, y: y, size: sz || 10, font: f || F[0], color: c || black }); };
+          var rtxt = function (s, xr, f, sz) { s = T(s); var w = (f || F[0]).widthOfTextAtSize(s, sz || 10); page.drawText(s, { x: xr - w, y: y, size: sz || 10, font: f || F[0], color: black }); };
+          var rule = function (x1, x2, dbl) { page.drawLine({ start: { x: x1, y: y + 11 }, end: { x: x2, y: y + 11 }, thickness: 0.6, color: black }); if (dbl) page.drawLine({ start: { x: x1, y: y + 6 }, end: { x: x2, y: y + 6 }, thickness: 0.6, color: black }); };
+          var hdrCols = function () {
+            var hs = P.full ? ['Cash', 'Non-cash', 'Total'] : ['Amount'];
+            hs.forEach(function (h, i) { rtxt(h, cols[i], F[1], 9); });
+            y -= 4; page.drawLine({ start: { x: mx, y: y }, end: { x: W - mx, y: y }, thickness: 0.8, color: black }); y -= 14;
+          };
+          var row = function (label, sp, o) {     // sp: { c, n, t }
+            o = o || {}; need(16);
+            if (o.rule) P.full ? cols.forEach(function (xr) { rule(xr - 62, xr); }) : rule(cols[0] - 80, cols[0]);
+            txt(label, mx + (o.ind || 0), o.bold ? F[1] : F[0], 10);
+            var vals = P.full ? [sp.c, sp.n, sp.t] : [sp.t];
+            vals.forEach(function (v, i) { rtxt((o.dollar ? '$ ' : '') + ledAcct(v), cols[i], o.bold ? F[1] : F[0], 10); });
+            y -= 14;
+            if (o.dbl) { y += 14; y -= 3; P.full ? cols.forEach(function (xr) { page.drawLine({ start: { x: xr - 62, y: y }, end: { x: xr, y: y }, thickness: 0.6, color: black }); page.drawLine({ start: { x: xr - 62, y: y - 2 }, end: { x: xr, y: y - 2 }, thickness: 0.6, color: black }); }) :
+              (page.drawLine({ start: { x: cols[0] - 80, y: y }, end: { x: cols[0], y: y }, thickness: 0.6, color: black }), page.drawLine({ start: { x: cols[0] - 80, y: y - 2 }, end: { x: cols[0], y: y - 2 }, thickness: 0.6, color: black })); y -= 14; }
+          };
+          var head = function (s) { need(24); y -= 4; txt(s, mx, F[1], 11); y -= 15; };
+          newPage();
+          var who = P.ent === 'All' ? 'Garman Household, TiwiK & KiwiT \u2014 Combined' : P.ent === 'Household' ? 'Garman Household' : P.ent === 'TiwiK' ? 'TiwiK (Mono Village Laundromat)' : 'KiwiT';
+          var ctr = function (s, f, sz) { s = T(s); var w = f.widthOfTextAtSize(s, sz); page.drawText(s, { x: (W - w) / 2, y: y, size: sz, font: f, color: black }); y -= sz + 5; };
+          ctr(who, F[1], 14); ctr('Income Statement (Profit and Loss)' + (P.full ? ' \u2014 Full record with cash' : ''), F[1], 12); ctr(P.period, F[0], 10); y -= 10;
+          hdrCols();
+          var sp = function (l) { return ledSplit(l); };
+          head('Income');
+          var srcs = {}; P.incs.forEach(function (i) { (srcs[i.source] = srcs[i.source] || []).push(i); });
+          Object.keys(srcs).sort(function (a, b) { return sum(srcs[b]) - sum(srcs[a]); }).forEach(function (k, ix) { row(srcLabel(k), sp(srcs[k]), { ind: 14, dollar: ix === 0 }); });
+          var ti = sp(P.incs); row('Total income', ti, { bold: true, rule: true, dollar: true });
+          y -= 6; head('Expenses');
+          var ents = {}; P.exps.forEach(function (i) { (ents[i.account] = ents[i.account] || []).push(i); });
+          var first = true;
+          ACCOUNTS.concat(Object.keys(ents).filter(function (k) { return ACCOUNTS.indexOf(k) < 0; })).forEach(function (en) {
+            var l = ents[en]; if (!l || !l.length) return;
+            need(30); txt(acctLabel(en), mx + 10, F[2], 10); y -= 14;
+            var cats = {}; l.forEach(function (i) { (cats[i.category] = cats[i.category] || []).push(i); });
+            Object.keys(cats).sort(function (a, b) { return sum(cats[b]) - sum(cats[a]); }).forEach(function (c) { row(c, sp(cats[c]), { ind: 24, dollar: first }); first = false; });
+            row('Total ' + acctLabel(en) + ' expenses', sp(l), { ind: 14, rule: true });
+            y -= 4;
+          });
+          var te = sp(P.exps); row('Total expenses', te, { bold: true, rule: true, dollar: true });
+          y -= 8;
+          row('Net income', { c: r2(ti.c - te.c), n: r2(ti.n - te.n), t: r2(ti.t - te.t) }, { bold: true, rule: true, dbl: true, dollar: true });
+          y -= 16; need(40);
+          var notes = ['Cash basis. Amounts in US dollars; negative amounts are shown in parentheses.',
+            P.full ? 'Full record: Cash = items whose payment type is Cash; Non-cash = card, app, check, transfer or not set.' :
+              'All income is included, whether received in cash or otherwise.' + (P.exCash ? ' Expenses paid in cash are not included.' : ''),
+            'Prepared ' + new Date().toLocaleDateString('en-US') + ' from Command Center (Daily Spend and Income records).'];
+          notes.forEach(function (n) { txt(n, mx, F[2], 8, grey); y -= 11; });
+          doc.setTitle(who + ' Income Statement ' + P.label); doc.setProducer('Command Center (pdf-lib, on device)');
+          return doc.save();
+        });
+      });
+    }).then(function (bytes) {
+      var name = 'Income-Statement-' + P.label + '-' + (P.ent === 'All' ? 'Combined' : P.ent) + (P.full ? '-Full-record' : '-Accountant') + '.pdf';
+      var blob = new Blob([bytes], { type: 'application/pdf' });
+      window.__ledLastPdf = { name: name, blob: blob };
+      try { var file = new File([blob], name, { type: 'application/pdf' }); if (navigator.canShare && navigator.canShare({ files: [file] })) { navigator.share({ files: [file], title: name }).catch(function () {}); if (msg) msg.textContent = 'Ready: ' + name; return; } } catch (e) {}
+      var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+      if (msg) msg.textContent = 'Downloaded ' + name;
+    }, function (err) { if (msg) msg.textContent = 'Could not build the PDF: ' + friendly(err); });
   }
 
   // ---- 3. Coming up (next 30 days): loan payments + bills from the Debts and Bills tabs. Property taxes are never shown (Mono Way is paid, Stewart Street is NNN paid
@@ -10935,6 +11039,10 @@
       return true;
     }
     if (e.target.closest('[data-led-retry]')) { loadLed(true); return true; }
+    var lv = e.target.closest('[data-led-view]'); if (lv) { try { localStorage.setItem(LED_VIEW_KEY, lv.getAttribute('data-led-view')); } catch (e2) {} renderLed(); return true; }
+    var le = e.target.closest('[data-led-ent]'); if (le) { ledRptSet('ent', le.getAttribute('data-led-ent')); renderLed(); return true; }
+    var lx = e.target.closest('[data-led-excash]'); if (lx) { ledRptSet('exCash', !!lx.checked); renderLed(); return true; }
+    var lp = e.target.closest('[data-led-pdf]'); if (lp) { ledPdf(lp.getAttribute('data-led-pdf')); return true; }
     return false;
   }
   $('fin-body').addEventListener('keydown', function (e) {
