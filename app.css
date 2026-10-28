@@ -3741,3 +3741,6 @@ body.hl-edit .homedock, body.hl-busy .homedock { display: none !important; }
 /* v206: Vault expense group totals: small "Cash $X" line under the total (taps to the cash entries) */
 #screen-spend .cashstk.cashbelow .cashunder { display: block; margin: 2px 0 0; font-size: 11px; font-weight: 500; color: var(--muted); white-space: nowrap; cursor: pointer; }
 #screen-spend .cashstk.cashbelow .amt-out { padding-left: 0; }
+
+/* v207: Ledger cash flow card: year-to-date block */
+.ledmonth.ledyear { margin-top: 14px; border-top: 1px solid rgba(255,255,255,.12); padding-top: 12px; }

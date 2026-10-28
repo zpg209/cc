@@ -10575,7 +10575,7 @@
   var LED_DEFAULT = { cash: true, flow: true, soon: true, debt: false, nw: false, ins: false, tax: false, goals: false };
   var LED_ENTS = ['Household', 'TiwiK', 'KiwiT'];
   var LED_KINDS = { bank: 'Bank', card: 'Credit card', app: 'Payment app' };
-  var led = { sp: { s: 'load', d: null, at: 0 }, ins: { s: 'load', d: null }, seq: 0, acOpen: {} };
+  var led = { sp: { s: 'load', d: null, at: 0 }, yt: { s: 'load', d: null, at: 0 }, ytSeq: 0, ins: { s: 'load', d: null }, seq: 0, acOpen: {} };
   function ledMap() {
     if (!ledMem) { try { ledMem = JSON.parse(localStorage.getItem(LED_KEY) || '{}') || {}; } catch (e) { ledMem = {}; } }
     return ledMem;
@@ -10689,14 +10689,31 @@
       ledState(s.s === 'err' ? 'The Vault could not load' + (s.err ? ': ' + friendly(s.err) : '') + '.' : 'Loading the Vault\u2026', s.s === 'err'));
     var M = spendModel(d), net = r2(M.incomeTotal - M.total), cls = net >= 0 ? 'amt-in' : 'amt-out', days = d.daysLogged != null ? Number(d.daysLogged) : 0;
     var tot = ledTot('Net this month', '<span class="' + cls + '">' + signedMoney(net) + '</span>', calcRoute('month-net'));
+    var Y = led.yt.s === 'ok' && led.yt.d ? spendModel(led.yt.d) : null, yr = new Date().getFullYear();
+    var yNet = Y ? r2(Y.incomeTotal - Y.total) : 0, yCls = yNet >= 0 ? 'amt-in' : 'amt-out';
+    tot += ledTot('Net ' + yr + ' year to date', Y ? '<span class="' + yCls + '">' + signedMoney(yNet) + '</span>' : '<span class="amt-bal">' + (led.yt.s === 'err' ? '\u2014' : '\u2026') + '</span>', Y ? 'spend' : '');   // v207
     var b = '<div class="ledmonth">' + esc(d.monthLabel || 'This month') + '</div>';
     b += ledLine('Income', '<span class="amt-in">' + money(M.incomeTotal) + '</span>', incomeRoute('All'));
     b += ledLine('Expenses', '<span class="amt-out">' + money(M.total) + '</span>', 'spend/all');
+    if (M.full) b += ledLine('Cash spent', '<span class="amt-out">' + money(cashOf(M.items)) + '</span>', cashRoute('All'), '', 'ledcash');   // v207
     b += ledLine('<b>Net</b><small>income \u2212 expenses</small>', '<span class="' + cls + '">' + signedMoney(net) + '</span>', calcRoute('month-net'), '', 'grand');
     var src = M.sources.filter(function (x) { return x.amount && !ledSierra(x.name, x.label); });
     if (src.length) b += '<div class="ledgrp"><div class="ledgh">Income by source</div>' + src.map(function (x) { return ledLine(esc(x.label), '<span class="amt-in">' + money(x.amount) + '</span>', incomeRoute(x.name)); }).join('') + '</div>';
     var acc = M.accounts.filter(function (x) { return x.amount && !ledSierra(x.name); });
-    if (acc.length) b += '<div class="ledgrp"><div class="ledgh">Expenses by entity</div>' + acc.map(function (x) { return ledLine(esc(x.name), '<span class="amt-out">' + money(x.amount) + '</span>', acctRoute(x.name)); }).join('') + '</div>';
+    if (acc.length) b += '<div class="ledgrp"><div class="ledgh">Expenses by entity</div>' + acc.map(function (x) { return ledLine(esc(x.name) + (M.full ? '<small>Cash ' + money(cashOf(M.items.filter(function (i) { return i.account === x.name; }))) + '</small>' : ''), '<span class="amt-out">' + money(x.amount) + '</span>', acctRoute(x.name)); }).join('') + '</div>';
+    // v207: the same breakdown for the year to date (Jan 1 to today)
+    b += '<div class="ledmonth ledyear">' + yr + ' year to date</div>';
+    if (!Y) b += ledNote(led.yt.s === 'err' ? 'The year-to-date totals could not load. Pull down or reopen to try again.' : 'Loading the ' + yr + ' totals\u2026');
+    else {
+      b += ledLine('Income', '<span class="amt-in">' + money(Y.incomeTotal) + '</span>', 'spend');
+      b += ledLine('Expenses', '<span class="amt-out">' + money(Y.total) + '</span>', 'spend');
+      b += ledLine('Cash spent', '<span class="amt-out">' + money(cashOf(Y.items)) + '</span>', 'spend', '', 'ledcash');
+      b += ledLine('<b>Net</b><small>income \u2212 expenses</small>', '<span class="' + yCls + '">' + signedMoney(yNet) + '</span>', 'spend', '', 'grand');
+      var ysrc = Y.sources.filter(function (x) { return x.amount && !ledSierra(x.name, x.label); });
+      if (ysrc.length) b += '<div class="ledgrp"><div class="ledgh">Income by source \u00b7 ' + yr + '</div>' + ysrc.map(function (x) { return ledLine(esc(x.label), '<span class="amt-in">' + money(x.amount) + '</span>', 'spend'); }).join('') + '</div>';
+      var yacc = Y.accounts.filter(function (x) { return x.amount && !ledSierra(x.name); });
+      if (yacc.length) b += '<div class="ledgrp"><div class="ledgh">Expenses by entity \u00b7 ' + yr + '</div>' + yacc.map(function (x) { return ledLine(esc(x.name) + '<small>Cash ' + money(cashOf(Y.items.filter(function (i) { return i.account === x.name; }))) + '</small>', '<span class="amt-out">' + money(x.amount) + '</span>', 'spend'); }).join('') + '</div>';
+    }
     if (M.liveNote) b += ledNote(esc(M.liveNote));
     else if (M.liveCount) b += ledNote('Lisa\u2019s Table income is live from Orders (paid only).');
     b += ledNote((days > 0 ? days + ' day' + (days === 1 ? '' : 's') + ' logged this month' : 'No days logged yet') + '. Same numbers as the Vault Summary. Tap a number to open it in the Vault.');
@@ -10850,6 +10867,27 @@
       if (!prev) led.sp = { s: 'err', d: null, err: err, at: Date.now() };
     }).then(function () { if (ledActive()) renderLed(); });
   }
+  // v207: year-to-date (Jan..this month) for the Ledger's annual totals: same per-month spend reads + ytdMerge as the Vault's All view
+  function ledFetchYtd(force) {
+    var s = led.yt;
+    if ((s.s === 'ok' || s.s === 'busy') && !force && Date.now() - s.at < FIN_TTL) return;
+    var seq = ++led.ytSeq, offs = ytdOffsets(), year = new Date().getFullYear(), got = {}, left = offs.length, bad = false;
+    if (s.s !== 'ok') led.yt = { s: 'busy', d: null, at: Date.now() }; else s.at = Date.now();
+    offs.forEach(function (o) {
+      var tries = 0, go = function () {
+        api('spend', o).then(function (d) {
+          if (seq !== led.ytSeq || bad) return;
+          got[o] = d;
+          if (--left === 0) { led.yt = { s: 'ok', d: ytdMerge(offs.map(function (x) { return got[x]; }), year), at: Date.now() }; if (ledActive()) renderLed(); }
+        }, function (err) {
+          if (seq !== led.ytSeq || bad) return;
+          if (!(err instanceof AuthError) && ++tries < 2) return setTimeout(go, 900);
+          bad = true; if (led.yt.s !== 'ok') led.yt = { s: 'err', d: null, at: Date.now() }; if (ledActive()) renderLed();
+        });
+      };
+      go();
+    });
+  }
   function ledFetchIns(force) {
     var c = fin.cache.insurance;
     if (c) led.ins = { s: 'ok', d: c.data }; else if (led.ins.s !== 'ok') led.ins = { s: 'load', d: null };
@@ -10876,7 +10914,7 @@
   }
   function loadLed(force) {
     ordLiveFetch(!!force);
-    loadAccounts(!!force); loadDebt(!!force); ledFetchSpend(!!force); ledFetchIns(!!force); ledFetchFin(!!force);
+    loadAccounts(!!force); loadDebt(!!force); ledFetchSpend(!!force); ledFetchYtd(!!force); ledFetchIns(!!force); ledFetchFin(!!force);
     renderLed();
   }
   function ledToggle(card) {
