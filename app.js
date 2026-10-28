@@ -4012,6 +4012,10 @@
   // v137: "Cash $X" in small muted print ABOVE an income total (TiwiK / Mono Village Laundromat). Hidden at $0 (e.g. a month with only the
   // un-typed weekly lump), so it never shows "Cash $0.00" next to a real total.
   function cashBlock(v) { return v == null || !(r2(v) > 0) ? '' : '<small class="cashabove cashblk">Cash ' + money(v) + '</small>'; }   // v138: above a .big total
+  // v206: "Cash $X" in small print UNDER an expense total (Vault group headers). Shows $0.00 too; tapping it opens those cash entries.
+  function cashUnder(v, amtHtml, route) {
+    return '<span class="cashstk cashbelow">' + amtHtml + '<small class="cashunder"' + goAttr(route) + '>Cash ' + money(r2(v || 0)) + ' &rsaquo;</small></span>';
+  }
   function cashAbove(v, amtHtml, label, valText) {   // v138: label (e.g. 'TiwiK cash') / valText (e.g. '$12.34/day') for the Vault summary
     if (v == null || !(r2(v) > 0)) return amtHtml;
     return '<span class="cashstk"><small class="cashabove">' + esc(label || 'Cash') + ' ' + (valText || money(v)) + '</small>' + amtHtml + '</span>';
@@ -4662,11 +4666,12 @@
           : barRows(a.cats, function (c) { return catRoute(c, a.name); }, '', cfn);
         if (cashOK) b += '<div class="cashtot">' + cashBtn(cashOf(mine), cashRoute(a.name)) + '</div>';
         b += totBtn(acctLabel(a.name) + ' total', a.amount, acctRoute(a.name)).replace('totrow tapt', 'totrow tapt' + (cashOK ? ' hascash' : ''));
-        h += vSec('acct-' + a.name, 'acctsec', esc(acctLabel(a.name)), '<span class="amt-out">' + money(a.amount) + '</span>', acctRoute(a.name), b);
+        var aTot = '<span class="amt-out">' + money(a.amount) + '</span>';
+        h += vSec('acct-' + a.name, 'acctsec', esc(acctLabel(a.name)), cashOK ? cashUnder(cashOf(mine), aTot, cashRoute(a.name)) : aTot, acctRoute(a.name), b);   // v206
       });
 
       var allCats = sortedPairs(sumBy(M.items, 'category'));
-      h += vSec('total', 'grand', 'Total spent', '<span class="amt-out">' + money(M.total) + '</span>', 'spend/all',
+      h += vSec('total', 'grand', 'Total spent', cashOK ? cashUnder(cashOf(M.items), '<span class="amt-out">' + money(M.total) + '</span>', cashRoute('All')) : '<span class="amt-out">' + money(M.total) + '</span>', 'spend/all',
         (allCats.length ? '<div class="foot bycat">By category \u00b7 all accounts</div>' + (M.full ? catGroups(M.items, 'total', { chip: false, acct: true, catPage: true, catLink: function (c) { return catRoute(c); } })   // v139
           : barRows(allCats, function (c) { return catRoute(c); }, '')) : '') +
         (cashOK ? '<div class="cashtot">' + cashBtn(cashOf(M.items), cashRoute('All')) + '</div>' : '') +
@@ -4686,8 +4691,10 @@
       var sumBody = '<div class="foot sub-note">Over ' + days + ' day' + (days === 1 ? '' : 's') + '</div>' +
         sumBtn('', incomeRoute('All'), 'Total income', cashAbove(tkCash, '<span class="amt amt-in">' + money(M.incomeTotal) + '</span>', 'TiwiK cash')) +   // v138
         sumBtn('', 'spend/all', 'Total spend', '<span class="amt amt-out">' + money(M.total) + '</span>') +
+        (cashOK ? sumBtn('minor', cashRoute('All'), 'Cash spent', '<span class="amt amt-out">' + money(cashOf(M.items)) + '</span>') : '') +   // v206
         sumBtn('minor', calcRoute('avg-income'), 'Avg daily income', cashAbove(tkCash, '<span class="amt amt-in">' + perDay(M.incomeTotal) + '</span>', 'TiwiK cash', perDay(tkCash) + '/day')) +
         sumBtn('minor', calcRoute('avg-spend'), 'Avg daily spend', '<span class="amt amt-out">' + perDay(M.total) + '</span>') +
+        (cashOK ? sumBtn('minor', cashRoute('All'), 'Avg daily cash spend', '<span class="amt amt-out">' + perDay(cashOf(M.items)) + '</span>') : '') +   // v206
         netLine('tiwik-net', 'TiwiK (MVL) net', srcTot('Mono Village Laundromat'), acctTot('TiwiK'), 'Spent') +
         netLine('kiwit-net', 'KiwiT net', srcTot(KR_SOURCE), acctTot('KiwiT'), 'Spent') +
         netLine('lt-net', "Lisa's Table net", srcTot("Lisa's Table"), groc, 'Groceries') +
