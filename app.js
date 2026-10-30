@@ -1457,69 +1457,70 @@
    * Native app version of Zac's Google Doc "vehicle purchase" (Tesla Model 3 Purchase Analysis, prepared 10/30/2026).
    * Static: the doc's content is baked in here (no live doc-to-native pattern exists). Source doc link at the top. */
   var VEH_DOC = 'https://docs.google.com/document/d/1gJQo0i0YAuXp09XDdUa4tZNIXjd-LSle8B7ZczVZ_uw/edit';
+  // v211: rebuilt for Model Y (Zac, 10/30/2026). Researched 10/30/2026; figures from the linked sources only. The v210 Model 3 doc is the older source.
   var VEH = {
-    cmp: [   // [factor, used, new]  (**x** = bold)
-      ['Price', '$43,000\u2013$46,000 typical for under 10k miles', '$47,490 MSRP + $1,640 fees = **$49,130** out the door before tax'],
-      ['Savings vs new', '$3,000\u2013$6,000', '\u2014'],
-      ['Basic warranty', '4 yr / 50k mi from original delivery \u2014 a 2024 may have 1\u20132 years left; a 2026 has nearly all of it', 'Full 4 yr / 50k mi from your delivery date'],
-      ['Battery & drive unit', '8 yr / 100k\u2013120k mi from original delivery, 70% capacity floor \u2014 still intact on any 2024\u20132026', 'Same 8 yr / 120k mi coverage, clock starts at your delivery'],
-      ['Battery health', 'Verify SOH before buying; expect 95\u201398% on sub-10k-mile cars', '100% guaranteed new'],
-      ['Depreciation hit', 'Someone else ate the steepest year-one cliff (11\u201319%)', 'You eat it \u2014 expect ~$5,000\u2013$9,000 loss in year one'],
-      ['FSD transfer', 'Transfers with the car if original buyer purchased it', 'You buy it new ($99/mo subscription or outright)'],
-      ['Software updates', 'Continue regardless of owner', 'Continue'],
-      ['Recalls', 'Fixed free; check NHTSA by VIN before committing', 'Fixed free under warranty'],
-      ['CPO option', 'Tesla CPO adds 1 yr / 10k mi on top if bought through Tesla directly', 'N/A'],
-      ['Financing (Oct 2026)', 'Dealer/bank rates, typically 6\u20137%+', 'Tesla: **2.49% APR** up to 72 months on Premium trims (well-qualified buyers, 5% down min)'],
-      ['Condition risk', 'Prior owner, unknown charging habits, possible cosmetic wear', 'Zero unknowns'],
-      ['Selection', 'Whatever\u2019s in inventory that day', 'Configure exactly what you want'],
-      ['Test drive / return', 'Test drive at dealer; Carvana/CarMax have return windows', 'Tesla has no traditional return policy \u2014 order is binding'],
-      ['Snow-country fit', 'AWD + heat pump proven in real winters', 'Same hardware, brand new']
+    title: 'Tesla Model Y Purchase',
+    sub: 'Updated October 30, 2026 \u00b7 Target: <b>Model Y Premium AWD (formerly Long Range AWD), low miles</b>',
+    offer: { h: 'Financing: what Tesla offers today',
+      p: ['**2.49% APR** up to 72 months on new Model Y Rear-Wheel Drive, All-Wheel Drive, Premium Rear-Wheel Drive and **Premium All-Wheel Drive**; **3.99%** on Performance.',
+        'For new Model Y orders placed on or after **October 22, 2026**; well-qualified buyers with excellent credit; **minimum 5% down** plus taxes and fees. Tesla: $14.99/month per $1,000 financed at 2.49% for 72 months. No end date is listed.',
+        'The **0.99%** offer is no longer available. It replaced 0% on August 1, 2026, then went to 1.49% on September 3, 1.99% on September 28, and 2.49% on October 22.'],
+      l: [['Tesla Current Offers', 'https://www.tesla.com/current-offers'], ['Electron Motion (Oct 24, 2026)', 'https://electronmotion.com/2026/10/24/tesla-model-y-apr/'], ['Rate history: Ryan Shaw Tech', 'https://ryanshawmedia.com/tesla/'], ['Notebookcheck (Oct 23, 2026)', 'https://www.notebookcheck.net/Cheapest-Model-Y-sees-APR-financing-interest-jump-to-579-monthly-payment.1432108.0.html']] },
+    prices: [['Model Y Rear-Wheel Drive', '$39,990', '$41,630'], ['Model Y All-Wheel Drive', '$41,990', '$43,630'], ['Premium Rear-Wheel Drive', '$45,990', '$47,630'], ['Premium All-Wheel Drive', '$49,990', '$51,630'], ['Performance', '$57,990', '$59,630']],
+    pay: { note: 'Assumptions: 10% down, 72 months, before sales tax/registration. New = Premium AWD $51,630 with Tesla\u2019s $1,640 destination/order fee. Used = the $44,080 Norco Premium AWD listing below. Standard loan math; your rate depends on credit.',
+      rows: [['New Premium AWD @ 2.49% (Tesla)', '$46,467', '$695', '$3,606'], ['Used @ 6.72% (national avg used-car APR, Oct 30)', '$39,672', '$671', '$8,643'], ['Used @ 2.99% (top credit-union used rates)', '$39,672', '$603', '$3,714']],
+      l: [['MonitorBankRates used-auto average', 'https://www.monitorbankrates.com/used-auto-loan-rates'], ['Credit-union averages (RateAPI, Aug 2026: 6.29% used 72 mo)', 'https://rateapi.dev/auto-loan-data']] },
+    cmp: [
+      ['Price', 'Low-mile 2025\u20132026 Premium/Long Range AWD listings found: **$36,660\u2013$52,990** (see listings)', 'Premium AWD **$49,990** + $1,640 fees = **$51,630** before tax'],
+      ['Financing', 'Banks/credit unions: national used-auto average **6.72%** (Oct 30, 2026); credit-union used 72-mo average 6.29% (Aug 2026); best credit unions advertise ~2\u20133%', 'Tesla **2.49% APR** up to 72 mo, 5% down min, excellent credit (orders on/after Oct 22, 2026)'],
+      ['Monthly (10% down, 72 mo)', '~$671 at 6.72% or ~$603 at 2.99% on a $44,080 car', '~$695 at 2.49% on $51,630'],
+      ['Basic warranty', '4 yr / 50k mi from original delivery \u2014 whatever is left transfers', '4 yr / 50k mi from your delivery'],
+      ['Battery & drive unit', '8 yr / 120k mi (Premium) from original delivery', '8 yr / 120k mi from your delivery'],
+      ['Range (EPA, new)', 'Premium AWD 327 mi when new; verify battery health on the car', 'Premium AWD 327 mi'],
+      ['Condition risk', 'Prior owner; check Carfax, recalls by VIN and battery health', 'None'],
+      ['Selection', 'Whatever is in inventory', 'Configure what you want; Tesla orders are binding']
     ],
-    bottom: 'Used saves real money and the battery warranty is the part that matters most \u2014 it survives intact. New buys you a full basic warranty, better financing, and zero condition risk. At your income and usage, the used route with a strong battery report is the better financial play.',
+    bottom: 'The 0.99% deal you remember ended September 3. Today a new Model Y Premium AWD is 2.49% for 72 months, which lands near $695/month with 10% down. A low-mile used Premium AWD around $44k costs about $671/month at an average used-car rate, or about $603 if you get a ~3% credit-union loan, and saves about $7.5k up front. Used only wins clearly if you also get a good used-car rate.',
     groups: [
-      { h: 'Closest to home \u2014 best matches', items: [
-        { n: '1', t: 'CarMax Bakersfield \u2014 2026 Model 3 Premium AWD', p: '$43,998', ps: '6% below market average of $46,595',
-          b: ['2,570 miles \u00b7 Deep Blue Metallic \u00b7 Black interior \u00b7 346 mi EPA range', '~4 hours from Rocklin; CarMax 150-point inspection included'],
-          l: [['Listed on TrueCar', 'https://www.truecar.com/used-cars-for-sale/listing/5YJ3E1EB9TF128077/2026-tesla-model-3/']] },
-        { n: '2', t: 'CarMax Stockton \u2014 2026 Model 3 Premium', p: '$44,998', b: ['3,616 miles', '~1.5 hours from Rocklin; verify AWD on the specific VIN before driving down'],
-          l: [['AutoToday Sacramento search', 'https://www.autostoday.com/cars-for-sale/used-cars/tesla/model-3/year-2026/location-sacramento-ca']] },
-        { n: '3', t: 'CarMax Roseville \u2014 2026 Model 3 Premium RWD', p: '$45,998', warn: true,
-          b: ['10,102 miles', '2 miles from you \u2014 but this is rear-wheel drive, not AWD. Only relevant if you\u2019d compromise on drivetrain.'],
-          l: [['Capital One listing', 'https://www.capitalone.com/cars/used-2026-tesla-model-3/in-rocklin-ca']] }
+      { h: 'Near Rocklin (Roseville, Sacramento, Auburn, Elk Grove)', items: [
+        { n: '1', t: '2025 Model Y Long Range AWD \u2014 EchoPark, Roseville', p: '$38,882', b: ['11,163 mi \u00b7 Gray / Black \u00b7 VIN 7SAYGDEEXSF240335', 'Listed Aug 15, 2026 \u2014 confirm it\u2019s still there'], l: [['VehiSales listing', 'https://vehisales.com/vehicle/2025-Tesla-Model-Y-Long-Range-7SAYGDEEXSF240335']] },
+        { n: '2', t: '2025 Model Y Long Range AWD \u2014 Auburn (32 mi from Sacramento)', p: '$36,660', ps: '$42,073 with dealer fees', b: ['14,348 mi \u00b7 Stealth Gray / Black \u00b7 Stock T49881 \u00b7 VIN 7SAYGAEE5SF235106'], l: [['CarGurus Sacramento search', 'https://www.cargurus.com/Cars/l-Used-2025-Tesla-Model-Y-Sacramento-c33777_L2795']] },
+        { n: '3', t: '2024 Model Y Long Range AWD \u2014 CarMax Sacramento South', p: '$39,998', b: ['16,896 mi'], l: [['CarMax Sacramento South inventory', 'https://www.auta.com/search/?dealer=563663']] },
+        { n: '4', t: '2026 Model Y Premium \u2014 Niello Acura, Roseville', p: '$47,768', ps: 'incl. fees', warn: true, b: ['5,424 mi \u00b7 Diamond Black \u00b7 VIN 7SAYGDED2TF643444', 'Rear-wheel drive, not AWD'], l: [['Roseville Automall listing', 'https://www.rosevilleautomall.com/vehicle-details/used-2026-tesla-model-y-premium-roseville-ca-id-66417832']] },
+        { n: '5', t: '2026 Model Y Premium \u2014 Elk Grove CDJR', p: '$45,280', warn: true, b: ['4,973 mi \u00b7 Diamond Black \u00b7 VIN 7SAYGDED9TA606792', 'Rear-wheel drive, not AWD'], l: [['Elk Grove Auto Mall listing', 'https://www.elkgroveautomall.com/used-Elk+Grove+-2026-Tesla-Model+Y-Premium-7SAYGDED9TA606792']] }
       ] },
-      { h: 'Store-transfer options (CarGurus, ship to Roseville/San Jose)', items: [
-        { n: '4', t: '2026 Premium AWD \u2014 13,130 mi', p: '$48,897', ps: 'incl. ~$1,899 shipping', b: ['Stock 28945993 \u00b7 VIN 5YJ3E1EB7TF123623 \u00b7 Gray / Black'],
-          l: [['Roseville transfer page', 'https://www.cargurus.com/Cars/t-Used-2026-Tesla-Model-3-Premium-AWD-Roseville-t117740_L3212'], ['San Jose transfer', 'https://www.cargurus.com/Cars/t-Used-Tesla-Model-3-Premium-AWD-San-Jose-t117740_L2938']] },
-        { n: '5', t: '2026 Premium AWD \u2014 1,413 mi', p: '$52,797', ps: 'incl. $1,799 shipping', warn: true,
-          b: ['Stock 29212941 \u00b7 VIN 5YJ3E1EB8TF185256', 'Same CarGurus pages as above \u2014 very low miles but priced above new-equivalent, so skip unless you find it negotiable'], l: [] }
+      { h: 'Ship or drive (lowest miles, Premium AWD)', items: [
+        { n: '6', t: '2026 Model Y Premium AWD \u2014 Premium Autos, Norco CA', p: '$44,080', ps: 'incl. $85 doc fee', b: ['1,639 mi \u00b7 Gray / Black \u00b7 VIN 7SAYGDEE0TF541553 \u00b7 dealer est. ~98% battery', 'Southern California (Inland Empire)'], l: [['Dealer listing', 'https://www.premiumautosinc.com/inventory/2026-tesla-model-y-long-range-premium-awd-7saygdee0tf541553']] },
+        { n: '7', t: '2026 Model Y Premium AWD \u2014 Carvana', p: '$52,990', ps: '+$1,290 shipping', warn: true, b: ['8,528 mi \u00b7 VIN 7SAYGDEE8TF556124', 'Priced above a new Premium AWD ($51,630) \u2014 skip unless it drops'], l: [['Visor listing', 'https://visor.vin/search/listings/7SAYGDEE8TF556124']] }
       ] }
     ],
-    national: [['CarGurus Clearwater, FL: 5,265 mi \u00b7 $42,998', 'https://www.cargurus.com/details/442660607'], ['CarGurus Milwaukee, WI: 2,427 mi \u00b7 $44,997', ''], ['CarGurus Orlando, FL: 3,499 mi \u00b7 $47,086', ''],
-      ['CarMax nationwide 2026 Premium search', 'https://www.carmax.com/cars/tesla/model-3/premium'], ['Carvana AWD inventory (filter AWD + low miles)', 'https://www.carvana.com/cars/tesla-model-3']],
-    sold: ['Tesla Roamer 2026 Premium AWD, 7,565 mi, was $43,400 \u2014 98% battery health, Deep Blue. Gone as of Oct 24.',
-      'Tesla Roamer 2026 Premium AWD, 3,257 mi, was $44,600 \u2014 97% battery health, Quicksilver. Gone as of Oct 27.',
-      'These show the market moving fast on sub-5k-mile AWDs in the low-to-mid $44s.'],
+    national: [['Tesla used Model Y inventory (Rocklin area)', 'https://www.tesla.com/inventory/used/my'], ['CarMax Model Y search', 'https://www.carmax.com/cars/tesla/model-y'], ['Carvana Model Y (filter AWD + low miles)', 'https://www.carvana.com/cars/tesla-model-y']],
+    sold: ['No Model Y listings were found at CarMax Bakersfield or Stockton on 10/30/2026 (the v210 Bakersfield/Stockton cars were Model 3s).'],
     links: [
-      ['Pricing & configurator', [['Tesla US Model 3 configurator', 'https://www.tesla.com/model3'], ['Trendy Tech Tribe trim comparison (Oct 21, 2026)', 'https://trendytechtribe.com/evs/which-tesla-model-3'], ['JD Power Premium AWD average price', 'https://www.jdpower.com/cars/2026/tesla/model-3/premium-awd']]],
-      ['Depreciation & resale', [['iSeeCars 5-year resale (Model 3: 46.4%, Model Y: 44.6%)', 'https://www.iseecars.com/resale-value-brands/tesla'], ['Aampere EV Resale Index Q3 2026 (Model 3: 57.6% at 36 mo)', 'https://teslant.com/en/news/aampere-ev-resale-index-q3-2026-tesla-model-3-57-6-percent-residual'], ['CarEdge Model Y depreciation calculator', 'https://caredge.com/tesla/model-y/depreciation'], ['Axis Intelligence 5-year cost of ownership', 'https://axis-intelligence.com/tesla-cost-of-ownership/']]],
-      ['Reliability & issues', [['NHTSA recalls by VIN', 'https://www.nhtsa.gov/recalls'], ['2026 Model Y problems & complaints (427 reports, 8 recalls)', 'https://recallgazette.com/tesla/model-y/2026'], ['2026 Model 3 problems (29 complaints, 1 recall)', 'https://carsafetyrecord.com/vehicle/2026-tesla-tesla-model-3/'], ['MotorBiscuit years to avoid', 'https://www.motorbiscuit.com/tesla-model-y-years-to-avoid/'], ['EV Fix Guide common repairs & costs', 'https://evfixguide.com/blog/tesla-repair-costs-by-model'], ['NHTSA suspension investigation (1.2M vehicles, 2018\u20132023)', 'https://driveteslacanada.ca/news/tesla-suspension-investigation-nhtsa/']]],
-      ['Battery & maintenance', [['NextGen Auto Model 3 reliability report', 'https://www.nextgenauto.us/tesla-model-3-reliability'], ['EVSeekers maintenance cost data', 'https://evseekers.com/average-tesla-maintenance-cost/'], ['AutoCostIndex Model Y maintenance', 'https://autocostindex.com/tesla/model-y/maintenance-cost/'], ['Trendy Tech Tribe drive unit replacement', 'https://trendytechtribe.com/evs/tesla-drive-unit']]],
-      ['California-specific', [['CARB MyFirstEV program status (Tesla closed Aug 2026): check for current open brands', 'https://www.arb.ca.gov'], ['PG&E residential EV rate plans for home charging cost modeling', '']]],
-      ['Local dealers', [['Tesla Rocklin (Granite Dr): 916-652-7740', 'tel:9166527740'], ['CarMax Roseville: near you for test drives', ''], ['CarMax Stockton & Bakersfield: the AWD inventory', '']]]
+      ['Pricing & financing', [['Tesla Model Y', 'https://www.tesla.com/modely'], ['Tesla Current Offers', 'https://www.tesla.com/current-offers'], ['Electron Motion: payment by trim at 2.49%', 'https://electronmotion.com/2026/10/24/tesla-model-y-apr/'], ['Edmunds Model Y', 'https://www.edmunds.com/tesla/model-y/']]],
+      ['Used-car loan rates', [['MonitorBankRates used auto loans', 'https://www.monitorbankrates.com/used-auto-loan-rates'], ['RateAPI credit-union auto loan data', 'https://rateapi.dev/auto-loan-data']]],
+      ['Depreciation & reliability', [['iSeeCars Tesla resale', 'https://www.iseecars.com/resale-value-brands/tesla'], ['CarEdge Model Y depreciation', 'https://caredge.com/tesla/model-y/depreciation'], ['NHTSA recalls by VIN', 'https://www.nhtsa.gov/recalls'], ['2026 Model Y complaints & recalls', 'https://recallgazette.com/tesla/model-y/2026'], ['MotorBiscuit Model Y years to avoid', 'https://www.motorbiscuit.com/tesla-model-y-years-to-avoid/'], ['AutoCostIndex Model Y maintenance', 'https://autocostindex.com/tesla/model-y/maintenance-cost/']]],
+      ['Local', [['Tesla Rocklin (Granite Dr): 916-652-7740', 'tel:9166527740']]]
     ],
-    steps: ['Run the VIN 5YJ3E1EB9TF128077 (CarMax Bakersfield) through NHTSA recalls and a battery health check request before visiting.',
-      'Ask CarMax Stockton to confirm whether 5YJ3E1EA6TF178605 is AWD \u2014 the listing title just says Premium.',
-      'If buying used, get the battery SOH report in writing; anything under 92% at low miles is a walk-away.',
-      'Compare the 2.49% Tesla financing against CarMax\u2019s rate on the same car \u2014 the interest savings on a $44k loan can be $1,500\u2013$2,500 over 72 months.',
-      'Schedule test drives at CarMax Roseville (closest) and CarMax Stockton (AWD inventory) in one trip.']
+    steps: ['Get a used-car rate quote from your bank/credit union first \u2014 at ~3% a used Premium AWD beats new on monthly cost; at ~6.7% it\u2019s about even.',
+      'Call EchoPark Roseville (2025 Long Range AWD, $38,882) and confirm it\u2019s still available; it has been listed since August.',
+      'For the Norco 1,639-mi Premium AWD ($44,080), ask for a battery health report and a delivery/transfer quote to Rocklin.',
+      'Run any VIN through NHTSA recalls before committing.',
+      'If going new, price a Premium AWD on tesla.com at 2.49% / 72 mo with 5%+ down; the rate has gone up four times since August, so waiting is unlikely to help.']
   };
   function vehB(s) { return esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>'); }
   function vehA(label, url) { return url ? '<a class="veh-a" href="' + esc(url) + '" target="_blank" rel="noopener" data-external="1">' + esc(label) + ' &#8599;</a>' : '<span>' + esc(label) + '</span>'; }
   function vehSec(key, title, body, open) { return '<details class="card veh-sec" data-veh="' + key + '"' + (open ? ' open' : '') + '><summary><h3>' + esc(title) + '</h3><i class="chev">&rsaquo;</i></summary><div class="veh-body">' + body + '</div></details>'; }
   function vehicleOpen() {
     $('vehicle-back').setAttribute('data-go', hlItemBack('vehicle', 'hf/zac'));
-    var cmp = '<div class="veh-legend"><span class="veh-u">Used</span> Premium AWD (low miles, 6 mo\u20133 yr) \u00b7 <span class="veh-n">New</span> Premium AWD (off the lot)</div>' +
+    var t = document.querySelector('#screen-vehicle .pagetitle'); if (t) t.textContent = VEH.title;
+    var cmp = '<div class="veh-legend"><span class="veh-u">Used</span> low-mile Premium/Long Range AWD \u00b7 <span class="veh-n">New</span> Premium AWD from Tesla</div>' +
       VEH.cmp.map(function (r) { return '<div class="veh-f"><div class="veh-fh">' + esc(r[0]) + '</div><div class="veh-fr"><b class="veh-u">Used</b><span>' + vehB(r[1]) + '</span></div><div class="veh-fr"><b class="veh-n">New</b><span>' + vehB(r[2]) + '</span></div></div>'; }).join('');
+    var offer = VEH.offer.p.map(function (x) { return '<p>' + vehB(x) + '</p>'; }).join('') + '<div class="veh-links">' + VEH.offer.l.map(function (l) { return vehA(l[0], l[1]); }).join('') + '</div>';
+    var prices = VEH.prices.map(function (r) { return '<div class="veh-pr"><span>' + esc(r[0]) + '</span><b>' + esc(r[1]) + '</b><small>' + esc(r[2]) + ' w/ fees</small></div>'; }).join('') +
+      '<div class="veh-links">' + vehA('Electron Motion trim prices (Tesla design page)', 'https://electronmotion.com/2026/10/24/tesla-model-y-apr/') + '</div>';
+    var pay = VEH.pay.rows.map(function (r) { return '<div class="veh-pay"><div class="veh-pay-h">' + esc(r[0]) + '</div><div class="veh-pay-g"><span>Financed<b>' + esc(r[1]) + '</b></span><span>Monthly<b class="veh-big">' + esc(r[2]) + '</b></span><span>Interest<b>' + esc(r[3]) + '</b></span></div></div>'; }).join('') +
+      '<p class="veh-note">' + esc(VEH.pay.note) + '</p><div class="veh-links">' + VEH.pay.l.map(function (l) { return vehA(l[0], l[1]); }).join('') + '</div>';
     var lst = VEH.groups.map(function (g) {
       return '<div class="veh-gh">' + esc(g.h) + '</div>' + g.items.map(function (it) {
         return '<div class="veh-l' + (it.warn ? ' warn' : '') + '"><div class="veh-lt"><span class="veh-num">' + it.n + '</span><span>' + esc(it.t) + '</span></div>' +
@@ -1527,18 +1528,21 @@
           (it.l.length ? '<div class="veh-links">' + it.l.map(function (l) { return vehA(l[0], l[1]); }).join('') + '</div>' : '') + '</div>';
       }).join('');
     }).join('') +
-      '<div class="veh-gh">National low-mile AWD (for reference \u2014 shipping cost eats the discount)</div><ul class="veh-ul">' + VEH.national.map(function (x) { return '<li>' + vehA(x[0], x[1]) + '</li>'; }).join('') + '</ul>' +
-      '<div class="veh-gh">Recently sold / no longer active (for price context)</div><ul class="veh-ul">' + VEH.sold.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>';
+      '<div class="veh-gh">Search more</div><ul class="veh-ul">' + VEH.national.map(function (x) { return '<li>' + vehA(x[0], x[1]) + '</li>'; }).join('') + '</ul>' +
+      '<ul class="veh-ul veh-muted">' + VEH.sold.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>';
     var links = VEH.links.map(function (g) { return '<div class="veh-gh">' + esc(g[0]) + '</div><ul class="veh-ul">' + g[1].map(function (x) { return '<li>' + vehA(x[0], x[1]) + '</li>'; }).join('') + '</ul>'; }).join('');
     $('vehicle-body').innerHTML =
-      '<p class="veh-sub">Prepared October 30, 2026 \u00b7 Target: <b>Loaded Premium AWD, low miles</b></p>' +
+      '<p class="veh-sub">' + VEH.sub + '</p>' +
       '<a class="veh-src" href="' + VEH_DOC + '" target="_blank" rel="noopener" data-external="1">Source doc &#8599;</a>' +
       '<div class="card veh-bottom"><h3>Bottom line</h3><p>' + esc(VEH.bottom) + '</p></div>' +
+      vehSec('offer', VEH.offer.h, offer, true) +
+      vehSec('pay', 'Monthly payment: new vs used', pay, true) +
       vehSec('cmp', 'Side-by-side: used vs new', cmp, true) +
-      vehSec('list', 'Listings that fit (AWD, low miles, Oct 2026)', lst, true) +
+      vehSec('price', 'New Model Y prices (Oct 2026)', prices, false) +
+      vehSec('list', 'Listings (Model Y, low miles, Oct 30, 2026)', lst, true) +
       vehSec('steps', 'Next steps', '<ol class="veh-ol">' + VEH.steps.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ol>', true) +
       vehSec('links', 'Research links', links, false) +
-      '<p class="veh-foot"><i>Prices and inventory shift daily \u2014 verify before acting.</i></p>';
+      '<p class="veh-foot"><i>Prices, rates and inventory shift daily \u2014 verify before acting. Researched October 30, 2026.</i></p>';
   }
 
   /* ---------------- ADU (#adu; Home > Zac, v177) ---------------- */
@@ -24269,7 +24273,7 @@
     'cart':      { label: 'Heavy Object Cart Build', go: 'cart', sub: 'Materials \u00b7 cut list', cls: 'hiring-entry' },   // v176: Zac > after Wetumka (#cart)   // v149: Zac > Wetumka (project lists)
     'generator': { label: 'Generator', go: 'generator', sub: 'Power cell \u00b7 overview', cls: 'hiring-entry' },   // v177: Zac > Generator (#generator)
     'adu':       { label: 'ADU', go: 'adu', sub: 'Floor plans', cls: 'hiring-entry' },   // v177: Zac > ADU (#adu)
-    'vehicle':   { label: 'Vehicle Purchase', go: 'vehicle', sub: 'Tesla Model 3 \u00b7 used vs new', cls: 'hiring-entry' },   // v210: native screen (#vehicle); v209 opened the Doc
+    'vehicle':   { label: 'Vehicle Purchase', go: 'vehicle', sub: 'Tesla Model Y \u00b7 used vs new', cls: 'hiring-entry' },   // v210: native screen (#vehicle); v209 opened the Doc
     'f:mkt':     { label: 'Marketing', go: 'hf/mkt', folder: true },   // v180: Zac > Marketing (app-only folder: four starter plans)
     'mkt/lt':    { label: 'Lisa\u2019s Table', go: 'mkt/lt', sub: 'Marketing plan', cls: 'hiring-entry' },
     'mkt/pt':    { label: 'Lisa\u2019s Personal Training', go: 'mkt/pt', sub: 'Marketing plan', cls: 'hiring-entry' },
