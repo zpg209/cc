@@ -24180,6 +24180,7 @@
     'cart':      { label: 'Heavy Object Cart Build', go: 'cart', sub: 'Materials \u00b7 cut list', cls: 'hiring-entry' },   // v176: Zac > after Wetumka (#cart)   // v149: Zac > Wetumka (project lists)
     'generator': { label: 'Generator', go: 'generator', sub: 'Power cell \u00b7 overview', cls: 'hiring-entry' },   // v177: Zac > Generator (#generator)
     'adu':       { label: 'ADU', go: 'adu', sub: 'Floor plans', cls: 'hiring-entry' },   // v177: Zac > ADU (#adu)
+    'vehicle':   { label: 'Vehicle Purchase', go: 'doc?u=' + encodeURIComponent('https://docs.google.com/document/d/1gJQo0i0YAuXp09XDdUa4tZNIXjd-LSle8B7ZczVZ_uw/edit') + '&t=' + encodeURIComponent('Vehicle Purchase') + '&from=' + encodeURIComponent('hf/zac'), sub: 'Google Doc', cls: 'hiring-entry' },   // v209: Zac > Vehicle Purchase (in-app doc viewer)
     'f:mkt':     { label: 'Marketing', go: 'hf/mkt', folder: true },   // v180: Zac > Marketing (app-only folder: four starter plans)
     'mkt/lt':    { label: 'Lisa\u2019s Table', go: 'mkt/lt', sub: 'Marketing plan', cls: 'hiring-entry' },
     'mkt/pt':    { label: 'Lisa\u2019s Personal Training', go: 'mkt/pt', sub: 'Marketing plan', cls: 'hiring-entry' },
@@ -24209,7 +24210,8 @@
     'f:fh': HL_FH_IN.slice(),
     'f:medical': ['health'],
     'f:lisa': ['lr'],
-    'f:zac': ['f:wetumka', 'generator', 'cart', 'adu', 'f:mkt'],   // v180: + Marketing
+    'f:zac': ['f:wetumka', 'generator', 'cart', 'adu', 'vehicle', 'f:mkt'],   // v209: + Vehicle Purchase
+      // v180: + Marketing
     'f:mkt': ['mkt/lt', 'mkt/pt', 'mkt/mvl', 'mkt/mf'],   // v177: + Generator, + ADU; v176 cart (hlNormalize slots into saved layouts)
     'f:wetumka': ['zl/garage', 'zl/connex', 'zl/landscaping'],         // v149   // v130: saved layouts get it too (hlNormalize slots new items into their default folder)
     biz: ['tlc', 'f:archive'],   // v192: + TiwiK Equipment Loan Options (draggable; hlNormalize slots it into saved layouts)   // v147: the v141-v146 'ownership' tile is gone from Business (it now lives only on Trust & Estate); hlNormalize drops it from saved layouts
