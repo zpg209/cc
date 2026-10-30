@@ -14,7 +14,7 @@
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', ovKey: '', invAcct: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
-  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring', 'ownership', 'zl', 'fchase', 'bankrev', 'ptpl', 'cart', 'generator', 'adu', 'mkt', 'tlc', 'opps'];
+  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring', 'ownership', 'zl', 'fchase', 'bankrev', 'ptpl', 'cart', 'generator', 'adu', 'mkt', 'tlc', 'opps', 'vehicle'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -638,6 +638,7 @@
     if (name === 'opps') oppsOpen();   // v193: Finances > Opportunities
     if (name === 'tlc') tlcOpen();   // v192: TiwiK equipment loan comparison
     if (name === 'cart') cartOpen();   // v176: Zac > Heavy Object Cart Build
+    if (name === 'vehicle') vehicleOpen();   // v210: Zac > Vehicle Purchase (native)
     if (name === 'generator') generatorOpen();   // v177: Zac > Generator
     if (name === 'adu') aduOpen();
     if (name === 'mkt') mktOpen();   // v180: Zac > Marketing > plan page   // v177: Zac > ADU
@@ -1450,6 +1451,94 @@
     $('generator-back').setAttribute('data-go', hlItemBack('generator', 'hf/zac'));
     $('generator-body').innerHTML = '<div class="grid2" id="generator-list">' + GENERATOR.docs.map(function (d) { return tile(d, d.sub || 'File'); }).join('') + '</div>' +
       '<a class="linkrow" data-title="Generator" href="' + esc(GENERATOR.folderUrl) + '">Open folder &rsaquo;</a>';
+  }
+
+  /* ---------------- Vehicle Purchase (#vehicle; Home > Zac, v210) ----------------
+   * Native app version of Zac's Google Doc "vehicle purchase" (Tesla Model 3 Purchase Analysis, prepared 10/30/2026).
+   * Static: the doc's content is baked in here (no live doc-to-native pattern exists). Source doc link at the top. */
+  var VEH_DOC = 'https://docs.google.com/document/d/1gJQo0i0YAuXp09XDdUa4tZNIXjd-LSle8B7ZczVZ_uw/edit';
+  var VEH = {
+    cmp: [   // [factor, used, new]  (**x** = bold)
+      ['Price', '$43,000\u2013$46,000 typical for under 10k miles', '$47,490 MSRP + $1,640 fees = **$49,130** out the door before tax'],
+      ['Savings vs new', '$3,000\u2013$6,000', '\u2014'],
+      ['Basic warranty', '4 yr / 50k mi from original delivery \u2014 a 2024 may have 1\u20132 years left; a 2026 has nearly all of it', 'Full 4 yr / 50k mi from your delivery date'],
+      ['Battery & drive unit', '8 yr / 100k\u2013120k mi from original delivery, 70% capacity floor \u2014 still intact on any 2024\u20132026', 'Same 8 yr / 120k mi coverage, clock starts at your delivery'],
+      ['Battery health', 'Verify SOH before buying; expect 95\u201398% on sub-10k-mile cars', '100% guaranteed new'],
+      ['Depreciation hit', 'Someone else ate the steepest year-one cliff (11\u201319%)', 'You eat it \u2014 expect ~$5,000\u2013$9,000 loss in year one'],
+      ['FSD transfer', 'Transfers with the car if original buyer purchased it', 'You buy it new ($99/mo subscription or outright)'],
+      ['Software updates', 'Continue regardless of owner', 'Continue'],
+      ['Recalls', 'Fixed free; check NHTSA by VIN before committing', 'Fixed free under warranty'],
+      ['CPO option', 'Tesla CPO adds 1 yr / 10k mi on top if bought through Tesla directly', 'N/A'],
+      ['Financing (Oct 2026)', 'Dealer/bank rates, typically 6\u20137%+', 'Tesla: **2.49% APR** up to 72 months on Premium trims (well-qualified buyers, 5% down min)'],
+      ['Condition risk', 'Prior owner, unknown charging habits, possible cosmetic wear', 'Zero unknowns'],
+      ['Selection', 'Whatever\u2019s in inventory that day', 'Configure exactly what you want'],
+      ['Test drive / return', 'Test drive at dealer; Carvana/CarMax have return windows', 'Tesla has no traditional return policy \u2014 order is binding'],
+      ['Snow-country fit', 'AWD + heat pump proven in real winters', 'Same hardware, brand new']
+    ],
+    bottom: 'Used saves real money and the battery warranty is the part that matters most \u2014 it survives intact. New buys you a full basic warranty, better financing, and zero condition risk. At your income and usage, the used route with a strong battery report is the better financial play.',
+    groups: [
+      { h: 'Closest to home \u2014 best matches', items: [
+        { n: '1', t: 'CarMax Bakersfield \u2014 2026 Model 3 Premium AWD', p: '$43,998', ps: '6% below market average of $46,595',
+          b: ['2,570 miles \u00b7 Deep Blue Metallic \u00b7 Black interior \u00b7 346 mi EPA range', '~4 hours from Rocklin; CarMax 150-point inspection included'],
+          l: [['Listed on TrueCar', 'https://www.truecar.com/used-cars-for-sale/listing/5YJ3E1EB9TF128077/2026-tesla-model-3/']] },
+        { n: '2', t: 'CarMax Stockton \u2014 2026 Model 3 Premium', p: '$44,998', b: ['3,616 miles', '~1.5 hours from Rocklin; verify AWD on the specific VIN before driving down'],
+          l: [['AutoToday Sacramento search', 'https://www.autostoday.com/cars-for-sale/used-cars/tesla/model-3/year-2026/location-sacramento-ca']] },
+        { n: '3', t: 'CarMax Roseville \u2014 2026 Model 3 Premium RWD', p: '$45,998', warn: true,
+          b: ['10,102 miles', '2 miles from you \u2014 but this is rear-wheel drive, not AWD. Only relevant if you\u2019d compromise on drivetrain.'],
+          l: [['Capital One listing', 'https://www.capitalone.com/cars/used-2026-tesla-model-3/in-rocklin-ca']] }
+      ] },
+      { h: 'Store-transfer options (CarGurus, ship to Roseville/San Jose)', items: [
+        { n: '4', t: '2026 Premium AWD \u2014 13,130 mi', p: '$48,897', ps: 'incl. ~$1,899 shipping', b: ['Stock 28945993 \u00b7 VIN 5YJ3E1EB7TF123623 \u00b7 Gray / Black'],
+          l: [['Roseville transfer page', 'https://www.cargurus.com/Cars/t-Used-2026-Tesla-Model-3-Premium-AWD-Roseville-t117740_L3212'], ['San Jose transfer', 'https://www.cargurus.com/Cars/t-Used-Tesla-Model-3-Premium-AWD-San-Jose-t117740_L2938']] },
+        { n: '5', t: '2026 Premium AWD \u2014 1,413 mi', p: '$52,797', ps: 'incl. $1,799 shipping', warn: true,
+          b: ['Stock 29212941 \u00b7 VIN 5YJ3E1EB8TF185256', 'Same CarGurus pages as above \u2014 very low miles but priced above new-equivalent, so skip unless you find it negotiable'], l: [] }
+      ] }
+    ],
+    national: [['CarGurus Clearwater, FL: 5,265 mi \u00b7 $42,998', 'https://www.cargurus.com/details/442660607'], ['CarGurus Milwaukee, WI: 2,427 mi \u00b7 $44,997', ''], ['CarGurus Orlando, FL: 3,499 mi \u00b7 $47,086', ''],
+      ['CarMax nationwide 2026 Premium search', 'https://www.carmax.com/cars/tesla/model-3/premium'], ['Carvana AWD inventory (filter AWD + low miles)', 'https://www.carvana.com/cars/tesla-model-3']],
+    sold: ['Tesla Roamer 2026 Premium AWD, 7,565 mi, was $43,400 \u2014 98% battery health, Deep Blue. Gone as of Oct 24.',
+      'Tesla Roamer 2026 Premium AWD, 3,257 mi, was $44,600 \u2014 97% battery health, Quicksilver. Gone as of Oct 27.',
+      'These show the market moving fast on sub-5k-mile AWDs in the low-to-mid $44s.'],
+    links: [
+      ['Pricing & configurator', [['Tesla US Model 3 configurator', 'https://www.tesla.com/model3'], ['Trendy Tech Tribe trim comparison (Oct 21, 2026)', 'https://trendytechtribe.com/evs/which-tesla-model-3'], ['JD Power Premium AWD average price', 'https://www.jdpower.com/cars/2026/tesla/model-3/premium-awd']]],
+      ['Depreciation & resale', [['iSeeCars 5-year resale (Model 3: 46.4%, Model Y: 44.6%)', 'https://www.iseecars.com/resale-value-brands/tesla'], ['Aampere EV Resale Index Q3 2026 (Model 3: 57.6% at 36 mo)', 'https://teslant.com/en/news/aampere-ev-resale-index-q3-2026-tesla-model-3-57-6-percent-residual'], ['CarEdge Model Y depreciation calculator', 'https://caredge.com/tesla/model-y/depreciation'], ['Axis Intelligence 5-year cost of ownership', 'https://axis-intelligence.com/tesla-cost-of-ownership/']]],
+      ['Reliability & issues', [['NHTSA recalls by VIN', 'https://www.nhtsa.gov/recalls'], ['2026 Model Y problems & complaints (427 reports, 8 recalls)', 'https://recallgazette.com/tesla/model-y/2026'], ['2026 Model 3 problems (29 complaints, 1 recall)', 'https://carsafetyrecord.com/vehicle/2026-tesla-tesla-model-3/'], ['MotorBiscuit years to avoid', 'https://www.motorbiscuit.com/tesla-model-y-years-to-avoid/'], ['EV Fix Guide common repairs & costs', 'https://evfixguide.com/blog/tesla-repair-costs-by-model'], ['NHTSA suspension investigation (1.2M vehicles, 2018\u20132023)', 'https://driveteslacanada.ca/news/tesla-suspension-investigation-nhtsa/']]],
+      ['Battery & maintenance', [['NextGen Auto Model 3 reliability report', 'https://www.nextgenauto.us/tesla-model-3-reliability'], ['EVSeekers maintenance cost data', 'https://evseekers.com/average-tesla-maintenance-cost/'], ['AutoCostIndex Model Y maintenance', 'https://autocostindex.com/tesla/model-y/maintenance-cost/'], ['Trendy Tech Tribe drive unit replacement', 'https://trendytechtribe.com/evs/tesla-drive-unit']]],
+      ['California-specific', [['CARB MyFirstEV program status (Tesla closed Aug 2026): check for current open brands', 'https://www.arb.ca.gov'], ['PG&E residential EV rate plans for home charging cost modeling', '']]],
+      ['Local dealers', [['Tesla Rocklin (Granite Dr): 916-652-7740', 'tel:9166527740'], ['CarMax Roseville: near you for test drives', ''], ['CarMax Stockton & Bakersfield: the AWD inventory', '']]]
+    ],
+    steps: ['Run the VIN 5YJ3E1EB9TF128077 (CarMax Bakersfield) through NHTSA recalls and a battery health check request before visiting.',
+      'Ask CarMax Stockton to confirm whether 5YJ3E1EA6TF178605 is AWD \u2014 the listing title just says Premium.',
+      'If buying used, get the battery SOH report in writing; anything under 92% at low miles is a walk-away.',
+      'Compare the 2.49% Tesla financing against CarMax\u2019s rate on the same car \u2014 the interest savings on a $44k loan can be $1,500\u2013$2,500 over 72 months.',
+      'Schedule test drives at CarMax Roseville (closest) and CarMax Stockton (AWD inventory) in one trip.']
+  };
+  function vehB(s) { return esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>'); }
+  function vehA(label, url) { return url ? '<a class="veh-a" href="' + esc(url) + '" target="_blank" rel="noopener" data-external="1">' + esc(label) + ' &#8599;</a>' : '<span>' + esc(label) + '</span>'; }
+  function vehSec(key, title, body, open) { return '<details class="card veh-sec" data-veh="' + key + '"' + (open ? ' open' : '') + '><summary><h3>' + esc(title) + '</h3><i class="chev">&rsaquo;</i></summary><div class="veh-body">' + body + '</div></details>'; }
+  function vehicleOpen() {
+    $('vehicle-back').setAttribute('data-go', hlItemBack('vehicle', 'hf/zac'));
+    var cmp = '<div class="veh-legend"><span class="veh-u">Used</span> Premium AWD (low miles, 6 mo\u20133 yr) \u00b7 <span class="veh-n">New</span> Premium AWD (off the lot)</div>' +
+      VEH.cmp.map(function (r) { return '<div class="veh-f"><div class="veh-fh">' + esc(r[0]) + '</div><div class="veh-fr"><b class="veh-u">Used</b><span>' + vehB(r[1]) + '</span></div><div class="veh-fr"><b class="veh-n">New</b><span>' + vehB(r[2]) + '</span></div></div>'; }).join('');
+    var lst = VEH.groups.map(function (g) {
+      return '<div class="veh-gh">' + esc(g.h) + '</div>' + g.items.map(function (it) {
+        return '<div class="veh-l' + (it.warn ? ' warn' : '') + '"><div class="veh-lt"><span class="veh-num">' + it.n + '</span><span>' + esc(it.t) + '</span></div>' +
+          '<div class="veh-price">' + esc(it.p) + (it.ps ? ' <small>' + esc(it.ps) + '</small>' : '') + '</div><ul>' + it.b.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' +
+          (it.l.length ? '<div class="veh-links">' + it.l.map(function (l) { return vehA(l[0], l[1]); }).join('') + '</div>' : '') + '</div>';
+      }).join('');
+    }).join('') +
+      '<div class="veh-gh">National low-mile AWD (for reference \u2014 shipping cost eats the discount)</div><ul class="veh-ul">' + VEH.national.map(function (x) { return '<li>' + vehA(x[0], x[1]) + '</li>'; }).join('') + '</ul>' +
+      '<div class="veh-gh">Recently sold / no longer active (for price context)</div><ul class="veh-ul">' + VEH.sold.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>';
+    var links = VEH.links.map(function (g) { return '<div class="veh-gh">' + esc(g[0]) + '</div><ul class="veh-ul">' + g[1].map(function (x) { return '<li>' + vehA(x[0], x[1]) + '</li>'; }).join('') + '</ul>'; }).join('');
+    $('vehicle-body').innerHTML =
+      '<p class="veh-sub">Prepared October 30, 2026 \u00b7 Target: <b>Loaded Premium AWD, low miles</b></p>' +
+      '<a class="veh-src" href="' + VEH_DOC + '" target="_blank" rel="noopener" data-external="1">Source doc &#8599;</a>' +
+      '<div class="card veh-bottom"><h3>Bottom line</h3><p>' + esc(VEH.bottom) + '</p></div>' +
+      vehSec('cmp', 'Side-by-side: used vs new', cmp, true) +
+      vehSec('list', 'Listings that fit (AWD, low miles, Oct 2026)', lst, true) +
+      vehSec('steps', 'Next steps', '<ol class="veh-ol">' + VEH.steps.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ol>', true) +
+      vehSec('links', 'Research links', links, false) +
+      '<p class="veh-foot"><i>Prices and inventory shift daily \u2014 verify before acting.</i></p>';
   }
 
   /* ---------------- ADU (#adu; Home > Zac, v177) ---------------- */
@@ -24180,7 +24269,7 @@
     'cart':      { label: 'Heavy Object Cart Build', go: 'cart', sub: 'Materials \u00b7 cut list', cls: 'hiring-entry' },   // v176: Zac > after Wetumka (#cart)   // v149: Zac > Wetumka (project lists)
     'generator': { label: 'Generator', go: 'generator', sub: 'Power cell \u00b7 overview', cls: 'hiring-entry' },   // v177: Zac > Generator (#generator)
     'adu':       { label: 'ADU', go: 'adu', sub: 'Floor plans', cls: 'hiring-entry' },   // v177: Zac > ADU (#adu)
-    'vehicle':   { label: 'Vehicle Purchase', go: 'doc?u=' + encodeURIComponent('https://docs.google.com/document/d/1gJQo0i0YAuXp09XDdUa4tZNIXjd-LSle8B7ZczVZ_uw/edit') + '&t=' + encodeURIComponent('Vehicle Purchase') + '&from=' + encodeURIComponent('hf/zac'), sub: 'Google Doc', cls: 'hiring-entry' },   // v209: Zac > Vehicle Purchase (in-app doc viewer)
+    'vehicle':   { label: 'Vehicle Purchase', go: 'vehicle', sub: 'Tesla Model 3 \u00b7 used vs new', cls: 'hiring-entry' },   // v210: native screen (#vehicle); v209 opened the Doc
     'f:mkt':     { label: 'Marketing', go: 'hf/mkt', folder: true },   // v180: Zac > Marketing (app-only folder: four starter plans)
     'mkt/lt':    { label: 'Lisa\u2019s Table', go: 'mkt/lt', sub: 'Marketing plan', cls: 'hiring-entry' },
     'mkt/pt':    { label: 'Lisa\u2019s Personal Training', go: 'mkt/pt', sub: 'Marketing plan', cls: 'hiring-entry' },
