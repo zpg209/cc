@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lora:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=212">
+<link rel="stylesheet" href="app.css?v=213">
 </head>
 <body>
   <div class="bg"></div>
@@ -102,6 +102,12 @@
   </section>
 
   <!-- ============ GENERATOR (#generator; Home > Zac, v177): overview Doc + ordering-guide PDF + folder (hard-coded in app.js GENERATOR) ============ -->
+  <!-- ============ NATIVE DOC (#nd/<key>, v213): a Doc baked into app.js ND_DOCS ============ -->
+  <section id="screen-nd" class="screen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="nd-back" data-go="home">&lsaquo; Back</button></div>
+    <h2 class="pagetitle" id="nd-title">Document</h2>
+    <div id="nd-body"></div>
+  </section>
   <section id="screen-generator" class="screen">
     <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="generator-back" data-go="hf/zac">&lsaquo; Back</button></div>
     <h2 class="pagetitle" id="generator-title">Generator</h2>
@@ -469,6 +475,6 @@
     <div class="own-card" id="own-card" hidden></div>
   </section>
 
-  <script src="app.js?v=212"></script>
+  <script src="app.js?v=213"></script>
 </body>
 </html>

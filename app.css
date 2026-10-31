@@ -3854,3 +3854,6 @@ body.hl-edit .homedock, body.hl-busy .homedock { display: none !important; }
 .nd-screen .veh-sec h3 { font-size: 15.5px; }
 .nd-screen .grid2 { margin-bottom: 8px; }
 .nd-screen p, .nd-screen li, .nd-screen .nd-rf div, .nd-screen .nd-note { overflow-wrap: anywhere; }
+.nd-screen .nd-code { overflow-x: auto; max-width: 100%; font: 11.5px/1.35 ui-monospace, Menlo, monospace; background: #0b0b0b; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 10px; margin: 0 0 10px; }
+.nd-screen .nd-hr { border: 0; border-top: 1px solid rgba(255,255,255,.12); margin: 10px 0; }
+#nd-title { overflow-wrap: anywhere; }
