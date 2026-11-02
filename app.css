@@ -3857,3 +3857,28 @@ body.hl-edit .homedock, body.hl-busy .homedock { display: none !important; }
 .nd-screen .nd-code { overflow-x: auto; max-width: 100%; font: 11.5px/1.35 ui-monospace, Menlo, monospace; background: #0b0b0b; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 10px; margin: 0 0 10px; }
 .nd-screen .nd-hr { border: 0; border-top: 1px solid rgba(255,255,255,.12); margin: 10px 0; }
 #nd-title { overflow-wrap: anywhere; }
+/* v214: Laundromat research */
+.nd-screen .lg-feat { border-color: var(--red); box-shadow: 0 0 0 1px var(--red) inset; }
+.nd-screen .lg-card .nd-rf { margin-top: 8px; }
+#laund-title { overflow-wrap: anywhere; }
+.nd-screen .lc-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
+.nd-screen .lc-chip { font: 600 13.5px/1 'Inter', sans-serif; color: #fff; background: #0b0b0b; border: 1px solid rgba(255,255,255,.22); border-radius: 999px; padding: 8px 14px; }
+.nd-screen .lc-chip.on { background: var(--red); border-color: var(--red); color: #000; }
+.nd-screen .lc-count { color: var(--muted); font-size: 12.5px; margin: 0 2px 8px; }
+.nd-screen .lc-card > summary { list-style: none; cursor: pointer; }
+.nd-screen .lc-card > summary::-webkit-details-marker { display: none; }
+.nd-screen .lc-top { display: flex; gap: 10px; align-items: flex-start; }
+.nd-screen .lc-score { flex: none; min-width: 44px; text-align: center; font: 700 20px/1.1 'Inter', sans-serif; color: #6FCF97; border: 1px solid rgba(111,207,151,.45); border-radius: 8px; padding: 5px 4px; }
+.nd-screen .lc-score small { font-size: 11px; color: var(--muted); }
+.nd-screen .lc-name { min-width: 0; }
+.nd-screen .lc-name b { display: block; font-size: 15.5px; line-height: 1.25; }
+.nd-screen .lc-name span { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+.nd-screen .lc-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
+.nd-screen .lc-tag { font-size: 11.5px; border: 1px solid rgba(255,255,255,.18); border-radius: 6px; padding: 3px 7px; color: var(--muted); }
+.nd-screen .lc-tag.on { color: #6FCF97; border-color: rgba(111,207,151,.5); }
+.nd-screen .lc-tag.sale { color: #ffcf8a; border-color: rgba(255,207,138,.5); }
+.nd-screen .lc-notes { margin: 8px 0 0 !important; font-size: 13.5px !important; overflow-wrap: anywhere; }
+.nd-screen .lc-more { display: inline-block; margin-top: 6px; font-size: 12.5px; color: var(--red); }
+.nd-screen .lc-card[open] .lc-more { display: none; }
+.nd-screen .lc-det { margin-top: 6px; border-top: 1px solid rgba(255,255,255,.1); }
+.nd-screen .lc-sa { border-color: rgba(111,207,151,.45); }
