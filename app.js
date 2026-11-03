@@ -1604,13 +1604,66 @@
   function laundRows() {   // Comparison tab rows, best suitability score first (ties: nearer first)
     return LAUND_SHEET.Comparison.slice(1).filter(function (r) { return r.length > 17; }).sort(function (x, y) { return laundScore(y) - laundScore(x) || (parseFloat(x[4]) || 99) - (parseFloat(y[4]) || 99); });
   }
+  // v215: Zac's picks (Prospect star, rank number, Pass + reason). Saved on this phone (localStorage LP_KEY) and synced to the server
+  // through the existing Wetumka-lists store (action lists / listsave, slug 'laund-picks'; one item per laundromat, note = JSON). No redeploy.
+  var LP_KEY = 'cc_laund_picks_v1', LP_SLUG = 'laund-picks', lp = null;
+  var LP_SEED = { by: 'seed', items: {} };
+  function lpRowId(r) { return 'c' + String(r[0]).replace(/[^\w-]/g, ''); }
+  function lpLoad() {
+    if (lp) return lp;
+    try { lp = JSON.parse(localStorage.getItem(LP_KEY) || 'null'); } catch (e) { lp = null; }
+    if (!lp || typeof lp.items !== 'object') lp = { items: {} };
+    if (!lp.seeded) {   // v215 seed: Zac 11/2/2026 "Yosemite blvd laundromat is a no go. Bad neighborhood!"
+      LAUND_SHEET.Comparison.slice(1).forEach(function (r) { if (/2025 Yosemite/i.test(r[2]) && !lp.items[lpRowId(r)]) lp.items[lpRowId(r)] = { p: 0, r: 0, x: 1, why: 'Bad neighborhood (Zac, 11/2)', updated: 1 }; });
+      lp.seeded = 1; lpSaveLocal();
+    }
+    return lp;
+  }
+  function lpSaveLocal() { try { localStorage.setItem(LP_KEY, JSON.stringify(lp)); } catch (e) {} }
+  function lpGet(id) { return lpLoad().items[id] || { p: 0, r: 0, x: 0, why: '' }; }
+  function lpSet(id, patch) {
+    var cur = lpGet(id), nx = { p: cur.p ? 1 : 0, r: cur.r || 0, x: cur.x ? 1 : 0, why: cur.why || '' };
+    Object.keys(patch).forEach(function (k) { nx[k] = patch[k]; });
+    nx.updated = Date.now(); lp.items[id] = nx; lpSaveLocal(); lpPush();
+  }
+  var lpTimer = 0;
+  function lpPush() {
+    clearTimeout(lpTimer);
+    lpTimer = setTimeout(function () {
+      var names = {}; LAUND_SHEET.Comparison.slice(1).forEach(function (r) { names[lpRowId(r)] = r[1]; });
+      var items = Object.keys(lp.items).filter(function (id) { return names[id]; }).map(function (id) { var x = lp.items[id];
+        return { id: id, text: names[id], note: JSON.stringify({ p: x.p ? 1 : 0, r: x.r || 0, x: x.x ? 1 : 0, why: String(x.why || '').slice(0, 200) }), done: !!(x.p || x.r), doneAt: 0, updated: x.updated || 1, del: false }; });
+      apiPostRaw('listsave', { slug: LP_SLUG, json: JSON.stringify({ slug: LP_SLUG, items: items, order: items.map(function (x) { return x.id; }), orderAt: Date.now(), updated: Date.now() }) }, 60000)
+        .then(function (j) { lpStatus(j && j.ok ? 'Saved \u00b7 synced' : 'Saved on this phone (sync failed)'); }, function () { lpStatus('Saved on this phone (offline)'); });
+    }, 700);
+  }
+  function lpStatus(t) { var s = $('lp-status'); if (s) s.textContent = t; }
+  function lpPull() {   // server copy wins per laundromat when it is newer
+    apiRaw('lists', {}).then(function (j) {
+      var l = j && j.ok && j.data && j.data.lists && j.data.lists[LP_SLUG]; if (!l || !Array.isArray(l.items)) return;
+      var ch = false; lpLoad();
+      l.items.forEach(function (it) {
+        var v; try { v = JSON.parse(it.note || '{}'); } catch (e) { return; }
+        var cur = lp.items[it.id];
+        if (!cur || (it.updated || 0) > (cur.updated || 0)) { lp.items[it.id] = { p: v.p ? 1 : 0, r: +v.r || 0, x: v.x ? 1 : 0, why: v.why || '', updated: it.updated || 1 }; ch = true; }
+      });
+      if (ch) { lpSaveLocal(); if ($('lc-list')) $('lc-list').innerHTML = laundCmpList(); }
+      lpStatus('Synced');
+    }, function () {});
+  }
   function laundCard(r, i, head) {
-    var sa = /^STANDALONE/.test(r[5]), sale = !/^Not listed/i.test(r[12]), key = r[0];
+    var sa = /^STANDALONE/.test(r[5]), sale = !/^Not listed/i.test(r[12]), key = r[0], id = lpRowId(r), pk = lpGet(id), picked = !!(pk.p || pk.r);
     var det = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 6, 19].map(function (j) { return r[j] ? '<div class="nd-rf"><span>' + esc(head[j]) + '</span><div>' + ndInline(r[j]) + '</div></div>' : ''; }).join('');
-    return '<details class="veh-l nd-row lc-card' + (sa ? ' lc-sa' : '') + '" data-lc="' + esc(key) + '"' + (laundState.open[key] ? ' open' : '') + '><summary>' +
+    var badge = pk.r ? '<span class="lp-badge">#' + esc(String(pk.r)) + '</span>' : (pk.p ? '<span class="lp-badge">\u2605</span>' : '') + '';
+    return '<div class="veh-l nd-row lc-card' + (sa ? ' lc-sa' : '') + (picked ? ' lc-pick' : '') + (pk.x ? ' lc-pass' : '') + '" data-lpid="' + esc(id) + '">' + badge +
+      '<details data-lc="' + esc(key) + '"' + (laundState.open[key] ? ' open' : '') + '><summary>' +
       '<div class="lc-top"><span class="lc-score">' + esc(r[17]) + '<small>/10</small></span><div class="lc-name"><b>' + esc(r[1]) + '</b><span>' + esc(r[2]) + ', ' + esc(r[3]) + ' \u00b7 ' + esc(r[4]) + ' mi</span></div></div>' +
-      '<div class="lc-tags"><span class="lc-tag' + (sa ? ' on' : '') + '">' + esc(r[5]) + '</span>' + (sale ? '<span class="lc-tag sale">' + esc(r[12].length > 40 ? 'Price / listing info' : r[12]) + '</span>' : '') + '</div>' +
-      '<p class="lc-notes">' + ndInline(r[18] || '') + '</p><span class="lc-more">Details</span></summary><div class="lc-det">' + det + '</div></details>';
+      '<div class="lc-tags"><span class="lc-tag' + (sa ? ' on' : '') + '">' + esc(r[5]) + '</span>' + (sale ? '<span class="lc-tag sale">' + esc(r[12].length > 40 ? 'Price / listing info' : r[12]) + '</span>' : '') + (pk.x ? '<span class="lc-tag passed">Passed</span>' : '') + '</div>' +
+      '<p class="lc-notes">' + ndInline(r[18] || '') + '</p><span class="lc-more">Details</span></summary><div class="lc-det">' + det + '</div></details>' +
+      '<div class="lp-ctl"><button type="button" class="lp-btn lp-star' + (pk.p ? ' on' : '') + '" data-lpa="p" aria-pressed="' + (pk.p ? 'true' : 'false') + '">' + (pk.p ? '\u2605' : '\u2606') + ' Prospect</button>' +
+      '<label class="lp-rank"><span>Rank</span><input type="number" inputmode="numeric" min="1" max="99" data-lpa="r" value="' + (pk.r ? esc(String(pk.r)) : '') + '" placeholder="#" aria-label="Rank for ' + esc(r[1]) + '"></label>' +
+      '<button type="button" class="lp-btn lp-pass' + (pk.x ? ' on' : '') + '" data-lpa="x" aria-pressed="' + (pk.x ? 'true' : 'false') + '">' + (pk.x ? '\u2715 Passed' : 'Pass') + '</button></div>' +
+      (pk.x ? '<input type="text" class="lp-why" data-lpa="why" maxlength="120" placeholder="Reason (optional)" value="' + esc(pk.why || '') + '">' : '') + '</div>';
   }
   function laundKv(rows, titleCol) {   // a sheet tab -> one stacked card per row (header: value)
     var head = rows[0];
@@ -1626,11 +1679,16 @@
     return h;
   }
   function laundCmpList() {
-    var rows = laundRows(), head = LAUND_SHEET.Comparison[0], f = laundState.f;
+    var all = laundRows(), rows = all.slice(), head = LAUND_SHEET.Comparison[0], f = laundState.f;
+    function P(r) { return lpGet(lpRowId(r)); }
+    if (f === 'all') rows.sort(function (x, y) { return (P(x).x ? 1 : 0) - (P(y).x ? 1 : 0); });   // passed drop to the bottom (stable sort keeps score order)
     if (f === 'sa') rows = rows.filter(function (r) { return /^STANDALONE/.test(r[5]); });
     if (f === 'top') rows = rows.slice(0, 3);
     if (f === 'sale') rows = rows.filter(function (r) { return !/^Not listed/i.test(r[12]); });
-    return '<div class="lc-count">' + rows.length + ' of ' + laundRows().length + ' laundromats \u00b7 sorted by suitability score</div>' + rows.map(function (r, i) { return laundCard(r, i, head); }).join('');
+    if (f === 'mine') rows = rows.filter(function (r) { var p = P(r); return p.p || p.r; }).sort(function (x, y) { var a1 = P(x).r || 999, b1 = P(y).r || 999; return a1 - b1 || laundScore(y) - laundScore(x); });
+    if (f === 'pass') rows = rows.filter(function (r) { return P(r).x; });
+    var empty = !rows.length ? '<div class="hl-empty">' + (f === 'mine' ? 'No picks yet. Tap \u2606 Prospect or type a rank on any card.' : 'Nothing here.') + '</div>' : '';
+    return '<div class="lc-count">' + rows.length + ' of ' + all.length + ' laundromats \u00b7 ' + (f === 'mine' ? 'sorted by your rank, then score' : 'sorted by suitability score') + '</div>' + empty + rows.map(function (r, i) { return laundCard(r, i, head); }).join('');
   }
   function laundOpen(kind) {
     $('laund-back').setAttribute('data-go', kind ? 'laund' : hlItemBack('laund', 'hf/laund'));
@@ -1638,7 +1696,8 @@
     b.className = 'nd-screen';
     if (kind === 'yos') {
       $('laund-title').textContent = 'Yosemite Blvd';
-      h += '<div class="card veh-bottom lg-card"><div class="veh-gh" style="margin-top:0">At a glance \u00b7 priority site</div>' +
+      h += '<div class="lp-nogo">No go \u2014 bad neighborhood (Zac 11/2)</div>';
+      h += '<div class="card veh-bottom lg-card"><div class="veh-gh" style="margin-top:0">At a glance \u00b7 for reference</div>' +
         '<div class="nd-rf"><span>Address</span><div><b>Laundry Express, 2025 Yosemite Blvd, Modesto</b></div></div>' +
         '<div class="nd-rf"><span>APN</span><div>116-078-019-000 \u00b7 2,596 SF on 0.09 AC \u00b7 built 1957 \u00b7 C-2</div></div>' +
         '<div class="nd-rf"><span>Machines (per Zac)</span><div>43 washers / 22 dryers (not found publicly)</div></div>' +
@@ -1651,15 +1710,16 @@
     } else if (kind === 'cmp') {
       $('laund-title').textContent = 'Comparison';
       h += laundSrc(LAUND_SHEET_URL, 'Source sheet');
-      h += '<div class="lc-chips">' + [['all', 'All'], ['sa', 'Standalone'], ['top', 'Top 3'], ['sale', 'For sale']].map(function (c) { return '<button type="button" class="lc-chip' + (laundState.f === c[0] ? ' on' : '') + '" data-lcf="' + c[0] + '">' + c[1] + '</button>'; }).join('') + '</div>';
-      h += '<div id="lc-list">' + laundCmpList() + '</div>';
+      h += '<div class="lc-chips">' + [['all', 'All'], ['mine', '\u2605 My picks'], ['sa', 'Standalone'], ['top', 'Top 3'], ['sale', 'For sale'], ['pass', 'Passed']].map(function (c) { return '<button type="button" class="lc-chip' + (laundState.f === c[0] ? ' on' : '') + '" data-lcf="' + c[0] + '">' + c[1] + '</button>'; }).join('') + '</div>';
+      h += '<div class="lc-count" id="lp-status">Picks save on this phone and sync to your other devices.</div><div id="lc-list">' + laundCmpList() + '</div>';
+      setTimeout(lpPull, 0);
       h += vehSec('lps', 'Priority Sites', laundPriority(), false) + vehSec('lsc', 'Separately Conveyable Units', laundKv(LAUND_SHEET['Separately Conveyable Units']), false) +
         vehSec('lal', 'Active For-Sale Listings', laundKv(LAUND_SHEET['Active For-Sale Listings']), false) + vehSec('lms', 'Methodology & Sources', laundKv(LAUND_SHEET['Methodology & Sources']), false);
       h += '<p class="veh-foot">Snapshot of the Comparison sheet, read 11/2/2026. Edits happen in the source sheet.</p>';
     } else {
       $('laund-title').textContent = 'Next Laundromat \u2014 Modesto 20-Mile Radius';
       h += '<p class="veh-sub">Acquisition research for TiwiK (desk research only; no one contacted). Mono Village\u2019s own books stay under Finances \u203a Laundromat.</p>';
-      h += '<div class="grid2 lg-grid">' + laundTile('laund/yos', 'Yosemite Blvd', 'Priority \u00b7 2025 Yosemite, Modesto', 'lg-feat') + laundTile('nd/lbrief', 'Project Brief', 'Thesis \u00b7 top 3 \u00b7 next steps') + laundTile('laund/cmp', 'Comparison', '50 laundromats \u00b7 scores \u00b7 filters') + '</div>';
+      h += '<div class="grid2 lg-grid">' + laundTile('nd/lbrief', 'Project Brief', 'Thesis \u00b7 top 3 \u00b7 next steps') + laundTile('laund/cmp', 'Comparison', '50 laundromats \u00b7 picks \u00b7 filters') + laundTile('laund/yos', 'Yosemite Blvd', 'No go (Zac 11/2) \u00b7 reference', 'lg-nogo') + '</div>';
       h += laundFoot();
     }
     b.innerHTML = h; window.scrollTo(0, 0);
@@ -1670,6 +1730,21 @@
     document.querySelectorAll('.lc-chip').forEach(function (x) { x.classList.toggle('on', x === c); });
     $('lc-list').innerHTML = laundCmpList();
   });
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('.lp-btn'); if (!b) return;
+    var card = b.closest('[data-lpid]'), id = card.getAttribute('data-lpid'), cur = lpGet(id), k = b.getAttribute('data-lpa');
+    if (k === 'p') lpSet(id, { p: cur.p ? 0 : 1 });
+    if (k === 'x') lpSet(id, { x: cur.x ? 0 : 1 });
+    lpStatus('Saving\u2026'); $('lc-list').innerHTML = laundCmpList();
+  });
+  document.addEventListener('change', function (e) {
+    var t = e.target; if (!t.matches || !t.matches('.lp-ctl input, .lp-why')) return;
+    var id = t.closest('[data-lpid]').getAttribute('data-lpid');
+    if (t.getAttribute('data-lpa') === 'r') { var v = parseInt(t.value, 10); lpSet(id, { r: v > 0 && v < 100 ? v : 0 }); $('lc-list').innerHTML = laundCmpList(); }
+    else lpSet(id, { why: String(t.value || '').slice(0, 120) });
+    lpStatus('Saving\u2026');
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.matches && e.target.matches('.lp-ctl input, .lp-why')) e.target.blur(); });
   document.addEventListener('toggle', function (e) { var d = e.target; if (d && d.getAttribute && d.getAttribute('data-lc')) laundState.open[d.getAttribute('data-lc')] = d.open; }, true);
 
   /* ---------------- Generator (#generator; Home > Zac, v177) ---------------- */
