@@ -3897,3 +3897,6 @@ body.hl-edit .homedock, body.hl-busy .homedock { display: none !important; }
 .nd-screen .lc-tag.passed { color: #ffb3a1; border-color: rgba(255,179,161,.5); }
 .nd-screen .lp-nogo { background: #3a1d1d; border: 1px solid #c96; color: #ffd0c4; font: 700 16px/1.3 'Inter', sans-serif; border-radius: 10px; padding: 12px 14px; margin: 0 0 12px; text-align: center; }
 .nd-screen .lg-nogo { opacity: .7; }
+.nd-screen .lc-card details > summary { list-style: none; cursor: pointer; }
+.nd-screen .lc-card details > summary::-webkit-details-marker { display: none; }
+.nd-screen .lc-card details[open] .lc-more { display: none; }
