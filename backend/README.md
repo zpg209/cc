@@ -304,3 +304,9 @@ What it adds (all writes need a `cid`, are journaled, and replay-safe; `dry=1` p
 Until it is deployed (front end v183): Ingredients, photos and meals are kept on the phone only (ingredients in the same localStorage list as Cost & Macros, photos in IndexedDB, meals in `cc_lt_ing_meals`) and the screen shows "Saved on this phone · not synced yet (server update pending)". While the server says bad_action, the phone asks `lting` again at most every 30 minutes (when Ingredients is opened or something is saved); once it answers, it uploads the photos, then every ingredient and meal, and the badge turns to "Synced to Drive · Open sheet". No front-end change is needed after deploying.
 
 Check after deploying: `…/exec?api=1&pc=PASSCODE&action=lting` returns `{"ok":true,"data":{"canUpload":true,"ingredients":[],"meals":[],…,"version":59}}` and creates nothing. A dry write: `…&action=ltingset&kind=ingredient&rec={"id":"ctest1","name":"Test"}&dry=1` returns `"action":"added","dry":true` and writes nothing.
+
+## overview-v6.patch (2026-11-05, Overview doc v5 -> v6)
+Points the Finances > Overview screen (action=fin&page=overview, and the "Finances - Overview (Doc)" source link) at
+**Finances Overview v6** `1pudBXlVknxZFNm-MKnS_9x8xiv9b3znVPgjz4f-NvGU` instead of v5 `1jONgStyatJVIMmtoOCAtUMUZCwQvJot7621BLsnWJwM`.
+v6 is v5 with the ESTIMATE values removed (removal log approved by Zac 2026-11-05). Two id strings in API_FIN_DOCS / API_FIN_LOAN_SOURCES; no other change.
+Already applied to backend/deploy/Api.gs. Takes effect only after Zac redeploys Api.gs (Deploy > Manage deployments > Edit > New version); until then the live server still reads v5. v5 is untouched.

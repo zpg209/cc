@@ -1,0 +1,20 @@
+--- Api.orig	2026-11-05 05:01:00.128186716 -0800
++++ b/backend/deploy/Api.gs	2026-11-05 05:01:00.148186235 -0800
+@@ -2406,7 +2406,7 @@
+ /*   Insurance: "Policy map" (H2) > one H3 per entity > policy table        */
+ /* ======================================================================= */
+ var API_FIN_DOCS = {
+-  overview:   '1jONgStyatJVIMmtoOCAtUMUZCwQvJot7621BLsnWJwM',   // Finances - Overview (Working Page) - v5 live (native Doc, in Finances folder; OVERVIEW_V5). Previous v4: 1ecpdIP16xZOoTKLuehvBKMEtj1r0Y4npNrDNIKPz-BI; v3: 1oMQaEoVrT8jiNqJwdA0Jh5uP2lNtktDQhfl0akJjMP8
++  overview:   '1pudBXlVknxZFNm-MKnS_9x8xiv9b3znVPgjz4f-NvGU',   // Finances Overview v6 (2026-11-05: estimates removed from v5; native Doc, Financial folder). Previous v5: 1jONgStyatJVIMmtoOCAtUMUZCwQvJot7621BLsnWJwM; v4: 1ecpdIP16xZOoTKLuehvBKMEtj1r0Y4npNrDNIKPz-BI; v3: 1oMQaEoVrT8jiNqJwdA0Jh5uP2lNtktDQhfl0akJjMP8
+   laundromat: '1sf4Kqe_a-fXxGkPJm9WU5DM8dLoDc2qVzLk-rEJ6lSc',   // Finances - Laundromat (Working Page) - live (native Doc, in Finances folder)
+   insurance:  '1QCsHvtzTmQL65ZDQ_DR24uY8MbnEQFpan37yORJi_hc',   // Insurance - Running Notes                    (native Doc)
+   // v13 (Laundromat / TiwiK rework):
+@@ -2420,7 +2420,7 @@
+   navigator:  { id: '1hokXjD0TjoUTEJPOwz_H_EohrHKk-axe', title: 'Alliance Loan Navigator (PDF)',          kind: 'file' },
+   payoff:     { id: '1qgX-uzO4Ghd-aypEbCie00AHniWxBu3ChLwr0RSWCs4', title: 'Equipment Payoff Options (Doc)', kind: 'doc' },
+   laundromat: { id: '1sf4Kqe_a-fXxGkPJm9WU5DM8dLoDc2qVzLk-rEJ6lSc', title: 'Finances - Laundromat (Doc)',    kind: 'doc' },
+-  overview:   { id: '1jONgStyatJVIMmtoOCAtUMUZCwQvJot7621BLsnWJwM', title: 'Finances - Overview (Doc)',      kind: 'doc' }
++  overview:   { id: '1pudBXlVknxZFNm-MKnS_9x8xiv9b3znVPgjz4f-NvGU', title: 'Finances - Overview (Doc)',      kind: 'doc' }
+ };
+ // Insurance entities: slug, heading prefix, keywords used to attach To do items to an entity.
+ var API_FIN_ENTITIES = [
