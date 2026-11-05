@@ -310,3 +310,20 @@ Points the Finances > Overview screen (action=fin&page=overview, and the "Financ
 **Finances Overview v6** `1pudBXlVknxZFNm-MKnS_9x8xiv9b3znVPgjz4f-NvGU` instead of v5 `1jONgStyatJVIMmtoOCAtUMUZCwQvJot7621BLsnWJwM`.
 v6 is v5 with the ESTIMATE values removed (removal log approved by Zac 2026-11-05). Two id strings in API_FIN_DOCS / API_FIN_LOAN_SOURCES; no other change.
 Already applied to backend/deploy/Api.gs. Takes effect only after Zac redeploys Api.gs (Deploy > Manage deployments > Edit > New version); until then the live server still reads v5. v5 is untouched.
+
+## entity-ledger.patch (API v61, Entity Folder consolidated ledger)
+Patch against Api.gs. Apply it, then redeploy the Apps Script web app (Zac signs in, Deploy > Manage deployments > edit > New version).
+
+What it adds:
+- `ledger` action: `?api=1&pc=…&action=ledger&entity=tiwik` (omit entity for the full JSON). Reads Drive file `API_LEDGER_FILE_ID` (Business > ledger-2026.json) or Script Property `CC_LEDGER_JSON`. Supports `dry=1`.
+- `openitem` action: `action=openitem&id=oi-…&status=open|answered|resolved&note=…` (dry=1 supported). Persists via the existing `listsave` store under slug `ef-open`.
+
+Until redeployed (front end v218+):
+- Entity Folder (`#ef/tiwik`, `#ef/kiwit`, `#ef/personal`) loads the ledger through the existing `action=file` proxy on that Drive file (no redeploy needed).
+- Open-item status saves on the phone and syncs through `listsave` slug `ef-open` (already deployed).
+- The ledger JSON is **not** committed to the public GitHub Pages repo.
+
+To refresh the numbers: overwrite Drive file id `108pGScPpMlEkQhHgV9tZz0ddVdCtxAjs` (or set `CC_LEDGER_JSON`), then Hard Refresh the app.
+
+To add another entity folder: add an entry to `EF` in app.js (key, title, related links). If the ledger JSON gains an `entities.<key>` block, the Ledger and Open Items tabs fill in automatically; otherwise they show empty.
+

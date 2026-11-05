@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lora:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="app.css?v=217">
+<link rel="stylesheet" href="app.css?v=218">
 </head>
 <body>
   <div class="bg"></div>
@@ -408,7 +408,14 @@
   </section>
 
   <!-- ============ ENTITY BOOKS (KiwiT LLC / TiwiK LLC) ============ -->
-  <section id="screen-ent" class="screen">
+    <!-- ============ ENTITY FOLDER (#ef/<tiwik|kiwit|personal|...>; v218) ============ -->
+  <section id="screen-ef" class="screen">
+    <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="ef-back" data-go="home">&lsaquo; Back</button></div>
+    <h2 class="pagetitle" id="ef-title">Entity</h2>
+    <div class="enttabs three" id="ef-tabs"></div>
+    <div id="ef-body"><div class="loading">Loading…</div></div>
+  </section>
+<section id="screen-ent" class="screen">
     <div class="topbar"><button class="homebtn" data-go="home">&#8962; Home</button><button class="homebtn backbtn" id="ent-back" data-go="ent/kiwit" hidden>&lsaquo; Back</button><h2 id="ent-title">KiwiT LLC</h2></div>
     <div class="enttabs two" id="ent-tabs" hidden></div>
     <div class="vmbar" id="ent-mbar" role="group" aria-label="Period">
@@ -481,6 +488,6 @@
     <div class="own-card" id="own-card" hidden></div>
   </section>
 
-  <script src="app.js?v=217"></script>
+  <script src="app.js?v=218"></script>
 </body>
 </html>

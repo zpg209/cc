@@ -1,0 +1,60 @@
+*** Begin Patch
+*** Update File: Api.gs
+@@
+       case 'lists':      return apiLists_();                           // v56 (Zac > Wetumka lists): read every list
+       case 'listsave':   return apiListSave_(extra.all || {});         // v56: merge one list (POST body or GET params)
++      case 'ledger':     return apiLedger_(extra.all || {});           // v61 (Entity Folder): consolidated TiwiK/KiwiT/Personal ledger
++      case 'openitem':   return apiOpenItem_(extra.all || {});         // v61: set open-item status/note (dry=1 supported)
+*** End Patch
+
+NOTE: Apply against the live Api.gs, then redeploy the web app (Zac signs in).
+Until then the front end loads the ledger via action=file on Drive file id EF_LEDGER_FILE_ID
+(Business folder > ledger-2026.json, text/plain) and saves open-item status via listsave slug 'ef-open'.
+
+Add these functions near the other api* helpers (and set API_LEDGER_FILE_ID to the Drive file id):
+
+var API_LEDGER_FILE_ID = '108pGScPpMlEkQhHgV9tZz0ddVdCtxAjs';   // Second Brain > Business > ledger-2026.json
+var API_LEDGER_PROP = 'CC_LEDGER_JSON';   // optional Script Property override (full JSON string)
+
+function apiLedgerLoad_() {
+  var raw = PropertiesService.getScriptProperties().getProperty(API_LEDGER_PROP);
+  if (raw) {
+    try { return JSON.parse(raw); } catch (e) {}
+  }
+  var file;
+  try { file = DriveApp.getFileById(API_LEDGER_FILE_ID); } catch (e) { return null; }
+  if (!apiIsAllowed_(file, API_LEDGER_FILE_ID)) return null;
+  try { return JSON.parse(file.getBlob().getDataAsString('UTF-8')); } catch (e) { return null; }
+}
+
+function apiLedger_(p) {
+  p = p || {};
+  if (String(p.dry || '') === '1') return { ok: true, data: { dry: true, action: 'ledger', entity: String(p.entity || '') } };
+  var all = apiLedgerLoad_();
+  if (!all || !all.entities) return { error: 'not_found', message: 'Ledger JSON not loaded. Set CC_LEDGER_JSON or place ledger-2026.json in Second Brain.' };
+  var key = String(p.entity || '').toLowerCase();
+  if (!key) return { ok: true, data: all };
+  var ent = all.entities[key];
+  if (!ent) return { error: 'bad_entity', message: 'Unknown entity: ' + key };
+  var openItems = (all.openItems || []).filter(function (o) { return o.entity === key; });
+  return { ok: true, data: { generated: all.generated || '', name: ent.name, lines: ent.lines || [], summary: ent.summary || {}, openItems: openItems } };
+}
+
+function apiOpenItem_(p) {
+  p = p || {};
+  var id = String(p.id || '');
+  if (!id) return { error: 'bad_value', message: 'id required' };
+  var status = String(p.status || 'open');
+  if (!/^(open|answered|resolved)$/.test(status)) return { error: 'bad_value', message: 'status must be open|answered|resolved' };
+  var note = String(p.note || '').slice(0, 400);
+  if (String(p.dry || '') === '1') return { ok: true, data: { dry: true, id: id, status: status, note: note } };
+  // Persist via the same Script Properties list store used by Wetumka lists (slug ef-open).
+  return apiListSave_({
+    slug: 'ef-open',
+    json: JSON.stringify({
+      slug: 'ef-open',
+      items: [{ id: id, text: id, note: JSON.stringify({ status: status, note: note }), done: status === 'resolved', doneAt: 0, updated: Date.now(), del: false }],
+      order: [id], orderAt: Date.now(), updated: Date.now()
+    })
+  });
+}

@@ -14,7 +14,7 @@
     biz: null, bizSlug: '', docFrom: 'home', docPushed: false, scrollMem: {}, docTimer: 0,
     docSeq: 0, docKey: '', proxyOff: false, reData: null, reAt: 0, insData: null, insAt: 0, reRoute: { ins: false, slug: '' }, ltPart: '', ltCache: {}, ltOpen: {},
      folderCache: {}, docUrls: [], pdf: null, pdfObserver: null, finKind: '', ovKey: '', invAcct: '', insSlug: '', spendFrom: '', projSlug: 'terravi' };
-  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring', 'ownership', 'zl', 'fchase', 'bankrev', 'ptpl', 'cart', 'generator', 'adu', 'mkt', 'tlc', 'opps', 'vehicle', 'nd', 'laund'];
+  var SCREENS = ['lock', 'home', 'projects', 'log', 'spend', 'biz', 'doc', 're', 'lt', 'proj', 'notes', 'mic', 'docs', 'punch', 'fin', 'insn', 'ent', 'track', 'vmic', 'vcam', 'pt', 'mf', 'pc', 'hf', 'food', 'workouts', 'health', 'lr', 'tm', 'hiring', 'ownership', 'zl', 'fchase', 'bankrev', 'ptpl', 'cart', 'generator', 'adu', 'mkt', 'tlc', 'opps', 'vehicle', 'nd', 'laund', 'ef'];
 
   function $(id) { return document.getElementById(id); }
   function esc(s) {
@@ -513,6 +513,7 @@
 
   function show(route, fromHistory) {
     var R = parseRoute(route), name = R.base === 'vault' ? 'spend' : R.base;
+    if (name === 'tiwik' || name === 'kiwit' || name === 'personal') { R = parseRoute('ef/' + name); name = 'ef'; }   // v218: say/tap TiwiK → Entity Folder
     var odCur = document.querySelector('.screen.active'); if (odCur && odCur.id === 'screen-lt' && state.ltPart === 'orders') ordLive.at = 0;   // leaving Orders: the live Vault income refetches next time
     if (name === 'ins') { name = 're'; state.reRoute = { ins: true, slug: '' }; }
     else if (name === 're') state.reRoute = { ins: false, slug: R.kind };
@@ -604,6 +605,7 @@
         name === 'mkt' ? '#mkt/' + state.mktSlug :
         name === 'nd' ? '#nd/' + encodeURIComponent(R.kind) :
         name === 'laund' ? '#laund' + (R.kind === 'yos' || R.kind === 'cmp' ? '/' + R.kind : '') :
+        name === 'ef' ? '#ef/' + encodeURIComponent(R.kind || 'tiwik') + (R.val && R.val !== 'ledger' ? '/' + encodeURIComponent(R.val) : '') :
         name === 'tm' ? '#tm' + (state.tmView ? '/' + state.tmView : '') :
         name === 'mf' ? (state.mfTab && state.mfTab !== 'home' ? '#mf/' + state.mfTab : '#mf') :
         name === 'pc' ? (state.pcRoute && state.pcRoute.kind === 'new' ? '#pc/new' : state.pcRoute && state.pcRoute.kind === 'edit' && state.pcRoute.id ? '#pc/' + encodeURIComponent(state.pcRoute.id) : '#pc') :
@@ -643,7 +645,8 @@
     if (name === 'vehicle') vehicleOpen();   // v210: Zac > Vehicle Purchase (native)
     if (name === 'generator') generatorOpen();
     if (name === 'nd') ndOpen(R.kind);
-    if (name === 'laund') laundOpen(R.kind === 'yos' || R.kind === 'cmp' ? R.kind : '');   // v214: Zac > Laundromat   // v213: baked-in Doc screen   // v177: Zac > Generator
+    if (name === 'laund') laundOpen(R.kind === 'yos' || R.kind === 'cmp' ? R.kind : '');   // v214: Zac > Laundromat
+    if (name === 'ef') efOpen(R.kind || 'tiwik', R.val || 'ledger');   // v218: Entity Folder   // v213: baked-in Doc screen   // v177: Zac > Generator
     if (name === 'adu') aduOpen();
     if (name === 'mkt') mktOpen();   // v180: Zac > Marketing > plan page   // v177: Zac > ADU
     if (name === 'ptpl') ptplOpen();   // v167: keeps the open level (coming back from a Drive folder lands where you were)
@@ -1746,6 +1749,385 @@
   });
   document.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.matches && e.target.matches('.lp-ctl input, .lp-why')) e.target.blur(); });
   document.addEventListener('toggle', function (e) { var d = e.target; if (d && d.getAttribute && d.getAttribute('data-lc')) laundState.open[d.getAttribute('data-lc')] = d.open; }, true);
+
+  /* ---------------- Entity Folder (#ef/<slug>; v218) ----------------
+   * Generic folder for any entity (TiwiK first): Consolidated Ledger + Open Items + Related links.
+   * Ledger JSON lives privately in Drive (Second Brain) — repo is public, so it is NOT committed.
+   * Load order: action=ledger (needs Apps Script redeploy) → else action=file on EF_LEDGER_FILE_ID (works now).
+   * Open-item status: localStorage now; synced via existing lists/listsave slug 'ef-open' (no redeploy). */
+  var EF_LEDGER_FILE_ID = '108pGScPpMlEkQhHgV9tZz0ddVdCtxAjs';   // Drive: Business > ledger-2026.json (text/plain)
+  var EF_OPEN_KEY = 'cc_ef_open_v1', EF_OPEN_SLUG = 'ef-open';
+  var EF = {
+    tiwik: {
+      key: 'tiwik', label: 'TiwiK', title: 'TiwiK LLC', sub: 'Operator · Mono Village Laundromat',
+      related: [
+        { label: 'Vault books (live Daily Spend)', go: 'ent/tiwik', sub: 'Month bar · income & expenses' },
+        { label: 'Business Documents', go: 'ent/tiwik/docs', sub: 'Drive docs for TiwiK' },
+        { label: 'Finances · Laundromat', go: 'fin/laundromat', sub: 'Loan · maintenance · working page' },
+        { label: 'Vault · TiwiK account', go: 'spend/acct/TiwiK', sub: 'Filter Daily Spend' },
+        { label: 'Insurance · TiwiK', go: 'insn/tiwik', sub: 'Policies' }
+      ]
+    },
+    kiwit: {
+      key: 'kiwit', label: 'KiwiT', title: 'KiwiT LLC', sub: 'Landlord · Mono Way + Stewart',
+      related: [
+        { label: 'Vault books (live Daily Spend)', go: 'ent/kiwit', sub: 'Month bar · income & expenses' },
+        { label: 'Business Documents', go: 'ent/kiwit/docs', sub: 'Drive docs for KiwiT' },
+        { label: 'Vault · KiwiT account', go: 'spend/acct/KiwiT', sub: 'Filter Daily Spend' },
+        { label: 'Property · Mono Way', go: 're/mono-way', sub: 'Real estate' },
+        { label: 'Property · Stewart Street', go: 're/stewart-street', sub: 'Real estate' },
+        { label: 'Insurance · KiwiT', go: 'insn/kiwit', sub: 'Policies' }
+      ]
+    },
+    personal: {
+      key: 'personal', label: 'Personal', title: 'Personal / Household', sub: 'Zac & Lisa · read-only',
+      readonly: true,
+      related: [
+        { label: 'Vault (Daily Spend)', go: 'spend', sub: 'Household filter' },
+        { label: 'Finances · Overview', go: 'fin/overview', sub: 'Debt & bills' },
+        { label: 'Finances · Ledger', go: 'fin/ledger', sub: 'Annual view' }
+      ]
+    },
+    sierra: {
+      key: 'sierra', label: 'Sierra Consultants', title: 'Sierra Consultants', sub: 'Engineering · personal',
+      related: [
+        { label: 'Business Documents', go: 'biz/sierra', sub: 'If listed under Business' },
+        { label: 'Trust & Estate · Ownership', go: 'ownership', sub: 'Entity chart' }
+      ]
+    },
+    ysf: {
+      key: 'ysf', label: 'YSF', title: 'YSF', sub: 'Entity folder',
+      related: [
+        { label: 'Trust & Estate · Ownership', go: 'ownership', sub: 'Entity chart' },
+        { label: 'Business', go: 'biz', sub: 'Business tiles' }
+      ]
+    }
+  };
+  var ef = { key: 'tiwik', tab: 'ledger', type: 'income', month: 'all', more: {}, data: null, st: '', msg: '', open: null };
+
+  function efMoney(n) { return money(Number(n) || 0); }
+  function efSigned(n) { n = Number(n) || 0; return (n >= 0 ? '+' : '\u2212') + efMoney(Math.abs(n)); }
+  function efMonthLabel(ym) {
+    if (!ym || ym === 'all') return 'All months';
+    var p = String(ym).split('-'), d = new Date(+p[0], (+p[1] || 1) - 1, 1, 12);
+    return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  }
+
+  function efLoadOpen() {
+    if (ef.open) return ef.open;
+    try { ef.open = JSON.parse(localStorage.getItem(EF_OPEN_KEY) || 'null'); } catch (e) { ef.open = null; }
+    if (!ef.open || typeof ef.open.items !== 'object') ef.open = { items: {} };
+    return ef.open;
+  }
+  function efSaveOpenLocal() { try { localStorage.setItem(EF_OPEN_KEY, JSON.stringify(ef.open)); } catch (e) {} }
+  function efGetOpen(id) { return efLoadOpen().items[id] || null; }
+  function efSetOpen(id, patch) {
+    var cur = efGetOpen(id) || { status: 'open', note: '', updated: 0 };
+    var nx = { status: cur.status || 'open', note: cur.note || '', updated: Date.now() };
+    Object.keys(patch).forEach(function (k) { nx[k] = patch[k]; });
+    ef.open.items[id] = nx; efSaveOpenLocal(); efPushOpen();
+  }
+  var efOpenTimer = 0;
+  function efPushOpen() {
+    clearTimeout(efOpenTimer);
+    efOpenTimer = setTimeout(function () {
+      var items = Object.keys(ef.open.items).map(function (id) {
+        var x = ef.open.items[id];
+        return { id: id, text: id, note: JSON.stringify({ status: x.status || 'open', note: String(x.note || '').slice(0, 400) }), done: x.status === 'resolved', doneAt: 0, updated: x.updated || 1, del: false };
+      });
+      apiPostRaw('listsave', { slug: EF_OPEN_SLUG, json: JSON.stringify({ slug: EF_OPEN_SLUG, items: items, order: items.map(function (x) { return x.id; }), orderAt: Date.now(), updated: Date.now() }) }, 60000).then(function () {}, function () {});
+    }, 600);
+  }
+  function efPullOpen() {
+    apiRaw('lists', {}).then(function (j) {
+      var l = j && j.ok && j.data && j.data.lists && j.data.lists[EF_OPEN_SLUG]; if (!l || !Array.isArray(l.items)) return;
+      var ch = false; efLoadOpen();
+      l.items.forEach(function (it) {
+        var v; try { v = JSON.parse(it.note || '{}'); } catch (e) { return; }
+        var cur = ef.open.items[it.id];
+        if (!cur || (it.updated || 0) > (cur.updated || 0)) {
+          ef.open.items[it.id] = { status: v.status || 'open', note: v.note || '', updated: it.updated || 1 }; ch = true;
+        }
+      });
+      if (ch) { efSaveOpenLocal(); if ($('screen-ef') && $('screen-ef').classList.contains('active') && ef.tab === 'open') efRender(); }
+    }, function () {});
+  }
+
+  function efParseLedgerPayload(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    if (raw.entities) return raw;
+    if (raw.data && raw.data.entities) return raw.data;
+    return null;
+  }
+  function efFetchLedger(done) {
+    ef.st = 'load'; ef.msg = ''; efRender();
+    // Prefer the dedicated ledger action (after Apps Script redeploy); fall back to the Drive file.
+    apiRaw('ledger', { entity: ef.key }).then(function (j) {
+      if (j && j.ok && j.data) {
+        var full = efParseLedgerPayload(j.data);
+        if (!full && j.data.lines) {
+          // Single-entity response: wrap it.
+          full = { generated: j.data.generated || '', entities: {}, openItems: j.data.openItems || [] };
+          full.entities[ef.key] = j.data;
+        }
+        if (full) { ef.data = full; ef.st = 'ok'; return done(); }
+      }
+      return efFetchLedgerFile(done);
+    }, function () { efFetchLedgerFile(done); });
+  }
+  function efFetchLedgerFile(done) {
+    apiRaw('file', { id: EF_LEDGER_FILE_ID }).then(function (j) {
+      if (!j || !j.ok || !j.data || !j.data.b64) {
+        ef.st = 'empty'; ef.msg = (j && (j.message || j.error)) || 'Ledger not available yet.'; return done();
+      }
+      try {
+        var u8 = b64bytes(j.data.b64), t;
+        if (typeof TextDecoder !== 'undefined') t = new TextDecoder('utf-8').decode(u8);
+        else { t = ''; for (var i = 0; i < u8.length; i++) t += String.fromCharCode(u8[i]); }
+        var d = JSON.parse(t);
+        ef.data = efParseLedgerPayload(d);
+        ef.st = ef.data ? 'ok' : 'empty';
+        if (!ef.data) ef.msg = 'Ledger file could not be parsed.';
+      } catch (e) { ef.st = 'empty'; ef.msg = 'Ledger file could not be parsed.'; }
+      done();
+    }, function () { ef.st = 'empty'; ef.msg = 'Could not load ledger (offline or server).'; done(); });
+  }
+  function efEnt() {
+    var d = ef.data && ef.data.entities && ef.data.entities[ef.key];
+    return d || { name: (EF[ef.key] || {}).title || ef.key, lines: [], summary: {} };
+  }
+  function efOpenItems() {
+    var all = (ef.data && ef.data.openItems) || [];
+    return all.filter(function (o) { return o.entity === ef.key; });
+  }
+  function efLinesFiltered() {
+    var lines = efEnt().lines || [], type = ef.type, month = ef.month;
+    return lines.filter(function (L) {
+      if (type === 'income' && L.type !== 'income') return false;
+      if (type === 'expense' && L.type !== 'expense') return false;
+      if (type === 'below' && L.type !== 'below_line') return false;
+      if (month !== 'all' && L.month !== month) return false;
+      return true;
+    });
+  }
+  function efGroup(lines) {
+    var map = {}, order = [];
+    lines.forEach(function (L) {
+      var cat = L.category || 'Other';
+      if (!map[cat]) { map[cat] = { cat: cat, months: {}, mOrder: [], total: 0 }; order.push(cat); }
+      var g = map[cat]; g.total = r2(g.total + (Number(L.amount) || 0));
+      if (!g.months[L.month]) { g.months[L.month] = []; g.mOrder.push(L.month); }
+      g.months[L.month].push(L);
+    });
+    order.sort();
+    return order.map(function (c) { var g = map[c]; g.mOrder.sort(); return g; });
+  }
+  function efSumFor(type, month) {
+    var lines = efEnt().lines || [], t = 0;
+    lines.forEach(function (L) {
+      if (type === 'income' && L.type !== 'income') return;
+      if (type === 'expense' && L.type !== 'expense') return;
+      if (type === 'below' && L.type !== 'below_line') return;
+      if (month !== 'all' && L.month !== month) return;
+      if (L.inTotals === false) return;
+      t = r2(t + (Number(L.amount) || 0));
+    });
+    return t;
+  }
+  function efCashFor(type, month) {
+    var lines = efEnt().lines || [], t = 0;
+    lines.forEach(function (L) {
+      if (!L.cash) return;
+      if (type && type !== 'all') {
+        if (type === 'income' && L.type !== 'income') return;
+        if (type === 'expense' && L.type !== 'expense') return;
+        if (type === 'below' && L.type !== 'below_line') return;
+      }
+      if (month !== 'all' && L.month !== month) return;
+      t = r2(t + (Number(L.amount) || 0));
+    });
+    return t;
+  }
+
+  function efLineHtml(L) {
+    var flags = (L.flags || []).map(function (f) { return '<span class="ef-flag">' + esc(String(f).slice(0, 80)) + (String(f).length > 80 ? '\u2026' : '') + '</span>'; }).join('');
+    return '<div class="ef-line" data-efline="' + esc(L.id) + '">' +
+      '<div class="ef-l1"><span class="ef-date">' + esc(L.date || '') + '</span><b class="ef-amt">' + efMoney(L.amount) + '</b></div>' +
+      '<div class="ef-l2">' + esc(L.vendor || L.category || '') + '</div>' +
+      '<div class="ef-l3">' + esc([L.method, L.cash ? 'Cash' : '', L.source].filter(Boolean).join(' \u00b7 ')) +
+      (L.cash ? ' <span class="ef-cash">Cash</span>' : '') + '</div>' +
+      (flags ? '<div class="ef-flags">' + flags + '</div>' : '') + '</div>';
+  }
+
+  function efLedgerBody() {
+    var cfg = EF[ef.key] || { title: ef.key }, ent = efEnt();
+    var months = [];
+    (ent.lines || []).forEach(function (L) { if (L.month && months.indexOf(L.month) < 0) months.push(L.month); });
+    months.sort();
+    var inc = efSumFor('income', ef.month), exp = efSumFor('expense', ef.month), bel = efSumFor('below', ef.month);
+    var net = r2(inc - exp), cash = efCashFor('all', ef.month);
+    var h = '';
+    h += '<div class="card ef-sum"><div class="veh-gh" style="margin-top:0">' + esc(cfg.title) + ' \u00b7 ' + esc(efMonthLabel(ef.month)) + '</div>' +
+      '<div class="sumline"><span>Income</span><b class="amt amt-in">' + efMoney(inc) + '</b></div>' +
+      '<div class="sumline"><span>Expenses</span><b class="amt amt-out">' + efMoney(exp) + '</b></div>' +
+      '<div class="sumline net"><span>Net</span><b class="amt ' + (net >= 0 ? 'pos' : 'neg') + '">' + efSigned(net) + '</b></div>' +
+      '<div class="sumline"><span>Below the line</span><b class="amt amt-out">' + efMoney(bel) + '</b></div>' +
+      (cash ? '<div class="sumline"><span>Cash portion</span><b class="amt">' + efMoney(cash) + '</b></div>' : '') +
+      (ef.data && ef.data.generated ? '<div class="foot how">Snapshot ' + esc(String(ef.data.generated).slice(0, 19).replace('T', ' ')) + '</div>' : '') +
+      (cfg.readonly ? '<div class="foot warnfoot">Read-only display (Lisa\u2019s screens are untouched).</div>' : '') +
+      '</div>';
+
+    h += '<div class="ef-types" role="tablist">' +
+      [['income', 'Income'], ['expense', 'Expenses'], ['below', 'Below the line']].map(function (t) {
+        return '<button type="button" class="ef-type' + (ef.type === t[0] ? ' on' : '') + '" data-eft="' + t[0] + '">' + t[1] + '</button>';
+      }).join('') + '</div>';
+
+    h += '<div class="ef-months" role="group" aria-label="Month">' +
+      '<button type="button" class="vmb' + (ef.month === 'all' ? ' on' : '') + '" data-efm="all"><small>All</small><b>YTD</b></button>' +
+      months.map(function (m) {
+        var lab = efMonthLabel(m).split(' ');
+        return '<button type="button" class="vmb' + (ef.month === m ? ' on' : '') + '" data-efm="' + esc(m) + '"><small>' + esc(lab[0] || '') + '</small><b>' + esc((lab[1] || '').slice(2) || lab[1] || '') + '</b></button>';
+      }).join('') + '</div>';
+
+    var groups = efGroup(efLinesFiltered());
+    if (!groups.length) h += '<div class="card"><div class="foot empty">No lines in this filter.</div></div>';
+    var PAGE = 40;
+    groups.forEach(function (g, gi) {
+      var gkey = ef.key + ':' + ef.type + ':' + ef.month + ':' + g.cat;
+      var many = (efEnt().lines || []).length > 200;
+      var open = ef.more[gkey + ':open'] === true || (!many && gi < 2 && ef.more[gkey + ':open'] == null);
+      if (ef.more[gkey + ':open'] === false) open = false;
+      var body = '';
+      g.mOrder.forEach(function (m) {
+        var rows = g.months[m], shown = ef.more[gkey + ':' + m] || PAGE;
+        body += '<div class="ef-mh">' + esc(efMonthLabel(m)) + ' \u00b7 ' + rows.length + '</div>';
+        body += rows.slice(0, shown).map(efLineHtml).join('');
+        if (rows.length > shown) body += '<button type="button" class="linkrow smallrow" data-efmore="' + esc(gkey + ':' + m) + '" data-efn="' + (shown + PAGE) + '">Show more (' + (rows.length - shown) + ' left) &rsaquo;</button>';
+      });
+      h += '<details class="card veh-sec ef-cat"' + (open ? ' open' : '') + ' data-efg="' + esc(gkey) + '"><summary><h3>' + esc(g.cat) + '</h3><span class="ef-ct">' + efMoney(g.total) + '</span><i class="chev">&rsaquo;</i></summary><div class="veh-body">' + body + '</div></details>';
+    });
+    return h;
+  }
+
+  function efOpenBody() {
+    var items = efOpenItems(), h = '';
+    h += '<div class="card"><div class="foot how">' + items.length + ' open item' + (items.length === 1 ? '' : 's') + ' for ' + esc((EF[ef.key] || {}).label || ef.key) +
+      '. Status saves on this phone and syncs when online. Mark / Zac assignment comes from the ledger snapshot.</div></div>';
+    if (!items.length) return h + '<div class="card"><div class="foot empty">No open items for this entity.</div></div>';
+    items.forEach(function (o) {
+      var ov = efGetOpen(o.id), st = (ov && ov.status) || o.status || 'open', note = (ov && ov.note) || '';
+      h += '<div class="card ef-oi" data-efoi="' + esc(o.id) + '">' +
+        '<div class="ef-oi-top"><b>' + esc(o.title) + '</b>' + (o.amount != null ? '<span class="amt">' + efMoney(o.amount) + '</span>' : '') + '</div>' +
+        '<div class="ef-oi-meta">For: <b>' + esc(o.for || '—') + '</b> \u00b7 Status: <b class="ef-st-' + esc(st) + '">' + esc(st) + '</b></div>' +
+        (o.detail ? '<p class="ef-oi-detail">' + esc(o.detail) + '</p>' : '') +
+        ((o.lineIds || []).length ? '<div class="foot how">Linked lines: ' + esc(o.lineIds.join(', ')) + '</div>' : '') +
+        '<div class="ef-oi-acts">' +
+        [['open', 'Open'], ['answered', 'Answered'], ['resolved', 'Resolved']].map(function (s) {
+          return '<button type="button" class="ef-ost' + (st === s[0] ? ' on' : '') + '" data-efs="' + s[0] + '">' + s[1] + '</button>';
+        }).join('') + '</div>' +
+        '<label class="ef-oi-note">Note / answer<textarea data-efnote="1" rows="2" placeholder="Add a note\u2026">' + esc(note) + '</textarea></label>' +
+        '</div>';
+    });
+    return h;
+  }
+
+  function efRelatedBody() {
+    var cfg = EF[ef.key] || { related: [] };
+    var h = '<div class="card"><div class="foot how">Existing Command Center screens for this entity. The consolidated ledger above is a snapshot; Vault books stay live.</div></div>';
+    h += '<div class="grid2">' + (cfg.related || []).map(function (r) {
+      return '<button type="button" class="tile small" data-go="' + esc(r.go) + '">' + esc(r.label) + (r.sub ? '<span class="sub">' + esc(r.sub) + '</span>' : '') + '</button>';
+    }).join('') + '</div>';
+    return h;
+  }
+
+  function efPaintChrome() {
+    var cfg = EF[ef.key] || { title: ef.key, label: ef.key };
+    $('ef-title').textContent = cfg.title;
+    $('ef-back').setAttribute('data-go', 'home');
+    $('ef-tabs').innerHTML =
+      '<button type="button" class="enttab' + (ef.tab === 'ledger' ? ' on' : '') + '" data-eftab="ledger">Ledger</button>' +
+      '<button type="button" class="enttab' + (ef.tab === 'open' ? ' on' : '') + '" data-eftab="open">Open Items</button>' +
+      '<button type="button" class="enttab' + (ef.tab === 'related' ? ' on' : '') + '" data-eftab="related">Related</button>';
+  }
+
+  function efRender() {
+    if (!$('ef-body')) return;
+    efPaintChrome();
+    var h = '';
+    if (ef.st === 'load') h = '<div class="loading">Loading ledger\u2026</div>';
+    else if (ef.st === 'empty' && ef.tab === 'ledger') {
+      h = '<div class="card entna"><b>Ledger data not loaded</b>' + esc(ef.msg || 'Empty.') +
+        '<div class="foot how">The private ledger file is in Drive (Second Brain). After the Apps Script <code>ledger</code> action is redeployed, this screen loads via that action. Until then it uses the Drive file proxy.</div>' +
+        '<div class="retry"><button class="navbtn" data-efretry="1">Try again</button></div></div>';
+      h += efRelatedBody();
+    } else if (ef.tab === 'ledger') h = efLedgerBody();
+    else if (ef.tab === 'open') h = efOpenBody();
+    else h = efRelatedBody();
+    $('ef-body').innerHTML = h;
+  }
+
+  function efPickDefaultMonth(ent) {
+    var ms = [];
+    (ent.lines || []).forEach(function (L) { if (L.month && ms.indexOf(L.month) < 0) ms.push(L.month); });
+    ms.sort();
+    if ((ent.lines || []).length > 200) return ms.length ? ms[ms.length - 1] : 'all';   // Personal: start on latest month
+    return 'all';
+  }
+  function efOpen(key, tab) {
+    if (!EF[key]) key = 'tiwik';
+    var switched = ef.key !== key;
+    ef.key = key; ef.tab = tab || 'ledger';
+    if (ef.tab === 'ledger') { ef.type = 'income'; }
+    if (switched) ef.month = 'all';   // reset; may narrow after load
+    window.scrollTo(0, 0);
+    efPullOpen();
+    function after() {
+      if (ef.st === 'ok' && (ef.month === 'all' || switched)) {
+        var ent = efEnt();
+        if ((ent.lines || []).length > 200 && ef.month === 'all') ef.month = efPickDefaultMonth(ent);
+      }
+      efRender();
+    }
+    if (!ef.data || ef.st === 'empty') efFetchLedger(after);
+    else { ef.st = 'ok'; after(); }
+  }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-eftab]');
+    if (t && $('screen-ef') && $('screen-ef').classList.contains('active')) {
+      ef.tab = t.getAttribute('data-eftab'); efRender(); return;
+    }
+    t = e.target.closest('[data-eft]');
+    if (t && $('screen-ef') && $('screen-ef').classList.contains('active')) {
+      ef.type = t.getAttribute('data-eft'); efRender(); return;
+    }
+    t = e.target.closest('[data-efm]');
+    if (t && $('screen-ef') && $('screen-ef').classList.contains('active')) {
+      ef.month = t.getAttribute('data-efm'); efRender(); return;
+    }
+    t = e.target.closest('[data-efmore]');
+    if (t) {
+      ef.more[t.getAttribute('data-efmore')] = parseInt(t.getAttribute('data-efn'), 10) || 40;
+      efRender(); return;
+    }
+    t = e.target.closest('[data-efretry]');
+    if (t) { ef.data = null; efFetchLedger(function () { efRender(); }); return; }
+    t = e.target.closest('[data-efs]');
+    if (t) {
+      var card = t.closest('[data-efoi]'); if (!card) return;
+      efSetOpen(card.getAttribute('data-efoi'), { status: t.getAttribute('data-efs') });
+      efRender(); return;
+    }
+  });
+  document.addEventListener('change', function (e) {
+    if (!e.target.matches || !e.target.matches('[data-efnote]')) return;
+    var card = e.target.closest('[data-efoi]'); if (!card) return;
+    efSetOpen(card.getAttribute('data-efoi'), { note: String(e.target.value || '').slice(0, 400) });
+  });
+  document.addEventListener('toggle', function (e) {
+    var d = e.target; if (!d || !d.getAttribute || !d.getAttribute('data-efg')) return;
+    ef.more[d.getAttribute('data-efg') + ':open'] = d.open;
+  }, true);
 
   /* ---------------- Generator (#generator; Home > Zac, v177) ---------------- */
   // Same static pattern as Cart: Overview Doc + Howard's ordering-guide PDF (Second Brain > Zac > Generator) + Open folder.
@@ -24569,8 +24951,9 @@
     'lt':        { label: 'Lisa\u2019s Table', go: 'lt' },
     'pt':        { label: 'Lisa\u2019s Personal Training', go: 'pt' },
     'trust':     { label: 'Trust & Estate', go: 'trust' },
-    'ent/kiwit': { label: 'KiwiT LLC', go: 'ent/kiwit' },
-    'ent/tiwik': { label: 'TiwiK LLC', go: 'ent/tiwik' },
+    'ent/kiwit': { label: 'KiwiT LLC', go: 'ef/kiwit', sub: 'Folder \u00b7 ledger \u00b7 open items' },
+    'ent/tiwik': { label: 'TiwiK LLC', go: 'ef/tiwik', sub: 'Folder \u00b7 ledger \u00b7 open items' },
+    'ef/personal': { label: 'Personal / Household', go: 'ef/personal', sub: 'Read-only ledger \u00b7 open items' },
     'mf':        { label: 'Mono Fold', go: 'mf' },
     'biz':       { label: 'Business', go: 'biz', folder: true },
     'pc':        { label: 'Plan Checks', go: 'pc', sub: 'Mic checklist \u00b7 fullscreen plan \u00b7 pins & notes', cls: 'pc-entry' },
@@ -24613,7 +24996,7 @@
     'fin/invest':     { label: FIN_PAGES.invest.label, go: 'fin/invest', sub: FIN_PAGES.invest.sub },   // v121
   };
   var HL_DEFAULT = {
-    home: ['tm', 'projects', 'f:fh', 'spend', 'fin', 'insn', 'lt', 'pt', 'trust', 'ent/kiwit', 'ent/tiwik', 'mf', 'biz', 'f:lisa', 'f:zac'],   // v149: Zac right after Lisa (saved layouts too: hlNormalize slots it in after wherever Lisa is)
+    home: ['tm', 'projects', 'f:fh', 'spend', 'fin', 'insn', 'lt', 'pt', 'trust', 'ent/kiwit', 'ent/tiwik', 'ef/personal', 'mf', 'biz', 'f:lisa', 'f:zac'],   // v149: Zac right after Lisa (saved layouts too: hlNormalize slots it in after wherever Lisa is)
     projects: ['pc', 'hiring', 'ptpl'],   // v165: + Project Template after Hiring (hlNormalize slots it into saved layouts)
       // v132: Hiring after Plan Checks (saved layouts get it too: hlNormalize slots it in after Plan Checks)
     'f:fh': HL_FH_IN.slice(),
